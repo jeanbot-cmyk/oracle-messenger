@@ -8,7 +8,7 @@ const Layout = ({ children }) => {
         <ul>
           <li><Link href="/">Home</Link></li>
           <li><Link href="/about">À propos</Link></li>
-          {/* Add other menu items here */}
+          <li><Link href="/messages">Messages</Link></li>
         </ul>
       </nav>
       <main>{children}</main>
