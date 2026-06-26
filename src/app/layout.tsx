@@ -8,7 +8,10 @@ const Layout = ({ children }) => {
         <ul>
           <li><Link href="/">Home</Link></li>
           <li><Link href="/about">À propos</Link></li>
-          {/* Add other menu items here */}
+          <li><Link href="/login">Login</Link></li>
+          <li><Link href="/register">Register</Link></li>
+          <li><Link href="/chat">Chat</Link></li>
+          <li><Link href="/profile">Profile</Link></li>
         </ul>
       </nav>
       <main>{children}</main>

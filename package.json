@@ -1,0 +1,35 @@
+{
+  "name": "realtime-chat-app",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "server": "nest start"
+  },
+  "dependencies": {
+    "next": "14.0.0",
+    "react": "18.0.0",
+    "react-dom": "18.0.0",
+    "typescript": "^4.0.0",
+    "tailwindcss": "^3.0.0",
+    "@prisma/client": "^4.0.0",
+    "socket.io-client": "^4.0.0",
+    "@nestjs/core": "^9.0.0",
+    "@nestjs/common": "^9.0.0",
+    "@nestjs/platform-express": "^9.0.0",
+    "@nestjs/websockets": "^9.0.0",
+    "@nestjs/microservices": "^9.0.0",
+    "prisma": "^4.0.0",
+    "bcrypt": "^5.0.1",
+    "socket.io": "^4.0.0",
+    "@nestjs/platform-socket.io": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@types/node": "^18.0.0",
+    "@nestjs/cli": "^9.0.0",
+    "@types/bcrypt": "^5.0.0"
+  }
+}
