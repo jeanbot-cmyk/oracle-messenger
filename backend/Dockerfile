@@ -1,5 +1,7 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
+# NODE_ENV doit être absent au build pour installer les devDependencies
+ENV NODE_ENV=development
 COPY package*.json ./
 RUN npm install --legacy-peer-deps
 COPY . .
