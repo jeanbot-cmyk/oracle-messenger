@@ -5,11 +5,13 @@ import * as webpush from 'web-push';
 @Injectable()
 export class NotificationsService {
   constructor(private prisma: PrismaService) {
-    webpush.setVapidDetails(
-      'mailto:admin@oracle-plus.online',
-      process.env.VAPID_PUBLIC_KEY!,
-      process.env.VAPID_PRIVATE_KEY!,
-    );
+    if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+      webpush.setVapidDetails(
+        'mailto:admin@oracle-plus.online',
+        process.env.VAPID_PUBLIC_KEY,
+        process.env.VAPID_PRIVATE_KEY,
+      );
+    }
   }
 
   async savePushSubscription(userId: string, subscription: any) {
