@@ -19,6 +19,7 @@ export default function AdminPage() {
   const [sending, setSending] = useState(false);
   const [msg, setMsg] = useState('');
   const [mounted, setMounted] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const token = session?.user?.backendToken;
   const api = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -28,7 +29,12 @@ export default function AdminPage() {
   useEffect(() => {
     if (status === 'unauthenticated') { router.replace('/login'); return; }
     if (status === 'authenticated' && session.user.email !== ADMIN_EMAIL) { router.replace('/chat'); return; }
-    if (status === 'authenticated' && token) loadData();
+    if (status === 'authenticated' && token) {
+      loadData();
+      // Refresh stats every 30s
+      const interval = setInterval(loadData, 30_000);
+      return () => clearInterval(interval);
+    }
   }, [status, token]);
 
   async function loadData() {
@@ -39,6 +45,7 @@ export default function AdminPage() {
         fetch(`${api}/admin/users`, { headers:{ Authorization:`Bearer ${token}` } }).then(r=>r.json()),
       ]);
       setStats(s); setMetrics(m); setUsers(Array.isArray(u) ? u : []);
+      setLastRefresh(new Date());
     } catch {}
   }
 
@@ -82,7 +89,14 @@ export default function AdminPage() {
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:32 }}>
           <div>
             <h1 style={{ fontSize:24, fontWeight:700, color:'var(--text-primary)', margin:0 }}>Panel Admin</h1>
-            <p style={{ color:'var(--text-muted)', fontSize:14, margin:'4px 0 0' }}>Oracle Messenger</p>
+            <p style={{ color:'var(--text-muted)', fontSize:14, margin:'4px 0 0' }}>
+              Oracle Messenger
+              {lastRefresh && (
+                <span style={{ marginLeft:10, fontSize:12, color:'var(--accent)' }}>
+                  ↻ {lastRefresh.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}
+                </span>
+              )}
+            </p>
           </div>
           <button onClick={() => router.push('/chat')} style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:10, padding:'8px 16px', cursor:'pointer', color:'var(--text-primary)', fontSize:14 }}>
             ← Retour au chat

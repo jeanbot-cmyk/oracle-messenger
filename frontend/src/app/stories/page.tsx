@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useState, useRef } from 'react';
 import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
 
@@ -42,11 +42,11 @@ function saveStory(story: Story) {
 export default function StoriesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { lang } = useSettings();
   const [mounted, setMounted] = useState(false);
   const [stories, setStories] = useState<Story[]>([]);
   const [viewing, setViewing] = useState<Story | null>(null);
-  const [viewIdx, setViewIdx] = useState(0);
   const [creating, setCreating] = useState(false);
   const [newText, setNewText] = useState('');
   const [newBg, setNewBg] = useState(BG_COLORS[0]);
@@ -62,7 +62,19 @@ export default function StoriesPage() {
   }, [status]);
 
   useEffect(() => {
-    if (mounted) setStories(loadStories());
+    if (!mounted) return;
+    setStories(loadStories());
+    // Handle camera capture from MainLayout
+    const newParam = searchParams.get('new');
+    if (newParam === 'image') {
+      const captured = sessionStorage.getItem('camera-capture');
+      if (captured) {
+        sessionStorage.removeItem('camera-capture');
+        setNewImage(captured);
+        setNewType('image');
+        setCreating(true);
+      }
+    }
   }, [mounted]);
 
   // Auto-avance story toutes les 5s
@@ -238,11 +250,15 @@ export default function StoriesPage() {
         <div style={{ position:'fixed', inset:0, zIndex:500, background:'#000', display:'flex', flexDirection:'column' }}>
           {/* Barre de progression */}
           <div style={{ position:'absolute', top:0, left:0, right:0, zIndex:10, padding:'8px 12px', display:'flex', gap:4 }}>
-            {(byAuthor[viewing.authorId] ?? []).map((s, i) => (
-              <div key={s.id} style={{ flex:1, height:3, borderRadius:2, background:'rgba(255,255,255,.3)', overflow:'hidden' }}>
-                <div style={{ height:'100%', background:'#fff', width: s.id === viewing.id ? `${progress}%` : stories.findIndex(x=>x.id===s.id) < stories.findIndex(x=>x.id===viewing.id) ? '100%' : '0%', transition:'width .05s linear' }} />
-              </div>
-            ))}
+            {(byAuthor[viewing.authorId] ?? []).map((s, i) => {
+              const authorStories = byAuthor[viewing.authorId] ?? [];
+              const currentIdx = authorStories.findIndex(x => x.id === viewing.id);
+              return (
+                <div key={s.id} style={{ flex:1, height:3, borderRadius:2, background:'rgba(255,255,255,.3)', overflow:'hidden' }}>
+                  <div style={{ height:'100%', background:'#fff', width: s.id === viewing.id ? `${progress}%` : i < currentIdx ? '100%' : '0%', transition:'width .05s linear' }} />
+                </div>
+              );
+            })}
           </div>
 
           {/* Header */}

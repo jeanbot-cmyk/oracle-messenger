@@ -20,7 +20,7 @@ export function ChatWindow({ onStartCall }: ChatWindowProps) {
   const userId = session?.user?.id ?? '';
   const { lang } = useSettings();
 
-  const { activeConvId, conversations, messages, typingUsers, onlineUsers, setMessages, addMessage, deleteMessage, updateMessage, markRead, loadLocalMessages } = useChatStore();
+  const { activeConvId, conversations, messages, typingUsers, typingNames: typingNamesStore, onlineUsers, setMessages, addMessage, deleteMessage, updateMessage, markRead, loadLocalMessages } = useChatStore();
   const { joinConversation, sendTyping, sendMessage } = useSocket();
 
   const [input, setInput]     = useState('');
@@ -32,7 +32,13 @@ export function ChatWindow({ onStartCall }: ChatWindowProps) {
 
   const conv = conversations.find(c => c.id === activeConvId);
   const convMessages = activeConvId ? (messages[activeConvId] ?? []) : [];
-  const typingList = activeConvId ? (typingUsers[activeConvId] ?? []) : [];
+  const typingIds = activeConvId ? (typingUsers[activeConvId] ?? []) : [];
+  const storedNames = activeConvId ? (typingNamesStore[activeConvId] ?? {}) : {};
+  // Resolve typing user IDs to names: prefer participant list, fallback to server-sent name
+  const allParticipants = conv?.participants ?? [];
+  const typingNames = typingIds
+    .filter(id => id !== userId)
+    .map(id => allParticipants.find(p => p.id === id)?.name ?? storedNames[id] ?? 'Quelqu\'un');
   const other = conv?.participants?.[0];
   const isOnline = other && onlineUsers.has(other.id);
 
@@ -101,9 +107,11 @@ export function ChatWindow({ onStartCall }: ChatWindowProps) {
         </div>
         <div style={{ flex:1 }}>
           <p style={{ fontWeight:600, fontSize:15, color:'var(--text-primary)', margin:0 }}>{name}</p>
-          <p style={{ fontSize:12, color: typingList.length > 0 ? 'var(--accent)' : 'var(--text-muted)', margin:0 }}>
-            {typingList.length > 0
-              ? `${name} est en train d'écrire…`
+          <p style={{ fontSize:12, color: typingNames.length > 0 ? 'var(--accent)' : 'var(--text-muted)', margin:0 }}>
+            {typingNames.length > 0
+              ? typingNames.length === 1
+                ? `${typingNames[0]} est en train d'écrire…`
+                : `${typingNames.slice(0,-1).join(', ')} et ${typingNames[typingNames.length-1]} écrivent…`
               : isOnline ? t(lang,'chat.online') : t(lang,'chat.offline')}
           </p>
         </div>
@@ -132,10 +140,17 @@ export function ChatWindow({ onStartCall }: ChatWindowProps) {
         {convMessages.map(msg => (
           <MessageBubble key={msg.id} message={msg} isOwn={msg.senderId === userId} onReply={setReplyTo} onDelete={handleDelete} onEdit={setEditMsg} />
         ))}
-        {typingList.length > 0 && (
+        {typingNames.length > 0 && (
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <div className="bubble-in" style={{ padding:'10px 14px', display:'flex', gap:4, alignItems:'center' }}>
-              <div className="typing-dot"/><div className="typing-dot"/><div className="typing-dot"/>
+            <div className="bubble-in" style={{ padding:'10px 14px', display:'flex', flexDirection:'column', gap:4 }}>
+              <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+                <div className="typing-dot"/><div className="typing-dot"/><div className="typing-dot"/>
+              </div>
+              {conv?.type === 'group' && (
+                <span style={{ fontSize:11, color:'var(--text-muted)' }}>
+                  {typingNames.length === 1 ? typingNames[0] : `${typingNames.length} personnes`}
+                </span>
+              )}
             </div>
           </div>
         )}

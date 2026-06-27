@@ -193,11 +193,14 @@ function ActusTab() {
 function OutilsTab() {
   const router = useRouter();
   const tools = [
-    { icon: '👤', label: 'Mon profil',     sub: 'Modifier nom, bio, photo',  action: () => router.push('/profile') },
-    { icon: '💼', label: 'Business / CRM', sub: 'Contacts, tags, relances',  action: () => router.push('/business') },
-    { icon: '📸', label: 'Galerie média',  sub: 'Photos et vidéos locales',  action: () => router.push('/stories') },
-    { icon: '👥', label: 'Contacts',       sub: 'Importer et inviter',       action: () => router.push('/contacts') },
-    { icon: '⚙️', label: 'Paramètres',    sub: 'Thème, langue, notifs',     action: () => {} },
+    { icon: '👤', label: 'Mon profil',     sub: 'Modifier nom, bio, photo',       action: () => router.push('/profile') },
+    { icon: '🎥', label: 'Réunion vidéo',  sub: 'Démarrer ou rejoindre',          action: () => router.push('/tools') },
+    { icon: '📝', label: 'Bloc-notes',     sub: 'Notes personnelles',             action: () => router.push('/tools?tab=notes') },
+    { icon: '📅', label: 'Rappels',        sub: 'Événements et alertes',          action: () => router.push('/tools?tab=events') },
+    { icon: '💼', label: 'Business / CRM', sub: 'Contacts, tags, relances',       action: () => router.push('/business') },
+    { icon: '📸', label: 'Galerie média',  sub: 'Photos et vidéos locales',       action: () => router.push('/stories') },
+    { icon: '👥', label: 'Contacts',       sub: 'Importer et inviter',            action: () => router.push('/contacts') },
+    { icon: '⚙️', label: 'Paramètres',    sub: 'Thème, langue, notifs',          action: () => {} },
   ];
   return (
     <div style={{ padding: '8px 0', overflowY: 'auto', height: '100%' }}>

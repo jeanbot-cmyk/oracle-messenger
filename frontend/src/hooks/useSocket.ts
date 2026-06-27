@@ -44,8 +44,8 @@ export function useSocket() {
       store.deleteMessage(conversationId, messageId);
     });
 
-    socket.on('typing:start', ({ conversationId, userId: uid }: any) => {
-      store.setTyping(conversationId, uid, true);
+    socket.on('typing:start', ({ conversationId, userId: uid, userName }: any) => {
+      store.setTyping(conversationId, uid, true, userName);
     });
     socket.on('typing:stop', ({ conversationId, userId: uid }: any) => {
       store.setTyping(conversationId, uid, false);

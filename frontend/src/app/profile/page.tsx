@@ -14,6 +14,7 @@ export default function ProfilePage() {
   const [name,    setName]    = useState('');
   const [bio,     setBio]     = useState('');
   const [avatar,  setAvatar]  = useState('');
+  const [phone,   setPhone]   = useState('');
   const [saving,  setSaving]  = useState(false);
   const [saved,   setSaved]   = useState(false);
   const [error,   setError]   = useState('');
@@ -32,6 +33,7 @@ export default function ProfilePage() {
     setName(local.name || session?.user?.name || '');
     setBio(local.bio || '');
     setAvatar(local.avatar || session?.user?.image || '');
+    setPhone(local.phone || '');
     // Puis backend
     if (token) {
       api.users.me(token).then((u: any) => {
@@ -61,7 +63,7 @@ export default function ProfilePage() {
     setSaving(true); setError('');
     try {
       // 1. Toujours sauvegarder localement
-      const localData = { name: name.trim(), bio, avatar };
+      const localData = { name: name.trim(), bio, avatar, phone };
       localStorage.setItem('oracle-profile', JSON.stringify(localData));
 
       // 2. Backend — envoyer nom + bio (pas l'avatar base64)
@@ -89,7 +91,10 @@ export default function ProfilePage() {
     }
   }
 
-  const profileLink = `https://messenger.oracle-plus.online/contacts?from=${username}`;
+  // Use /u/username for clean shareable link with OG meta
+  const profileLink = username
+    ? `https://messenger.oracle-plus.online/u/${username}`
+    : `https://messenger.oracle-plus.online/contacts?from=${username}`;
 
   if (!mounted || status === 'loading') return <Spinner />;
 
@@ -175,6 +180,19 @@ export default function ProfilePage() {
               </button>
             </div>
           </div>
+        </div>
+
+        {/* Téléphone */}
+        <div style={{ background:'#fff', borderRadius:16, padding:'12px 16px', boxShadow:'0 1px 3px rgba(0,0,0,0.06)' }}>
+          <p style={{ fontSize:12, fontWeight:600, color:'#00a884', margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>📱 Téléphone</p>
+          <input
+            value={phone}
+            onChange={e => { setPhone(e.target.value); setError(''); }}
+            type="tel"
+            placeholder="+33 6 12 34 56 78"
+            style={{ width:'100%', border:'none', outline:'none', fontSize:15, color:'#111b21', background:'transparent', padding:0 }}
+          />
+          <p style={{ fontSize:11, color:'#8696a0', margin:'6px 0 0' }}>Optionnel — permet à vos contacts de vous retrouver par numéro</p>
         </div>
 
         {/* Email */}

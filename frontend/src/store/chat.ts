@@ -7,6 +7,7 @@ interface ChatStore {
   activeConvId:       string | null;
   messages:           Record<string, Message[]>;
   typingUsers:        Record<string, string[]>;
+  typingNames:        Record<string, Record<string, string>>; // convId → { userId: name }
   onlineUsers:        Set<string>;
   currentUser:        User | null;
 
@@ -18,7 +19,7 @@ interface ChatStore {
   deleteMessage:      (convId: string, msgId: string) => void;
   setMessages:        (convId: string, msgs: Message[]) => void;
   loadLocalMessages:  (convId: string) => Promise<void>;
-  setTyping:          (convId: string, userId: string, isTyping: boolean) => void;
+  setTyping:          (convId: string, userId: string, isTyping: boolean, userName?: string) => void;
   setOnline:          (userId: string, online: boolean) => void;
   markRead:           (convId: string) => void;
 }
@@ -28,6 +29,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   activeConvId:   null,
   messages:       {},
   typingUsers:    {},
+  typingNames:    {},
   onlineUsers:    new Set(),
   currentUser:    null,
 
@@ -87,13 +89,20 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
-  setTyping: (convId, userId, isTyping) => {
+  setTyping: (convId, userId, isTyping, userName) => {
     set(s => {
       const current = s.typingUsers[convId] ?? [];
       const updated = isTyping
         ? [...new Set([...current, userId])]
         : current.filter(id => id !== userId);
-      return { typingUsers: { ...s.typingUsers, [convId]: updated } };
+      // Store name if provided
+      const names = { ...(s.typingNames[convId] ?? {}) };
+      if (isTyping && userName) names[userId] = userName;
+      else if (!isTyping) delete names[userId];
+      return {
+        typingUsers: { ...s.typingUsers, [convId]: updated },
+        typingNames: { ...s.typingNames, [convId]: names },
+      };
     });
   },
 
