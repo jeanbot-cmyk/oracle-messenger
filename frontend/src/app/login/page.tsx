@@ -8,14 +8,19 @@ function LoginContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === 'authenticated') router.replace('/chat');
+    // Détecter l'erreur dans l'URL
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get('error');
+    if (err) setError(err);
   }, [status, router]);
 
   async function handleGoogle() {
     setLoading(true);
-    await signIn('google', { callbackUrl: '/chat' });
+    await signIn('google', { callbackUrl: `${window.location.origin}/chat` });
   }
 
   if (status === 'loading') {
@@ -46,6 +51,11 @@ function LoginContent() {
       <div className="w-full max-w-sm bg-oracle-surface border border-oracle-border rounded-3xl p-8 shadow-2xl">
         <h2 className="text-lg font-semibold text-white mb-1">Connexion</h2>
         <p className="text-oracle-muted text-sm mb-6">Connectez-vous avec votre compte Google pour continuer.</p>
+        {error && (
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-xs">
+            Erreur : {error === 'google' ? 'Connexion Google échouée. Réessayez.' : error}
+          </div>
+        )}
 
         <button
           onClick={handleGoogle}
