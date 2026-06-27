@@ -84,7 +84,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   // Initier un appel (audio ou vidéo, 1-1 ou groupe)
   @SubscribeMessage('call:start')
-  handleCallStart(@ConnectedSocket() client: Socket, @MessageBody() data: {
+  async handleCallStart(@ConnectedSocket() client: Socket, @MessageBody() data: {
     callId: string;
     conversationId: string;
     type: 'audio' | 'video';
