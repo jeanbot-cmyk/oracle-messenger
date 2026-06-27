@@ -31,6 +31,7 @@ export function useWebRTC(userId: string) {
   const pcs = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
 
+  // Récupère le socket existant (initialisé par useSocket)
   const socket = getSocket();
 
   function createPC(targetUserId: string): RTCPeerConnection {
