@@ -19,7 +19,11 @@ const S = {
   tab:     (active:boolean) => ({ flex:1, padding:'6px 0', borderRadius:20, border: active ? 'none' : '1px solid var(--border)', background: active ? 'var(--accent)' : 'transparent', color: active ? '#fff' : 'var(--text-secondary)', fontSize:13, fontWeight:500, cursor:'pointer' }),
 };
 
-export function Sidebar() {
+interface SidebarProps {
+  onStartCall?: (conversationId: string, targetUserIds: string[], type: 'audio' | 'video') => void;
+}
+
+export function Sidebar({ onStartCall }: SidebarProps) {
   const { data: session } = useSession();
   const { lang } = useSettings();
   const [tab, setTab] = useState('chat');

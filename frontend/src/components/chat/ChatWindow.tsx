@@ -10,7 +10,11 @@ import { MessageBubble } from './MessageBubble';
 import type { Message } from '../../types';
 import Image from 'next/image';
 
-export function ChatWindow() {
+interface ChatWindowProps {
+  onStartCall?: (conversationId: string, targetUserIds: string[], type: 'audio' | 'video') => void;
+}
+
+export function ChatWindow({ onStartCall }: ChatWindowProps) {
   const { data: session } = useSession();
   const token = session?.user?.backendToken ?? '';
   const userId = session?.user?.id ?? '';
@@ -101,6 +105,19 @@ export function ChatWindow() {
             {typingList.length > 0 ? t(lang,'chat.typing') : isOnline ? t(lang,'chat.online') : t(lang,'chat.offline')}
           </p>
         </div>
+        {/* Boutons appel */}
+        {other && onStartCall && (
+          <>
+            <button onClick={() => onStartCall(conv!.id, [other.id], 'audio')}
+              style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'transparent', cursor:'pointer', color:'var(--text-secondary)', fontSize:18 }} title="Appel audio">
+              📞
+            </button>
+            <button onClick={() => onStartCall(conv!.id, [other.id], 'video')}
+              style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'transparent', cursor:'pointer', color:'var(--text-secondary)', fontSize:18 }} title="Appel vidéo">
+              📹
+            </button>
+          </>
+        )}
         <button style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'transparent', cursor:'pointer', color:'var(--text-secondary)' }}>
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />

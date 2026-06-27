@@ -1,14 +1,17 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import { signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import { useSettings } from '../../store/settings';
 import { t, LANGUAGES } from '../../lib/i18n';
 
 export function MenuDots() {
   const [open, setOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
+  const [showMedia, setShowMedia] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const { lang, theme, setLang, toggleTheme } = useSettings();
+  const router = useRouter();
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setLangOpen(false); } };
@@ -43,10 +46,10 @@ export function MenuDots() {
             <span>🔮</span><div><div style={{ fontWeight:500 }}>{t(lang,'menu.spirituality')}</div><div style={{ fontSize:11, color:'var(--text-muted)' }}>oracle-plus.online</div></div>
           </button>
           <div style={divStyle}/>
-          <button style={itemStyle} onClick={() => { setOpen(false); }}>
+          <button style={itemStyle} onClick={() => { setOpen(false); setShowMedia(true); }}>
             <span>📸</span><div><div style={{ fontWeight:500 }}>{t(lang,'menu.media')}</div><div style={{ fontSize:11, color:'var(--text-muted)' }}>{t(lang,'menu.media.sub')}</div></div>
           </button>
-          <button style={itemStyle} onClick={() => { setOpen(false); }}>
+          <button style={itemStyle} onClick={() => { setOpen(false); router.push('/business'); }}>
             <span>💼</span><div><div style={{ fontWeight:500 }}>{t(lang,'menu.business')}</div><div style={{ fontSize:11, color:'var(--text-muted)' }}>{t(lang,'menu.business.sub')}</div></div>
           </button>
           <div style={divStyle}/>
@@ -77,11 +80,32 @@ export function MenuDots() {
             <span>📤</span><div><div style={{ fontWeight:500 }}>{t(lang,'menu.share')}</div><div style={{ fontSize:11, color:'var(--text-muted)' }}>{t(lang,'menu.share.sub')}</div></div>
           </button>
           <div style={divStyle}/>
+          <button style={itemStyle} onClick={() => { setOpen(false); router.push('/profile'); }}>
+            <span>👤</span><span style={{ fontWeight:500 }}>Mon profil</span>
+          </button>
+          <div style={divStyle}/>
           <button style={{ ...itemStyle, color:'#dc2626' }} onClick={() => { setOpen(false); signOut({ callbackUrl:'/login' }); }}>
             <span>🚪</span><span style={{ fontWeight:500 }}>{t(lang,'menu.logout')}</span>
           </button>
         </div>
       )}
+
+      {/* Galerie multimédia */}
+      {showMedia && (
+        <div style={{ position:'fixed', inset:0, zIndex:500 }}>
+          {/* Import dynamique pour éviter SSR */}
+          <MediaGalleryLazy onClose={() => setShowMedia(false)} />
+        </div>
+      )}
     </div>
   );
+}
+
+function MediaGalleryLazy({ onClose }: { onClose: () => void }) {
+  const [Comp, setComp] = useState<React.ComponentType<any> | null>(null);
+  useEffect(() => {
+    import('../media/MediaGallery').then(m => setComp(() => m.MediaGallery));
+  }, []);
+  if (!Comp) return <div style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg-app)' }}><div style={{ width:32, height:32, border:'3px solid var(--accent)', borderTopColor:'transparent', borderRadius:'50%', animation:'spin .8s linear infinite' }} /><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>;
+  return <Comp onClose={onClose} />;
 }

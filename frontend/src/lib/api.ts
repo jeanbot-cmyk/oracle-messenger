@@ -32,7 +32,15 @@ export const api = {
   },
   users: {
     me:     (token: string) => req<any>('/users/me', {}, token),
+    update: (token: string, data: { name?: string; bio?: string; avatar?: string }) =>
+      req<any>('/users/me', { method: 'PATCH', body: JSON.stringify(data) }, token),
     search: (q: string, token: string) => req<any[]>(`/users/search?q=${encodeURIComponent(q)}`, {}, token),
     byUsername: (username: string) => req<any>(`/users/u/${username}`),
+    matchByPhones: (phones: string[], token: string) =>
+      req<any[]>('/users/match-phones', { method: 'POST', body: JSON.stringify({ phones }) }, token),
+  },
+  notifications: {
+    subscribe: (token: string, sub: PushSubscriptionJSON) =>
+      req<void>('/notifications/subscribe', { method: 'POST', body: JSON.stringify(sub) }, token),
   },
 };

@@ -79,4 +79,106 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       userId: client.data.userId,
     });
   }
+
+  // ── WebRTC Signaling ──────────────────────────────────────────────────────
+
+  // Initier un appel (audio ou vidéo, 1-1 ou groupe)
+  @SubscribeMessage('call:start')
+  handleCallStart(@ConnectedSocket() client: Socket, @MessageBody() data: {
+    callId: string;
+    conversationId: string;
+    type: 'audio' | 'video';
+    targetUserIds: string[];
+  }) {
+    const callerId = client.data.userId;
+    // Notifier chaque destinataire
+    for (const targetId of data.targetUserIds) {
+      const targetSocket = this.userSockets.get(targetId);
+      if (targetSocket) {
+        this.server.to(targetSocket).emit('call:incoming', {
+          callId: data.callId,
+          conversationId: data.conversationId,
+          callerId,
+          type: data.type,
+        });
+      }
+    }
+    // Rejoindre la room d'appel
+    client.join(`call:${data.callId}`);
+  }
+
+  // Répondre à un appel
+  @SubscribeMessage('call:answer')
+  handleCallAnswer(@ConnectedSocket() client: Socket, @MessageBody() data: {
+    callId: string;
+    accepted: boolean;
+  }) {
+    client.join(`call:${data.callId}`);
+    this.server.to(`call:${data.callId}`).emit('call:answered', {
+      callId: data.callId,
+      userId: client.data.userId,
+      accepted: data.accepted,
+    });
+  }
+
+  // Raccrocher
+  @SubscribeMessage('call:end')
+  handleCallEnd(@ConnectedSocket() client: Socket, @MessageBody() data: { callId: string }) {
+    this.server.to(`call:${data.callId}`).emit('call:ended', {
+      callId: data.callId,
+      userId: client.data.userId,
+    });
+    client.leave(`call:${data.callId}`);
+  }
+
+  // SDP Offer (WebRTC)
+  @SubscribeMessage('webrtc:offer')
+  handleOffer(@ConnectedSocket() client: Socket, @MessageBody() data: {
+    callId: string;
+    targetUserId: string;
+    sdp: RTCSessionDescriptionInit;
+  }) {
+    const targetSocket = this.userSockets.get(data.targetUserId);
+    if (targetSocket) {
+      this.server.to(targetSocket).emit('webrtc:offer', {
+        callId: data.callId,
+        fromUserId: client.data.userId,
+        sdp: data.sdp,
+      });
+    }
+  }
+
+  // SDP Answer (WebRTC)
+  @SubscribeMessage('webrtc:answer')
+  handleAnswer(@ConnectedSocket() client: Socket, @MessageBody() data: {
+    callId: string;
+    targetUserId: string;
+    sdp: RTCSessionDescriptionInit;
+  }) {
+    const targetSocket = this.userSockets.get(data.targetUserId);
+    if (targetSocket) {
+      this.server.to(targetSocket).emit('webrtc:answer', {
+        callId: data.callId,
+        fromUserId: client.data.userId,
+        sdp: data.sdp,
+      });
+    }
+  }
+
+  // ICE Candidate (WebRTC)
+  @SubscribeMessage('webrtc:ice')
+  handleIce(@ConnectedSocket() client: Socket, @MessageBody() data: {
+    callId: string;
+    targetUserId: string;
+    candidate: RTCIceCandidateInit;
+  }) {
+    const targetSocket = this.userSockets.get(data.targetUserId);
+    if (targetSocket) {
+      this.server.to(targetSocket).emit('webrtc:ice', {
+        callId: data.callId,
+        fromUserId: client.data.userId,
+        candidate: data.candidate,
+      });
+    }
+  }
 }

@@ -18,6 +18,7 @@ model User {
   lastSeen    DateTime?
   isPremium   Boolean  @default(false)
   premiumUntil DateTime?
+  bio         String?
   pushToken   String?  @db.Text
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
