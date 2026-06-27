@@ -5,10 +5,24 @@ import { Providers } from './providers';
 
 export const metadata: Metadata = {
   title: 'Oracle Messenger',
-  description: 'Messagerie souveraine nouvelle génération',
+  description: 'Bienvenue dans votre application de messagerie et de suivi d\'entreprise. Connectez-vous, échangez et gérez vos clients en toute simplicité.',
   manifest: '/manifest.json',
   appleWebApp: { capable: true, statusBarStyle: 'default', title: 'Oracle Messenger' },
   icons: { icon: '/icons/icon-192.png', apple: '/icons/icon-192.png' },
+  openGraph: {
+    title: 'Oracle Messenger',
+    description: 'Bienvenue dans votre application de messagerie et de suivi d\'entreprise.',
+    url: 'https://messenger.oracle-plus.online',
+    siteName: 'Oracle Messenger',
+    images: [{ url: '/icons/icon-512.png', width: 512, height: 512 }],
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Oracle Messenger',
+    description: 'Messagerie et suivi d\'entreprise.',
+    images: ['/icons/icon-512.png'],
+  },
 };
 
 export const viewport: Viewport = {

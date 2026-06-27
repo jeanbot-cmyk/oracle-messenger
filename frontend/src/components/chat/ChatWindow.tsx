@@ -102,7 +102,9 @@ export function ChatWindow({ onStartCall }: ChatWindowProps) {
         <div style={{ flex:1 }}>
           <p style={{ fontWeight:600, fontSize:15, color:'var(--text-primary)', margin:0 }}>{name}</p>
           <p style={{ fontSize:12, color: typingList.length > 0 ? 'var(--accent)' : 'var(--text-muted)', margin:0 }}>
-            {typingList.length > 0 ? t(lang,'chat.typing') : isOnline ? t(lang,'chat.online') : t(lang,'chat.offline')}
+            {typingList.length > 0
+              ? `${name} est en train d'écrire…`
+              : isOnline ? t(lang,'chat.online') : t(lang,'chat.offline')}
           </p>
         </div>
         {/* Boutons appel */}
