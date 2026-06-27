@@ -16,4 +16,5 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./
 EXPOSE 3001
-CMD ["node", "dist/main"]
+# Migration Prisma au démarrage puis lancement de l'app
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
