@@ -16,5 +16,5 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./
 EXPOSE 3001
-# Migration Prisma au démarrage puis lancement de l'app
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+# Attendre que la DB soit prête, migrer, puis démarrer
+CMD ["sh", "-c", "until npx prisma migrate deploy; do echo 'DB not ready, retrying in 5s...'; sleep 5; done && node dist/main"]
