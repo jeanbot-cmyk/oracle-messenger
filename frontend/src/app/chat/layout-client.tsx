@@ -11,19 +11,16 @@ export function ChatLayout() {
   const { data: session } = useSession();
   const token = session?.user?.backendToken ?? '';
   const { setConversations, setCurrentUser } = useChatStore();
-
-  useSocket(); // Initialise la connexion socket
+  useSocket();
 
   useEffect(() => {
     if (!token) return;
-    // Charger le profil utilisateur
     api.users.me(token).then(setCurrentUser).catch(() => {});
-    // Charger les conversations
     api.conversations.list(token).then(setConversations).catch(() => {});
   }, [token]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-oracle-night">
+    <div style={{ display:'flex', height:'100vh', overflow:'hidden', background:'var(--bg-app)' }}>
       <Sidebar />
       <ChatWindow />
     </div>

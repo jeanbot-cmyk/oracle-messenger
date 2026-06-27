@@ -3,100 +3,84 @@ import { useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { ConversationList } from '../chat/ConversationList';
 import { MenuDots } from './MenuDots';
+import { useSettings } from '../../store/settings';
+import { t } from '../../lib/i18n';
 import Image from 'next/image';
-import clsx from 'clsx';
 
-const NAV = [
-  { id: 'chat',     icon: '💬', label: 'Messages' },
-  { id: 'calls',    icon: '📞', label: 'Appels' },
-  { id: 'business', icon: '💼', label: 'Business' },
-  { id: 'notes',    icon: '📝', label: 'Notes' },
-  { id: 'settings', icon: '⚙️', label: 'Paramètres' },
-];
+const S = {
+  root:    { width:360, flexShrink:0, display:'flex', flexDirection:'column' as const, height:'100vh', borderRight:'1px solid var(--border)', background:'var(--bg-surface)' },
+  header:  { padding:'12px 16px', display:'flex', alignItems:'center', gap:12, background:'var(--header-bg)', borderBottom:'1px solid var(--border)' },
+  title:   { flex:1, fontWeight:700, fontSize:20, color:'var(--text-primary)' },
+  iconBtn: { width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'transparent', cursor:'pointer', color:'var(--text-secondary)' },
+  searchWrap: { padding:'8px 12px', background:'var(--bg-surface)' },
+  searchBox:  { display:'flex', alignItems:'center', gap:8, background:'var(--bg-input)', borderRadius:24, padding:'8px 14px' },
+  searchInput:{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:14, color:'var(--text-primary)' },
+  tabs:    { display:'flex', padding:'4px 12px 8px', gap:6, background:'var(--bg-surface)' },
+  tab:     (active:boolean) => ({ flex:1, padding:'6px 0', borderRadius:20, border: active ? 'none' : '1px solid var(--border)', background: active ? 'var(--accent)' : 'transparent', color: active ? '#fff' : 'var(--text-secondary)', fontSize:13, fontWeight:500, cursor:'pointer' }),
+};
 
 export function Sidebar() {
   const { data: session } = useSession();
+  const { lang } = useSettings();
   const [tab, setTab] = useState('chat');
   const [search, setSearch] = useState('');
 
+  const tabs = [
+    { id:'chat',     label: t(lang,'chat.messages') },
+    { id:'calls',    label: t(lang,'chat.calls') },
+    { id:'business', label: t(lang,'chat.business') },
+  ];
+
   return (
-    <div className="w-80 flex-shrink-0 flex flex-col h-full border-r border-oracle-border bg-oracle-surface/30">
+    <div style={S.root}>
       {/* Header */}
-      <div className="px-4 pt-4 pb-3 flex items-center gap-3 border-b border-oracle-border">
-        <div className="flex-1 min-w-0">
-          <h1 className="font-bold text-white text-base">Oracle Messenger</h1>
-        </div>
-        <div className="flex items-center gap-1">
-          <button className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-oracle-border/30 text-oracle-muted hover:text-white transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-          {session?.user?.image && (
-            <div className="w-8 h-8 rounded-full overflow-hidden border border-oracle-border flex-shrink-0">
-              <Image src={session.user.image} alt="avatar" width={32} height={32} />
-            </div>
-          )}
-          <MenuDots />
-        </div>
+      <div style={S.header}>
+        {session?.user?.image ? (
+          <div style={{ width:36, height:36, borderRadius:'50%', overflow:'hidden', flexShrink:0 }}>
+            <Image src={session.user.image} alt="avatar" width={36} height={36} />
+          </div>
+        ) : (
+          <div style={{ width:36, height:36, borderRadius:'50%', background:'var(--accent)', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontWeight:700, fontSize:16 }}>
+            {session?.user?.name?.[0]?.toUpperCase() ?? 'U'}
+          </div>
+        )}
+        <span style={S.title}>{t(lang,'app.name')}</span>
+        <button style={S.iconBtn}>
+          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </button>
+        <MenuDots />
       </div>
 
       {/* Search */}
-      <div className="px-4 py-2">
-        <div className="flex items-center gap-2 bg-oracle-night/60 border border-oracle-border rounded-2xl px-3 py-2">
-          <svg className="w-4 h-4 text-oracle-muted flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div style={S.searchWrap}>
+        <div style={S.searchBox}>
+          <svg width="16" height="16" fill="none" stroke="var(--text-muted)" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Rechercher…"
-            className="flex-1 bg-transparent text-sm text-white placeholder-oracle-muted outline-none"
-          />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t(lang,'chat.search')} style={S.searchInput} />
         </div>
       </div>
 
-      {/* Nav tabs */}
-      <div className="flex px-4 gap-1 pb-2">
-        {NAV.slice(0, 3).map(n => (
-          <button key={n.id} onClick={() => setTab(n.id)}
-            className={clsx(
-              'flex-1 py-1.5 rounded-xl text-xs font-medium transition-colors',
-              tab === n.id ? 'bg-oracle-blue text-white' : 'text-oracle-muted hover:text-white'
-            )}>
-            {n.label}
-          </button>
+      {/* Tabs */}
+      <div style={S.tabs}>
+        {tabs.map(n => (
+          <button key={n.id} onClick={() => setTab(n.id)} style={S.tab(tab === n.id)}>{n.label}</button>
         ))}
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-hidden">
-        {tab === 'chat' && <ConversationList />}
-        {tab === 'calls' && (
-          <div className="flex items-center justify-center h-full text-oracle-muted text-sm">
-            Appels — Phase 2
-          </div>
-        )}
-        {tab === 'business' && (
-          <div className="flex items-center justify-center h-full text-oracle-muted text-sm">
-            Hub Business — Phase 2
-          </div>
-        )}
-      </div>
-
-      {/* Bottom nav */}
-      <div className="flex items-center justify-around px-4 py-3 border-t border-oracle-border">
-        {NAV.map(n => (
-          <button key={n.id} onClick={() => setTab(n.id)}
-            className={clsx(
-              'flex flex-col items-center gap-0.5 transition-colors',
-              tab === n.id ? 'text-oracle-accent' : 'text-oracle-muted hover:text-white'
-            )}>
-            <span className="text-lg">{n.icon}</span>
-            <span className="text-[9px]">{n.label}</span>
-          </button>
-        ))}
+      <div style={{ flex:1, overflow:'hidden' }}>
+        {tab === 'chat' && <ConversationList search={search} />}
+        {tab === 'calls' && <Empty label="Appels — Phase 2" />}
+        {tab === 'business' && <Empty label="Hub Business — Phase 2" />}
       </div>
     </div>
   );
+}
+
+function Empty({ label }: { label: string }) {
+  return <div style={{ height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', fontSize:14 }}>{label}</div>;
 }

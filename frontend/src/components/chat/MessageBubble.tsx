@@ -1,72 +1,55 @@
 'use client';
 import { useState } from 'react';
 import { format } from 'date-fns';
-import { fr } from 'date-fns/locale';
-import clsx from 'clsx';
 import type { Message } from '../../types';
-import { useChatStore } from '../../store/chat';
+import { useSettings } from '../../store/settings';
+import { t } from '../../lib/i18n';
 
-interface Props {
-  message: Message;
-  isOwn: boolean;
-  onReply: (msg: Message) => void;
-  onDelete: (id: string) => void;
-  onEdit: (msg: Message) => void;
-}
+interface Props { message: Message; isOwn: boolean; onReply:(m:Message)=>void; onDelete:(id:string)=>void; onEdit:(m:Message)=>void; }
 
 function StatusIcon({ status }: { status: Message['status'] }) {
-  if (status === 'sending') return <span className="text-[10px] text-white/40">⏳</span>;
-  if (status === 'sent')     return <span className="text-[10px] text-white/50">✓</span>;
-  if (status === 'delivered') return <span className="text-[10px] text-white/60">✓✓</span>;
-  if (status === 'read')     return <span className="text-[10px] text-oracle-accent">✓✓</span>;
+  if (status==='sending')   return <span style={{ fontSize:10, opacity:.5 }}>⏳</span>;
+  if (status==='sent')      return <span style={{ fontSize:10, opacity:.6 }}>✓</span>;
+  if (status==='delivered') return <span style={{ fontSize:10, opacity:.7 }}>✓✓</span>;
+  if (status==='read')      return <span style={{ fontSize:10, color:'#53bdeb' }}>✓✓</span>;
   return null;
 }
 
 export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Props) {
   const [showMenu, setShowMenu] = useState(false);
+  const { lang } = useSettings();
 
-  if (message.isDeleted) {
-    return (
-      <div className={clsx('flex', isOwn ? 'justify-end' : 'justify-start')}>
-        <div className="px-4 py-2 rounded-2xl bg-oracle-surface/50 border border-oracle-border">
-          <p className="text-xs text-oracle-muted italic">Ce message a été supprimé</p>
-        </div>
+  if (message.isDeleted) return (
+    <div style={{ display:'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start' }}>
+      <div style={{ padding:'8px 14px', borderRadius:8, background:'var(--bg-input)', border:'1px solid var(--border)' }}>
+        <p style={{ fontSize:13, color:'var(--text-muted)', fontStyle:'italic' }}>{t(lang,'chat.deleted')}</p>
       </div>
-    );
-  }
+    </div>
+  );
+
+  const menuStyle: React.CSSProperties = { position:'absolute', zIndex:50, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:10, boxShadow:'0 4px 16px rgba(0,0,0,.15)', minWidth:150, ...(isOwn ? { right:0 } : { left:0 }), bottom:'100%', marginBottom:4 };
+  const menuItemStyle: React.CSSProperties = { width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 14px', border:'none', background:'transparent', cursor:'pointer', fontSize:13, color:'var(--text-primary)', textAlign:'left' as const };
 
   return (
-    <div
-      className={clsx('flex group', isOwn ? 'justify-end' : 'justify-start')}
-      onContextMenu={e => { e.preventDefault(); setShowMenu(true); }}
-    >
-      <div className="relative max-w-[75%]">
+    <div style={{ display:'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start' }}
+      onContextMenu={e => { e.preventDefault(); setShowMenu(true); }}>
+      <div style={{ position:'relative', maxWidth:'72%' }}>
         {/* Reply preview */}
         {message.replyTo && (
-          <div className={clsx(
-            'mb-1 px-3 py-1.5 rounded-xl border-l-2 border-oracle-accent bg-oracle-surface/60 text-xs text-oracle-muted',
-            isOwn ? 'ml-auto' : ''
-          )}>
-            <p className="font-medium text-oracle-accent text-[10px] mb-0.5">{message.replyTo.sender?.name}</p>
-            <p className="truncate">{message.replyTo.content}</p>
+          <div style={{ marginBottom:4, padding:'6px 10px', borderRadius:8, borderLeft:'3px solid var(--accent)', background:'var(--bg-input)', fontSize:12, color:'var(--text-muted)' }}>
+            <p style={{ fontWeight:600, color:'var(--accent)', fontSize:11, margin:'0 0 2px' }}>{message.replyTo.sender?.name}</p>
+            <p style={{ margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{message.replyTo.content}</p>
           </div>
         )}
 
         {/* Bubble */}
-        <div className={clsx(
-          'px-4 py-2.5 relative',
-          isOwn ? 'bubble-out text-white' : 'bubble-in text-oracle-text'
-        )}>
-          {message.type === 'text' && (
-            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{message.content}</p>
-          )}
-
-          {/* Time + status */}
-          <div className={clsx('flex items-center gap-1 mt-1', isOwn ? 'justify-end' : 'justify-start')}>
-            <span className="text-[10px] opacity-60">
+        <div className={isOwn ? 'bubble-out' : 'bubble-in'} style={{ padding:'8px 12px' }}>
+          <p style={{ fontSize:14, lineHeight:1.5, whiteSpace:'pre-wrap', wordBreak:'break-word', margin:0 }}>{message.content}</p>
+          <div style={{ display:'flex', alignItems:'center', gap:4, marginTop:4, justifyContent: isOwn ? 'flex-end' : 'flex-start' }}>
+            <span style={{ fontSize:11, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>
               {format(new Date(message.createdAt), 'HH:mm')}
             </span>
-            {message.isEdited && <span className="text-[10px] opacity-50">modifié</span>}
+            {message.isEdited && <span style={{ fontSize:10, color: isOwn ? 'rgba(0,0,0,.4)' : 'var(--text-muted)' }}>{t(lang,'chat.edited')}</span>}
             {isOwn && <StatusIcon status={message.status} />}
           </div>
         </div>
@@ -74,24 +57,13 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
         {/* Context menu */}
         {showMenu && (
           <>
-            <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
-            <div className={clsx(
-              'absolute z-50 bg-oracle-surface border border-oracle-border rounded-2xl shadow-2xl py-1 min-w-[160px]',
-              isOwn ? 'right-0' : 'left-0', 'bottom-full mb-1'
-            )}>
-              {[
-                { label: 'Répondre', icon: '↩️', action: () => { onReply(message); setShowMenu(false); } },
-                ...(isOwn ? [
-                  { label: 'Modifier', icon: '✏️', action: () => { onEdit(message); setShowMenu(false); } },
-                  { label: 'Supprimer', icon: '🗑️', action: () => { onDelete(message.id); setShowMenu(false); } },
-                ] : []),
-              ].map(item => (
-                <button key={item.label} onClick={item.action}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-oracle-text hover:bg-oracle-border/30 transition-colors">
-                  <span>{item.icon}</span>
-                  <span>{item.label}</span>
-                </button>
-              ))}
+            <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setShowMenu(false)} />
+            <div style={menuStyle}>
+              <button style={menuItemStyle} onClick={() => { onReply(message); setShowMenu(false); }}>↩️ {t(lang,'chat.reply')}</button>
+              {isOwn && <>
+                <button style={menuItemStyle} onClick={() => { onEdit(message); setShowMenu(false); }}>✏️ {t(lang,'chat.edit')}</button>
+                <button style={{ ...menuItemStyle, color:'#dc2626' }} onClick={() => { onDelete(message.id); setShowMenu(false); }}>🗑️ {t(lang,'chat.delete')}</button>
+              </>}
             </div>
           </>
         )}
