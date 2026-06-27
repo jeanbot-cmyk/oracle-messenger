@@ -91,6 +91,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     targetUserIds: string[];
   }) {
     const callerId = client.data.userId;
+    // Récupérer le nom de l'appelant pour l'afficher côté récepteur
+    const caller = await this.users.findById(callerId);
+    const callerName = caller?.name ?? 'Quelqu\'un';
+
     // Notifier chaque destinataire
     for (const targetId of data.targetUserIds) {
       const targetSocket = this.userSockets.get(targetId);
@@ -99,7 +103,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           callId: data.callId,
           conversationId: data.conversationId,
           callerId,
+          callerName,
           type: data.type,
+          participants: data.targetUserIds,
         });
       }
     }
