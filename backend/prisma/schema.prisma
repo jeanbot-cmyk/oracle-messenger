@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  googleId    String   @unique
+  email       String   @unique
+  name        String
+  username    String   @unique
+  avatar      String?
+  status      String   @default("offline")
+  lastSeen    DateTime?
+  isPremium   Boolean  @default(false)
+  premiumUntil DateTime?
+  pushToken   String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sentMessages     Message[]      @relation("SentMessages")
+  participations   Participant[]
+  aiMemories       AiMemory[]
+}
+
+model Conversation {
+  id           String   @id @default(uuid())
+  type         String   @default("direct") // direct | group
+  name         String?
+  avatar       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  participants Participant[]
+  messages     Message[]
+}
+
+model Participant {
+  id             String       @id @default(uuid())
+  userId         String
+  conversationId String
+  joinedAt       DateTime     @default(now())
+  lastReadAt     DateTime?
+
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, conversationId])
+}
+
+model Message {
+  id             String   @id @default(uuid())
+  conversationId String
+  senderId       String
+  content        String   @db.Text
+  type           String   @default("text")
+  status         String   @default("sent")
+  replyToId      String?
+  isDeleted      Boolean  @default(false)
+  isEdited       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation("SentMessages", fields: [senderId], references: [id])
+  replyTo        Message?     @relation("Replies", fields: [replyToId], references: [id])
+  replies        Message[]    @relation("Replies")
+}
+
+// Mémoire IA — 7 jours conversations, 1 mois global
+model AiMemory {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String   // conversation | global
+  content   String   @db.Text
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
