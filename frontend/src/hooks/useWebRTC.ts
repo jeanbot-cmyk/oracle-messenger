@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getSocket } from '../lib/socket';
+import { useNotifications } from './useNotifications';
 
 export type CallState = 'idle' | 'calling' | 'incoming' | 'connected' | 'ended';
 
@@ -8,11 +9,11 @@ export interface CallInfo {
   callId: string;
   conversationId: string;
   callerId: string;
+  callerName?: string;
   type: 'audio' | 'video';
   participants: string[];
 }
 
-// STUN servers publics — aucun coût serveur, P2P direct
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
@@ -21,28 +22,30 @@ const ICE_SERVERS = [
 
 export function useWebRTC(userId: string) {
   const [callState, setCallState] = useState<CallState>('idle');
-  const [callInfo, setCallInfo] = useState<CallInfo | null>(null);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [callInfo, setCallInfo]   = useState<CallInfo | null>(null);
+  const [localStream, setLocalStream]   = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted]   = useState(false);
   const [isCamOff, setIsCamOff] = useState(false);
 
-  // Map userId → RTCPeerConnection (pour appels groupés)
   const pcs = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
+  const callInfoRef = useRef<CallInfo | null>(null);
 
-  // Récupère le socket existant (initialisé par useSocket)
+  const { notifyIncomingCall, notifyMissedCall, stopRingtone } = useNotifications();
+
   const socket = getSocket();
+
+  // Garder callInfoRef synchronisé
+  useEffect(() => { callInfoRef.current = callInfo; }, [callInfo]);
 
   function createPC(targetUserId: string): RTCPeerConnection {
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
-    // Ajouter les tracks locaux
     localStreamRef.current?.getTracks().forEach(track => {
       pc.addTrack(track, localStreamRef.current!);
     });
 
-    // Recevoir les tracks distants
     pc.ontrack = (e) => {
       setRemoteStreams(prev => {
         const next = new Map(prev);
@@ -51,11 +54,10 @@ export function useWebRTC(userId: string) {
       });
     };
 
-    // Envoyer les ICE candidates
     pc.onicecandidate = (e) => {
-      if (e.candidate && callInfo?.callId) {
+      if (e.candidate && callInfoRef.current?.callId) {
         socket?.emit('webrtc:ice', {
-          callId: callInfo.callId,
+          callId: callInfoRef.current.callId,
           targetUserId,
           candidate: e.candidate.toJSON(),
         });
@@ -66,7 +68,6 @@ export function useWebRTC(userId: string) {
     return pc;
   }
 
-  // Démarrer un appel
   const startCall = useCallback(async (
     conversationId: string,
     targetUserIds: string[],
@@ -83,11 +84,11 @@ export function useWebRTC(userId: string) {
 
       const info: CallInfo = { callId, conversationId, callerId: userId, type, participants: targetUserIds };
       setCallInfo(info);
+      callInfoRef.current = info;
       setCallState('calling');
 
       socket?.emit('call:start', { callId, conversationId, type, targetUserIds });
 
-      // Créer une PC pour chaque participant
       for (const targetId of targetUserIds) {
         const pc = createPC(targetId);
         const offer = await pc.createOffer();
@@ -95,39 +96,42 @@ export function useWebRTC(userId: string) {
         socket?.emit('webrtc:offer', { callId, targetUserId: targetId, sdp: offer });
       }
     } catch (err) {
-      console.error('Erreur démarrage appel:', err);
+      console.error('[WebRTC] startCall error:', err);
       endCall();
     }
-  }, [userId, socket, callInfo]);
+  }, [userId, socket]);
 
-  // Répondre à un appel entrant
   const answerCall = useCallback(async (accepted: boolean) => {
-    if (!callInfo) return;
+    const info = callInfoRef.current;
+    if (!info) return;
+
+    stopRingtone(); // Arrêter la sonnerie dans tous les cas
+
     if (!accepted) {
-      socket?.emit('call:answer', { callId: callInfo.callId, accepted: false });
+      socket?.emit('call:answer', { callId: info.callId, accepted: false });
+      // Notifier l'appelant que c'est refusé
       setCallState('ended');
-      setTimeout(() => setCallState('idle'), 1000);
+      setTimeout(() => setCallState('idle'), 800);
       return;
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
-        video: callInfo.type === 'video',
+        video: info.type === 'video',
       });
       localStreamRef.current = stream;
       setLocalStream(stream);
-      socket?.emit('call:answer', { callId: callInfo.callId, accepted: true });
+      socket?.emit('call:answer', { callId: info.callId, accepted: true });
       setCallState('connected');
     } catch {
       endCall();
     }
-  }, [callInfo, socket]);
+  }, [socket]);
 
-  // Raccrocher
   const endCall = useCallback(() => {
-    if (callInfo?.callId) {
-      socket?.emit('call:end', { callId: callInfo.callId });
-    }
+    const info = callInfoRef.current;
+    stopRingtone();
+    if (info?.callId) socket?.emit('call:end', { callId: info.callId });
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     pcs.current.forEach(pc => pc.close());
@@ -136,37 +140,52 @@ export function useWebRTC(userId: string) {
     setRemoteStreams(new Map());
     setCallState('ended');
     setCallInfo(null);
+    callInfoRef.current = null;
     setTimeout(() => setCallState('idle'), 500);
-  }, [callInfo, socket]);
+  }, [socket]);
 
-  // Toggle micro
   const toggleMute = useCallback(() => {
     localStreamRef.current?.getAudioTracks().forEach(t => { t.enabled = !t.enabled; });
     setIsMuted(v => !v);
   }, []);
 
-  // Toggle caméra
   const toggleCamera = useCallback(() => {
     localStreamRef.current?.getVideoTracks().forEach(t => { t.enabled = !t.enabled; });
     setIsCamOff(v => !v);
   }, []);
 
-  // Écouter les événements Socket.IO
   useEffect(() => {
     if (!socket) return;
 
+    // Appel entrant → sonnerie + notif
     socket.on('call:incoming', (data: CallInfo) => {
       setCallInfo(data);
+      callInfoRef.current = data;
       setCallState('incoming');
+      notifyIncomingCall(data.callerName ?? 'Quelqu\'un', data.type);
     });
 
-    socket.on('call:answered', async (data: { callId: string; userId: string; accepted: boolean }) => {
-      if (data.accepted) setCallState('connected');
-      else endCall();
+    // Réponse de l'appelé
+    socket.on('call:answered', (data: { callId: string; userId: string; accepted: boolean }) => {
+      if (data.accepted) {
+        stopRingtone();
+        setCallState('connected');
+      } else {
+        endCall();
+      }
     });
 
-    socket.on('call:ended', () => endCall());
+    // Appel terminé par l'autre
+    socket.on('call:ended', () => {
+      const info = callInfoRef.current;
+      // Si on était en sonnerie (incoming non répondu) → appel manqué
+      if (callState === 'incoming' && info) {
+        notifyMissedCall(info.callerName ?? 'Quelqu\'un');
+      }
+      endCall();
+    });
 
+    // Signaling WebRTC
     socket.on('webrtc:offer', async (data: { callId: string; fromUserId: string; sdp: RTCSessionDescriptionInit }) => {
       const pc = createPC(data.fromUserId);
       await pc.setRemoteDescription(data.sdp);
@@ -182,7 +201,9 @@ export function useWebRTC(userId: string) {
 
     socket.on('webrtc:ice', async (data: { fromUserId: string; candidate: RTCIceCandidateInit }) => {
       const pc = pcs.current.get(data.fromUserId);
-      if (pc) await pc.addIceCandidate(data.candidate);
+      if (pc) {
+        try { await pc.addIceCandidate(data.candidate); } catch {}
+      }
     });
 
     return () => {
@@ -193,7 +214,7 @@ export function useWebRTC(userId: string) {
       socket.off('webrtc:answer');
       socket.off('webrtc:ice');
     };
-  }, [socket, callInfo]);
+  }, [socket]);
 
   return {
     callState, callInfo, localStream, remoteStreams,
