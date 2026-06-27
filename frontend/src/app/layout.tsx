@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import type { Metadata, Viewport } from 'next';
 import '../styles/globals.css';
 import { Providers } from './providers';
