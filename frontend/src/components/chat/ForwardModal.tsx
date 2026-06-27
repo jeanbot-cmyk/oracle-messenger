@@ -27,7 +27,7 @@ export function ForwardModal({ message, onClose, onForward }: Props) {
   const remaining = 3 - count;
 
   const filtered = conversations.filter(c => {
-    const name = c.type === 'group' ? c.name : c.participants?.[0]?.name ?? '';
+    const name = (c.type === 'group' ? c.name : c.participants?.[0]?.name) ?? '';
     return name.toLowerCase().includes(search.toLowerCase());
   });
 
@@ -81,13 +81,13 @@ export function ForwardModal({ message, onClose, onForward }: Props) {
         {/* Liste */}
         <div style={{ flex:1, overflowY:'auto' }}>
           {filtered.map(conv => {
-            const name = conv.type === 'group' ? conv.name : conv.participants?.[0]?.name ?? 'Inconnu';
+            const name = (conv.type === 'group' ? conv.name : conv.participants?.[0]?.name) ?? 'Inconnu';
             const isSelected = selected.has(conv.id);
             return (
               <button key={conv.id} onClick={() => toggle(conv.id)}
                 style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'10px 20px', border:'none', background: isSelected ? 'var(--bg-input)' : 'transparent', cursor:'pointer', textAlign:'left' }}>
                 <div style={{ width:44, height:44, borderRadius:'50%', background:'var(--accent)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <span style={{ color:'#fff', fontWeight:700, fontSize:18 }}>{(name??'?')[0].toUpperCase()}</span>
+                  <span style={{ color:'#fff', fontWeight:700, fontSize:18 }}>{name[0].toUpperCase()}</span>
                 </div>
                 <span style={{ flex:1, fontSize:15, color:'var(--text-primary)', fontWeight:500 }}>{name}</span>
                 <div style={{ width:22, height:22, borderRadius:'50%', border:`2px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`, background: isSelected ? 'var(--accent)' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center' }}>
