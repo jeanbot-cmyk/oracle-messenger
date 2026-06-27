@@ -4,7 +4,7 @@ import { signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-export default function LoginPage() {
+function LoginContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -88,4 +88,20 @@ export default function LoginPage() {
       </div>
     </div>
   );
+}
+
+// Guard monté côté client pour éviter useSession() sans SessionProvider au SSR
+export default function LoginPage() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  if (!mounted) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-oracle-night">
+        <div className="w-8 h-8 border-2 border-oracle-accent border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return <LoginContent />;
 }
