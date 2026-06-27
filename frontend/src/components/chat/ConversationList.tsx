@@ -3,7 +3,7 @@ import { useChatStore } from '../../store/chat';
 import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
 import { formatDistanceToNow } from 'date-fns';
-import { fr, enUS, es, ar, zhCN, ptBR, ru, hi, de, ja } from 'date-fns/locale';
+import { fr, enUS, es, ar, zhCN, ptBR, ru, hi, de, ja, type Locale } from 'date-fns/locale';
 import Image from 'next/image';
 
 const LOCALES: Record<string, Locale> = { fr, en:enUS, es, ar, zh:zhCN, pt:ptBR, ru, hi, de, ja };
