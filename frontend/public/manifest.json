@@ -1,12 +1,14 @@
 {
   "name": "Oracle Messenger",
   "short_name": "Oracle",
-  "description": "Messagerie souveraine nouvelle génération",
-  "start_url": "/chat",
+  "description": "Messagerie privée, rapide et sécurisée",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0a0e1a",
-  "theme_color": "#0a0e1a",
+  "background_color": "#00a884",
+  "theme_color": "#00a884",
   "orientation": "portrait-primary",
+  "lang": "fr",
   "icons": [
     { "src": "/icons/icon-72.png",  "sizes": "72x72",   "type": "image/png" },
     { "src": "/icons/icon-96.png",  "sizes": "96x96",   "type": "image/png" },
@@ -18,8 +20,7 @@
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ],
   "shortcuts": [
-    { "name": "Nouveau message", "url": "/chat", "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96" }] }
+    { "name": "Messages", "url": "/chat", "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96" }] }
   ],
-  "categories": ["social", "communication"],
-  "lang": "fr"
+  "categories": ["social", "communication"]
 }
