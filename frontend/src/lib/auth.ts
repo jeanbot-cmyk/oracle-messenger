@@ -6,6 +6,8 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId:     process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      // Désactiver PKCE — les cookies SameSite=Lax sont perdus derrière le proxy Coolify
+      checks: ['state'],
     }),
   ],
   callbacks: {
@@ -49,4 +51,27 @@ export const authOptions: NextAuthOptions = {
   pages: { signIn: '/login' },
   session: { strategy: 'jwt', maxAge: 30 * 24 * 60 * 60 },
   secret: process.env.NEXTAUTH_SECRET,
+  // Cookies explicites pour survivre derrière un reverse proxy
+  cookies: {
+    pkceCodeVerifier: {
+      name: '__Secure-next-auth.pkce.code_verifier',
+      options: { httpOnly: true, sameSite: 'none', path: '/', secure: true },
+    },
+    state: {
+      name: '__Secure-next-auth.state',
+      options: { httpOnly: true, sameSite: 'none', path: '/', secure: true, maxAge: 900 },
+    },
+    callbackUrl: {
+      name: '__Secure-next-auth.callback-url',
+      options: { httpOnly: true, sameSite: 'none', path: '/', secure: true },
+    },
+    sessionToken: {
+      name: '__Secure-next-auth.session-token',
+      options: { httpOnly: true, sameSite: 'none', path: '/', secure: true },
+    },
+    csrfToken: {
+      name: '__Host-next-auth.csrf-token',
+      options: { httpOnly: true, sameSite: 'none', path: '/', secure: true },
+    },
+  },
 };
