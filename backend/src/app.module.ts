@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, Controller, Get } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -7,6 +7,12 @@ import { ChatModule } from './chat/chat.module';
 import { GatewayModule } from './gateway/gateway.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
+
+@Controller()
+class HealthController {
+  @Get() root() { return { status: 'ok', app: 'Oracle Messenger API' }; }
+  @Get('health') health() { return { status: 'ok', timestamp: new Date().toISOString() }; }
+}
 
 @Module({
   imports: [
@@ -19,5 +25,6 @@ import { AdminModule } from './admin/admin.module';
     NotificationsModule,
     AdminModule,
   ],
+  controllers: [HealthController],
 })
 export class AppModule {}
