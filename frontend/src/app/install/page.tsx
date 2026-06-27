@@ -2,6 +2,15 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useState } from 'react';
 
+// Stocker le prompt globalement dès que possible (avant le mount React)
+// car beforeinstallprompt peut se déclencher très tôt
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e: any) => {
+    e.preventDefault();
+    (window as any).__pwaPrompt = e;
+  });
+}
+
 type Device = 'android-chrome' | 'samsung' | 'ios' | 'desktop';
 
 function detectDevice(): Device {
@@ -14,53 +23,61 @@ function detectDevice(): Device {
 
 const STEPS: Record<Device, { icon: string; text: string }[]> = {
   'android-chrome': [
-    { icon: '⋮', text: 'Appuyez sur les 3 points en haut à droite' },
+    { icon: '⋮', text: 'Appuyez sur les 3 points en haut à droite de Chrome' },
     { icon: '📲', text: 'Sélectionnez "Installer l\'application"' },
     { icon: '✅', text: 'Confirmez — l\'app s\'ouvre automatiquement' },
   ],
   samsung: [
-    { icon: '⋮', text: 'Appuyez sur les 3 lignes du navigateur Samsung' },
+    { icon: '☰', text: 'Appuyez sur les 3 lignes du navigateur Samsung' },
     { icon: '➕', text: 'Choisissez "Ajouter page à" → "Écran d\'accueil"' },
     { icon: '✅', text: 'Appuyez sur "Ajouter" pour confirmer' },
   ],
   ios: [
-    { icon: '⬆️', text: 'Appuyez sur le bouton Partager (barre du bas)' },
+    { icon: '⬆️', text: 'Appuyez sur le bouton Partager (barre du bas Safari)' },
     { icon: '➕', text: 'Faites défiler et choisissez "Sur l\'écran d\'accueil"' },
     { icon: '✅', text: 'Appuyez sur "Ajouter" en haut à droite' },
   ],
   desktop: [
-    { icon: '🖥️', text: 'Cliquez sur l\'icône d\'installation dans la barre d\'adresse' },
-    { icon: '📲', text: 'Ou utilisez le menu → "Installer Oracle Messenger"' },
+    { icon: '📥', text: 'Cliquez sur l\'icône d\'installation dans la barre d\'adresse' },
+    { icon: '📲', text: 'Ou menu → "Installer Oracle Messenger"' },
     { icon: '✅', text: 'Confirmez l\'installation' },
   ],
 };
 
 export default function InstallPage() {
-  const [prompt, setPrompt]     = useState<any>(null);
-  const [device, setDevice]     = useState<Device>('android-chrome');
+  const [device, setDevice]       = useState<Device>('android-chrome');
+  const [hasPrompt, setHasPrompt] = useState(false);
+  const [installing, setInstalling] = useState(false);
   const [installed, setInstalled] = useState(false);
-  const [mounted, setMounted]   = useState(false);
   const [showSteps, setShowSteps] = useState(false);
+  const [mounted, setMounted]     = useState(false);
 
   useEffect(() => {
     setMounted(true);
     setDevice(detectDevice());
 
-    // Déjà en standalone → poser cookie et rediriger
+    // Déjà en standalone → cookie + redirect
     const isStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||
       (navigator as any).standalone === true;
-
     if (isStandalone) {
       document.cookie = 'pwa-installed=1; path=/; max-age=31536000; SameSite=Lax';
       window.location.replace('/');
       return;
     }
 
-    // Capturer le prompt d'installation natif (Android Chrome)
-    const handler = (e: any) => { e.preventDefault(); setPrompt(e); };
+    // Vérifier si le prompt global est déjà capturé
+    if ((window as any).__pwaPrompt) setHasPrompt(true);
+
+    // Écouter si le prompt arrive après le mount
+    const handler = (e: any) => {
+      e.preventDefault();
+      (window as any).__pwaPrompt = e;
+      setHasPrompt(true);
+    };
     window.addEventListener('beforeinstallprompt', handler);
 
+    // Appel installé
     window.addEventListener('appinstalled', () => {
       document.cookie = 'pwa-installed=1; path=/; max-age=31536000; SameSite=Lax';
       setInstalled(true);
@@ -75,14 +92,23 @@ export default function InstallPage() {
   }, []);
 
   async function handleInstall() {
+    const prompt = (window as any).__pwaPrompt;
+
     if (prompt) {
-      prompt.prompt();
-      const { outcome } = await prompt.userChoice;
-      if (outcome === 'accepted') {
-        document.cookie = 'pwa-installed=1; path=/; max-age=31536000; SameSite=Lax';
-        setInstalled(true);
-      }
+      // Android Chrome — installation native directe
+      setInstalling(true);
+      try {
+        await prompt.prompt();
+        const { outcome } = await prompt.userChoice;
+        if (outcome === 'accepted') {
+          document.cookie = 'pwa-installed=1; path=/; max-age=31536000; SameSite=Lax';
+          setInstalled(true);
+          setTimeout(() => window.location.replace('/'), 1800);
+        }
+      } catch {}
+      setInstalling(false);
     } else {
+      // iOS / Samsung / autre → afficher les étapes manuelles
       setShowSteps(true);
     }
   }
@@ -95,66 +121,80 @@ export default function InstallPage() {
   if (!mounted) return null;
 
   if (installed) return (
-    <div style={styles.fullCenter}>
-      <div style={styles.successIcon}>✅</div>
-      <h2 style={styles.successTitle}>Installation réussie !</h2>
-      <p style={styles.successSub}>Ouverture d'Oracle Messenger…</p>
-      <style>{spin}</style>
+    <div style={S.fullCenter}>
+      <div style={{ fontSize: 80 }}>✅</div>
+      <h2 style={S.successTitle}>Installation réussie !</h2>
+      <p style={S.successSub}>Ouverture d'Oracle Messenger…</p>
     </div>
   );
 
   return (
-    <div style={styles.root}>
-      <style>{spin}</style>
-
+    <div style={S.root}>
       {/* Logo + nom */}
-      <div style={styles.hero}>
-        <div style={styles.logoWrap}>
-          {/* Icône bulle de chat SVG */}
-          <svg width="52" height="52" fill="none" viewBox="0 0 24 24">
+      <div style={S.hero}>
+        <div style={S.logoWrap}>
+          <svg width="54" height="54" fill="none" viewBox="0 0 24 24">
             <path fill="white" d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.05 21.95l4.782-1.388A9.953 9.953 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2z"/>
-            <circle cx="8.5" cy="12" r="1.2" fill="#00a884"/>
-            <circle cx="12" cy="12" r="1.2" fill="#00a884"/>
-            <circle cx="15.5" cy="12" r="1.2" fill="#00a884"/>
+            <circle cx="8.5" cy="12" r="1.3" fill="#00a884"/>
+            <circle cx="12"  cy="12" r="1.3" fill="#00a884"/>
+            <circle cx="15.5" cy="12" r="1.3" fill="#00a884"/>
           </svg>
         </div>
-        <h1 style={styles.appName}>Oracle Messenger</h1>
-        <p style={styles.appSub}>Messagerie privée · Gratuite · Sécurisée</p>
-
-        {/* Badges */}
-        <div style={styles.badges}>
+        <h1 style={S.appName}>Oracle Messenger</h1>
+        <p style={S.appSub}>Messagerie privée · Gratuite · Sécurisée</p>
+        <div style={S.badges}>
           {['⚡ Rapide', '🔒 Privé', '📵 Hors-ligne', '🔔 Notifs'].map(b => (
-            <span key={b} style={styles.badge}>{b}</span>
+            <span key={b} style={S.badge}>{b}</span>
           ))}
         </div>
       </div>
 
-      {/* Bouton principal */}
-      <div style={styles.cta}>
-        <button onClick={handleInstall} style={styles.installBtn}>
-          <span style={{ fontSize: 26 }}>📲</span>
-          <span>Installer l'application</span>
+      {/* Zone CTA */}
+      <div style={S.cta}>
+
+        {/* Bouton principal — toujours visible et cliquable */}
+        <button
+          onClick={handleInstall}
+          disabled={installing}
+          style={{
+            ...S.installBtn,
+            opacity: installing ? 0.8 : 1,
+            transform: installing ? 'scale(0.97)' : 'scale(1)',
+          }}
+        >
+          {installing ? (
+            <>
+              <div style={S.spinner} />
+              <span>Installation…</span>
+            </>
+          ) : (
+            <>
+              <span style={{ fontSize: 28 }}>📲</span>
+              <span>Installer l'application</span>
+            </>
+          )}
         </button>
 
-        {/* Instructions manuelles si pas de prompt natif */}
+        {/* Étapes manuelles (iOS / Samsung) */}
         {showSteps && (
-          <div style={styles.stepsCard}>
-            <p style={styles.stepsTitle}>
-              {device === 'ios' ? '📱 iPhone / iPad' :
+          <div style={S.stepsCard}>
+            <p style={S.stepsTitle}>
+              {device === 'ios'     ? '📱 iPhone / iPad — Safari' :
                device === 'samsung' ? '📱 Samsung Browser' :
-               device === 'desktop' ? '🖥️ Bureau' : '📱 Android Chrome'}
+               device === 'desktop' ? '🖥️ Navigateur bureau' :
+                                      '📱 Android Chrome'}
             </p>
             {STEPS[device].map((s, i) => (
-              <div key={i} style={styles.step}>
-                <div style={styles.stepNum}>{i + 1}</div>
-                <div style={styles.stepIcon}>{s.icon}</div>
-                <p style={styles.stepText}>{s.text}</p>
+              <div key={i} style={S.step}>
+                <div style={S.stepNum}>{i + 1}</div>
+                <span style={{ fontSize: 22, flexShrink: 0 }}>{s.icon}</span>
+                <p style={S.stepText}>{s.text}</p>
               </div>
             ))}
           </div>
         )}
 
-        <button onClick={handleAlreadyInstalled} style={styles.skipBtn}>
+        <button onClick={handleAlreadyInstalled} style={S.skipBtn}>
           J'ai déjà installé → Continuer
         </button>
       </div>
@@ -162,9 +202,7 @@ export default function InstallPage() {
   );
 }
 
-const spin = `@keyframes spin{to{transform:rotate(360deg)}}`;
-
-const styles: Record<string, React.CSSProperties> = {
+const S: Record<string, React.CSSProperties> = {
   root: {
     minHeight: '100dvh',
     background: 'linear-gradient(170deg, #00a884 0%, #017561 55%, #004d3d 100%)',
@@ -184,9 +222,9 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
   },
   logoWrap: {
-    width: 96,
-    height: 96,
-    borderRadius: 28,
+    width: 100,
+    height: 100,
+    borderRadius: 30,
     background: 'rgba(255,255,255,0.18)',
     backdropFilter: 'blur(12px)',
     border: '1.5px solid rgba(255,255,255,0.3)',
@@ -198,24 +236,23 @@ const styles: Record<string, React.CSSProperties> = {
   },
   appName: {
     color: '#fff',
-    fontSize: 32,
+    fontSize: 34,
     fontWeight: 800,
     margin: 0,
     letterSpacing: -0.5,
     textShadow: '0 2px 12px rgba(0,0,0,0.15)',
   },
   appSub: {
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(255,255,255,0.82)',
     fontSize: 15,
     margin: 0,
-    fontWeight: 400,
   },
   badges: {
     display: 'flex',
     flexWrap: 'wrap' as const,
     gap: 8,
     justifyContent: 'center',
-    marginTop: 16,
+    marginTop: 18,
   },
   badge: {
     background: 'rgba(255,255,255,0.15)',
@@ -229,10 +266,10 @@ const styles: Record<string, React.CSSProperties> = {
   },
   cta: {
     width: '100%',
-    maxWidth: 400,
+    maxWidth: 420,
     display: 'flex',
     flexDirection: 'column',
-    gap: 12,
+    gap: 14,
     alignItems: 'center',
   },
   installBtn: {
@@ -241,25 +278,33 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 14,
-    background: '#fff',
+    background: '#ffffff',
     border: 'none',
-    borderRadius: 18,
-    padding: '20px 28px',
+    borderRadius: 20,
+    padding: '22px 28px',
     fontSize: 20,
-    fontWeight: 700,
+    fontWeight: 800,
     color: '#00a884',
     cursor: 'pointer',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.25), 0 2px 8px rgba(0,0,0,0.1)',
+    boxShadow: '0 10px 40px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.1)',
     letterSpacing: -0.2,
-    transition: 'transform 0.15s, box-shadow 0.15s',
+    transition: 'transform 0.15s, opacity 0.15s',
+  },
+  spinner: {
+    width: 22,
+    height: 22,
+    border: '3px solid rgba(0,168,132,0.3)',
+    borderTopColor: '#00a884',
+    borderRadius: '50%',
+    animation: 'spin 0.8s linear infinite',
   },
   stepsCard: {
     width: '100%',
-    background: 'rgba(255,255,255,0.12)',
+    background: 'rgba(255,255,255,0.13)',
     backdropFilter: 'blur(16px)',
-    border: '1px solid rgba(255,255,255,0.2)',
+    border: '1px solid rgba(255,255,255,0.22)',
     borderRadius: 20,
-    padding: '20px 20px',
+    padding: '20px',
     display: 'flex',
     flexDirection: 'column',
     gap: 14,
@@ -270,6 +315,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 16,
     margin: 0,
     textAlign: 'center' as const,
+    marginBottom: 4,
   },
   step: {
     display: 'flex',
@@ -289,12 +335,8 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     flexShrink: 0,
   },
-  stepIcon: {
-    fontSize: 22,
-    flexShrink: 0,
-  },
   stepText: {
-    color: 'rgba(255,255,255,0.9)',
+    color: 'rgba(255,255,255,0.92)',
     fontSize: 14,
     margin: 0,
     lineHeight: 1.4,
@@ -316,9 +358,8 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     background: 'linear-gradient(170deg, #00a884 0%, #004d3d 100%)',
-    gap: 12,
+    gap: 14,
   },
-  successIcon: { fontSize: 72 },
-  successTitle: { color: '#fff', fontSize: 26, fontWeight: 800, margin: 0 },
-  successSub: { color: 'rgba(255,255,255,0.8)', fontSize: 16, margin: 0 },
+  successTitle: { color: '#fff', fontSize: 28, fontWeight: 800, margin: 0 },
+  successSub:   { color: 'rgba(255,255,255,0.8)', fontSize: 16, margin: 0 },
 };
