@@ -7,11 +7,14 @@ import { JwtService } from '@nestjs/jwt';
 import { ChatService } from '../chat/chat.service';
 import { UsersService } from '../users/users.service';
 
-@WebSocketGateway({ cors: { origin: '*' }, transports: ['websocket'] })
+@WebSocketGateway({
+  cors: { origin: '*', credentials: false },
+  transports: ['websocket', 'polling'],
+})
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
 
-  // userId → socketId
+  // userId → socketId (en mémoire — suffisant pour 1 instance)
   private userSockets = new Map<string, string>();
 
   constructor(
@@ -20,9 +23,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private users: UsersService,
   ) {}
 
+  // ── Connexion ─────────────────────────────────────────────────────────────
+
   async handleConnection(client: Socket) {
     try {
       const token = client.handshake.auth?.token;
+      if (!token) { client.disconnect(); return; }
       const payload = this.jwt.verify(token) as { sub: string };
       client.data.userId = payload.sub;
       this.userSockets.set(payload.sub, client.id);
@@ -41,31 +47,101 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.emit('user:offline', { userId });
   }
 
+  // ── Conversations ─────────────────────────────────────────────────────────
+
   @SubscribeMessage('conversation:join')
-  async joinConversation(@ConnectedSocket() client: Socket, @MessageBody() data: { conversationId: string }) {
-    client.join(`conv:${data.conversationId}`);
-    await this.chat.markRead(data.conversationId, client.data.userId);
+  async joinConversation(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { conversationId: string },
+  ) {
+    try {
+      client.join(`conv:${data.conversationId}`);
+      await this.chat.markRead(data.conversationId, client.data.userId);
+    } catch {}
   }
 
+  // ── Messages ──────────────────────────────────────────────────────────────
+
   @SubscribeMessage('message:send')
-  async handleMessage(@ConnectedSocket() client: Socket, @MessageBody() data: { conversationId: string; content: string; type?: string; replyToId?: string }) {
-    const msg = await this.chat.createMessage(data.conversationId, client.data.userId, data.content, data.type, data.replyToId);
-    // Diffuser à tous les participants de la conversation
-    this.server.to(`conv:${data.conversationId}`).emit('message:new', msg);
-    return msg;
+  async handleMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { conversationId: string; content: string; type?: string; replyToId?: string },
+  ) {
+    try {
+      const msg = await this.chat.createMessage(
+        data.conversationId,
+        client.data.userId,
+        data.content,
+        data.type ?? 'text',
+        data.replyToId,
+      );
+
+      // 1. Diffuser à tous dans la room (ceux qui ont fait conversation:join)
+      this.server.to(`conv:${data.conversationId}`).emit('message:new', msg);
+
+      // 2. Notifier aussi les participants connectés mais pas dans la room
+      const participantIds = await this.chat.getParticipantIds(data.conversationId);
+      for (const pid of participantIds) {
+        if (pid === client.data.userId) continue;
+        const sid = this.userSockets.get(pid);
+        if (sid) this.server.to(sid).emit('message:new', msg);
+      }
+
+      return msg;
+    } catch (err: any) {
+      client.emit('message:error', { message: err?.message ?? 'Erreur envoi' });
+    }
   }
 
   @SubscribeMessage('message:read')
-  async handleRead(@ConnectedSocket() client: Socket, @MessageBody() data: { conversationId: string; messageId: string }) {
-    await this.chat.markRead(data.conversationId, client.data.userId);
-    this.server.to(`conv:${data.conversationId}`).emit('message:update', {
-      id: data.messageId,
-      patch: { status: 'read' },
-    });
+  async handleRead(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { conversationId: string; messageId: string },
+  ) {
+    try {
+      await this.chat.markRead(data.conversationId, client.data.userId);
+      this.server.to(`conv:${data.conversationId}`).emit('message:update', {
+        id: data.messageId,
+        patch: { status: 'read' },
+      });
+    } catch {}
   }
 
+  @SubscribeMessage('message:edit')
+  async handleEdit(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { messageId: string; content: string },
+  ) {
+    try {
+      const msg = await this.chat.editMessage(data.messageId, client.data.userId, data.content);
+      this.server.to(`conv:${msg.conversationId}`).emit('message:update', {
+        id: msg.id,
+        patch: { content: msg.content, isEdited: true },
+      });
+    } catch {}
+  }
+
+  @SubscribeMessage('message:delete')
+  async handleDelete(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { messageId: string; conversationId: string },
+  ) {
+    try {
+      await this.chat.deleteMessage(data.messageId, client.data.userId);
+      this.server.to(`conv:${data.conversationId}`).emit('message:delete', {
+        conversationId: data.conversationId,
+        messageId: data.messageId,
+      });
+    } catch {}
+  }
+
+  // ── Typing ────────────────────────────────────────────────────────────────
+
   @SubscribeMessage('typing:start')
-  handleTypingStart(@ConnectedSocket() client: Socket, @MessageBody() data: { conversationId: string }) {
+  handleTypingStart(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { conversationId: string },
+  ) {
     client.to(`conv:${data.conversationId}`).emit('typing:start', {
       conversationId: data.conversationId,
       userId: client.data.userId,
@@ -73,52 +149,56 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('typing:stop')
-  handleTypingStop(@ConnectedSocket() client: Socket, @MessageBody() data: { conversationId: string }) {
+  handleTypingStop(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { conversationId: string },
+  ) {
     client.to(`conv:${data.conversationId}`).emit('typing:stop', {
       conversationId: data.conversationId,
       userId: client.data.userId,
     });
   }
 
-  // ── WebRTC Signaling ──────────────────────────────────────────────────────
+  // ── Appels WebRTC ─────────────────────────────────────────────────────────
 
-  // Initier un appel (audio ou vidéo, 1-1 ou groupe)
   @SubscribeMessage('call:start')
-  async handleCallStart(@ConnectedSocket() client: Socket, @MessageBody() data: {
-    callId: string;
-    conversationId: string;
-    type: 'audio' | 'video';
-    targetUserIds: string[];
-  }) {
-    const callerId = client.data.userId;
-    // Récupérer le nom de l'appelant pour l'afficher côté récepteur
-    const caller = await this.users.findById(callerId);
-    const callerName = caller?.name ?? 'Quelqu\'un';
+  async handleCallStart(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: {
+      callId: string;
+      conversationId: string;
+      type: 'audio' | 'video';
+      targetUserIds: string[];
+    },
+  ) {
+    try {
+      const callerId = client.data.userId;
+      const caller = await this.users.findById(callerId);
+      const callerName = caller?.name ?? 'Quelqu\'un';
 
-    // Notifier chaque destinataire
-    for (const targetId of data.targetUserIds) {
-      const targetSocket = this.userSockets.get(targetId);
-      if (targetSocket) {
-        this.server.to(targetSocket).emit('call:incoming', {
-          callId: data.callId,
-          conversationId: data.conversationId,
-          callerId,
-          callerName,
-          type: data.type,
-          participants: data.targetUserIds,
-        });
+      client.join(`call:${data.callId}`);
+
+      for (const targetId of data.targetUserIds) {
+        const sid = this.userSockets.get(targetId);
+        if (sid) {
+          this.server.to(sid).emit('call:incoming', {
+            callId: data.callId,
+            conversationId: data.conversationId,
+            callerId,
+            callerName,
+            type: data.type,
+            participants: data.targetUserIds,
+          });
+        }
       }
-    }
-    // Rejoindre la room d'appel
-    client.join(`call:${data.callId}`);
+    } catch {}
   }
 
-  // Répondre à un appel
   @SubscribeMessage('call:answer')
-  handleCallAnswer(@ConnectedSocket() client: Socket, @MessageBody() data: {
-    callId: string;
-    accepted: boolean;
-  }) {
+  handleCallAnswer(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { callId: string; accepted: boolean },
+  ) {
     client.join(`call:${data.callId}`);
     this.server.to(`call:${data.callId}`).emit('call:answered', {
       callId: data.callId,
@@ -127,9 +207,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
   }
 
-  // Raccrocher
   @SubscribeMessage('call:end')
-  handleCallEnd(@ConnectedSocket() client: Socket, @MessageBody() data: { callId: string }) {
+  handleCallEnd(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { callId: string },
+  ) {
     this.server.to(`call:${data.callId}`).emit('call:ended', {
       callId: data.callId,
       userId: client.data.userId,
@@ -137,16 +219,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.leave(`call:${data.callId}`);
   }
 
-  // SDP Offer (WebRTC)
+  // ── WebRTC Signaling ──────────────────────────────────────────────────────
+
   @SubscribeMessage('webrtc:offer')
-  handleOffer(@ConnectedSocket() client: Socket, @MessageBody() data: {
-    callId: string;
-    targetUserId: string;
-    sdp: RTCSessionDescriptionInit;
-  }) {
-    const targetSocket = this.userSockets.get(data.targetUserId);
-    if (targetSocket) {
-      this.server.to(targetSocket).emit('webrtc:offer', {
+  handleOffer(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { callId: string; targetUserId: string; sdp: RTCSessionDescriptionInit },
+  ) {
+    const sid = this.userSockets.get(data.targetUserId);
+    if (sid) {
+      this.server.to(sid).emit('webrtc:offer', {
         callId: data.callId,
         fromUserId: client.data.userId,
         sdp: data.sdp,
@@ -154,16 +236,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  // SDP Answer (WebRTC)
   @SubscribeMessage('webrtc:answer')
-  handleAnswer(@ConnectedSocket() client: Socket, @MessageBody() data: {
-    callId: string;
-    targetUserId: string;
-    sdp: RTCSessionDescriptionInit;
-  }) {
-    const targetSocket = this.userSockets.get(data.targetUserId);
-    if (targetSocket) {
-      this.server.to(targetSocket).emit('webrtc:answer', {
+  handleAnswer(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { callId: string; targetUserId: string; sdp: RTCSessionDescriptionInit },
+  ) {
+    const sid = this.userSockets.get(data.targetUserId);
+    if (sid) {
+      this.server.to(sid).emit('webrtc:answer', {
         callId: data.callId,
         fromUserId: client.data.userId,
         sdp: data.sdp,
@@ -171,16 +251,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  // ICE Candidate (WebRTC)
   @SubscribeMessage('webrtc:ice')
-  handleIce(@ConnectedSocket() client: Socket, @MessageBody() data: {
-    callId: string;
-    targetUserId: string;
-    candidate: RTCIceCandidateInit;
-  }) {
-    const targetSocket = this.userSockets.get(data.targetUserId);
-    if (targetSocket) {
-      this.server.to(targetSocket).emit('webrtc:ice', {
+  handleIce(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { callId: string; targetUserId: string; candidate: RTCIceCandidateInit },
+  ) {
+    const sid = this.userSockets.get(data.targetUserId);
+    if (sid) {
+      this.server.to(sid).emit('webrtc:ice', {
         callId: data.callId,
         fromUserId: client.data.userId,
         candidate: data.candidate,
