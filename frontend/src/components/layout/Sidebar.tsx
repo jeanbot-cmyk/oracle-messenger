@@ -1,7 +1,8 @@
 'use client';
 import { useState } from 'react';
-import { useSession, signOut } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
 import { ConversationList } from '../chat/ConversationList';
+import { MenuDots } from './MenuDots';
 import Image from 'next/image';
 import clsx from 'clsx';
 
@@ -32,10 +33,11 @@ export function Sidebar() {
             </svg>
           </button>
           {session?.user?.image && (
-            <button onClick={() => signOut()} className="w-8 h-8 rounded-full overflow-hidden border border-oracle-border">
+            <div className="w-8 h-8 rounded-full overflow-hidden border border-oracle-border flex-shrink-0">
               <Image src={session.user.image} alt="avatar" width={32} height={32} />
-            </button>
+            </div>
           )}
+          <MenuDots />
         </div>
       </div>
 
