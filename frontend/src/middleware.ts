@@ -20,7 +20,14 @@ export function middleware(request: NextRequest) {
   const isPWA = request.cookies.get('pwa-installed')?.value === '1';
   if (isPWA) return NextResponse.next();
 
-  // Mode standalone détecté via header Sec-Fetch-Mode ou display-mode
+  // Custom header set by SW when running in standalone mode
+  const standaloneHeader = request.headers.get('X-PWA-Standalone');
+  if (standaloneHeader === '1') {
+    const res = NextResponse.next();
+    res.cookies.set('pwa-installed', '1', { path: '/', maxAge: 31536000, sameSite: 'lax' });
+    return res;
+  }
+
   const ua = request.headers.get('user-agent') ?? '';
   const isMobile = /android|iphone|ipad|ipod/i.test(ua);
 

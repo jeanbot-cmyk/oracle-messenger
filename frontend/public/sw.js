@@ -1,6 +1,5 @@
-// Oracle Messenger — Service Worker v5
-// Fix: force reinstall after uninstall by bumping version
-const CACHE_VERSION = 5;
+// Oracle Messenger — Service Worker v6
+const CACHE_VERSION = 6;
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 const STATIC_SHELL = [
   '/', '/chat', '/install', '/manifest.json',
@@ -74,8 +73,18 @@ self.addEventListener('fetch', e => {
   }
 
   // Network-first with cache fallback for HTML pages
+  // Inject X-PWA-Standalone header when running in standalone mode
+  // so the middleware can set the pwa-installed cookie automatically
+  const isStandalone = self.clients && (
+    matchMedia('(display-mode: standalone)').matches ||
+    navigator.standalone === true
+  );
+  const fetchRequest = (e.request.mode === 'navigate' && isStandalone)
+    ? new Request(e.request, { headers: { ...Object.fromEntries(e.request.headers), 'X-PWA-Standalone': '1' } })
+    : e.request;
+
   e.respondWith(
-    fetch(e.request)
+    fetch(fetchRequest)
       .then(res => {
         if (res.ok && url.origin === self.location.origin) {
           const clone = res.clone();

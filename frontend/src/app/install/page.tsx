@@ -151,39 +151,44 @@ export default function InstallPage() {
     return () => window.removeEventListener('beforeinstallprompt', h);
   }, []);
 
-  async function handleAndroidInstall() {
-    let prompt = (window as any).__installPrompt || (window as any).__pwaPrompt;
-
+  function handleAndroidInstall() {
+    const prompt = (window as any).__installPrompt || (window as any).__pwaPrompt;
     if (!prompt) {
-      // Wait up to 4s for the prompt
+      // Prompt not ready yet — listen for it and auto-trigger when it arrives
       setInstalling(true);
-      await new Promise<void>(resolve => {
-        const handler = (e: any) => {
-          e.preventDefault();
-          (window as any).__installPrompt = e;
-          prompt = e;
-          window.removeEventListener('beforeinstallprompt', handler);
-          resolve();
-        };
-        window.addEventListener('beforeinstallprompt', handler);
-        setTimeout(resolve, 4000);
-      });
-      setInstalling(false);
+      const handler = (e: any) => {
+        e.preventDefault();
+        (window as any).__installPrompt = e;
+        window.removeEventListener('beforeinstallprompt', handler);
+        // Trigger immediately — we are inside the event handler (user gesture context)
+        e.prompt();
+        e.userChoice.then((choice: any) => {
+          setInstalling(false);
+          if (choice.outcome === 'accepted') {
+            setInstalled(true);
+            setTimeout(() => window.location.replace('/'), 1800);
+          }
+        }).catch(() => setInstalling(false));
+      };
+      window.addEventListener('beforeinstallprompt', handler);
+      // Give up after 6s — browser may not support it
+      setTimeout(() => {
+        window.removeEventListener('beforeinstallprompt', handler);
+        setInstalling(false);
+      }, 6000);
+      return;
     }
 
-    if (prompt) {
-      setInstalling(true);
-      try {
-        await prompt.prompt();
-        const { outcome } = await prompt.userChoice;
-        if (outcome === 'accepted') {
-          setInstalled(true);
-          setTimeout(() => window.location.replace('/'), 1800);
-        }
-      } catch {}
+    // Prompt already captured — call synchronously (must be in user gesture)
+    setInstalling(true);
+    prompt.prompt();
+    prompt.userChoice.then((choice: any) => {
       setInstalling(false);
-    }
-    // If still no prompt, the browser will show its own UI or nothing — don't show an error
+      if (choice.outcome === 'accepted') {
+        setInstalled(true);
+        setTimeout(() => window.location.replace('/'), 1800);
+      }
+    }).catch(() => setInstalling(false));
   }
 
   if (!mounted) return null;
