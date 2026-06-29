@@ -1,9 +1,11 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
-import { signOut } from 'next-auth/react';
+import { signOut, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useSettings } from '../../store/settings';
 import { t, LANGUAGES } from '../../lib/i18n';
+
+const ADMIN_EMAIL = 'tchingankonggeorges@gmail.com';
 
 export function MenuDots() {
   const [open, setOpen] = useState(false);
@@ -11,7 +13,9 @@ export function MenuDots() {
   const [showMedia, setShowMedia] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const { lang, theme, setLang, toggleTheme } = useSettings();
+  const { data: session } = useSession();
   const router = useRouter();
+  const isAdmin = session?.user?.email === ADMIN_EMAIL;
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setLangOpen(false); } };
@@ -83,6 +87,18 @@ export function MenuDots() {
           <button style={itemStyle} onClick={() => { setOpen(false); router.push('/profile'); }}>
             <span>👤</span><span style={{ fontWeight:500 }}>Mon profil</span>
           </button>
+          {isAdmin && (
+            <>
+              <div style={divStyle}/>
+              <button style={itemStyle} onClick={() => { setOpen(false); router.push('/admin'); }}>
+                <span>🛡️</span>
+                <div>
+                  <div style={{ fontWeight:500 }}>Panel Admin</div>
+                  <div style={{ fontSize:11, color:'var(--text-muted)' }}>Statistiques & diffusion</div>
+                </div>
+              </button>
+            </>
+          )}
           <div style={divStyle}/>
           <button style={{ ...itemStyle, color:'#dc2626' }} onClick={() => { setOpen(false); signOut({ callbackUrl:'/login' }); }}>
             <span>🚪</span><span style={{ fontWeight:500 }}>{t(lang,'menu.logout')}</span>
