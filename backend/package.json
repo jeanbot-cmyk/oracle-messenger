@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "nest build",
-    "start": "node dist/main",
+    "start": "npx prisma migrate deploy --schema=prisma/schema.prisma && node dist/main",
     "start:dev": "nest start --watch",
     "lint": "eslint src --ext .ts"
   },
