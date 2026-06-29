@@ -40,7 +40,7 @@ export class ChatService {
 
   async getOrCreateDirect(userId: string, participantId: string) {
     // Chercher une conversation directe existante
-    const existing = await this.prisma.conversation.findFirst({
+    let conv = await this.prisma.conversation.findFirst({
       where: {
         type: 'direct',
         AND: [
@@ -48,20 +48,38 @@ export class ChatService {
           { participants: { some: { userId: participantId } } },
         ],
       },
-      include: { participants: { include: { user: true } }, messages: { take: 1, orderBy: { createdAt: 'desc' } } },
-    });
-    if (existing) return existing;
-
-    // Créer une nouvelle conversation directe
-    return this.prisma.conversation.create({
-      data: {
-        type: 'direct',
-        participants: {
-          create: [{ userId }, { userId: participantId }],
-        },
+      include: {
+        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+        messages: { take: 1, orderBy: { createdAt: 'desc' } },
       },
-      include: { participants: { include: { user: true } }, messages: true },
     });
+
+    if (!conv) {
+      conv = await this.prisma.conversation.create({
+        data: {
+          type: 'direct',
+          participants: { create: [{ userId }, { userId: participantId }] },
+        },
+        include: {
+          participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+          messages: { take: 1, orderBy: { createdAt: 'desc' } },
+        },
+      });
+    }
+
+    // Return same shape as getConversations — filter out self from participants
+    const others = conv.participants.filter(p => p.userId !== userId).map(p => p.user);
+    return {
+      id: conv.id,
+      type: conv.type,
+      name: conv.name,
+      avatar: conv.avatar,
+      participants: others,
+      lastMessage: conv.messages[0] ?? null,
+      unreadCount: 0,
+      isPinned: false,
+      updatedAt: conv.updatedAt,
+    };
   }
 
   // ── Messages ───────────────────────────────────────────────────────────────
