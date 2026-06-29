@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { api } from '../../lib/api';
+import { useChatStore } from '../../store/chat';
 
 interface LocalContact { name: string; phones: string[]; emails: string[] }
 interface AppUser { id: string; name: string; username: string; avatar?: string; phone?: string }
@@ -20,6 +21,8 @@ export default function ContactsPage() {
   const token      = session?.user?.backendToken ?? '';
   const myName     = session?.user?.name ?? 'un ami';
   const myUsername = (session?.user as any)?.username ?? '';
+
+  const { setActiveConv, setConversations, conversations } = useChatStore();
 
   const [contacts, setContacts] = useState<EnrichedContact[]>([]);
   const [loading,  setLoading]  = useState(false);
@@ -128,9 +131,20 @@ export default function ContactsPage() {
       setCreating(true);
       try {
         const conv = await api.conversations.create(c.appUser.id, token);
-        router.push(`/chat?conv=${conv.id}`);
-      } catch { router.push('/chat'); }
-      finally { setCreating(false); }
+        if (!conv?.id) throw new Error('no conv id');
+        // Add to store if not already present, then activate
+        const existing = useChatStore.getState().conversations;
+        if (!existing.find(x => x.id === conv.id)) {
+          setConversations([conv, ...existing]);
+        }
+        setActiveConv(conv.id);
+        router.push('/chat');
+      } catch (err) {
+        console.error('handleTap error', err);
+        alert('Impossible d\'ouvrir la conversation. Vérifiez votre connexion.');
+      } finally {
+        setCreating(false);
+      }
     } else {
       setInvite(c.local);
     }

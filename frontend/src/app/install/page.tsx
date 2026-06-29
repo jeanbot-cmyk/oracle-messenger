@@ -53,11 +53,16 @@ export default function InstallPage() {
     setMounted(true);
     setDevice(detectDevice());
 
-    // Déjà en standalone → redirect (no cookie — allows reinstall)
+    // Already installed (standalone mode) → go straight to app
     if (
       window.matchMedia('(display-mode: standalone)').matches ||
       (navigator as any).standalone === true
     ) {
+      window.location.replace('/');
+      return;
+    }
+    // Also check if opened via a PWA link while already installed
+    if (document.referrer.startsWith('android-app://')) {
       window.location.replace('/');
       return;
     }
@@ -204,13 +209,7 @@ export default function InstallPage() {
         </div>
       )}
 
-      {/* Déjà installé */}
-      <button
-        onClick={() => { document.cookie = 'pwa-installed=1; path=/; max-age=31536000; SameSite=Lax'; window.location.replace('/'); }}
-        style={{ background:'transparent', border:'none', color:'#8696a0', cursor:'pointer', fontSize:14, padding:'8px 0' }}
-      >
-        J'ai déjà installé → Continuer
-      </button>
+
     </div>
   );
 }
