@@ -404,11 +404,8 @@ function ContactRow({ c, onTap, creating, accent }: { c: EnrichedContact; onTap:
           )}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontWeight: 600, fontSize: 15, color: '#111b21', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <p style={{ fontWeight: 600, fontSize: 17, color: '#111b21', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {local.name}
-          </p>
-          <p style={{ fontSize: 13, margin: 0, color: appUser ? accent : '#8696a0' }}>
-            {appUser ? 'Sur Oracle Messenger' : (local.phones[0] ?? local.emails[0] ?? 'Appuyer pour inviter')}
           </p>
         </div>
         <div style={{ flexShrink: 0 }}>

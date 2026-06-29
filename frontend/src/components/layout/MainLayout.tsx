@@ -19,6 +19,7 @@ export function MainLayout({ onStartCall }: Props) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'unread' | 'fav' | 'groups'>('all');
   const cameraRef = useRef<HTMLInputElement>(null);
+  const photoPickerRef = useRef<HTMLInputElement>(null);
 
   const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
     {
@@ -46,10 +47,9 @@ export function MainLayout({ onStartCall }: Props) {
     { id: 'groups', label: 'Groupes' },
   ];
 
-  function handleCameraCapture(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileToStory(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    // Photo prise → ouvrir stories pour la partager
     const reader = new FileReader();
     reader.onload = () => {
       const b64 = reader.result as string;
@@ -82,7 +82,9 @@ export function MainLayout({ onStartCall }: Props) {
               </svg>
             </button>
             {/* Input caméra caché */}
-            <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleCameraCapture} style={{ display: 'none' }} />
+            <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFileToStory} style={{ display: 'none' }} />
+            {/* Input galerie caché (Retouche Photo) */}
+            <input ref={photoPickerRef} type="file" accept="image/*" onChange={handleFileToStory} style={{ display: 'none' }} />
             <MenuDots />
           </div>
         </div>
@@ -120,7 +122,7 @@ export function MainLayout({ onStartCall }: Props) {
           {tab === 'discussions' && <ConversationList search={search} filter={filter} onSelect={() => {}} />}
           {tab === 'appels'      && <CallsTab />}
           {tab === 'actus'       && <ActusTab />}
-          {tab === 'outils'      && <OutilsTab />}
+          {tab === 'outils'      && <OutilsTab onPickPhoto={() => photoPickerRef.current?.click()} />}
         </div>
 
         {/* FAB nouveau message → contacts */}
@@ -206,14 +208,14 @@ const TOOL_ICONS: Record<string, React.ReactNode> = {
 
 type ToolItem = { iconKey: string; label: string; sub: string; action: () => void; section?: string };
 
-function OutilsTab() {
+function OutilsTab({ onPickPhoto }: { onPickPhoto: () => void }) {
   const router = useRouter();
 
   const sections: { title: string; items: ToolItem[] }[] = [
     {
       title: 'Studio Créatif',
       items: [
-        { iconKey: 'photo',   label: 'Retouche Photo',   sub: 'Modifiez, recadrez et ajoutez des filtres sur vos photos.', action: () => router.push('/stories') },
+        { iconKey: 'photo',   label: 'Retouche Photo',   sub: 'Choisissez une photo depuis votre galerie.', action: onPickPhoto },
         { iconKey: 'meeting', label: 'Réunion Vidéo',    sub: 'Démarrez ou rejoignez une réunion instantanément.',         action: () => router.push('/tools') },
       ],
     },
