@@ -53,19 +53,24 @@ export default function InstallPage() {
     setMounted(true);
     setDevice(detectDevice());
 
-    // Déjà en standalone → redirect
+    // Déjà en standalone → redirect (no cookie — allows reinstall)
     if (
       window.matchMedia('(display-mode: standalone)').matches ||
       (navigator as any).standalone === true
     ) {
-      document.cookie = 'pwa-installed=1; path=/; max-age=31536000; SameSite=Lax';
       window.location.replace('/');
       return;
     }
 
-    if ((window as any).__pwaPrompt) setHasPrompt(true);
+    // Support both __pwaPrompt (legacy) and __installPrompt (new)
+    if ((window as any).__pwaPrompt || (window as any).__installPrompt) setHasPrompt(true);
 
-    const h = (e: any) => { e.preventDefault(); (window as any).__pwaPrompt = e; setHasPrompt(true); };
+    const h = (e: any) => {
+      e.preventDefault();
+      (window as any).__pwaPrompt = e;
+      (window as any).__installPrompt = e;
+      setHasPrompt(true);
+    };
     window.addEventListener('beforeinstallprompt', h);
     window.addEventListener('appinstalled', () => {
       document.cookie = 'pwa-installed=1; path=/; max-age=31536000; SameSite=Lax';
@@ -77,7 +82,7 @@ export default function InstallPage() {
   }, []);
 
   async function handleInstall() {
-    const prompt = (window as any).__pwaPrompt;
+    const prompt = (window as any).__pwaPrompt || (window as any).__installPrompt;
     if (prompt) {
       setInstalling(true);
       try {

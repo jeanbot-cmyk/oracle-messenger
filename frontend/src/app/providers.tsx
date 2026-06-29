@@ -66,9 +66,32 @@ function ThemeApplier() {
       document.cookie = 'pwa-installed=1; path=/; max-age=31536000; SameSite=Lax';
     }
 
-    // Service Worker
+    // Service Worker — register and handle updates
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+      navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+        .then(reg => {
+          // Check for updates every time the page loads
+          reg.update().catch(() => {});
+
+          // When a new SW takes over, reload to get fresh assets
+          navigator.serviceWorker.addEventListener('message', e => {
+            if (e.data?.type === 'SW_UPDATED') {
+              window.location.reload();
+            }
+          });
+        })
+        .catch(() => {});
+
+      // Persist the install prompt so the user can reinstall after uninstall
+      window.addEventListener('beforeinstallprompt', (e: any) => {
+        e.preventDefault();
+        (window as any).__installPrompt = e;
+      });
+
+      // Track PWA installs
+      window.addEventListener('appinstalled', () => {
+        fetch('/api/admin/pwa-install', { method: 'POST' }).catch(() => {});
+      });
     }
 
     // Storage quota alert — warn if < 10% free
