@@ -2,13 +2,6 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useState } from 'react';
 
-// Capturer le prompt natif le plus tôt possible
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeinstallprompt', (e: any) => {
-    e.preventDefault();
-    (window as any).__pwaPrompt = e;
-  });
-}
 
 type Device = 'android' | 'samsung' | 'ios' | 'other';
 function detectDevice(): Device {
@@ -67,18 +60,17 @@ export default function InstallPage() {
       return;
     }
 
-    // Support both __pwaPrompt (legacy) and __installPrompt (new)
-    if ((window as any).__pwaPrompt || (window as any).__installPrompt) setHasPrompt(true);
+    // Check if prompt already captured by layout.tsx inline script
+    if ((window as any).__installPrompt || (window as any).__pwaPrompt) setHasPrompt(true);
 
     const h = (e: any) => {
       e.preventDefault();
-      (window as any).__pwaPrompt = e;
       (window as any).__installPrompt = e;
+      (window as any).__pwaPrompt = e;
       setHasPrompt(true);
     };
     window.addEventListener('beforeinstallprompt', h);
     window.addEventListener('appinstalled', () => {
-      document.cookie = 'pwa-installed=1; path=/; max-age=31536000; SameSite=Lax';
       setInstalled(true);
       setTimeout(() => window.location.replace('/'), 1600);
     });
@@ -87,20 +79,38 @@ export default function InstallPage() {
   }, []);
 
   async function handleInstall() {
-    const prompt = (window as any).__pwaPrompt || (window as any).__installPrompt;
+    // Try to get the prompt — wait up to 3s if not yet captured
+    let prompt = (window as any).__installPrompt || (window as any).__pwaPrompt;
+    if (!prompt) {
+      setInstalling(true);
+      await new Promise<void>(resolve => {
+        const handler = (e: any) => {
+          e.preventDefault();
+          (window as any).__installPrompt = e;
+          (window as any).__pwaPrompt = e;
+          prompt = e;
+          window.removeEventListener('beforeinstallprompt', handler);
+          resolve();
+        };
+        window.addEventListener('beforeinstallprompt', handler);
+        setTimeout(resolve, 3000); // give up after 3s
+      });
+      setInstalling(false);
+    }
+
     if (prompt) {
       setInstalling(true);
       try {
         await prompt.prompt();
-        const { outcome } = await prompt.userChoice;
-        if (outcome === 'accepted') {
-          document.cookie = 'pwa-installed=1; path=/; max-age=31536000; SameSite=Lax';
+        const choice = await prompt.userChoice;
+        if (choice.outcome === 'accepted') {
           setInstalled(true);
           setTimeout(() => window.location.replace('/'), 1600);
         }
       } catch {}
       setInstalling(false);
     } else {
+      // No native prompt available (iOS Safari, desktop, etc.) → show manual steps
       setShowManual(true);
     }
   }

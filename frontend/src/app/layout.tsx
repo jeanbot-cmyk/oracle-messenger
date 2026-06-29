@@ -46,6 +46,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        {/* Capture beforeinstallprompt as early as possible, before React hydrates */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          window.addEventListener('beforeinstallprompt', function(e) {
+            e.preventDefault();
+            window.__installPrompt = e;
+            window.__pwaPrompt = e;
+          });
+        `}} />
       </head>
       <body style={{ height: '100vh', overflow: 'hidden', background: 'var(--bg-app)' }}>
         <Providers>{children}</Providers>
