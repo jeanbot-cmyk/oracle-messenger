@@ -1,10 +1,11 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { ConversationList } from '../chat/ConversationList';
 import { ChatWindow } from '../chat/ChatWindow';
 import { MenuDots } from './MenuDots';
+import { useChatStore } from '../../store/chat';
 
 type Tab = 'discussions' | 'appels' | 'actus' | 'outils';
 
@@ -15,11 +16,36 @@ interface Props {
 export function MainLayout({ onStartCall }: Props) {
   const { data: session } = useSession();
   const router = useRouter();
-  const [tab, setTab]     = useState<Tab>('discussions');
+  const [tab, setTab]       = useState<Tab>('discussions');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'unread' | 'fav' | 'groups'>('all');
+  const [showChat, setShowChat] = useState(false); // mobile: show conversation panel
+  const [isMobile, setIsMobile] = useState(false);
   const cameraRef = useRef<HTMLInputElement>(null);
   const photoPickerRef = useRef<HTMLInputElement>(null);
+  const { activeConvId, setActiveConv } = useChatStore();
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  // When a conversation is activated (e.g. from /contacts), switch to chat view on mobile
+  useEffect(() => {
+    if (activeConvId && isMobile) setShowChat(true);
+  }, [activeConvId, isMobile]);
+
+  function handleSelectConv(convId?: string) {
+    if (convId) setActiveConv(convId);
+    if (isMobile) setShowChat(true);
+  }
+
+  function handleBackToList() {
+    setShowChat(false);
+    setActiveConv('');
+  }
 
   const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
     {
@@ -60,11 +86,15 @@ export function MainLayout({ onStartCall }: Props) {
     e.target.value = '';
   }
 
+  // On mobile: show either list OR chat, never both
+  const showList = !isMobile || !showChat;
+  const showChatPanel = !isMobile || showChat;
+
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', height: '100%' }}>
 
-      {/* ── Panneau gauche ── */}
-      <div style={{ width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', background: '#fff', borderRight: '1px solid #f0f2f5', height: '100%', flexShrink: 0, position: 'relative' }}>
+      {/* ── Panneau gauche (liste) ── */}
+      <div style={{ width: isMobile ? '100%' : '100%', maxWidth: isMobile ? '100%' : 420, display: showList ? 'flex' : 'none', flexDirection: 'column', background: '#fff', borderRight: isMobile ? 'none' : '1px solid #f0f2f5', height: '100%', flexShrink: 0, position: 'relative' }}>
 
         {/* Header */}
         <div style={{ padding: '14px 16px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
@@ -119,7 +149,13 @@ export function MainLayout({ onStartCall }: Props) {
 
         {/* Contenu */}
         <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-          {tab === 'discussions' && <ConversationList search={search} filter={filter} onSelect={() => {}} />}
+          {tab === 'discussions' && (
+            <ConversationList
+              search={search}
+              filter={filter}
+              onSelect={(convId) => handleSelectConv(convId)}
+            />
+          )}
           {tab === 'appels'      && <CallsTab />}
           {tab === 'actus'       && <ActusTab />}
           {tab === 'outils'      && <OutilsTab onPickPhoto={() => photoPickerRef.current?.click()} />}
@@ -151,8 +187,11 @@ export function MainLayout({ onStartCall }: Props) {
       </div>
 
       {/* ── Panneau droit (conversation) ── */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <ChatWindow onStartCall={onStartCall} />
+      <div style={{ flex: 1, display: showChatPanel ? 'flex' : 'none', overflow: 'hidden', flexDirection: 'column' }}>
+        <ChatWindow
+          onStartCall={onStartCall}
+          onBack={isMobile ? handleBackToList : undefined}
+        />
       </div>
     </div>
   );

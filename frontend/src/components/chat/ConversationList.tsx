@@ -8,7 +8,7 @@ import Image from 'next/image';
 interface Props {
   search?: string;
   filter?: 'all' | 'unread' | 'fav' | 'groups';
-  onSelect?: () => void;
+  onSelect?: (convId: string) => void;
 }
 
 export function ConversationList({ search = '', filter = 'all', onSelect }: Props) {
@@ -49,7 +49,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect }: Prop
         return (
           <li key={conv.id}>
             <button
-              onClick={() => { setActiveConv(conv.id); onSelect?.(); }}
+              onClick={() => { setActiveConv(conv.id); onSelect?.(conv.id); }}
               style={{
                 width:'100%', display:'flex', alignItems:'center', gap:12,
                 padding:'10px 16px', border:'none',

@@ -12,9 +12,10 @@ import Image from 'next/image';
 
 interface ChatWindowProps {
   onStartCall?: (conversationId: string, targetUserIds: string[], type: 'audio' | 'video') => void;
+  onBack?: () => void; // mobile: back to conversation list
 }
 
-export function ChatWindow({ onStartCall }: ChatWindowProps) {
+export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const { data: session } = useSession();
   const token = session?.user?.backendToken ?? '';
   const userId = session?.user?.id ?? '';
@@ -97,6 +98,15 @@ export function ChatWindow({ onStartCall }: ChatWindowProps) {
     <div style={{ flex:1, display:'flex', flexDirection:'column', height:'100vh', background:'var(--bg-elevated)' }}>
       {/* Header */}
       <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px', background:'var(--header-bg)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+        {/* Back button — mobile only */}
+        {onBack && (
+          <button onClick={onBack}
+            style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'transparent', cursor:'pointer', color:'var(--text-secondary)', flexShrink:0 }}>
+            <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
+            </svg>
+          </button>
+        )}
         <div style={{ position:'relative' }}>
           <div style={{ width:42, height:42, borderRadius:'50%', background:'var(--accent)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
             {avatar ? <Image src={avatar} alt={name??''} width={42} height={42} style={{ objectFit:'cover' }} /> : (

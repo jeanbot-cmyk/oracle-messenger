@@ -132,10 +132,19 @@ export default function ContactsPage() {
       try {
         const conv = await api.conversations.create(c.appUser.id, token);
         if (!conv?.id) throw new Error('no conv id');
+
+        // Ensure participants is always an array (backend now returns filtered list)
+        const normalized = {
+          ...conv,
+          participants: Array.isArray(conv.participants) ? conv.participants : [c.appUser],
+          unreadCount: conv.unreadCount ?? 0,
+          lastMessage: conv.lastMessage ?? null,
+        };
+
         // Add to store if not already present, then activate
         const existing = useChatStore.getState().conversations;
         if (!existing.find(x => x.id === conv.id)) {
-          setConversations([conv, ...existing]);
+          setConversations([normalized, ...existing]);
         }
         setActiveConv(conv.id);
         router.push('/chat');
