@@ -11,7 +11,19 @@ function LoginContent() {
   const [error, setError]     = useState<string | null>(null);
 
   useEffect(() => {
-    if (status === 'authenticated') router.replace('/chat');
+    if (status === 'authenticated') {
+      // If not installed as PWA on mobile, suggest install first
+      const isStandalone =
+        window.matchMedia('(display-mode: standalone)').matches ||
+        (navigator as any).standalone === true;
+      const isPWACookie = document.cookie.includes('pwa-installed=1');
+      const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent);
+      if (isMobile && !isStandalone && !isPWACookie) {
+        router.replace('/install');
+      } else {
+        router.replace('/chat');
+      }
+    }
     const p = new URLSearchParams(window.location.search);
     const err = p.get('error');
     if (err) { setError(err); setLoading(false); }
@@ -19,7 +31,8 @@ function LoginContent() {
 
   async function handleGoogle() {
     setLoading(true); setError(null);
-    await signIn('google', { callbackUrl: `${window.location.origin}/chat` });
+    // callbackUrl goes to / which redirects to /chat or /install based on session
+    await signIn('google', { callbackUrl: `${window.location.origin}/` });
   }
 
   if (status === 'loading') return <Spinner />;

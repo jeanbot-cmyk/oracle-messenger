@@ -124,21 +124,31 @@ function PhoneGate({ children }: { children: React.ReactNode }) {
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
+    if (status === 'loading') return;
     if (status !== 'authenticated') { setChecked(true); return; }
-    const token = session?.user?.backendToken;
+    const token = (session?.user as any)?.backendToken;
     if (!token) { setChecked(true); return; }
-    // Check if phone already saved locally
+
+    // Check local cache first
     try {
       const local = JSON.parse(localStorage.getItem('oracle-profile') ?? '{}');
       if (local.phone) { setChecked(true); return; }
     } catch {}
-    // Check backend
+
+    // Check backend — if it fails, assume phone is needed (safe default)
     fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/users/me/has-phone`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then(r => r.json())
-      .then(d => { setNeedsPhone(!d.hasPhone); setChecked(true); })
-      .catch(() => setChecked(true));
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(d => {
+        setNeedsPhone(!d.hasPhone);
+        setChecked(true);
+      })
+      .catch(() => {
+        // Backend unreachable — require phone to be safe
+        setNeedsPhone(true);
+        setChecked(true);
+      });
   }, [status, session]);
 
   if (!checked) return null;
