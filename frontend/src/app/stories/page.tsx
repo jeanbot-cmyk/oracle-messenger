@@ -69,7 +69,7 @@ export default function StoriesPage() {
     if (!mounted) return;
     setStories(loadStories());
     // Handle camera capture from MainLayout
-    const newParam = searchParams.get('new');
+    const newParam = searchParams?.get('new');
     if (newParam === 'image') {
       const captured = sessionStorage.getItem('camera-capture');
       if (captured) {
