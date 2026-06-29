@@ -17,7 +17,7 @@ export default function ToolsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialTab = (searchParams.get('tab') as 'meeting'|'notes'|'events') ?? 'meeting';
+  const initialTab = (searchParams?.get('tab') as 'meeting'|'notes'|'events') ?? 'meeting';
   const [tab, setTab] = useState<'meeting'|'notes'|'events'>(initialTab);
 
   useEffect(() => { if (status === 'unauthenticated') router.replace('/login'); }, [status]);
