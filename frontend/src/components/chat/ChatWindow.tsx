@@ -24,12 +24,14 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const { activeConvId, conversations, messages, typingUsers, typingNames: typingNamesStore, onlineUsers, setMessages, addMessage, deleteMessage, updateMessage, markRead, loadLocalMessages } = useChatStore();
   const { joinConversation, sendTyping, sendMessage } = useSocket();
 
-  const [input, setInput]     = useState('');
-  const [replyTo, setReplyTo] = useState<Message | null>(null);
-  const [editMsg, setEditMsg] = useState<Message | null>(null);
-  const [sending, setSending] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [input, setInput]         = useState('');
+  const [replyTo, setReplyTo]     = useState<Message | null>(null);
+  const [editMsg, setEditMsg]     = useState<Message | null>(null);
+  const [sending, setSending]     = useState(false);
+  const [profileModal, setProfileModal] = useState(false);
+  const bottomRef  = useRef<HTMLDivElement>(null);
   const typingTimer = useRef<NodeJS.Timeout | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const conv = conversations.find(c => c.id === activeConvId);
   const convMessages = activeConvId ? (messages[activeConvId] ?? []) : [];
@@ -80,6 +82,21 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     try { await api.messages.delete(msgId, token); deleteMessage(activeConvId, msgId); } catch {}
   }
 
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !activeConvId) return;
+    const isImage = file.type.startsWith('image/');
+    const maxSize = 5 * 1024 * 1024; // 5 MB
+    if (file.size > maxSize) { alert('Fichier trop volumineux (max 5 Mo)'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const b64 = reader.result as string;
+      sendMessage(activeConvId, b64, isImage ? 'image' : 'file');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
   const name = conv?.type === 'group' ? conv.name : other?.name ?? 'Inconnu';
   const avatar = conv?.type === 'group' ? conv.avatar : other?.avatar;
 
@@ -107,14 +124,16 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             </svg>
           </button>
         )}
-        <div style={{ position:'relative' }}>
+        {/* Avatar cliquable → modal profil */}
+        <button onClick={() => setProfileModal(true)}
+          style={{ position:'relative', border:'none', background:'transparent', padding:0, cursor:'pointer', flexShrink:0 }}>
           <div style={{ width:42, height:42, borderRadius:'50%', background:'var(--accent)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
             {avatar ? <Image src={avatar} alt={name??''} width={42} height={42} style={{ objectFit:'cover' }} /> : (
               <span style={{ fontWeight:600, color:'#fff', fontSize:18 }}>{(name??'?')[0].toUpperCase()}</span>
             )}
           </div>
           {isOnline && <span style={{ position:'absolute', bottom:1, right:1, width:11, height:11, background:'var(--online-dot)', borderRadius:'50%', border:'2px solid var(--header-bg)' }} />}
-        </div>
+        </button>
         <div style={{ flex:1 }}>
           <p style={{ fontWeight:600, fontSize:15, color:'var(--text-primary)', margin:0 }}>{name}</p>
           <p style={{ fontSize:12, color: typingNames.length > 0 ? 'var(--accent)' : 'var(--text-muted)', margin:0 }}>
@@ -186,7 +205,10 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
 
       {/* Input */}
       <div style={{ padding:'8px 12px', background:'var(--bg-app)', flexShrink:0, display:'flex', alignItems:'flex-end', gap:8 }}>
-        <button style={{ width:42, height:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--bg-surface)', cursor:'pointer', color:'var(--text-secondary)', flexShrink:0 }}>
+        {/* Trombone — ouvre sélecteur fichier/image */}
+        <input ref={fileInputRef} type="file" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.zip" onChange={handleFileChange} style={{ display:'none' }}/>
+        <button onClick={() => fileInputRef.current?.click()}
+          style={{ width:42, height:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--bg-surface)', cursor:'pointer', color:'var(--text-secondary)', flexShrink:0 }}>
           <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
           </svg>
@@ -195,7 +217,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           <textarea value={input} onChange={e => handleInputChange(e.target.value)}
             onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
             placeholder={t(lang,'chat.placeholder')} rows={1}
-            style={{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:15, color:'var(--text-primary)', resize:'none', maxHeight:128, lineHeight:1.5 }}
+            style={{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:16, color:'var(--text-primary)', resize:'none', maxHeight:128, lineHeight:1.5 }}
             onInput={e => { const el = e.target as HTMLTextAreaElement; el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,128)+'px'; }}
           />
           <button style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--text-muted)', flexShrink:0 }}>
@@ -211,6 +233,27 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           </svg>
         </button>
       </div>
+
+      {/* Modal photo de profil */}
+      {profileModal && (
+        <div onClick={() => setProfileModal(false)}
+          style={{ position:'fixed', inset:0, zIndex:500, background:'rgba(0,0,0,0.85)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:16 }}>
+          <div style={{ width:220, height:220, borderRadius:'50%', overflow:'hidden', border:'3px solid #fff', flexShrink:0 }}>
+            {avatar
+              ? <img src={avatar} alt={name??''} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+              : <div style={{ width:'100%', height:'100%', background:'#128C7E', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <span style={{ fontSize:80, fontWeight:700, color:'#fff' }}>{(name??'?')[0].toUpperCase()}</span>
+                </div>
+            }
+          </div>
+          <p style={{ color:'#fff', fontSize:20, fontWeight:700, margin:0 }}>{name}</p>
+          <p style={{ color:'rgba(255,255,255,0.6)', fontSize:14, margin:0 }}>{isOnline ? '● En ligne' : 'Hors ligne'}</p>
+          <button onClick={() => setProfileModal(false)}
+            style={{ marginTop:8, background:'rgba(255,255,255,0.15)', border:'none', borderRadius:20, padding:'10px 28px', color:'#fff', fontSize:15, cursor:'pointer' }}>
+            Fermer
+          </button>
+        </div>
+      )}
     </div>
   );
 }

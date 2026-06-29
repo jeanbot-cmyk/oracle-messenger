@@ -30,11 +30,37 @@ export function useNotifications() {
   const ctxRef = useRef<AudioContext | null>(null);
   const ringOscs = useRef<OscillatorNode[]>([]);
   const ringTimer = useRef<NodeJS.Timeout | null>(null);
+  const ringAudio = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     setSupported('Notification' in window);
     if ('Notification' in window) setPermission(Notification.permission);
+
+    // Unlock AudioContext on first user gesture (required by mobile browsers)
+    const unlock = () => {
+      try {
+        if (!ctxRef.current) {
+          ctxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        }
+        if (ctxRef.current.state === 'suspended') ctxRef.current.resume();
+      } catch {}
+      // Remove after first interaction
+      window.removeEventListener('touchstart', unlock);
+      window.removeEventListener('touchend', unlock);
+      window.removeEventListener('click', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+    window.addEventListener('touchstart', unlock, { passive: true });
+    window.addEventListener('touchend', unlock, { passive: true });
+    window.addEventListener('click', unlock);
+    window.addEventListener('keydown', unlock);
+    return () => {
+      window.removeEventListener('touchstart', unlock);
+      window.removeEventListener('touchend', unlock);
+      window.removeEventListener('click', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
   }, []);
 
   function ctx(): AudioContext {
@@ -56,27 +82,59 @@ export function useNotifications() {
   function startRingtone() {
     try {
       if ('vibrate' in navigator) navigator.vibrate([600, 400, 600, 400, 600]);
-      const ring = () => {
-        try {
-          const c = ctx();
-          const oscs = createRingOscillators(c);
-          ringOscs.current = oscs;
-          oscs.forEach(o => o.start());
-          setTimeout(() => { try { oscs.forEach(o => o.stop()); } catch {} }, 1400);
-        } catch {}
-      };
-      ring();
-      ringTimer.current = setInterval(() => {
-        ring();
-        if ('vibrate' in navigator) navigator.vibrate([600, 400, 600]);
-      }, 2600);
+
+      // Try HTML Audio first (most reliable on mobile)
+      try {
+        if (!ringAudio.current) {
+          // Use a data URI for a simple beep tone — no external file needed
+          ringAudio.current = new Audio(
+            'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAA' +
+            'EAAQAAgD4AAACAPAABACAAZGF0YUoGAACBhYqFbF1fdJiVkHBZW2mSj4ZqU1Vl' +
+            'iIV8ZE5QYH+CeGZQUmB8f3VlT1FffX52ZlBSXnt+dWZQUl57fnVmUFJee352Zl' +
+            'BSXnt+dWZQUl57fnVmUFJee352ZlBSXnt+dWZQUl57fnVmUFJee352ZlBSXnt+' +
+            'dWZQUl57fnVmUFJee352ZlBSXnt+dWZQUl57fnVmUFJee352ZlBSXnt+dWZQUl' +
+            '57fnVmUFJee352ZlBSXnt+dWZQUl57fnVmUFJee352ZlBSXnt+dWZQUl57fnVm' +
+            'UFJee352ZlBSXnt+dWZQUl57fnVmUFJee352ZlBSXnt+dWZQUl57fnVmUFJee3' +
+            '52ZlBSXnt+dWZQUl57fnVmUFJee352ZlBSXnt+dWZQUl57fnVmUFJee352ZlBS' +
+            'Xnt+dWZQUl57fnVmUFJee352ZlBSXnt+dWZQUl57fnVmUFJee352ZlBSXnt+dQ=='
+          );
+          ringAudio.current.loop = true;
+          ringAudio.current.volume = 0.8;
+        }
+        ringAudio.current.currentTime = 0;
+        ringAudio.current.play().catch(() => {
+          // Fallback to Web Audio oscillator
+          startOscillatorRing();
+        });
+        return;
+      } catch {}
+
+      startOscillatorRing();
     } catch {}
+  }
+
+  function startOscillatorRing() {
+    const ring = () => {
+      try {
+        const c = ctx();
+        const oscs = createRingOscillators(c);
+        ringOscs.current = oscs;
+        oscs.forEach(o => o.start());
+        setTimeout(() => { try { oscs.forEach(o => o.stop()); } catch {} }, 1400);
+      } catch {}
+    };
+    ring();
+    ringTimer.current = setInterval(() => {
+      ring();
+      if ('vibrate' in navigator) navigator.vibrate([600, 400, 600]);
+    }, 2600);
   }
 
   function stopRingtone() {
     if (ringTimer.current) { clearInterval(ringTimer.current); ringTimer.current = null; }
     try { ringOscs.current.forEach(o => o.stop()); } catch {}
     ringOscs.current = [];
+    try { ringAudio.current?.pause(); if (ringAudio.current) ringAudio.current.currentTime = 0; } catch {}
     if ('vibrate' in navigator) navigator.vibrate(0);
   }
 
