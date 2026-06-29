@@ -12,6 +12,7 @@ interface Story {
   authorName: string;
   authorAvatar?: string;
   content: string;           // texte ou base64 image
+  caption?: string;          // légende sur image
   type: 'text' | 'image';
   bg: string;                // couleur fond pour texte
   createdAt: string;
@@ -53,7 +54,10 @@ export default function StoriesPage() {
   const [newType, setNewType] = useState<'text' | 'image'>('text');
   const [newImage, setNewImage] = useState('');
   const [progress, setProgress] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [newCaption, setNewCaption] = useState('');
   const progressRef = useRef<NodeJS.Timeout | null>(null);
+  const pausedRef = useRef(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -77,19 +81,22 @@ export default function StoriesPage() {
     }
   }, [mounted]);
 
-  // Auto-avance story toutes les 5s
+  // Auto-avance story toutes les 5s — pause on press-and-hold
   useEffect(() => {
     if (!viewing) { setProgress(0); return; }
     setProgress(0);
-    const start = Date.now();
+    pausedRef.current = false;
+    setPaused(false);
+    let elapsed = 0;
     const duration = 5000;
+    const tick = 50;
     progressRef.current = setInterval(() => {
-      const elapsed = Date.now() - start;
+      if (pausedRef.current) return; // frozen while held
+      elapsed += tick;
       const pct = Math.min((elapsed / duration) * 100, 100);
       setProgress(pct);
       if (pct >= 100) {
         clearInterval(progressRef.current!);
-        // Passer à la story suivante du même auteur
         const authorStories = stories.filter(s => s.authorId === viewing.authorId);
         const idx = authorStories.findIndex(s => s.id === viewing.id);
         if (idx < authorStories.length - 1) {
@@ -98,7 +105,7 @@ export default function StoriesPage() {
           setViewing(null);
         }
       }
-    }, 50);
+    }, tick);
     return () => { if (progressRef.current) clearInterval(progressRef.current); };
   }, [viewing]);
 
@@ -124,6 +131,7 @@ export default function StoriesPage() {
       authorName: session.user.name ?? 'Moi',
       authorAvatar: session.user.image ?? undefined,
       content: newType === 'text' ? newText.trim() : newImage,
+      caption: newType === 'image' ? newCaption.trim() || undefined : undefined,
       type: newType,
       bg: newBg,
       createdAt: now.toISOString(),
@@ -135,6 +143,7 @@ export default function StoriesPage() {
     setCreating(false);
     setNewText('');
     setNewImage('');
+    setNewCaption('');
   }
 
   function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -281,9 +290,17 @@ export default function StoriesPage() {
             <button onClick={() => setViewing(null)} style={{ border:'none', background:'transparent', color:'#fff', fontSize:28, cursor:'pointer', lineHeight:1 }}>×</button>
           </div>
 
-          {/* Contenu */}
-          <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', background: viewing.type==='text' ? viewing.bg : '#000' }}
+          {/* Contenu — tap to advance, press-and-hold to pause */}
+          <div
+            style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', background: viewing.type==='text' ? viewing.bg : '#000', position:'relative', userSelect:'none' }}
+            onTouchStart={() => { pausedRef.current = true; setPaused(true); }}
+            onTouchEnd={() => {
+              pausedRef.current = false; setPaused(false);
+            }}
+            onMouseDown={() => { pausedRef.current = true; setPaused(true); }}
+            onMouseUp={() => { pausedRef.current = false; setPaused(false); }}
             onClick={() => {
+              if (paused) return; // don't advance on release of hold
               const authorStories = byAuthor[viewing.authorId] ?? [];
               const idx = authorStories.findIndex(s => s.id === viewing.id);
               if (idx < authorStories.length - 1) setViewing(authorStories[idx + 1]);
@@ -293,6 +310,20 @@ export default function StoriesPage() {
               <img src={viewing.content} alt="" style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain' }} />
             ) : (
               <p style={{ fontSize:28, fontWeight:700, color:'#fff', textAlign:'center', padding:32, textShadow:'0 2px 8px rgba(0,0,0,.3)' }}>{viewing.content}</p>
+            )}
+            {/* Caption overlay */}
+            {viewing.caption && !paused && (
+              <div style={{ position:'absolute', bottom:0, left:0, right:0, background:'linear-gradient(transparent, rgba(0,0,0,.7))', padding:'32px 20px 16px' }}>
+                <p style={{ color:'#fff', fontSize:15, fontWeight:500, margin:0, textAlign:'center', textShadow:'0 1px 4px rgba(0,0,0,.5)' }}>{viewing.caption}</p>
+              </div>
+            )}
+            {/* Pause indicator */}
+            {paused && (
+              <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,.15)' }}>
+                <div style={{ width:48, height:48, borderRadius:'50%', background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <svg width="20" height="20" fill="white" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                </div>
+              </div>
             )}
           </div>
 
@@ -363,6 +394,16 @@ export default function StoriesPage() {
                   </button>
                 )}
                 <input ref={fileRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display:'none' }} />
+                {/* Caption field — only shown when image is selected */}
+                {newImage && (
+                  <input
+                    value={newCaption}
+                    onChange={e => setNewCaption(e.target.value)}
+                    placeholder="Ajouter une légende (optionnel)…"
+                    maxLength={120}
+                    style={{ width:'100%', padding:'12px 14px', borderRadius:12, border:'1px solid var(--border)', background:'var(--bg-input)', color:'var(--text-primary)', fontSize:14, outline:'none', boxSizing:'border-box' as const, marginTop:8 }}
+                  />
+                )}
               </>
             )}
           </div>

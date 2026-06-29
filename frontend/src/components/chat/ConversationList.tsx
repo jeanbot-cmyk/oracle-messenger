@@ -58,31 +58,31 @@ export function ConversationList({ search = '', filter = 'all', onSelect }: Prop
             >
               {/* Avatar */}
               <div style={{ position:'relative', flexShrink:0 }}>
-                <div style={{ width:52, height:52, borderRadius:'50%', background:'#00a884', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
+                <div style={{ width:52, height:52, borderRadius:'50%', background:'#128C7E', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
                   {avatar
                     ? <Image src={avatar} alt={name ?? ''} width={52} height={52} style={{ objectFit:'cover' }}/>
                     : <span style={{ fontSize:22, fontWeight:700, color:'#fff' }}>{(name ?? '?')[0].toUpperCase()}</span>
                   }
                 </div>
                 {isOnline && (
-                  <span style={{ position:'absolute', bottom:1, right:1, width:13, height:13, background:'#00a884', borderRadius:'50%', border:'2px solid #fff' }}/>
+                  <span style={{ position:'absolute', bottom:1, right:1, width:13, height:13, background:'#25D366', borderRadius:'50%', border:'2px solid #fff' }}/>
                 )}
               </div>
 
               {/* Infos */}
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:3 }}>
-                  <span style={{ fontWeight:600, fontSize:15, color:'#111b21', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>{name}</span>
-                  <span style={{ fontSize:12, color: conv.unreadCount > 0 ? '#00a884' : '#8696a0', flexShrink:0, marginLeft:8 }}>{timeStr}</span>
+                  <span style={{ fontWeight:600, fontSize:16, color:'#111B21', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>{name}</span>
+                  <span style={{ fontSize:12, color: conv.unreadCount > 0 ? '#128C7E' : '#8696a0', flexShrink:0, marginLeft:8 }}>{timeStr}</span>
                 </div>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                  <p style={{ fontSize:13, color:'#667781', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, margin:0 }}>
+                  <p style={{ fontSize:14, color:'#667781', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, margin:0 }}>
                     {lastMsg?.isDeleted
                       ? <em style={{ color:'#8696a0' }}>Message supprimé</em>
                       : (lastMsg?.content ?? '')}
                   </p>
                   {conv.unreadCount > 0 && (
-                    <span style={{ marginLeft:8, flexShrink:0, minWidth:20, height:20, background:'#00a884', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'#fff', fontWeight:700, padding:'0 5px' }}>
+                    <span style={{ marginLeft:8, flexShrink:0, minWidth:20, height:20, background:'#128C7E', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'#fff', fontWeight:700, padding:'0 5px' }}>
                       {conv.unreadCount > 9 ? '9+' : conv.unreadCount}
                     </span>
                   )}

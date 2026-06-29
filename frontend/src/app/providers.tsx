@@ -1,9 +1,10 @@
 'use client';
-import { SessionProvider } from 'next-auth/react';
+import { SessionProvider, useSession } from 'next-auth/react';
 import { Toaster } from 'react-hot-toast';
 import { useEffect, useState } from 'react';
 import { useSettings } from '../store/settings';
 import { detectLanguage } from '../lib/i18n';
+import { PhoneOnboarding } from '../components/PhoneOnboarding';
 
 // Import contacts automatique au lancement (Android Chrome 80+)
 async function autoImportContacts() {
@@ -70,6 +71,19 @@ function ThemeApplier() {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
 
+    // Storage quota alert — warn if < 10% free
+    if (navigator.storage?.estimate) {
+      navigator.storage.estimate().then(({ usage = 0, quota = 1 }) => {
+        const pctFree = ((quota - usage) / quota) * 100;
+        if (pctFree < 10 && Notification.permission === 'granted') {
+          new Notification('Oracle Messenger — Stockage', {
+            body: "Votre téléphone est presque plein. Supprimez quelques fichiers dans Oracle Messenger pour libérer de l'espace.",
+            icon: '/icons/icon-192.png',
+          });
+        }
+      }).catch(() => {});
+    }
+
     // Import contacts automatique — déclenché après un court délai
     // pour ne pas bloquer le rendu initial
     const t = setTimeout(() => autoImportContacts(), 2000);
@@ -77,6 +91,34 @@ function ThemeApplier() {
   }, []);
 
   return null;
+}
+
+function PhoneGate({ children }: { children: React.ReactNode }) {
+  const { data: session, status } = useSession();
+  const [needsPhone, setNeedsPhone] = useState(false);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    if (status !== 'authenticated') { setChecked(true); return; }
+    const token = session?.user?.backendToken;
+    if (!token) { setChecked(true); return; }
+    // Check if phone already saved locally
+    try {
+      const local = JSON.parse(localStorage.getItem('oracle-profile') ?? '{}');
+      if (local.phone) { setChecked(true); return; }
+    } catch {}
+    // Check backend
+    fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/users/me/has-phone`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(d => { setNeedsPhone(!d.hasPhone); setChecked(true); })
+      .catch(() => setChecked(true));
+  }, [status, session]);
+
+  if (!checked) return null;
+  if (needsPhone) return <PhoneOnboarding onDone={() => setNeedsPhone(false)} />;
+  return <>{children}</>;
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -88,7 +130,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <ThemeApplier />
       {mounted ? (
         <>
-          {children}
+          <PhoneGate>
+            {children}
+          </PhoneGate>
           <Toaster
             position="top-center"
             toastOptions={{

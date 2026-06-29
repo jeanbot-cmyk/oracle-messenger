@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { getMediaStream } from '../../lib/media';
 
 interface MediaItem {
   id: string;
@@ -95,7 +96,7 @@ export function MediaGallery({ onSend, onClose }: Props) {
 
   async function startCamera() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' }, audio: false });
+      const stream = await getMediaStream({ video: { facingMode:'environment' }, audio: false });
       setCameraStream(stream);
       if (videoRef.current) videoRef.current.srcObject = stream;
     } catch {}

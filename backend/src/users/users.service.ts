@@ -13,15 +13,30 @@ export class UsersService {
     return this.prisma.user.findUnique({ where: { username } });
   }
 
-  async updateProfile(id: string, data: { name?: string; bio?: string; avatar?: string }) {
+  async updateProfile(id: string, data: { name?: string; bio?: string; avatar?: string; phone?: string }) {
     return this.prisma.user.update({
       where: { id },
       data: {
         ...(data.name   ? { name: data.name }     : {}),
         ...(data.bio    !== undefined ? { bio: data.bio } : {}),
         ...(data.avatar ? { avatar: data.avatar } : {}),
+        ...(data.phone  !== undefined ? { phone: data.phone || null } : {}),
       },
     });
+  }
+
+  async setPhone(id: string, phone: string) {
+    // Nettoyer le numéro : garder uniquement chiffres et +
+    const cleaned = phone.replace(/[^\d+]/g, '');
+    return this.prisma.user.update({
+      where: { id },
+      data: { phone: cleaned },
+    });
+  }
+
+  async hasPhone(id: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({ where: { id }, select: { phone: true } });
+    return !!(user?.phone);
   }
 
   async search(q: string, excludeId: string) {
@@ -42,11 +57,13 @@ export class UsersService {
   }
 
   async matchByPhones(phones: string[]) {
-    // Cherche les utilisateurs dont le nom ou email correspond aux numéros importés
+    if (!phones.length) return [];
+    // Clean each phone to digits+plus for matching
+    const cleaned = phones.map(p => p.replace(/[^\d+]/g, '')).filter(p => p.length >= 8);
     return this.prisma.user.findMany({
-      where: { OR: phones.map(p => ({ email: { contains: p } })) },
-      select: { id:true, name:true, username:true, avatar:true, status:true },
-      take: 100,
+      where: { phone: { in: cleaned } },
+      select: { id:true, name:true, username:true, avatar:true, status:true, phone:true },
+      take: 200,
     });
   }
 

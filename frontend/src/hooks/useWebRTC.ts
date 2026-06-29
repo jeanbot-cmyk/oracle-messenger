@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getSocket } from '../lib/socket';
 import { useNotifications } from './useNotifications';
+import { getMediaStream } from '../lib/media';
 
 export type CallState = 'idle' | 'calling' | 'incoming' | 'connected' | 'ended';
 
@@ -75,10 +76,7 @@ export function useWebRTC(userId: string) {
   ) => {
     const callId = `call_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: type === 'video',
-      });
+      const stream = await getMediaStream({ audio: true, video: type === 'video' });
       localStreamRef.current = stream;
       setLocalStream(stream);
 
@@ -115,10 +113,7 @@ export function useWebRTC(userId: string) {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: info.type === 'video',
-      });
+      const stream = await getMediaStream({ audio: true, video: info.type === 'video' });
       localStreamRef.current = stream;
       setLocalStream(stream);
       socket?.emit('call:answer', { callId: info.callId, accepted: true });

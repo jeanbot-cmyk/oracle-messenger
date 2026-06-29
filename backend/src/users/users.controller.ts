@@ -32,4 +32,18 @@ export class UsersController {
   matchPhones(@Body() body: { phones: string[] }) {
     return this.users.matchByPhones(body.phones ?? []);
   }
+
+  @Get('me/has-phone')
+  @UseGuards(JwtGuard)
+  async hasPhone(@Request() req: any) {
+    const has = await this.users.hasPhone(req.user.id);
+    return { hasPhone: has };
+  }
+
+  @Post('me/phone')
+  @UseGuards(JwtGuard)
+  async setPhone(@Request() req: any, @Body() body: { phone: string }) {
+    if (!body.phone) return { error: 'Numéro requis' };
+    return this.users.setPhone(req.user.id, body.phone);
+  }
 }

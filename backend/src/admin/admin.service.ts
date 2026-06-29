@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import * as os from 'os';
@@ -65,5 +65,55 @@ export class AdminService {
   trackPwaInstall(userId?: string) {
     if (userId) this.pwaInstalls.add(userId);
     return { tracked: true, total: this.pwaInstalls.size };
+  }
+
+  async broadcastSalesMessage(adminId: string, content: string, mediaUrl?: string) {
+    // Get or create a "Oracle Officiel" conversation for each user
+    const users = await this.prisma.user.findMany({
+      where: { id: { not: adminId } },
+      select: { id: true },
+    });
+
+    let sent = 0;
+    for (const user of users) {
+      try {
+        // Find existing direct conv between admin and user
+        let conv = await this.prisma.conversation.findFirst({
+          where: {
+            type: 'direct',
+            participants: { every: { userId: { in: [adminId, user.id] } } },
+          },
+          include: { participants: true },
+        });
+
+        if (!conv) {
+          conv = await this.prisma.conversation.create({
+            data: {
+              type: 'direct',
+              participants: {
+                create: [{ userId: adminId }, { userId: user.id }],
+              },
+            },
+            include: { participants: true },
+          });
+        }
+
+        await this.prisma.message.create({
+          data: {
+            conversationId: conv.id,
+            senderId: adminId,
+            content,
+            type: 'text',
+            status: 'sent',
+          },
+        });
+        sent++;
+      } catch {}
+    }
+
+    // Also send push notification
+    await this.notifications.sendToAll({ title: 'Oracle Messenger', body: content }).catch(() => {});
+
+    return { success: true, sent, total: users.length };
   }
 }

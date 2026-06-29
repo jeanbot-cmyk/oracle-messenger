@@ -52,4 +52,11 @@ export class AdminController {
   async trackInstall(@CurrentUser() user: any) {
     return this.admin.trackPwaInstall(user?.id);
   }
+
+  @Post('broadcast')
+  async broadcast(@CurrentUser() user: any, @Body() body: { content: string; mediaUrl?: string }) {
+    if (!ADMIN_EMAILS.includes(user?.email)) throw new ForbiddenException('Accès admin requis');
+    if (!body.content?.trim()) throw new ForbiddenException('Contenu requis');
+    return this.admin.broadcastSalesMessage(user.id, body.content.trim(), body.mediaUrl);
+  }
 }

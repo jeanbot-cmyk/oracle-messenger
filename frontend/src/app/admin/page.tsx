@@ -1,8 +1,9 @@
 'use client';
 export const dynamic = 'force-dynamic';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { getSocket } from '../../lib/socket';
 
 const ADMIN_EMAIL = 'tchingankonggeorges@gmail.com';
 
@@ -16,10 +17,14 @@ export default function AdminPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [notif, setNotif] = useState({ title:'', body:'' });
+  const [broadcast, setBroadcast] = useState('');
+  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcastMsg, setBroadcastMsg] = useState('');
   const [sending, setSending] = useState(false);
   const [msg, setMsg] = useState('');
   const [mounted, setMounted] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [liveOnline, setLiveOnline] = useState<number | null>(null);
 
   const token = session?.user?.backendToken;
   const api = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -31,9 +36,18 @@ export default function AdminPage() {
     if (status === 'authenticated' && session.user.email !== ADMIN_EMAIL) { router.replace('/chat'); return; }
     if (status === 'authenticated' && token) {
       loadData();
-      // Refresh stats every 30s
       const interval = setInterval(loadData, 30_000);
-      return () => clearInterval(interval);
+      // WebSocket: listen for real-time online count updates
+      const socket = getSocket(token);
+      if (socket) {
+        socket.on('admin_metrics_update', (d: { connectesEnTempsReel: number }) => {
+          setLiveOnline(d.connectesEnTempsReel);
+        });
+      }
+      return () => {
+        clearInterval(interval);
+        socket?.off('admin_metrics_update');
+      };
     }
   }, [status, token]);
 
@@ -47,6 +61,23 @@ export default function AdminPage() {
       setStats(s); setMetrics(m); setUsers(Array.isArray(u) ? u : []);
       setLastRefresh(new Date());
     } catch {}
+  }
+
+  async function sendBroadcast() {
+    if (!broadcast.trim()) return;
+    setBroadcasting(true);
+    try {
+      const r = await fetch(`${api}/admin/broadcast`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: broadcast }),
+      });
+      const d = await r.json();
+      setBroadcastMsg(d.success ? `✓ Envoyé à ${d.sent} utilisateurs` : 'Erreur');
+      setBroadcast('');
+    } catch { setBroadcastMsg('Erreur réseau'); }
+    setBroadcasting(false);
+    setTimeout(() => setBroadcastMsg(''), 5000);
   }
 
   async function sendNotif() {
@@ -106,7 +137,7 @@ export default function AdminPage() {
         {/* Stats */}
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:16, marginBottom:24 }}>
           {card('Utilisateurs', stats?.totalUsers ?? '…', '👥')}
-          {card('En ligne', stats?.onlineUsers ?? '…', '🟢', '#22c55e')}
+          {card('En ligne maintenant', liveOnline ?? stats?.onlineUsers ?? '…', '🟢', '#22c55e')}
           {card('Installations PWA', stats?.pwaInstalls ?? '…', '📲', '#8b5cf6')}
           {card('Messages', stats?.totalMessages ?? '…', '💬', '#3b82f6')}
           {card('CPU', metrics ? `${metrics.cpu}%` : '…', '⚡', '#f59e0b')}
@@ -128,6 +159,24 @@ export default function AdminPage() {
               {sending ? 'Envoi…' : '📤 Envoyer à tous'}
             </button>
             {msg && <p style={{ color:'var(--accent)', fontSize:14, margin:0 }}>{msg}</p>}
+          </div>
+        </div>
+
+        {/* Canal de diffusion vente */}
+        <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, marginBottom:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)' }}>
+          <h2 style={{ fontSize:18, fontWeight:600, color:'var(--text-primary)', margin:'0 0 6px' }}>📢 Canal de diffusion</h2>
+          <p style={{ fontSize:13, color:'var(--text-muted)', margin:'0 0 16px' }}>
+            Le message arrive directement dans la discussion de chaque utilisateur, comme un message privé.
+          </p>
+          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+            <textarea value={broadcast} onChange={e => setBroadcast(e.target.value)}
+              placeholder="Rédigez votre message de vente ou d'annonce…" rows={4}
+              style={{ padding:'12px 16px', borderRadius:10, border:'1px solid var(--border)', background:'var(--bg-input)', color:'var(--text-primary)', fontSize:14, outline:'none', resize:'vertical' }} />
+            <button onClick={sendBroadcast} disabled={broadcasting || !broadcast.trim()}
+              style={{ background:'#128C7E', color:'#fff', border:'none', borderRadius:10, padding:'12px 24px', fontSize:15, fontWeight:600, cursor:'pointer', opacity: broadcasting || !broadcast.trim() ? .6 : 1 }}>
+              {broadcasting ? 'Envoi en cours…' : '📤 Diffuser à tous les utilisateurs'}
+            </button>
+            {broadcastMsg && <p style={{ color:'var(--accent)', fontSize:14, margin:0 }}>{broadcastMsg}</p>}
           </div>
         </div>
 
