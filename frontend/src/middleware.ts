@@ -4,7 +4,7 @@ import type { NextRequest } from 'next/server';
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Tout ce qui ne doit jamais être bloqué
+  // Never block these routes
   if (
     pathname.startsWith('/api') ||
     pathname.startsWith('/_next') ||
@@ -16,11 +16,7 @@ export function middleware(request: NextRequest) {
     pathname === '/favicon.ico'
   ) return NextResponse.next();
 
-  // Cookie PWA posé → accès libre
-  const isPWA = request.cookies.get('pwa-installed')?.value === '1';
-  if (isPWA) return NextResponse.next();
-
-  // Custom header set by SW when running in standalone mode
+  // Auto-set pwa-installed cookie when SW signals standalone mode
   const standaloneHeader = request.headers.get('X-PWA-Standalone');
   if (standaloneHeader === '1') {
     const res = NextResponse.next();
@@ -28,14 +24,7 @@ export function middleware(request: NextRequest) {
     return res;
   }
 
-  const ua = request.headers.get('user-agent') ?? '';
-  const isMobile = /android|iphone|ipad|ipod/i.test(ua);
-
-  // Sur mobile sans cookie → page d'installation
-  if (isMobile) {
-    return NextResponse.redirect(new URL('/install', request.url));
-  }
-
+  // No install wall — everyone can access the app
   return NextResponse.next();
 }
 
