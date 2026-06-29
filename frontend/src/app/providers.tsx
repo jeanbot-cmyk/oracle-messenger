@@ -107,10 +107,12 @@ function ThemeApplier() {
       }).catch(() => {});
     }
 
-    // Import contacts automatique — déclenché après un court délai
-    // pour ne pas bloquer le rendu initial
-    const t = setTimeout(() => autoImportContacts(), 2000);
-    return () => clearTimeout(t);
+    // Auto-import contacts — skip on /install and /login (user not authenticated yet)
+    const path = window.location.pathname;
+    if (!path.startsWith('/install') && !path.startsWith('/login')) {
+      const t = setTimeout(() => autoImportContacts(), 2000);
+      return () => clearTimeout(t);
+    }
   }, []);
 
   return null;
