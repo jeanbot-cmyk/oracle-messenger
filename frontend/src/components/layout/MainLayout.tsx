@@ -234,7 +234,7 @@ function OutilsTab() {
     {
       title: 'Préférences',
       items: [
-        { iconKey: 'settings', label: 'Paramètres',      sub: 'Thème, langue et notifications.',                           action: () => {} },
+        { iconKey: 'settings', label: 'Paramètres',      sub: 'Thème, langue et notifications.',                           action: () => router.push('/profile') },
       ],
     },
   ];

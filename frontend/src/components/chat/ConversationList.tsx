@@ -18,8 +18,9 @@ export function ConversationList({ search = '', filter = 'all', onSelect }: Prop
   const filtered = conversations.filter(c => {
     const name = c.type === 'group' ? c.name : c.participants?.[0]?.name;
     if (search && !name?.toLowerCase().includes(search.toLowerCase())) return false;
-    if (filter === 'unread' && c.unreadCount === 0) return false;
+    if (filter === 'unread' && (c.unreadCount ?? 0) === 0) return false;
     if (filter === 'groups' && c.type !== 'group') return false;
+    // 'fav' not yet implemented server-side — treat as 'all'
     return true;
   });
 

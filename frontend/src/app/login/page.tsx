@@ -31,8 +31,8 @@ function LoginContent() {
 
   async function handleGoogle() {
     setLoading(true); setError(null);
-    // callbackUrl goes to / which redirects to /chat or /install based on session
-    await signIn('google', { callbackUrl: `${window.location.origin}/` });
+    // Go to /chat — PhoneGate in providers.tsx intercepts client-side if phone missing
+    await signIn('google', { callbackUrl: `${window.location.origin}/chat` });
   }
 
   if (status === 'loading') return <Spinner />;
