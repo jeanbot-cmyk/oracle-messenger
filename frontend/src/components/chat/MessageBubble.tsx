@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { format } from 'date-fns';
 import type { Message } from '../../types';
 import { useSettings } from '../../store/settings';
@@ -42,17 +42,48 @@ function detectType(content: string, declaredType: string): 'image' | 'video' | 
 export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Props) {
   const [showMenu, setShowMenu] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [swipeX, setSwipeX] = useState(0);
+  const [swiping, setSwiping] = useState(false);
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const swipeTriggered = useRef(false);
   const { lang } = useSettings();
 
-  if (message.isDeleted) return (
-    <div style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start' }}>
-      <div style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)' }}>
-        <p style={{ fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic', margin: 0 }}>
-          🚫 {isOwn ? 'Vous avez supprimé ce message' : 'Message supprimé'}
-        </p>
-      </div>
-    </div>
-  );
+  // ── Swipe to reply (WhatsApp style) ──────────────────────────────────────
+  function onTouchStart(e: React.TouchEvent) {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+    swipeTriggered.current = false;
+    setSwiping(true);
+  }
+
+  function onTouchMove(e: React.TouchEvent) {
+    const dx = e.touches[0].clientX - touchStartX.current;
+    const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
+    // Ignorer si scroll vertical dominant
+    if (dy > Math.abs(dx)) return;
+    // Swipe droite uniquement (répondre)
+    if (dx > 0 && dx < 80) {
+      setSwipeX(dx);
+    }
+    if (dx >= 60 && !swipeTriggered.current) {
+      swipeTriggered.current = true;
+      // Vibration légère
+      if ('vibrate' in navigator) navigator.vibrate(30);
+    }
+  }
+
+  function onTouchEnd() {
+    setSwiping(false);
+    if (swipeTriggered.current) {
+      onReply(message);
+    }
+    // Retour animé
+    setSwipeX(0);
+  }
+
+  // Messages supprimés : ne rien afficher du tout
+  if (message.isDeleted) return null;
 
   const effectiveType = detectType(message.content, message.type ?? 'text');
   const timeStr = (() => { try { return format(new Date(message.createdAt), 'HH:mm'); } catch { return ''; } })();
@@ -80,9 +111,33 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 
   return (
-    <div style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start' }}
-      onContextMenu={e => { e.preventDefault(); setShowMenu(true); }}>
-      <div style={{ position: 'relative', maxWidth: '78%' }}>
+    <div
+      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative', overflow: 'hidden' }}
+      onContextMenu={e => { e.preventDefault(); setShowMenu(true); }}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
+      {/* Icône répondre qui apparaît au swipe */}
+      <div style={{
+        position: 'absolute', left: isOwn ? 'auto' : 8, right: isOwn ? 8 : 'auto',
+        top: '50%', transform: `translateY(-50%)`,
+        opacity: Math.min(swipeX / 60, 1),
+        transition: swiping ? 'none' : 'opacity 0.2s',
+        pointerEvents: 'none',
+        width: 32, height: 32, borderRadius: '50%', background: 'var(--accent)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <svg width="16" height="16" fill="white" viewBox="0 0 24 24">
+          <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/>
+        </svg>
+      </div>
+
+      <div style={{
+        position: 'relative', maxWidth: '78%',
+        transform: `translateX(${swipeX}px)`,
+        transition: swiping ? 'none' : 'transform 0.2s ease',
+      }}>
 
         {message.replyTo && (
           <div style={{ marginBottom: 4, padding: '6px 10px', borderRadius: 8, borderLeft: '3px solid var(--accent)', background: 'var(--bg-input)', fontSize: 12, color: 'var(--text-muted)' }}>
@@ -94,7 +149,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
         <div
           className={isOwn ? 'bubble-out' : 'bubble-in'}
           style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? '4px' : '8px 12px', overflow: 'hidden' }}
-          onTouchStart={() => { longPressTimer = setTimeout(() => setShowMenu(true), 500); }}
+          onTouchStart={e => { longPressTimer = setTimeout(() => setShowMenu(true), 500); }}
           onTouchEnd={() => { if (longPressTimer) clearTimeout(longPressTimer); }}
           onTouchMove={() => { if (longPressTimer) clearTimeout(longPressTimer); }}
         >
