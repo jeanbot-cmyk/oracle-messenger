@@ -5,65 +5,185 @@ import type { Message } from '../../types';
 import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
 
-interface Props { message: Message; isOwn: boolean; onReply:(m:Message)=>void; onDelete:(id:string)=>void; onEdit:(m:Message)=>void; }
+interface Props {
+  message: Message;
+  isOwn: boolean;
+  onReply: (m: Message) => void;
+  onDelete: (id: string) => void;
+  onEdit: (m: Message) => void;
+}
 
 function StatusIcon({ status }: { status: Message['status'] }) {
-  if (status==='sending')   return <span style={{ fontSize:10, opacity:.5 }}>⏳</span>;
-  if (status==='sent')      return <span style={{ fontSize:10, opacity:.6 }}>✓</span>;
-  if (status==='delivered') return <span style={{ fontSize:10, opacity:.7 }}>✓✓</span>;
-  if (status==='read')      return <span style={{ fontSize:10, color:'#53bdeb' }}>✓✓</span>;
+  if (status === 'sending')   return <span style={{ fontSize: 10, opacity: .5 }}>⏳</span>;
+  if (status === 'sent')      return <span style={{ fontSize: 11, opacity: .6, color: '#667781' }}>✓</span>;
+  if (status === 'delivered') return <span style={{ fontSize: 11, opacity: .7, color: '#667781' }}>✓✓</span>;
+  if (status === 'read')      return <span style={{ fontSize: 11, color: '#53bdeb', fontWeight: 700 }}>✓✓</span>;
   return null;
+}
+
+function isBase64(s: string) {
+  return typeof s === 'string' && s.startsWith('data:');
+}
+
+function detectType(content: string, declaredType: string): 'image' | 'video' | 'audio' | 'file' | 'text' {
+  if (declaredType === 'image' || (isBase64(content) && content.startsWith('data:image'))) return 'image';
+  if (declaredType === 'video' || (isBase64(content) && content.startsWith('data:video'))) return 'video';
+  if (declaredType === 'audio' || (isBase64(content) && content.startsWith('data:audio'))) return 'audio';
+  if (declaredType === 'file' || declaredType === 'document') return 'file';
+  if (isBase64(content)) {
+    if (content.includes('image/')) return 'image';
+    if (content.includes('video/')) return 'video';
+    if (content.includes('audio/')) return 'audio';
+    return 'file';
+  }
+  return 'text';
 }
 
 export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Props) {
   const [showMenu, setShowMenu] = useState(false);
+  const [imgError, setImgError] = useState(false);
   const { lang } = useSettings();
 
   if (message.isDeleted) return (
-    <div style={{ display:'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start' }}>
-      <div style={{ padding:'8px 14px', borderRadius:8, background:'var(--bg-input)', border:'1px solid var(--border)' }}>
-        <p style={{ fontSize:13, color:'var(--text-muted)', fontStyle:'italic' }}>{t(lang,'chat.deleted')}</p>
+    <div style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start' }}>
+      <div style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)' }}>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', fontStyle: 'italic', margin: 0 }}>
+          🚫 {isOwn ? 'Vous avez supprimé ce message' : 'Message supprimé'}
+        </p>
       </div>
     </div>
   );
 
-  const menuStyle: React.CSSProperties = { position:'absolute', zIndex:50, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:10, boxShadow:'0 4px 16px rgba(0,0,0,.15)', minWidth:150, ...(isOwn ? { right:0 } : { left:0 }), bottom:'100%', marginBottom:4 };
-  const menuItemStyle: React.CSSProperties = { width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 14px', border:'none', background:'transparent', cursor:'pointer', fontSize:13, color:'var(--text-primary)', textAlign:'left' as const };
+  const effectiveType = detectType(message.content, message.type ?? 'text');
+  const timeStr = (() => { try { return format(new Date(message.createdAt), 'HH:mm'); } catch { return ''; } })();
+
+  const menuStyle: React.CSSProperties = {
+    position: 'absolute', zIndex: 50,
+    background: 'var(--bg-surface)', border: '1px solid var(--border)',
+    borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,.18)', minWidth: 160,
+    ...(isOwn ? { right: 0 } : { left: 0 }), bottom: '100%', marginBottom: 6, overflow: 'hidden',
+  };
+  const menuItemStyle: React.CSSProperties = {
+    width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+    padding: '12px 16px', border: 'none', background: 'transparent',
+    cursor: 'pointer', fontSize: 14, color: 'var(--text-primary)', textAlign: 'left' as const,
+  };
+
+  const TimeRow = () => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', marginTop: 4 }}>
+      <span style={{ fontSize: 11, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>{timeStr}</span>
+      {message.isEdited && <span style={{ fontSize: 10, color: isOwn ? 'rgba(0,0,0,.4)' : 'var(--text-muted)' }}>modifié</span>}
+      {isOwn && <StatusIcon status={message.status} />}
+    </div>
+  );
+
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 
   return (
-    <div style={{ display:'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start' }}
+    <div style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start' }}
       onContextMenu={e => { e.preventDefault(); setShowMenu(true); }}>
-      <div style={{ position:'relative', maxWidth:'72%' }}>
-        {/* Reply preview */}
+      <div style={{ position: 'relative', maxWidth: '78%' }}>
+
         {message.replyTo && (
-          <div style={{ marginBottom:4, padding:'6px 10px', borderRadius:8, borderLeft:'3px solid var(--accent)', background:'var(--bg-input)', fontSize:12, color:'var(--text-muted)' }}>
-            <p style={{ fontWeight:600, color:'var(--accent)', fontSize:11, margin:'0 0 2px' }}>{message.replyTo.sender?.name}</p>
-            <p style={{ margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{message.replyTo.content}</p>
+          <div style={{ marginBottom: 4, padding: '6px 10px', borderRadius: 8, borderLeft: '3px solid var(--accent)', background: 'var(--bg-input)', fontSize: 12, color: 'var(--text-muted)' }}>
+            <p style={{ fontWeight: 600, color: 'var(--accent)', fontSize: 11, margin: '0 0 2px' }}>{message.replyTo.sender?.name}</p>
+            <p style={{ margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{message.replyTo.content}</p>
           </div>
         )}
 
-        {/* Bubble */}
-        <div className={isOwn ? 'bubble-out' : 'bubble-in'} style={{ padding:'8px 12px' }}>
-          <p style={{ fontSize:14, lineHeight:1.5, whiteSpace:'pre-wrap', wordBreak:'break-word', margin:0 }}>{message.content}</p>
-          <div style={{ display:'flex', alignItems:'center', gap:4, marginTop:4, justifyContent: isOwn ? 'flex-end' : 'flex-start' }}>
-            <span style={{ fontSize:11, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>
-              {format(new Date(message.createdAt), 'HH:mm')}
-            </span>
-            {message.isEdited && <span style={{ fontSize:10, color: isOwn ? 'rgba(0,0,0,.4)' : 'var(--text-muted)' }}>{t(lang,'chat.edited')}</span>}
-            {isOwn && <StatusIcon status={message.status} />}
-          </div>
+        <div
+          className={isOwn ? 'bubble-out' : 'bubble-in'}
+          style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? '4px' : '8px 12px', overflow: 'hidden' }}
+          onTouchStart={() => { longPressTimer = setTimeout(() => setShowMenu(true), 500); }}
+          onTouchEnd={() => { if (longPressTimer) clearTimeout(longPressTimer); }}
+          onTouchMove={() => { if (longPressTimer) clearTimeout(longPressTimer); }}
+        >
+          {/* IMAGE */}
+          {effectiveType === 'image' && !imgError && (
+            <div>
+              <img src={message.content} alt="image" onError={() => setImgError(true)}
+                style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 10, display: 'block', cursor: 'pointer', objectFit: 'cover' }}
+                onClick={() => window.open(message.content, '_blank')} />
+              <div style={{ padding: '4px 8px 2px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 11, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>{timeStr}</span>
+                {isOwn && <StatusIcon status={message.status} />}
+              </div>
+            </div>
+          )}
+          {effectiveType === 'image' && imgError && (
+            <div style={{ padding: '10px 14px' }}>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>🖼️ Image non disponible</p>
+              <TimeRow />
+            </div>
+          )}
+
+          {/* VIDEO */}
+          {effectiveType === 'video' && (
+            <div>
+              <video src={message.content} controls playsInline
+                style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 10, display: 'block' }} />
+              <div style={{ padding: '4px 8px 2px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 11, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>{timeStr}</span>
+                {isOwn && <StatusIcon status={message.status} />}
+              </div>
+            </div>
+          )}
+
+          {/* AUDIO */}
+          {effectiveType === 'audio' && (
+            <div style={{ padding: '8px 12px' }}>
+              <audio src={message.content} controls style={{ width: '100%', maxWidth: 260 }} />
+              <TimeRow />
+            </div>
+          )}
+
+          {/* FILE */}
+          {effectiveType === 'file' && (
+            <div style={{ padding: '8px 12px' }}>
+              <a href={message.content} download style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit' }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                  </svg>
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>Fichier joint</p>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>Appuyer pour télécharger</p>
+                </div>
+              </a>
+              <TimeRow />
+            </div>
+          )}
+
+          {/* TEXT */}
+          {effectiveType === 'text' && (
+            <>
+              <p style={{ fontSize: 16, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}>
+                {message.content}
+              </p>
+              <TimeRow />
+            </>
+          )}
         </div>
 
-        {/* Context menu */}
         {showMenu && (
           <>
-            <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setShowMenu(false)} />
+            <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setShowMenu(false)} />
             <div style={menuStyle}>
-              <button style={menuItemStyle} onClick={() => { onReply(message); setShowMenu(false); }}>↩️ {t(lang,'chat.reply')}</button>
-              {isOwn && <>
-                <button style={menuItemStyle} onClick={() => { onEdit(message); setShowMenu(false); }}>✏️ {t(lang,'chat.edit')}</button>
-                <button style={{ ...menuItemStyle, color:'#dc2626' }} onClick={() => { onDelete(message.id); setShowMenu(false); }}>🗑️ {t(lang,'chat.delete')}</button>
-              </>}
+              <button style={menuItemStyle} onClick={() => { onReply(message); setShowMenu(false); }}>
+                ↩️ {t(lang, 'chat.reply')}
+              </button>
+              {isOwn && (
+                <>
+                  <button style={menuItemStyle} onClick={() => { onEdit(message); setShowMenu(false); }}>
+                    ✏️ {t(lang, 'chat.edit')}
+                  </button>
+                  <div style={{ height: 1, background: 'var(--border)', margin: '0 12px' }} />
+                  <button style={{ ...menuItemStyle, color: '#dc2626' }} onClick={() => { onDelete(message.id); setShowMenu(false); }}>
+                    🗑️ {t(lang, 'chat.delete')}
+                  </button>
+                </>
+              )}
             </div>
           </>
         )}

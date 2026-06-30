@@ -75,7 +75,57 @@ export function useNotifications() {
     if (!supported) return false;
     const r = await Notification.requestPermission();
     setPermission(r);
+    if (r === 'granted') {
+      // S'abonner aux Push Notifications via le Service Worker
+      subscribeToPush().catch(() => {});
+    }
     return r === 'granted';
+  }
+
+  async function subscribeToPush() {
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+      const reg = await navigator.serviceWorker.ready;
+
+      // Récupérer la clé VAPID publique depuis le backend
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
+      const res = await fetch(`${backendUrl}/notifications/vapid-public-key`);
+      if (!res.ok) return;
+      const { key } = await res.json();
+      if (!key) return;
+
+      // Convertir la clé base64 en Uint8Array
+      const vapidKey = urlBase64ToUint8Array(key);
+
+      // Créer ou récupérer la subscription existante
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: vapidKey,
+        });
+      }
+
+      // Envoyer la subscription au backend (nécessite le token)
+      const tokenEl = document.cookie.match(/next-auth\.session-token=([^;]+)/);
+      // On passe par l'API Next.js pour avoir le token backend
+      await fetch('/api/push-subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sub.toJSON()),
+      });
+    } catch (e) {
+      console.warn('[Push] subscription failed:', e);
+    }
+  }
+
+  function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const arr = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; i++) arr[i] = rawData.charCodeAt(i);
+    return arr.buffer;
   }
 
   // ── Sonnerie appel entrant (boucle) ──────────────────────────────────────

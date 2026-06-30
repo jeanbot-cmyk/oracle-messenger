@@ -49,7 +49,13 @@ export default function ContactsPage() {
     const cached: LocalContact[] = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]');
     const manual: LocalContact[] = JSON.parse(localStorage.getItem(MANUAL_KEY) ?? '[]');
     const all = mergeContacts(cached, manual);
-    if (all.length > 0) { setImported(true); matchWithBackend(all); }
+    if (all.length > 0) { setImported(true); matchWithBackend(all); return; }
+    // Auto-import on first visit if Contacts API available (Android Chrome)
+    const hasNativeApi = typeof window !== 'undefined' && 'contacts' in navigator && 'ContactsManager' in window;
+    if (hasNativeApi && !localStorage.getItem('oracle-contacts-asked')) {
+      localStorage.setItem('oracle-contacts-asked', '1');
+      importAndMatch();
+    }
   }, [mounted, status]);
 
   function mergeContacts(base: LocalContact[], extra: LocalContact[]): LocalContact[] {

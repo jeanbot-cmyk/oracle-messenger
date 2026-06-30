@@ -3,7 +3,13 @@ import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'] });
+  const app = await NestFactory.create(AppModule, {
+    logger: ['error', 'warn', 'log'],
+    bodyParser: true,
+  });
+  // Allow large payloads for base64 image/video transfers
+  app.use(require('express').json({ limit: '200mb' }));
+  app.use(require('express').urlencoded({ limit: '200mb', extended: true }));
 
   app.enableCors({
     origin: '*',

@@ -15,13 +15,35 @@ export interface CallInfo {
   participants: string[];
 }
 
-const ICE_SERVERS = [
+// Default ICE servers — STUN only (works on same network)
+// TURN servers are fetched dynamically from backend for cross-network calls
+const DEFAULT_ICE: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun.cloudflare.com:3478' },
+  // Public TURN servers (limited bandwidth but free)
+  {
+    urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turns:openrelay.metered.ca:443'],
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
 ];
 
-export function useWebRTC(userId: string) {
+async function getIceServers(token: string): Promise<RTCIceServer[]> {
+  try {
+    const BASE = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
+    const res = await fetch(`${BASE}/calls/ice-servers`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.iceServers ?? DEFAULT_ICE;
+    }
+  } catch {}
+  return DEFAULT_ICE;
+}
+
+export function useWebRTC(userId: string, token = '') {
   const [callState, setCallState] = useState<CallState>('idle');
   const [callInfo, setCallInfo]   = useState<CallInfo | null>(null);
   const [localStream, setLocalStream]   = useState<MediaStream | null>(null);
@@ -32,6 +54,7 @@ export function useWebRTC(userId: string) {
   const pcs = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
   const callInfoRef = useRef<CallInfo | null>(null);
+  const iceServersRef = useRef<RTCIceServer[]>(DEFAULT_ICE);
 
   const { notifyIncomingCall, notifyMissedCall, stopRingtone } = useNotifications();
 
@@ -41,7 +64,7 @@ export function useWebRTC(userId: string) {
   useEffect(() => { callInfoRef.current = callInfo; }, [callInfo]);
 
   function createPC(targetUserId: string): RTCPeerConnection {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
 
     localStreamRef.current?.getTracks().forEach(track => {
       pc.addTrack(track, localStreamRef.current!);
@@ -76,6 +99,8 @@ export function useWebRTC(userId: string) {
   ) => {
     const callId = `call_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     try {
+      // Fetch TURN servers before starting
+      iceServersRef.current = await getIceServers(token);
       const stream = await getMediaStream({ audio: true, video: type === 'video' });
       localStreamRef.current = stream;
       setLocalStream(stream);
@@ -113,6 +138,7 @@ export function useWebRTC(userId: string) {
       return;
     }
     try {
+      iceServersRef.current = await getIceServers(token);
       const stream = await getMediaStream({ audio: true, video: info.type === 'video' });
       localStreamRef.current = stream;
       setLocalStream(stream);

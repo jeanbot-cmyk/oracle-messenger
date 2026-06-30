@@ -86,12 +86,12 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     const file = e.target.files?.[0];
     if (!file || !activeConvId) return;
     const isImage = file.type.startsWith('image/');
-    const maxSize = 5 * 1024 * 1024; // 5 MB
-    if (file.size > maxSize) { alert('Fichier trop volumineux (max 5 Mo)'); return; }
+    const isVideo = file.type.startsWith('video/');
     const reader = new FileReader();
     reader.onload = () => {
       const b64 = reader.result as string;
-      sendMessage(activeConvId, b64, isImage ? 'image' : 'file');
+      const type = isImage ? 'image' : isVideo ? 'video' : 'file';
+      sendMessage(activeConvId, b64, type);
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -112,7 +112,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   );
 
   return (
-    <div style={{ flex:1, display:'flex', flexDirection:'column', height:'100vh', background:'var(--bg-elevated)' }}>
+    <div style={{ flex:1, display:'flex', flexDirection:'column', height:'100dvh', background:'var(--bg-elevated)', overflow:'hidden' }}>
       {/* Header */}
       <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px', background:'var(--header-bg)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
         {/* Back button — mobile only */}
@@ -134,26 +134,39 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           </div>
           {isOnline && <span style={{ position:'absolute', bottom:1, right:1, width:11, height:11, background:'var(--online-dot)', borderRadius:'50%', border:'2px solid var(--header-bg)' }} />}
         </button>
-        <div style={{ flex:1 }}>
-          <p style={{ fontWeight:600, fontSize:15, color:'var(--text-primary)', margin:0 }}>{name}</p>
-          <p style={{ fontSize:12, color: typingNames.length > 0 ? 'var(--accent)' : 'var(--text-muted)', margin:0 }}>
+        <button onClick={() => setProfileModal(true)}
+          style={{ flex:1, border:'none', background:'transparent', cursor:'pointer', textAlign:'left', padding:0, minWidth:0 }}>
+          <p style={{ fontWeight:700, fontSize:16, color:'var(--text-primary)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</p>
+          <p style={{ fontSize:12, color: typingNames.length > 0 ? 'var(--accent)' : isOnline ? '#25D366' : 'var(--text-muted)', margin:0 }}>
             {typingNames.length > 0
               ? typingNames.length === 1
                 ? `${typingNames[0]} est en train d'écrire…`
                 : `${typingNames.slice(0,-1).join(', ')} et ${typingNames[typingNames.length-1]} écrivent…`
               : isOnline ? t(lang,'chat.online') : t(lang,'chat.offline')}
           </p>
-        </div>
+        </button>
         {/* Boutons appel */}
-        {other && onStartCall && (
+        {onStartCall && conv && (
           <>
-            <button onClick={() => onStartCall(conv!.id, [other.id], 'audio')}
+            <button
+              onClick={() => {
+                const ids = conv.type === 'group'
+                  ? allParticipants.map((p: any) => p.id)
+                  : other ? [other.id] : [];
+                if (ids.length) onStartCall(conv.id, ids, 'audio');
+              }}
               style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'transparent', cursor:'pointer', color:'var(--text-secondary)' }} title="Appel audio">
               <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/>
               </svg>
             </button>
-            <button onClick={() => onStartCall(conv!.id, [other.id], 'video')}
+            <button
+              onClick={() => {
+                const ids = conv.type === 'group'
+                  ? allParticipants.map((p: any) => p.id)
+                  : other ? [other.id] : [];
+                if (ids.length) onStartCall(conv.id, ids, 'video');
+              }}
               style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'transparent', cursor:'pointer', color:'var(--text-secondary)' }} title="Appel vidéo">
               <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.89L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
@@ -169,7 +182,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       </div>
 
       {/* Messages */}
-      <div style={{ flex:1, overflowY:'auto', padding:'12px 16px', display:'flex', flexDirection:'column', gap:4 }}>
+      <div style={{ flex:1, overflowY:'auto', overflowX:'hidden', padding:'12px 16px', display:'flex', flexDirection:'column', gap:4, WebkitOverflowScrolling:'touch' } as React.CSSProperties}>
         {convMessages.map(msg => (
           <MessageBubble key={msg.id} message={msg} isOwn={msg.senderId === userId} onReply={setReplyTo} onDelete={handleDelete} onEdit={setEditMsg} />
         ))}
@@ -203,10 +216,10 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         </div>
       )}
 
-      {/* Input */}
-      <div style={{ padding:'8px 12px', background:'var(--bg-app)', flexShrink:0, display:'flex', alignItems:'flex-end', gap:8 }}>
+      {/* Input — toujours visible, safe-area iOS */}
+      <div style={{ padding:'8px 12px', paddingBottom:'max(8px, env(safe-area-inset-bottom))', background:'var(--bg-app)', flexShrink:0, display:'flex', alignItems:'flex-end', gap:8 }}>
         {/* Trombone — ouvre sélecteur fichier/image */}
-        <input ref={fileInputRef} type="file" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.zip" onChange={handleFileChange} style={{ display:'none' }}/>
+        <input ref={fileInputRef} type="file" accept="*/*" onChange={handleFileChange} style={{ display:'none' }}/>
         <button onClick={() => fileInputRef.current?.click()}
           style={{ width:42, height:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--bg-surface)', cursor:'pointer', color:'var(--text-secondary)', flexShrink:0 }}>
           <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -234,24 +247,59 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         </button>
       </div>
 
-      {/* Modal photo de profil */}
+      {/* Modal profil complet */}
       {profileModal && (
-        <div onClick={() => setProfileModal(false)}
-          style={{ position:'fixed', inset:0, zIndex:500, background:'rgba(0,0,0,0.85)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:16 }}>
-          <div style={{ width:220, height:220, borderRadius:'50%', overflow:'hidden', border:'3px solid #fff', flexShrink:0 }}>
-            {avatar
-              ? <img src={avatar} alt={name??''} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
-              : <div style={{ width:'100%', height:'100%', background:'#128C7E', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                  <span style={{ fontSize:80, fontWeight:700, color:'#fff' }}>{(name??'?')[0].toUpperCase()}</span>
+        <div style={{ position:'fixed', inset:0, zIndex:500, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'flex-end' }}
+          onClick={e => { if (e.target === e.currentTarget) setProfileModal(false); }}>
+          <div style={{ width:'100%', background:'#fff', borderRadius:'20px 20px 0 0', paddingBottom:40, overflow:'hidden' }}>
+            {/* Cover + avatar */}
+            <div style={{ height:120, background:'linear-gradient(135deg,#128C7E,#075E54)', position:'relative', display:'flex', alignItems:'flex-end', justifyContent:'center', paddingBottom:0 }}>
+              <button onClick={() => setProfileModal(false)}
+                style={{ position:'absolute', top:12, right:12, width:32, height:32, borderRadius:'50%', border:'none', background:'rgba(0,0,0,0.3)', cursor:'pointer', color:'#fff', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                ✕
+              </button>
+              <div style={{ position:'absolute', bottom:-44, width:88, height:88, borderRadius:'50%', overflow:'hidden', border:'4px solid #fff', background:'#128C7E' }}>
+                {avatar
+                  ? <img src={avatar} alt={name??''} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
+                  : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <span style={{ fontSize:36, fontWeight:700, color:'#fff' }}>{(name??'?')[0].toUpperCase()}</span>
+                    </div>
+                }
+              </div>
+            </div>
+            {/* Infos */}
+            <div style={{ paddingTop:56, paddingLeft:24, paddingRight:24, textAlign:'center' }}>
+              <p style={{ fontSize:20, fontWeight:800, color:'#111b21', margin:'0 0 4px' }}>{name}</p>
+              {other?.username && <p style={{ fontSize:13, color:'#8696a0', margin:'0 0 4px' }}>@{other.username}</p>}
+              <div style={{ display:'inline-flex', alignItems:'center', gap:6, background: isOnline ? '#e8f5e9' : '#f0f2f5', borderRadius:20, padding:'4px 14px', marginBottom:20 }}>
+                <div style={{ width:8, height:8, borderRadius:'50%', background: isOnline ? '#25D366' : '#8696a0' }}/>
+                <span style={{ fontSize:13, color: isOnline ? '#25D366' : '#8696a0', fontWeight:600 }}>{isOnline ? 'En ligne' : 'Hors ligne'}</span>
+              </div>
+              {other?.phone && (
+                <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 0', borderTop:'1px solid #f0f2f5' }}>
+                  <svg width="20" height="20" fill="#128C7E" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+                  <span style={{ fontSize:15, color:'#111b21' }}>{other.phone}</span>
                 </div>
-            }
+              )}
+              {/* Actions */}
+              <div style={{ display:'flex', gap:16, justifyContent:'center', marginTop:16 }}>
+                {onStartCall && other && (
+                  <>
+                    <button onClick={() => { setProfileModal(false); onStartCall(conv!.id, [other.id], 'audio'); }}
+                      style={{ flex:1, background:'#128C7E', color:'#fff', border:'none', borderRadius:14, padding:'14px 0', fontSize:15, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                      <svg width="18" height="18" fill="#fff" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+                      Appel
+                    </button>
+                    <button onClick={() => { setProfileModal(false); onStartCall(conv!.id, [other.id], 'video'); }}
+                      style={{ flex:1, background:'#f0f2f5', color:'#111b21', border:'none', borderRadius:14, padding:'14px 0', fontSize:15, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                      <svg width="18" height="18" fill="none" stroke="#111b21" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.89L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
+                      Vidéo
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
-          <p style={{ color:'#fff', fontSize:20, fontWeight:700, margin:0 }}>{name}</p>
-          <p style={{ color:'rgba(255,255,255,0.6)', fontSize:14, margin:0 }}>{isOnline ? '● En ligne' : 'Hors ligne'}</p>
-          <button onClick={() => setProfileModal(false)}
-            style={{ marginTop:8, background:'rgba(255,255,255,0.15)', border:'none', borderRadius:20, padding:'10px 28px', color:'#fff', fontSize:15, cursor:'pointer' }}>
-            Fermer
-          </button>
         </div>
       )}
     </div>

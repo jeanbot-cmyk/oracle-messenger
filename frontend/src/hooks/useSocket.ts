@@ -33,11 +33,24 @@ export function useSocket() {
         const senderName = msg.sender?.name ?? 'Nouveau message';
         const content = msg.isDeleted ? 'Message supprimé' : msg.content;
         notifyMessage(senderName, content, msg.conversationId);
+        // Sonnerie moderne à la réception
+        import('../lib/sounds').then(({ playMessageSound }) => playMessageSound()).catch(() => {});
       }
     });
 
     socket.on('message:update', ({ id, patch }: { id: string; patch: Partial<Message> }) => {
       store.updateMessage(id, patch);
+    });
+
+    // When the other user reads the conversation → mark all our messages as read
+    socket.on('conversation:read', ({ conversationId, userId: readerUserId }: { conversationId: string; userId: string }) => {
+      if (readerUserId === userId) return; // ignore own read events
+      const msgs = useChatStore.getState().messages[conversationId] ?? [];
+      msgs.forEach(m => {
+        if (m.senderId === userId && m.status !== 'read') {
+          store.updateMessage(m.id, { status: 'read' });
+        }
+      });
     });
 
     socket.on('message:delete', ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
@@ -85,7 +98,30 @@ export function useSocket() {
     if (!token) return;
     const socket = getSocket(token);
     if (!socket) return;
-    socket.emit('message:send', { conversationId: convId, content, type });
+
+    // Add optimistic message immediately so UI feels instant
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: any = {
+      id: tempId,
+      conversationId: convId,
+      senderId: userId,
+      content,
+      type,
+      status: 'sending',
+      createdAt: new Date().toISOString(),
+      isEdited: false,
+      replyTo: null,
+      sender: { id: userId, name: '', username: '', avatar: undefined },
+    };
+    useChatStore.getState().addMessage(optimistic);
+
+    socket.emit('message:send', { conversationId: convId, content, type }, (ack: any) => {
+      // When server confirms, replace temp message with real one
+      if (ack?.id) {
+        useChatStore.getState().deleteMessage(convId, tempId);
+        useChatStore.getState().addMessage({ ...ack, status: ack.status ?? 'sent' });
+      }
+    });
   }
 
   function markRead(convId: string, messageId: string) {

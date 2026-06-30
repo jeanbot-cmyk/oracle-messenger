@@ -40,6 +40,7 @@ export class UsersService {
   }
 
   async search(q: string, excludeId: string) {
+    const cleaned = q.replace(/[^\d+]/g, '');
     return this.prisma.user.findMany({
       where: {
         AND: [
@@ -48,10 +49,12 @@ export class UsersService {
             { name:     { contains: q, mode: 'insensitive' } },
             { username: { contains: q, mode: 'insensitive' } },
             { email:    { contains: q, mode: 'insensitive' } },
+            // Recherche par numéro de téléphone (partielle)
+            ...(cleaned.length >= 6 ? [{ phone: { contains: cleaned } }] : []),
           ]},
         ],
       },
-      select: { id:true, name:true, username:true, avatar:true, status:true },
+      select: { id:true, name:true, username:true, avatar:true, status:true, phone:true },
       take: 20,
     });
   }

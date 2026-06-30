@@ -8,6 +8,7 @@ export interface User {
   status: 'online' | 'offline' | 'away';
   lastSeen?: string;
   isPremium: boolean;
+  phone?: string;
   createdAt: string;
 }
 
@@ -29,7 +30,7 @@ export interface Message {
   senderId: string;
   sender?: User;
   content: string;
-  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'location' | 'sticker';
+  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'file' | 'location' | 'sticker';
   status: 'sending' | 'sent' | 'delivered' | 'read';
   replyTo?: Message;
   reactions?: { emoji: string; userId: string }[];
@@ -55,6 +56,7 @@ declare module 'next-auth' {
       image?: string | null;
       username: string;
       backendToken: string;
+      isNew: boolean;
     };
   }
 }
@@ -64,5 +66,6 @@ declare module 'next-auth/jwt' {
     username?: string;
     backendToken?: string;
     googleId?: string;
+    isNew?: boolean;
   }
 }

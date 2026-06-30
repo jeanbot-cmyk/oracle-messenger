@@ -24,7 +24,7 @@ export function ChatLayout() {
     callState, callInfo, localStream, remoteStreams,
     isMuted, isCamOff,
     startCall, answerCall, endCall, toggleMute, toggleCamera,
-  } = useWebRTC(userId);
+  } = useWebRTC(userId, token);
 
   useEffect(() => {
     if (!token) return;

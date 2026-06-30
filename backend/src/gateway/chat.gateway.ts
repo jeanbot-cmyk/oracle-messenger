@@ -6,9 +6,11 @@ import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { ChatService } from '../chat/chat.service';
 import { UsersService } from '../users/users.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @WebSocketGateway({
   cors: { origin: '*', credentials: false },
+  maxHttpBufferSize: 200 * 1024 * 1024, // 200MB for base64 video/image
   transports: ['websocket', 'polling'],
 })
 export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -21,6 +23,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private jwt: JwtService,
     private chat: ChatService,
     private users: UsersService,
+    private notif: NotificationsService,
   ) {}
 
   // ── Connexion ─────────────────────────────────────────────────────────────
@@ -79,15 +82,41 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // 1. Diffuser à tous dans la room (ceux qui ont fait conversation:join)
       this.server.to(`conv:${data.conversationId}`).emit('message:new', msg);
 
-      // 2. Notifier aussi les participants connectés mais pas dans la room
+      // 2. Notifier les participants connectés mais pas dans la room
       const participantIds = await this.chat.getParticipantIds(data.conversationId);
+      let deliveredToAny = false;
+      const senderName = msg.sender?.name ?? 'Oracle Messenger';
+      const preview = msg.type === 'text'
+        ? (msg.content.length > 80 ? msg.content.slice(0, 80) + '…' : msg.content)
+        : msg.type === 'image' ? '📷 Photo'
+        : msg.type === 'video' ? '🎥 Vidéo'
+        : msg.type === 'audio' ? '🎵 Audio'
+        : '📎 Fichier';
+
       for (const pid of participantIds) {
         if (pid === client.data.userId) continue;
         const sid = this.userSockets.get(pid);
-        if (sid) this.server.to(sid).emit('message:new', msg);
+        if (sid) {
+          // Connecté → socket temps réel
+          this.server.to(sid).emit('message:new', msg);
+          deliveredToAny = true;
+        } else {
+          // Hors ligne → Push Notification (son géré par l'OS)
+          this.notif.sendPush(pid, {
+            title: senderName,
+            body: preview,
+            url: '/chat',
+          }).catch(() => {});
+        }
       }
 
-      return msg;
+      // 3. Si au moins un destinataire est connecté → marquer delivered
+      if (deliveredToAny) {
+        client.emit('message:update', { id: msg.id, patch: { status: 'delivered' } });
+      }
+
+      // Return msg as acknowledgement to sender
+      return { ...msg, status: deliveredToAny ? 'delivered' : 'sent' };
     } catch (err: any) {
       client.emit('message:error', { message: err?.message ?? 'Erreur envoi' });
     }
@@ -96,13 +125,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('message:read')
   async handleRead(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { conversationId: string; messageId: string },
+    @MessageBody() data: { conversationId: string; messageId?: string },
   ) {
     try {
       await this.chat.markRead(data.conversationId, client.data.userId);
-      this.server.to(`conv:${data.conversationId}`).emit('message:update', {
-        id: data.messageId,
-        patch: { status: 'read' },
+      // Notify all participants in the room that messages are read
+      this.server.to(`conv:${data.conversationId}`).emit('conversation:read', {
+        conversationId: data.conversationId,
+        userId: client.data.userId,
       });
     } catch {}
   }

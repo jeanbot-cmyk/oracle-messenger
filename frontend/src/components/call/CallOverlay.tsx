@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import type { CallState, CallInfo } from '../../hooks/useWebRTC';
+import { startRingtone, stopRingtone, playCallConnected, playCallEnded } from '../../lib/sounds';
 
 interface Props {
   callState: CallState;
@@ -31,6 +32,19 @@ const Btn = ({ onClick, color, children, label }: { onClick:()=>void; color:stri
 );
 
 export function CallOverlay({ callState, callInfo, localStream, remoteStreams, isMuted, isCamOff, callerName, onAnswer, onEnd, onToggleMute, onToggleCamera }: Props) {
+  // Sonneries selon l'état de l'appel
+  useEffect(() => {
+    if (callState === 'incoming' || callState === 'calling') {
+      startRingtone();
+    } else if (callState === 'connected') {
+      stopRingtone();
+      playCallConnected();
+    } else if (callState === 'ended' || callState === 'idle') {
+      stopRingtone();
+    }
+    return () => stopRingtone();
+  }, [callState]);
+
   if (callState === 'idle' || callState === 'ended') return null;
 
   const isVideo = callInfo?.type === 'video';
