@@ -30,16 +30,15 @@ export default function HomePage() {
   const [mounted, setMounted]      = useState(false);
   const [iosStep, setIosStep]      = useState(0);
   const [showIos, setShowIos]      = useState(false);
+  const [countdown, setCountdown]  = useState(5);
 
   useEffect(() => {
     setMounted(true);
     setDevice(detectDevice());
 
-    // Enregistrer le SW pour les push et le cache
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
-        .then(reg => reg.update()) // forcer vérification mise à jour
-        .catch(() => {});
+        .then(reg => reg.update()).catch(() => {});
     }
 
     const handler = (e: any) => {
@@ -48,63 +47,59 @@ export default function HomePage() {
       (window as any).__installPrompt = e;
     };
     window.addEventListener('beforeinstallprompt', handler);
-    window.addEventListener('appinstalled', () => {
-      setInstalled(true);
-    });
+    window.addEventListener('appinstalled', () => setInstalled(true));
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
-  // Redirection UNIQUEMENT quand la session est résolue (pas loading)
+  // Redirection quand session résolue
   useEffect(() => {
-    if (status === 'loading') return; // attendre
+    if (status === 'loading') return;
     if (isStandalone()) {
-      // App déjà installée et ouverte → aller directement dans l'app
       router.replace(status === 'authenticated' ? '/chat' : '/login');
+      return;
     }
+    // Countdown de 5s puis redirection automatique
+    let count = 5;
+    setCountdown(5);
+    const interval = setInterval(() => {
+      count--;
+      setCountdown(count);
+      if (count <= 0) {
+        clearInterval(interval);
+        router.replace(status === 'authenticated' ? '/chat' : '/login');
+      }
+    }, 1000);
+    return () => clearInterval(interval);
   }, [status]);
 
-  // Après installation réussie → rediriger
   useEffect(() => {
     if (!installed) return;
     if (status === 'loading') return;
-    setTimeout(() => {
-      router.replace(status === 'authenticated' ? '/chat' : '/onboarding');
-    }, 1200);
+    setTimeout(() => router.replace(status === 'authenticated' ? '/chat' : '/onboarding'), 1200);
   }, [installed, status]);
 
   function handleInstall() {
     const d = detectDevice();
     if (d === 'ios') { setShowIos(true); return; }
-
     const prompt = promptRef.current || (window as any).__installPrompt;
     if (prompt) {
       setInstalling(true);
       prompt.prompt();
       prompt.userChoice
         .then((c: any) => { if (c.outcome === 'accepted') setInstalled(true); })
-        .catch(() => {})
-        .finally(() => setInstalling(false));
+        .catch(() => {}).finally(() => setInstalling(false));
       return;
     }
-
-    // Pas encore de prompt — attendre
     setInstalling(true);
     const wait = (e: any) => {
-      e.preventDefault();
-      promptRef.current = e;
+      e.preventDefault(); promptRef.current = e;
       window.removeEventListener('beforeinstallprompt', wait);
       e.prompt();
-      e.userChoice
-        .then((c: any) => { if (c.outcome === 'accepted') setInstalled(true); })
-        .catch(() => {})
-        .finally(() => setInstalling(false));
+      e.userChoice.then((c: any) => { if (c.outcome === 'accepted') setInstalled(true); })
+        .catch(() => {}).finally(() => setInstalling(false));
     };
     window.addEventListener('beforeinstallprompt', wait);
-    // Timeout 10s — si pas de prompt, proposer d'accéder sans installer
-    setTimeout(() => {
-      window.removeEventListener('beforeinstallprompt', wait);
-      setInstalling(false);
-    }, 10000);
+    setTimeout(() => { window.removeEventListener('beforeinstallprompt', wait); setInstalling(false); }, 10000);
   }
 
   function handleOpen() {
@@ -114,23 +109,20 @@ export default function HomePage() {
 
   if (!mounted) return null;
 
-  // ── Succès installation ──
   if (installed) return (
     <div style={{ height:'100dvh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'#fff', gap:20, padding:32, textAlign:'center', fontFamily:'system-ui,-apple-system,sans-serif' }}>
-      <style>{`@keyframes pop{0%{transform:scale(0.5);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}`}</style>
+      <style>{`@keyframes pop{0%{transform:scale(0.5);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}} @keyframes load{from{width:0}to{width:100%}}`}</style>
       <div style={{ width:90, height:90, borderRadius:'50%', background:ACCENT, display:'flex', alignItems:'center', justifyContent:'center', animation:'pop 0.4s ease' }}>
         <svg width="44" height="44" fill="none" stroke="#fff" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>
       </div>
       <h2 style={{ fontSize:24, fontWeight:800, color:'#111b21', margin:0 }}>Application installée !</h2>
       <p style={{ color:'#667781', fontSize:15, margin:0 }}>Ouverture d'Oracle Messenger…</p>
-      <div style={{ width:40, height:4, background:'#f0f2f5', borderRadius:2, overflow:'hidden' }}>
+      <div style={{ width:200, height:4, background:'#f0f2f5', borderRadius:2, overflow:'hidden' }}>
         <div style={{ height:'100%', background:ACCENT, borderRadius:2, animation:'load 1.2s linear forwards' }}/>
       </div>
-      <style>{`@keyframes load{from{width:0}to{width:100%}}`}</style>
     </div>
   );
 
-  // ── Guide iOS ──
   if (showIos) {
     const steps = [
       { icon:'📤', title:'Appuyez sur Partager', desc:'En bas de Safari, appuyez sur le bouton Partager (carré avec une flèche vers le haut).' },
@@ -167,7 +159,6 @@ export default function HomePage() {
     );
   }
 
-  // ── Page principale ──
   return (
     <div style={{ minHeight:'100dvh', background:'#fff', display:'flex', flexDirection:'column', fontFamily:'system-ui,-apple-system,sans-serif' }}>
       <style>{`@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}} @keyframes spin{to{transform:rotate(360deg)}}`}</style>
@@ -208,19 +199,25 @@ export default function HomePage() {
       {/* CTA */}
       <div style={{ padding:'8px 24px 48px', display:'flex', flexDirection:'column', gap:12, marginTop:'auto' }}>
         <button onClick={handleInstall} disabled={installing}
-          style={{ width:'100%', background:installing?'#8696a0':ACCENT, color:'#fff', border:'none', borderRadius:28, padding:'20px 24px', fontSize:18, fontWeight:800, cursor:installing?'not-allowed':'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:12, boxShadow:`0 6px 24px ${ACCENT}55`, transition:'background 0.2s' }}>
+          style={{ width:'100%', background:installing?'#8696a0':ACCENT, color:'#fff', border:'none', borderRadius:28, padding:'20px 24px', fontSize:18, fontWeight:800, cursor:installing?'not-allowed':'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:12, boxShadow:`0 6px 24px ${ACCENT}55` }}>
           {installing ? (
-            <><div style={{ width:22, height:22, border:'3px solid rgba(255,255,255,0.4)', borderTopColor:'#fff', borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/>Installation en cours…</>
+            <><div style={{ width:22, height:22, border:'3px solid rgba(255,255,255,0.4)', borderTopColor:'#fff', borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/>Installation…</>
           ) : device === 'ios' ? (
             <><svg width="22" height="22" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v12m0-12l-4 4m4-4l4 4M4 20h16"/></svg>Ajouter à l'écran d'accueil</>
           ) : (
             <><svg width="22" height="22" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>Installer l'application</>
           )}
         </button>
+
+        {/* Bouton accéder avec countdown */}
         <button onClick={handleOpen}
-          style={{ width:'100%', background:'transparent', color:'#667781', border:'1.5px solid #e9edef', borderRadius:28, padding:'14px', fontSize:15, cursor:'pointer' }}>
-          Accéder sans installer
+          style={{ width:'100%', background:'transparent', color:'#667781', border:'1.5px solid #e9edef', borderRadius:28, padding:'14px', fontSize:15, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+          {status !== 'loading' && countdown > 0
+            ? <>Accéder sans installer <span style={{ background:'#e9edef', borderRadius:20, padding:'2px 8px', fontSize:13, fontWeight:700, color:ACCENT }}>{countdown}s</span></>
+            : 'Accéder sans installer'
+          }
         </button>
+
         <p style={{ fontSize:11, color:'#8696a0', textAlign:'center', margin:'4px 0 0', lineHeight:1.6 }}>
           En continuant, vous acceptez nos <a href="/terms" style={{ color:ACCENT }}>Conditions</a> et <a href="/privacy" style={{ color:ACCENT }}>Politique de confidentialité</a>.
         </p>
