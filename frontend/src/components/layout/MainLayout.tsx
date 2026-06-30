@@ -336,6 +336,7 @@ function OutilsTab({ onPickPhoto }: { onPickPhoto: () => void }) {
       title: 'Studio Créatif',
       items: [
         { iconKey: 'photo',   label: 'Retouche Photo',   sub: 'Choisissez une photo depuis votre galerie.', action: onPickPhoto },
+        { iconKey: 'meeting', label: 'Ma Galerie',       sub: 'Voir et gérer vos photos retouchées.',                      action: () => router.push('/gallery') },
         { iconKey: 'meeting', label: 'Réunion Vidéo',    sub: 'Démarrez ou rejoignez une réunion instantanément.',         action: () => router.push('/tools') },
       ],
     },

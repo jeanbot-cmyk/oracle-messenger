@@ -20,28 +20,12 @@ interface Story {
   views: string[];           // userIds
 }
 
-const STORY_KEY = 'oracle-stories';
 const BG_COLORS = ['#128C7E','#25D366','#075E54','#34B7F1','#ECE5DD','#FF6B6B','#4ECDC4','#45B7D1','#96CEB4','#FFEAA7'];
-
-function loadStories(): Story[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const all: Story[] = JSON.parse(localStorage.getItem(STORY_KEY) ?? '[]');
-    const now = Date.now();
-    const valid = all.filter(s => new Date(s.expiresAt).getTime() > now);
-    if (valid.length !== all.length) localStorage.setItem(STORY_KEY, JSON.stringify(valid));
-    return valid;
-  } catch { return []; }
-}
-
-function saveStory(story: Story) {
-  const all = loadStories();
-  all.unshift(story);
-  localStorage.setItem(STORY_KEY, JSON.stringify(all));
-}
+const API = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
 
 export default function StoriesPage() {
   const { data: session, status } = useSession();
+  const token = (session?.user as any)?.backendToken ?? '';
   const router = useRouter();
   const searchParams = useSearchParams();
   const { lang } = useSettings();
@@ -65,9 +49,32 @@ export default function StoriesPage() {
     if (status === 'unauthenticated') router.replace('/login');
   }, [status]);
 
+  async function fetchStories() {
+    try {
+      const res = await fetch(`${API}/stories`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return;
+      const data = await res.json();
+      // Normaliser : le backend renvoie author.name, author.avatar
+      const normalized: Story[] = data.map((s: any) => ({
+        id: s.id,
+        authorId: s.authorId,
+        authorName: s.author?.name ?? 'Inconnu',
+        authorAvatar: s.author?.avatar,
+        content: s.content,
+        caption: s.caption,
+        type: s.type,
+        bg: s.bg,
+        createdAt: s.createdAt,
+        expiresAt: s.expiresAt,
+        views: s.views ?? [],
+      }));
+      setStories(normalized);
+    } catch {}
+  }
+
   useEffect(() => {
-    if (!mounted) return;
-    setStories(loadStories());
+    if (!mounted || !token) return;
+    fetchStories();
     // Handle camera capture from MainLayout
     const newParam = searchParams?.get('new');
     if (newParam === 'image') {
@@ -110,40 +117,37 @@ export default function StoriesPage() {
   }, [viewing]);
 
   function openStory(story: Story) {
-    // Marquer comme vu
-    const userId = session?.user?.id ?? 'me';
-    if (!story.views.includes(userId)) {
-      story.views.push(userId);
-      const all = loadStories().map(s => s.id === story.id ? story : s);
-      localStorage.setItem(STORY_KEY, JSON.stringify(all));
-    }
+    // Marquer comme vu via backend
+    fetch(`${API}/stories/${story.id}/view`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
     setViewing(story);
   }
 
-  function handleCreate() {
+  async function handleCreate() {
     if (!session?.user) return;
     if (newType === 'text' && !newText.trim()) return;
     if (newType === 'image' && !newImage) return;
-    const now = new Date();
-    const story: Story = {
-      id: `story_${Date.now()}`,
-      authorId: session.user.id,
-      authorName: session.user.name ?? 'Moi',
-      authorAvatar: session.user.image ?? undefined,
-      content: newType === 'text' ? newText.trim() : newImage,
-      caption: newType === 'image' ? newCaption.trim() || undefined : undefined,
-      type: newType,
-      bg: newBg,
-      createdAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
-      views: [],
-    };
-    saveStory(story);
-    setStories(loadStories());
-    setCreating(false);
-    setNewText('');
-    setNewImage('');
-    setNewCaption('');
+    try {
+      const res = await fetch(`${API}/stories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          content: newType === 'text' ? newText.trim() : newImage,
+          caption: newType === 'image' ? newCaption.trim() || undefined : undefined,
+          type: newType,
+          bg: newBg,
+        }),
+      });
+      if (res.ok) {
+        await fetchStories();
+        setCreating(false);
+        setNewText('');
+        setNewImage('');
+        setNewCaption('');
+      }
+    } catch {}
   }
 
   function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {

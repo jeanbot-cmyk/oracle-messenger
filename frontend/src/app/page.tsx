@@ -54,22 +54,13 @@ export default function HomePage() {
   // Redirection quand session résolue
   useEffect(() => {
     if (status === 'loading') return;
+    // En mode standalone (déjà installé) → rediriger directement
     if (isStandalone()) {
       router.replace(status === 'authenticated' ? '/chat' : '/login');
       return;
     }
-    // Countdown de 5s puis redirection automatique
-    let count = 5;
-    setCountdown(5);
-    const interval = setInterval(() => {
-      count--;
-      setCountdown(count);
-      if (count <= 0) {
-        clearInterval(interval);
-        router.replace(status === 'authenticated' ? '/chat' : '/login');
-      }
-    }, 1000);
-    return () => clearInterval(interval);
+    // Sinon : rester sur la page d'accueil pour proposer l'installation
+    // Le bouton "Accéder sans installer" permet de continuer manuellement
   }, [status]);
 
   useEffect(() => {
@@ -209,13 +200,10 @@ export default function HomePage() {
           )}
         </button>
 
-        {/* Bouton accéder avec countdown */}
+        {/* Bouton accéder sans installer */}
         <button onClick={handleOpen}
           style={{ width:'100%', background:'transparent', color:'#667781', border:'1.5px solid #e9edef', borderRadius:28, padding:'14px', fontSize:15, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-          {status !== 'loading' && countdown > 0
-            ? <>Accéder sans installer <span style={{ background:'#e9edef', borderRadius:20, padding:'2px 8px', fontSize:13, fontWeight:700, color:ACCENT }}>{countdown}s</span></>
-            : 'Accéder sans installer'
-          }
+          Accéder sans installer
         </button>
 
         <p style={{ fontSize:11, color:'#8696a0', textAlign:'center', margin:'4px 0 0', lineHeight:1.6 }}>

@@ -7,6 +7,7 @@ import { ChatModule } from './chat/chat.module';
 import { GatewayModule } from './gateway/gateway.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
+import { StoriesModule } from './stories/stories.module';
 import { JwtGuard } from './auth/jwt.guard';
 
 @Controller()
@@ -52,6 +53,7 @@ class HealthController {
     GatewayModule,
     NotificationsModule,
     AdminModule,
+    StoriesModule,
   ],
   controllers: [HealthController],
 })

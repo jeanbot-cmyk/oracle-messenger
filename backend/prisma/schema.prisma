@@ -27,6 +27,8 @@ model User {
   sentMessages     Message[]      @relation("SentMessages")
   participations   Participant[]
   aiMemories       AiMemory[]
+  stories          Story[]
+  storyViews       StoryView[]
 }
 
 model Conversation {
@@ -71,6 +73,30 @@ model Message {
   sender         User         @relation("SentMessages", fields: [senderId], references: [id])
   replyTo        Message?     @relation("Replies", fields: [replyToId], references: [id])
   replies        Message[]    @relation("Replies")
+}
+
+// Stories — visibles 24h, partagées entre utilisateurs
+model Story {
+  id          String   @id @default(uuid())
+  authorId    String
+  content     String   @db.Text  // base64 image ou texte
+  caption     String?
+  type        String   @default("text") // text | image
+  bg          String   @default("#128C7E")
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  views       StoryView[]
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+}
+
+model StoryView {
+  id        String   @id @default(uuid())
+  storyId   String
+  userId    String
+  viewedAt  DateTime @default(now())
+  story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([storyId, userId])
 }
 
 // Mémoire IA — 7 jours conversations, 1 mois global
