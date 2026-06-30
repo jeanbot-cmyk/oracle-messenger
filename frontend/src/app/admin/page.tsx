@@ -9,6 +9,7 @@ const ADMIN_EMAIL = 'tchingankonggeorges@gmail.com';
 
 interface Stats { totalUsers:number; onlineUsers:number; pwaInstalls:number; totalMessages:number; totalConversations:number; }
 interface Metrics { cpu:number; ramPct:number; ramUsed:number; ramTotal:number; uptime:number; }
+interface CountryStat { country:string; count:number; online:number; }
 
 export default function AdminPage() {
   const { data: session, status } = useSession();
@@ -16,6 +17,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [users, setUsers] = useState<any[]>([]);
+  const [countries, setCountries] = useState<CountryStat[]>([]);
   const [notif, setNotif] = useState({ title:'', body:'' });
   const [broadcast, setBroadcast] = useState('');
   const [broadcasting, setBroadcasting] = useState(false);
@@ -53,12 +55,15 @@ export default function AdminPage() {
 
   async function loadData() {
     try {
-      const [s, m, u] = await Promise.all([
-        fetch(`${api}/admin/stats`, { headers:{ Authorization:`Bearer ${token}` } }).then(r=>r.json()),
-        fetch(`${api}/admin/metrics`, { headers:{ Authorization:`Bearer ${token}` } }).then(r=>r.json()),
-        fetch(`${api}/admin/users`, { headers:{ Authorization:`Bearer ${token}` } }).then(r=>r.json()),
+      const [s, m, u, c] = await Promise.all([
+        fetch(`${api}/admin/stats`,     { headers:{ Authorization:`Bearer ${token}` } }).then(r=>r.json()),
+        fetch(`${api}/admin/metrics`,   { headers:{ Authorization:`Bearer ${token}` } }).then(r=>r.json()),
+        fetch(`${api}/admin/users`,     { headers:{ Authorization:`Bearer ${token}` } }).then(r=>r.json()),
+        fetch(`${api}/admin/countries`, { headers:{ Authorization:`Bearer ${token}` } }).then(r=>r.json()).catch(()=>[]),
       ]);
-      setStats(s); setMetrics(m); setUsers(Array.isArray(u) ? u : []);
+      setStats(s); setMetrics(m);
+      setUsers(Array.isArray(u) ? u : []);
+      setCountries(Array.isArray(c) ? c : []);
       setLastRefresh(new Date());
     } catch {}
   }
@@ -179,6 +184,33 @@ export default function AdminPage() {
             {broadcastMsg && <p style={{ color:'var(--accent)', fontSize:14, margin:0 }}>{broadcastMsg}</p>}
           </div>
         </div>
+
+        {/* Country stats */}
+        {countries.length > 0 && (
+          <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)' }}>
+            <h2 style={{ fontSize:18, fontWeight:600, color:'var(--text-primary)', margin:'0 0 16px' }}>🌍 Utilisateurs par pays</h2>
+            <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+              {countries.map((c, i) => {
+                const pct = Math.round((c.count / (stats?.totalUsers || 1)) * 100);
+                return (
+                  <div key={c.country}>
+                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                      <span style={{ fontSize:14, color:'var(--text-primary)', fontWeight:500 }}>
+                        {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '  '} {c.country}
+                      </span>
+                      <span style={{ fontSize:13, color:'var(--text-muted)' }}>
+                        {c.count} utilisateurs · <span style={{ color:'#22c55e' }}>{c.online} en ligne</span>
+                      </span>
+                    </div>
+                    <div style={{ height:6, background:'var(--bg-input)', borderRadius:3, overflow:'hidden' }}>
+                      <div style={{ height:'100%', width:`${pct}%`, background:'var(--accent)', borderRadius:3, transition:'width 0.5s' }}/>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Users table */}
         <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)' }}>

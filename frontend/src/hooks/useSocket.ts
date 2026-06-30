@@ -99,6 +99,15 @@ export function useSocket() {
     const socket = getSocket(token);
     if (!socket) return;
 
+    // Détecter automatiquement le type si base64
+    let resolvedType = type;
+    if (type === 'text' && content.startsWith('data:')) {
+      if (content.startsWith('data:image')) resolvedType = 'image';
+      else if (content.startsWith('data:video')) resolvedType = 'video';
+      else if (content.startsWith('data:audio')) resolvedType = 'audio';
+      else resolvedType = 'file';
+    }
+
     // Add optimistic message immediately so UI feels instant
     const tempId = `temp-${Date.now()}`;
     const optimistic: any = {
@@ -106,7 +115,7 @@ export function useSocket() {
       conversationId: convId,
       senderId: userId,
       content,
-      type,
+      type: resolvedType,
       status: 'sending',
       createdAt: new Date().toISOString(),
       isEdited: false,
@@ -115,7 +124,7 @@ export function useSocket() {
     };
     useChatStore.getState().addMessage(optimistic);
 
-    socket.emit('message:send', { conversationId: convId, content, type }, (ack: any) => {
+    socket.emit('message:send', { conversationId: convId, content, type: resolvedType }, (ack: any) => {
       // When server confirms, replace temp message with real one
       if (ack?.id) {
         useChatStore.getState().deleteMessage(convId, tempId);

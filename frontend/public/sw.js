@@ -1,101 +1,81 @@
-// Oracle Messenger — Service Worker v6
-const CACHE_VERSION = 6;
+// Oracle Messenger — Service Worker v7
+// Version liée au timestamp de build pour forcer la mise à jour instantanée
+const CACHE_VERSION = 7;
+const BUILD_TS = Date.now(); // change à chaque déploiement
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
+
 const STATIC_SHELL = [
   '/', '/chat', '/install', '/manifest.json',
   '/icons/icon-192.png', '/icons/icon-512.png'
 ];
 
-// ── Install ───────────────────────────────────────────────────────────────────
+// ── Install : skipWaiting immédiat ────────────────────────────────────────────
 self.addEventListener('install', e => {
-  // Force immediate activation — don't wait for old SW to die
-  self.skipWaiting();
+  self.skipWaiting(); // Activer immédiatement sans attendre
   e.waitUntil(
     caches.open(CACHE_NAME)
       .then(c => c.addAll(STATIC_SHELL))
-      .catch(() => {}) // Don't block install if pre-cache fails
+      .catch(() => {})
   );
 });
 
-// ── Activate: wipe ALL old caches, claim all clients immediately ──────────────
+// ── Activate : supprimer TOUS les anciens caches + claim immédiat ─────────────
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(
-        keys
-          .filter(k => k !== CACHE_NAME)
-          .map(k => {
-            console.log('[SW] Deleting old cache:', k);
-            return caches.delete(k);
-          })
-      ))
-      .then(() => self.clients.claim()) // Take control of all open tabs immediately
-      .then(() => {
-        // Notify all clients that SW updated — triggers page reload if needed
-        self.clients.matchAll({ type: 'window' }).then(clients => {
-          clients.forEach(client => client.postMessage({ type: 'SW_UPDATED', version: CACHE_VERSION }));
-        });
-        checkStorageQuota();
-      })
+    Promise.all([
+      // Supprimer tous les anciens caches
+      caches.keys().then(keys =>
+        Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+      ),
+      // Prendre le contrôle de tous les clients immédiatement
+      self.clients.claim(),
+    ])
   );
 });
 
-// ── Fetch ─────────────────────────────────────────────────────────────────────
+// ── Fetch : network-first pour HTML, cache-first pour assets ─────────────────
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
 
-  // Network-only for API and external requests
-  if (url.pathname.startsWith('/api/') || url.hostname !== self.location.hostname) {
-    e.respondWith(
-      fetch(e.request).catch(() =>
-        new Response('{"error":"offline"}', { headers: { 'Content-Type': 'application/json' } })
-      )
-    );
+  // Ne pas intercepter les requêtes API, socket, ou externes
+  if (
+    url.hostname !== self.location.hostname ||
+    url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/socket.io') ||
+    e.request.method !== 'GET'
+  ) {
+    e.respondWith(fetch(e.request).catch(() => new Response('', { status: 503 })));
     return;
   }
 
-  // Cache-first for immutable Next.js static assets (hashed filenames)
-  if (url.pathname.startsWith('/_next/static/')) {
+  // HTML pages : network-first (toujours la version fraîche)
+  if (e.request.mode === 'navigate' || e.request.headers.get('accept')?.includes('text/html')) {
     e.respondWith(
-      caches.match(e.request).then(cached => {
-        if (cached) return cached;
-        return fetch(e.request).then(res => {
+      fetch(e.request, { cache: 'no-store' })
+        .then(res => {
           if (res.ok) {
             const clone = res.clone();
             caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
           }
           return res;
-        });
-      })
+        })
+        .catch(() => caches.match(e.request).then(cached => cached || caches.match('/')))
     );
     return;
   }
 
-  // Network-first with cache fallback for HTML pages
-  // Inject X-PWA-Standalone header when running in standalone mode
-  // so the middleware can set the pwa-installed cookie automatically
-  const isStandalone = self.clients && (
-    matchMedia('(display-mode: standalone)').matches ||
-    navigator.standalone === true
-  );
-  const fetchRequest = (e.request.mode === 'navigate' && isStandalone)
-    ? new Request(e.request, { headers: { ...Object.fromEntries(e.request.headers), 'X-PWA-Standalone': '1' } })
-    : e.request;
-
+  // Assets (JS, CSS, images) : cache-first avec fallback réseau
   e.respondWith(
-    fetch(fetchRequest)
-      .then(res => {
-        if (res.ok && url.origin === self.location.origin) {
+    caches.match(e.request).then(cached => {
+      if (cached) return cached;
+      return fetch(e.request).then(res => {
+        if (res.ok) {
           const clone = res.clone();
           caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
         }
         return res;
-      })
-      .catch(() =>
-        caches.match(e.request)
-          .then(cached => cached || caches.match('/'))
-      )
+      });
+    })
   );
 });
 
@@ -109,6 +89,7 @@ self.addEventListener('push', e => {
       badge: '/icons/icon-72.png',
       tag: data.tag ?? 'msg',
       requireInteraction: data.requireInteraction ?? false,
+      vibrate: [100, 50, 100],
       data,
     })
   );
@@ -116,21 +97,31 @@ self.addEventListener('push', e => {
 
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  e.waitUntil(clients.openWindow(e.notification.data?.url ?? '/chat'));
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+      // Si l'app est déjà ouverte, la mettre au premier plan
+      for (const client of clients) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.focus();
+          client.navigate(e.notification.data?.url ?? '/chat');
+          return;
+        }
+      }
+      // Sinon ouvrir une nouvelle fenêtre
+      return self.clients.openWindow(e.notification.data?.url ?? '/chat');
+    })
+  );
 });
 
 // ── Rappels événements à l'heure exacte ──────────────────────────────────────
-// Le client envoie un message 'schedule-reminder' avec { id, title, date, timestamp }
-// Le SW stocke les rappels et les déclenche à l'heure exacte via setTimeout
 const scheduledReminders = new Map();
 
 self.addEventListener('message', e => {
   if (e.data?.type === 'schedule-reminder') {
     const { id, title, date, timestamp } = e.data;
-    // Annuler si déjà planifié
     if (scheduledReminders.has(id)) clearTimeout(scheduledReminders.get(id));
     const delay = timestamp - Date.now();
-    if (delay <= 0) return; // déjà passé
+    if (delay <= 0) return;
     const timer = setTimeout(() => {
       self.registration.showNotification(`📅 Rappel : ${title}`, {
         body: `Événement prévu le ${date}`,
@@ -153,6 +144,11 @@ self.addEventListener('message', e => {
       scheduledReminders.delete(id);
     }
   }
+
+  // Force update : le client demande au SW de se mettre à jour
+  if (e.data?.type === 'force-update') {
+    self.skipWaiting();
+  }
 });
 
 // ── Storage quota alert ───────────────────────────────────────────────────────
@@ -162,7 +158,7 @@ async function checkStorageQuota() {
     const { usage = 0, quota = 1 } = await navigator.storage.estimate();
     if (((quota - usage) / quota) * 100 < 10) {
       self.registration.showNotification('Oracle Messenger — Stockage', {
-        body: "Votre téléphone est presque plein. Supprimez quelques fichiers pour libérer de l'espace.",
+        body: "Votre téléphone est presque plein. Supprimez quelques fichiers.",
         icon: '/icons/icon-192.png',
         tag: 'storage-warning',
         requireInteraction: true,

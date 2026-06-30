@@ -7,6 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ChatService } from '../chat/chat.service';
 import { UsersService } from '../users/users.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SocketStateService } from './socket-state.service';
 
 @WebSocketGateway({
   cors: { origin: '*', credentials: false },
@@ -17,14 +18,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
 
   // userId → socketId (en mémoire — suffisant pour 1 instance)
-  private userSockets = new Map<string, string>();
+  // userSockets moved to SocketStateService
 
   constructor(
     private jwt: JwtService,
     private chat: ChatService,
     private users: UsersService,
     private notif: NotificationsService,
+    private socketState: SocketStateService,
   ) {}
+
+  afterInit(server: Server) {
+    this.socketState.setServer(server);
+  }
 
   // ── Connexion ─────────────────────────────────────────────────────────────
 
@@ -34,7 +40,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (!token) { client.disconnect(); return; }
       const payload = this.jwt.verify(token) as { sub: string };
       client.data.userId = payload.sub;
-      this.userSockets.set(payload.sub, client.id);
+      this.socketState.setUserSocket(payload.sub, client.id);
       await this.users.setOnline(payload.sub, true);
       this.server.emit('user:online', { userId: payload.sub });
     } catch {
@@ -45,7 +51,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleDisconnect(client: Socket) {
     const userId = client.data.userId;
     if (!userId) return;
-    this.userSockets.delete(userId);
+    this.socketState.removeUserSocket(userId);
     await this.users.setOnline(userId, false);
     this.server.emit('user:offline', { userId });
   }
@@ -95,7 +101,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       for (const pid of participantIds) {
         if (pid === client.data.userId) continue;
-        const sid = this.userSockets.get(pid);
+        const sid = this.socketState.getSocketId(pid);
         if (sid) {
           // Connecté → socket temps réel
           this.server.to(sid).emit('message:new', msg);
@@ -209,7 +215,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.join(`call:${data.callId}`);
 
       for (const targetId of data.targetUserIds) {
-        const sid = this.userSockets.get(targetId);
+        const sid = this.socketState.getSocketId(targetId);
         if (sid) {
           this.server.to(sid).emit('call:incoming', {
             callId: data.callId,
@@ -256,7 +262,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string; targetUserId: string; sdp: RTCSessionDescriptionInit },
   ) {
-    const sid = this.userSockets.get(data.targetUserId);
+    const sid = this.socketState.getSocketId(data.targetUserId);
     if (sid) {
       this.server.to(sid).emit('webrtc:offer', {
         callId: data.callId,
@@ -271,7 +277,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string; targetUserId: string; sdp: RTCSessionDescriptionInit },
   ) {
-    const sid = this.userSockets.get(data.targetUserId);
+    const sid = this.socketState.getSocketId(data.targetUserId);
     if (sid) {
       this.server.to(sid).emit('webrtc:answer', {
         callId: data.callId,
@@ -286,7 +292,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string; targetUserId: string; candidate: RTCIceCandidateInit },
   ) {
-    const sid = this.userSockets.get(data.targetUserId);
+    const sid = this.socketState.getSocketId(data.targetUserId);
     if (sid) {
       this.server.to(sid).emit('webrtc:ice', {
         callId: data.callId,

@@ -59,4 +59,10 @@ export class AdminController {
     if (!body.content?.trim()) throw new ForbiddenException('Contenu requis');
     return this.admin.broadcastSalesMessage(user.id, body.content.trim(), body.mediaUrl);
   }
+
+  @Get('countries')
+  async countries(@CurrentUser() user: any) {
+    if (!ADMIN_EMAILS.includes(user?.email)) throw new ForbiddenException('Accès admin requis');
+    return this.admin.getCountryStats();
+  }
 }

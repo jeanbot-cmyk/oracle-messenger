@@ -1,6 +1,7 @@
 import { Injectable, Inject, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SocketStateService } from '../gateway/socket-state.service';
 import * as os from 'os';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class AdminService {
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
+    private socketState: SocketStateService,
   ) {}
 
   async getStats() {
@@ -98,7 +100,7 @@ export class AdminService {
           });
         }
 
-        await this.prisma.message.create({
+        const msg = await this.prisma.message.create({
           data: {
             conversationId: conv.id,
             senderId: adminId,
@@ -106,14 +108,65 @@ export class AdminService {
             type: 'text',
             status: 'sent',
           },
+          include: { sender: { select: { id:true, name:true, username:true, avatar:true } } },
         });
+
+        // Émettre en temps réel via socket si l'utilisateur est connecté
+        this.socketState.emitToUser(user.id, 'message:new', msg);
+        // Émettre aussi dans la room de la conversation
+        this.socketState.server?.to(`conv:${conv.id}`).emit('message:new', msg);
+
         sent++;
       } catch {}
     }
 
-    // Also send push notification
+    // Push notification pour les utilisateurs hors ligne
     await this.notifications.sendToAll({ title: 'Oracle Messenger', body: content }).catch(() => {});
 
     return { success: true, sent, total: users.length };
+  }
+
+  // ── Statistiques par pays (basé sur l'indicatif du numéro de téléphone) ────
+  async getCountryStats() {
+    const users = await this.prisma.user.findMany({
+      select: { phone: true, status: true },
+      where: { phone: { not: null } },
+    });
+
+    // Mapping indicatif → pays
+    const DIAL_MAP: Record<string, string> = {
+      '+225': "Côte d'Ivoire", '+237': 'Cameroun', '+221': 'Sénégal',
+      '+223': 'Mali', '+226': 'Burkina Faso', '+224': 'Guinée',
+      '+228': 'Togo', '+229': 'Bénin', '+227': 'Niger',
+      '+243': 'Congo (RDC)', '+242': 'Congo', '+241': 'Gabon',
+      '+33': 'France', '+32': 'Belgique', '+41': 'Suisse',
+      '+1': 'USA/Canada', '+44': 'Royaume-Uni', '+49': 'Allemagne',
+      '+234': 'Nigeria', '+233': 'Ghana', '+254': 'Kenya',
+      '+27': 'Afrique du Sud', '+212': 'Maroc', '+213': 'Algérie',
+      '+216': 'Tunisie', '+20': 'Égypte', '+91': 'Inde',
+      '+86': 'Chine', '+55': 'Brésil', '+52': 'Mexique',
+      '+34': 'Espagne', '+39': 'Italie', '+351': 'Portugal',
+      '+7': 'Russie', '+380': 'Ukraine', '+90': 'Turquie',
+      '+966': 'Arabie Saoudite', '+971': 'Émirats arabes',
+    };
+
+    const countryMap = new Map<string, { count: number; online: number }>();
+
+    for (const user of users) {
+      if (!user.phone) continue;
+      // Trouver l'indicatif le plus long qui correspond
+      const match = Object.keys(DIAL_MAP)
+        .filter(d => user.phone!.startsWith(d))
+        .sort((a, b) => b.length - a.length)[0];
+      const country = match ? DIAL_MAP[match] : 'Autre';
+      const existing = countryMap.get(country) ?? { count: 0, online: 0 };
+      existing.count++;
+      if (user.status === 'online') existing.online++;
+      countryMap.set(country, existing);
+    }
+
+    return Array.from(countryMap.entries())
+      .map(([country, stats]) => ({ country, ...stats }))
+      .sort((a, b) => b.count - a.count);
   }
 }

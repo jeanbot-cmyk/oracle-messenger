@@ -31,35 +31,45 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-// Client redirect component
+'use client';
+import { useEffect } from 'react';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+
+// Client redirect component — préserve le paramètre `from` après login
 export default function UserLandingPage({ params }: Props) {
   const { username } = params;
+  const { status } = useSession();
+  const router = useRouter();
   const appUrl = 'https://messenger.oracle-plus.online';
-  const deepLink = `${appUrl}/contacts?from=${username}`;
+
+  useEffect(() => {
+    if (status === 'loading') return;
+    if (status === 'authenticated') {
+      // Déjà connecté → ouvrir directement la conversation
+      router.replace(`/contacts?from=${username}`);
+    } else {
+      // Pas connecté → login puis retour vers la conversation
+      // Stocker la destination pour après le login
+      sessionStorage.setItem('oracle-after-login', `/contacts?from=${username}`);
+      router.replace(`/login?from=${username}`);
+    }
+  }, [status]);
 
   return (
-    <html lang="fr">
-      <head>
-        <meta httpEquiv="refresh" content={`0; url=${deepLink}`} />
-      </head>
-      <body style={{ margin: 0, fontFamily: 'system-ui, sans-serif', background: '#f0f2f5', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-        <div style={{ textAlign: 'center', padding: 32 }}>
-          <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#00a884', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 40 }}>
-            💬
-          </div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111b21', margin: '0 0 8px' }}>Oracle Messenger</h1>
-          <p style={{ fontSize: 15, color: '#667781', margin: '0 0 24px' }}>
-            <strong>@{username}</strong> vous invite à discuter
-          </p>
-          <a href={deepLink}
-            style={{ display: 'inline-block', background: '#00a884', color: '#fff', textDecoration: 'none', borderRadius: 12, padding: '14px 28px', fontSize: 16, fontWeight: 700 }}>
-            Ouvrir la conversation
-          </a>
-          <p style={{ fontSize: 12, color: '#8696a0', marginTop: 16 }}>
-            Redirection automatique…
-          </p>
+    <div style={{ margin: 0, fontFamily: 'system-ui, sans-serif', background: '#f0f2f5', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100dvh' }}>
+      <div style={{ textAlign: 'center', padding: 32 }}>
+        <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#128C7E', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 40 }}>
+          💬
         </div>
-      </body>
-    </html>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111b21', margin: '0 0 8px' }}>Oracle Messenger</h1>
+        <p style={{ fontSize: 15, color: '#667781', margin: '0 0 24px' }}>
+          <strong>@{username}</strong> vous invite à discuter
+        </p>
+        <div style={{ width: 32, height: 32, border: '3px solid #e9edef', borderTopColor: '#128C7E', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto' }}/>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        <p style={{ fontSize: 12, color: '#8696a0', marginTop: 16 }}>Chargement…</p>
+      </div>
+    </div>
   );
 }

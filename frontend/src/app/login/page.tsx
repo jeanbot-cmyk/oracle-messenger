@@ -172,6 +172,14 @@ function LoginContent() {
       });
       if (result?.error) throw new Error(result.error);
 
+      // Vérifier si une destination post-login est stockée (ex: lien /u/username)
+      const afterLogin = sessionStorage.getItem('oracle-after-login');
+      if (afterLogin) {
+        sessionStorage.removeItem('oracle-after-login');
+        router.replace(afterLogin);
+        return;
+      }
+
       // Nouveau compte → onboarding, compte existant → chat
       router.replace(data.isNew ? '/onboarding' : '/chat');
     } catch (e: any) {

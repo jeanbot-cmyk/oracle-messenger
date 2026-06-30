@@ -41,25 +41,54 @@ export default function ContactsPage() {
   }, [status]);
 
   useEffect(() => {
-    if (!mounted || status !== 'authenticated') return;
+    if (!mounted || status !== 'authenticated' || !token) return;
     const params = new URLSearchParams(window.location.search);
     const inviteFrom = params.get('from');
-    if (inviteFrom && token) { openConvByUsername(inviteFrom); return; }
-    // Auto-load from cache
+    if (inviteFrom) { openConvByUsername(inviteFrom); return; }
+
+    // 1. Charger depuis le cache local (contacts importés précédemment)
     const cached: LocalContact[] = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]');
     const manual: LocalContact[] = JSON.parse(localStorage.getItem(MANUAL_KEY) ?? '[]');
     const all = mergeContacts(cached, manual);
-    if (all.length > 0) { setImported(true); matchWithBackend(all); return; }
-    // Auto-import on first visit if Contacts API available (Android Chrome)
-    const hasNativeApi = typeof window !== 'undefined' && 'contacts' in navigator && 'ContactsManager' in window;
-    if (hasNativeApi && !localStorage.getItem('oracle-contacts-asked')) {
-      localStorage.setItem('oracle-contacts-asked', '1');
-      importAndMatch();
+
+    if (all.length > 0) {
+      // Cache existant → afficher immédiatement et re-matcher en arrière-plan
+      setImported(true);
+      matchWithBackend(all);
+      return;
     }
-  }, [mounted, status]);
+
+    // 2. Pas de cache → tenter l'import automatique
+    const hasNativeApi = 'contacts' in navigator && 'ContactsManager' in window;
+    if (hasNativeApi) {
+      // Android Chrome : import auto sans demander (déjà demandé au premier lancement)
+      importAndMatch();
+    } else {
+      // iOS / desktop : pas d'API native → charger tous les utilisateurs Oracle connus
+      // pour que l'utilisateur puisse au moins voir qui est sur l'app
+      setImported(true);
+      loadAllOracleUsers();
+    }
+  }, [mounted, status, token]);
 
   function mergeContacts(base: LocalContact[], extra: LocalContact[]): LocalContact[] {
     return [...base, ...extra.filter(m => !base.some(b => b.name === m.name))];
+  }
+
+  // Fallback iOS/desktop : charger tous les utilisateurs Oracle connus
+  async function loadAllOracleUsers() {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const users: AppUser[] = await api.users.search('', token).catch(() => []);
+      const enriched: EnrichedContact[] = users.map(u => ({
+        local: { name: u.name, phones: u.phone ? [u.phone] : [], emails: [] },
+        appUser: u,
+      }));
+      setContacts(enriched);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function openConvByUsername(username: string) {
