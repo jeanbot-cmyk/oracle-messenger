@@ -54,13 +54,17 @@ export default function HomePage() {
   // Redirection quand session résolue
   useEffect(() => {
     if (status === 'loading') return;
-    // En mode standalone (déjà installé) → rediriger directement
-    if (isStandalone()) {
-      router.replace(status === 'authenticated' ? '/chat' : '/login');
+    // Déjà authentifié → aller directement au chat (peu importe le mode)
+    if (status === 'authenticated') {
+      router.replace('/chat');
       return;
     }
-    // Sinon : rester sur la page d'accueil pour proposer l'installation
-    // Le bouton "Accéder sans installer" permet de continuer manuellement
+    // En mode standalone non authentifié → login
+    if (isStandalone()) {
+      router.replace('/login');
+      return;
+    }
+    // Non authentifié + navigateur normal → afficher la page d'accueil pour proposer l'installation
   }, [status]);
 
   useEffect(() => {
