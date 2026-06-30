@@ -43,11 +43,34 @@ async function getIceServers(token: string): Promise<RTCIceServer[]> {
   return DEFAULT_ICE;
 }
 
+// ── Call log helpers ──────────────────────────────────────────────────────────
+export interface CallLogEntry {
+  id: string;
+  type: 'audio' | 'video';
+  direction: 'incoming' | 'outgoing' | 'missed';
+  name: string;
+  at: string; // ISO timestamp
+  duration?: number; // seconds
+}
+
+function loadCallLog(): CallLogEntry[] {
+  try { return JSON.parse(localStorage.getItem('oracle-call-log') ?? '[]'); } catch { return []; }
+}
+function saveCallLog(log: CallLogEntry[]) {
+  localStorage.setItem('oracle-call-log', JSON.stringify(log.slice(0, 200)));
+}
+function addCallLog(entry: Omit<CallLogEntry, 'id'>) {
+  const log = loadCallLog();
+  log.unshift({ ...entry, id: Date.now().toString() });
+  saveCallLog(log);
+}
+
 export function useWebRTC(userId: string, token = '') {
   const [callState, setCallState] = useState<CallState>('idle');
   const [callInfo, setCallInfo]   = useState<CallInfo | null>(null);
   const [localStream, setLocalStream]   = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
+  const callStartRef = useRef<number>(0);
   const [isMuted, setIsMuted]   = useState(false);
   const [isCamOff, setIsCamOff] = useState(false);
 
@@ -149,9 +172,15 @@ export function useWebRTC(userId: string, token = '') {
     }
   }, [socket]);
 
-  const endCall = useCallback(() => {
+  const endCall = useCallback((logOutgoing = false) => {
     const info = callInfoRef.current;
     stopRingtone();
+    // Log appel sortant raccroché
+    if (logOutgoing && info && callStartRef.current) {
+      const duration = Math.round((Date.now() - callStartRef.current) / 1000);
+      addCallLog({ type: info.type, direction: 'outgoing', name: info.callerName ?? 'Inconnu', at: new Date().toISOString(), duration });
+      callStartRef.current = 0;
+    }
     if (info?.callId) socket?.emit('call:end', { callId: info.callId });
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
@@ -190,8 +219,11 @@ export function useWebRTC(userId: string, token = '') {
     socket.on('call:answered', (data: { callId: string; userId: string; accepted: boolean }) => {
       if (data.accepted) {
         stopRingtone();
+        callStartRef.current = Date.now();
         setCallState('connected');
       } else {
+        const info = callInfoRef.current;
+        if (info) addCallLog({ type: info.type, direction: 'outgoing', name: info.callerName ?? 'Inconnu', at: new Date().toISOString() });
         endCall();
       }
     });
@@ -199,9 +231,13 @@ export function useWebRTC(userId: string, token = '') {
     // Appel terminé par l'autre
     socket.on('call:ended', () => {
       const info = callInfoRef.current;
-      // Si on était en sonnerie (incoming non répondu) → appel manqué
       if (callState === 'incoming' && info) {
+        // Appel manqué
         notifyMissedCall(info.callerName ?? 'Quelqu\'un');
+        addCallLog({ type: info.type, direction: 'missed', name: info.callerName ?? 'Inconnu', at: new Date().toISOString() });
+      } else if (info && callStartRef.current) {
+        const duration = Math.round((Date.now() - callStartRef.current) / 1000);
+        addCallLog({ type: info.type, direction: 'incoming', name: info.callerName ?? 'Inconnu', at: new Date().toISOString(), duration });
       }
       endCall();
     });

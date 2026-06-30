@@ -119,6 +119,42 @@ self.addEventListener('notificationclick', e => {
   e.waitUntil(clients.openWindow(e.notification.data?.url ?? '/chat'));
 });
 
+// ── Rappels événements à l'heure exacte ──────────────────────────────────────
+// Le client envoie un message 'schedule-reminder' avec { id, title, date, timestamp }
+// Le SW stocke les rappels et les déclenche à l'heure exacte via setTimeout
+const scheduledReminders = new Map();
+
+self.addEventListener('message', e => {
+  if (e.data?.type === 'schedule-reminder') {
+    const { id, title, date, timestamp } = e.data;
+    // Annuler si déjà planifié
+    if (scheduledReminders.has(id)) clearTimeout(scheduledReminders.get(id));
+    const delay = timestamp - Date.now();
+    if (delay <= 0) return; // déjà passé
+    const timer = setTimeout(() => {
+      self.registration.showNotification(`📅 Rappel : ${title}`, {
+        body: `Événement prévu le ${date}`,
+        icon: '/icons/icon-192.png',
+        badge: '/icons/icon-72.png',
+        tag: `reminder-${id}`,
+        requireInteraction: true,
+        vibrate: [200, 100, 200, 100, 200],
+        data: { url: '/tools?tab=events' },
+      });
+      scheduledReminders.delete(id);
+    }, delay);
+    scheduledReminders.set(id, timer);
+  }
+
+  if (e.data?.type === 'cancel-reminder') {
+    const { id } = e.data;
+    if (scheduledReminders.has(id)) {
+      clearTimeout(scheduledReminders.get(id));
+      scheduledReminders.delete(id);
+    }
+  }
+});
+
 // ── Storage quota alert ───────────────────────────────────────────────────────
 async function checkStorageQuota() {
   if (!navigator.storage?.estimate) return;

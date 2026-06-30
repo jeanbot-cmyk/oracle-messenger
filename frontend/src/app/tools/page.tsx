@@ -187,6 +187,35 @@ function NotesTab() {
 }
 
 /* ── Events / Rappels ── */
+// Planifie un rappel via le Service Worker à l'heure exacte de l'événement
+async function scheduleReminder(ev: CalEvent) {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    if (!reg.active) return;
+    // Notifier à 9h le jour J (ou à l'heure si date+heure précisée)
+    const evDate = new Date(ev.date);
+    evDate.setHours(9, 0, 0, 0);
+    const timestamp = evDate.getTime();
+    if (timestamp <= Date.now()) return;
+    reg.active.postMessage({
+      type: 'schedule-reminder',
+      id: ev.id,
+      title: ev.title,
+      date: evDate.toLocaleDateString('fr-FR', { weekday:'long', year:'numeric', month:'long', day:'numeric' }),
+      timestamp,
+    });
+  } catch {}
+}
+
+async function cancelReminder(id: string) {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    reg.active?.postMessage({ type: 'cancel-reminder', id });
+  } catch {}
+}
+
 function EventsTab() {
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [title, setTitle] = useState('');
@@ -198,18 +227,13 @@ function EventsTab() {
     setMounted(true);
     const evts = loadEvents();
     setEvents(evts);
-    // Auto-notify events in 2 days
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-      const now = Date.now();
-      const twoDays = 2 * 24 * 60 * 60 * 1000;
-      evts.forEach(ev => {
-        const evTime = new Date(ev.date).getTime();
-        if (!ev.notified && evTime - now <= twoDays && evTime > now) {
-          new Notification(`Rappel : ${ev.title}`, { body: `Le ${new Date(ev.date).toLocaleDateString('fr-FR')}` });
-          ev.notified = true;
-        }
-      });
-      saveEvents(evts);
+    // Demander permission si pas encore accordée
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+    // Replanifier tous les rappels futurs via SW (résiste aux rechargements)
+    if (Notification.permission === 'granted') {
+      evts.filter(ev => new Date(ev.date).getTime() > Date.now()).forEach(scheduleReminder);
     }
   }, []);
 
@@ -217,13 +241,18 @@ function EventsTab() {
 
   function addEvent() {
     if (!title.trim() || !date) return;
-    const updated = [{ id: Date.now().toString(), title: title.trim(), date, note, notified: false }, ...events];
+    const ev: CalEvent = { id: Date.now().toString(), title: title.trim(), date, note, notified: false };
+    const updated = [ev, ...events];
     setEvents(updated); saveEvents(updated);
     setTitle(''); setDate(''); setNote('');
+    // Planifier le rappel via SW à l'heure exacte
+    if (Notification.permission === 'granted') scheduleReminder(ev);
+    else Notification.requestPermission().then(p => { if (p === 'granted') scheduleReminder(ev); });
   }
   function deleteEvent(id: string) {
     const updated = events.filter(e => e.id !== id);
     setEvents(updated); saveEvents(updated);
+    cancelReminder(id); // Annuler le rappel SW
   }
 
   const today = new Date().toISOString().split('T')[0];

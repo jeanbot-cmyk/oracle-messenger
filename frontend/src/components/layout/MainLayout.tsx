@@ -86,6 +86,20 @@ export function MainLayout({ onStartCall }: Props) {
     e.target.value = '';
   }
 
+  // Retouche photo depuis Outils → ouvre l'éditeur photo (pas stories)
+  function handlePhotoEdit(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const b64 = reader.result as string;
+      sessionStorage.setItem('photo-edit-src', b64);
+      router.push('/gallery/edit');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
   // On mobile: show either list OR chat, never both
   const showList = !isMobile || !showChat;
   const showChatPanel = !isMobile || showChat;
@@ -114,7 +128,7 @@ export function MainLayout({ onStartCall }: Props) {
             {/* Input caméra caché */}
             <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFileToStory} style={{ display: 'none' }} />
             {/* Input galerie caché (Retouche Photo) */}
-            <input ref={photoPickerRef} type="file" accept="image/*" onChange={handleFileToStory} style={{ display: 'none' }} />
+            <input ref={photoPickerRef} type="file" accept="image/*" onChange={handlePhotoEdit} style={{ display: 'none' }} />
             <MenuDots />
           </div>
         </div>
@@ -197,21 +211,88 @@ export function MainLayout({ onStartCall }: Props) {
   );
 }
 
+interface CallLogEntry { id: string; type: 'audio'|'video'; direction: 'incoming'|'outgoing'|'missed'; name: string; at: string; duration?: number; }
+
+function formatDuration(s?: number) {
+  if (!s) return '';
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s/60)}min ${s%60}s`;
+}
+
 function CallsTab() {
   const router = useRouter();
+  const [log, setLog] = useState<CallLogEntry[]>([]);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    try { setLog(JSON.parse(localStorage.getItem('oracle-call-log') ?? '[]')); } catch {}
+  }, []);
+
+  if (!mounted) return null;
+
+  const ACCENT = '#128C7E';
+
+  const dirIcon = (d: string) => {
+    if (d === 'missed')   return <span style={{ color:'#dc2626', fontSize:13 }}>↙ Manqué</span>;
+    if (d === 'incoming') return <span style={{ color:ACCENT,    fontSize:13 }}>↙ Reçu</span>;
+    return                       <span style={{ color:'#667781', fontSize:13 }}>↗ Émis</span>;
+  };
+
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: '#8696a0', padding: 24 }}>
-      <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#f0f2f5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <svg width="36" height="36" fill="#8696a0" viewBox="0 0 24 24">
-          <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/>
-        </svg>
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', background:'#f0f2f5' }}>
+      {/* Header */}
+      <div style={{ background:ACCENT, padding:'14px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+        <h2 style={{ color:'#fff', fontSize:18, fontWeight:700, margin:0 }}>Appels</h2>
+        <button onClick={() => router.push('/contacts')}
+          style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:20, padding:'8px 16px', color:'#fff', fontWeight:600, fontSize:13, cursor:'pointer' }}>
+          + Nouvel appel
+        </button>
       </div>
-      <p style={{ fontSize: 15, fontWeight: 600, color: '#111b21' }}>Appels récents</p>
-      <p style={{ fontSize: 13, textAlign: 'center', lineHeight: 1.5 }}>Vos appels audio et vidéo apparaîtront ici</p>
-      <button onClick={() => router.push('/contacts')}
-        style={{ background: '#128C7E', color: '#fff', border: 'none', borderRadius: 20, padding: '10px 24px', cursor: 'pointer', fontWeight: 600, fontSize: 14, marginTop: 8 }}>
-        Nouveau appel
-      </button>
+
+      {log.length === 0 ? (
+        <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:12, color:'#8696a0', padding:24 }}>
+          <div style={{ width:72, height:72, borderRadius:'50%', background:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <svg width="36" height="36" fill="#8696a0" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+          </div>
+          <p style={{ fontSize:15, fontWeight:600, color:'#111b21', margin:0 }}>Aucun appel récent</p>
+          <p style={{ fontSize:13, textAlign:'center', lineHeight:1.5, margin:0 }}>Vos appels apparaîtront ici</p>
+        </div>
+      ) : (
+        <div style={{ flex:1, overflowY:'auto' }}>
+          {log.map(entry => {
+            const d = new Date(entry.at);
+            const timeStr = d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' });
+            const dateStr = d.toLocaleDateString('fr-FR', { weekday:'short', day:'numeric', month:'short' });
+            const initials = entry.name?.[0]?.toUpperCase() ?? '?';
+            return (
+              <div key={entry.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 16px', background:'#fff', borderBottom:'1px solid #f0f2f5' }}>
+                {/* Avatar */}
+                <div style={{ width:48, height:48, borderRadius:'50%', background: entry.direction==='missed' ? '#fef2f2' : `${ACCENT}22`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <span style={{ fontSize:20, fontWeight:700, color: entry.direction==='missed' ? '#dc2626' : ACCENT }}>{initials}</span>
+                </div>
+                {/* Info */}
+                <div style={{ flex:1, minWidth:0 }}>
+                  <p style={{ fontSize:15, fontWeight:600, color:'#111b21', margin:'0 0 3px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{entry.name}</p>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    {dirIcon(entry.direction)}
+                    {entry.type === 'video'
+                      ? <svg width="13" height="13" fill="#8696a0" viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z"/></svg>
+                      : <svg width="13" height="13" fill="#8696a0" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+                    }
+                    {entry.duration ? <span style={{ fontSize:12, color:'#8696a0' }}>{formatDuration(entry.duration)}</span> : null}
+                  </div>
+                </div>
+                {/* Date + heure */}
+                <div style={{ textAlign:'right', flexShrink:0 }}>
+                  <p style={{ fontSize:12, color:'#8696a0', margin:'0 0 2px' }}>{timeStr}</p>
+                  <p style={{ fontSize:11, color:'#b0b8bf', margin:0 }}>{dateStr}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
