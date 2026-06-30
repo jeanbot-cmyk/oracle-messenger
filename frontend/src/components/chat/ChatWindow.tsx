@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useChatStore } from '../../store/chat';
 import { useSocket } from '../../hooks/useSocket';
@@ -9,6 +9,54 @@ import { api } from '../../lib/api';
 import { MessageBubble } from './MessageBubble';
 import type { Message } from '../../types';
 import Image from 'next/image';
+
+// ── Emoji picker léger (sans dépendance externe) ─────────────────────────────
+const EMOJI_CATEGORIES: { label: string; emojis: string[] }[] = [
+  { label: '😀', emojis: ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩','😘','😗','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','🥸','😎','🤓','🧐','😕','😟','🙁','☹️','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿','💀','☠️','💩','🤡','👹','👺','👻','👽','👾','🤖'] },
+  { label: '👋', emojis: ['👋','🤚','🖐️','✋','🖖','👌','🤌','🤏','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🦾','🦿','🦵','🦶','👂','🦻','👃','🫀','🫁','🧠','🦷','🦴','👀','👁️','👅','👄','💋','🩸'] },
+  { label: '❤️', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝','💟','☮️','✝️','☪️','🕉️','☸️','✡️','🔯','🕎','☯️','☦️','🛐','⛎','♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓','🆔','⚛️','🉑','☢️','☣️','📴','📳','🈶','🈚','🈸','🈺','🈷️','✴️','🆚','💮','🉐','㊙️','㊗️','🈴','🈵','🈹','🈲','🅰️','🅱️','🆎','🆑','🅾️','🆘','❌','⭕','🛑','⛔','📛','🚫'] },
+  { label: '🐶', emojis: ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🙈','🙉','🙊','🐔','🐧','🐦','🐤','🦆','🦅','🦉','🦇','🐺','🐗','🐴','🦄','🐝','🐛','🦋','🐌','🐞','🐜','🦟','🦗','🕷️','🦂','🐢','🐍','🦎','🦖','🦕','🐙','🦑','🦐','🦞','🦀','🐡','🐠','🐟','🐬','🐳','🐋','🦈','🐊','🐅','🐆','🦓','🦍','🦧','🦣','🐘','🦛','🦏','🐪','🐫','🦒','🦘','🦬','🐃','🐂','🐄','🐎','🐖','🐏','🐑','🦙','🐐','🦌','🐕','🐩','🦮','🐕‍🦺','🐈','🐈‍⬛','🪶','🐓','🦃','🦤','🦚','🦜','🦢','🦩','🕊️','🐇','🦝','🦨','🦡','🦫','🦦','🦥','🐁','🐀','🐿️','🦔'] },
+  { label: '🍎', emojis: ['🍎','🍐','🍊','🍋','🍌','🍉','🍇','🍓','🫐','🍈','🍒','🍑','🥭','🍍','🥥','🥝','🍅','🍆','🥑','🥦','🥬','🥒','🌶️','🫑','🧄','🧅','🥔','🍠','🥐','🥯','🍞','🥖','🥨','🧀','🥚','🍳','🧈','🥞','🧇','🥓','🥩','🍗','🍖','🌭','🍔','🍟','🍕','🫓','🥪','🥙','🧆','🌮','🌯','🫔','🥗','🥘','🫕','🥫','🍝','🍜','🍲','🍛','🍣','🍱','🥟','🦪','🍤','🍙','🍚','🍘','🍥','🥮','🍢','🧁','🍰','🎂','🍮','🍭','🍬','🍫','🍿','🍩','🍪','🌰','🥜','🍯','🧃','🥤','🧋','☕','🍵','🫖','🍺','🍻','🥂','🍷','🥃','🍸','🍹','🧉','🍾','🧊','🥄','🍴','🍽️','🥢','🧂'] },
+  { label: '⚽', emojis: ['⚽','🏀','🏈','⚾','🥎','🎾','🏐','🏉','🥏','🎱','🪀','🏓','🏸','🏒','🏑','🥍','🏏','🪃','🥅','⛳','🪁','🏹','🎣','🤿','🥊','🥋','🎽','🛹','🛼','🛷','⛸️','🥌','🎿','⛷️','🏂','🪂','🏋️','🤼','🤸','⛹️','🤺','🏇','🧘','🏄','🏊','🤽','🚣','🧗','🚵','🚴','🏆','🥇','🥈','🥉','🏅','🎖️','🏵️','🎗️','🎫','🎟️','🎪','🤹','🎭','🩰','🎨','🎬','🎤','🎧','🎼','🎹','🥁','🪘','🎷','🎺','🎸','🪕','🎻','🎲','♟️','🎯','🎳','🎮','🎰','🧩'] },
+  { label: '🚗', emojis: ['🚗','🚕','🚙','🚌','🚎','🏎️','🚓','🚑','🚒','🚐','🛻','🚚','🚛','🚜','🏍️','🛵','🛺','🚲','🛴','🛹','🛼','🚏','🛣️','🛤️','⛽','🚨','🚥','🚦','🛑','🚧','⚓','🛟','⛵','🚤','🛥️','🛳️','⛴️','🚢','✈️','🛩️','🛫','🛬','🪂','💺','🚁','🚟','🚠','🚡','🛰️','🚀','🛸','🪐','🌍','🌎','🌏','🌐','🗺️','🧭','🏔️','⛰️','🌋','🗻','🏕️','🏖️','🏜️','🏝️','🏞️','🏟️','🏛️','🏗️','🧱','🪨','🪵','🛖','🏘️','🏚️','🏠','🏡','🏢','🏣','🏤','🏥','🏦','🏨','🏩','🏪','🏫','🏬','🏭','🏯','🏰','💒','🗼','🗽','⛪','🕌','🛕','🕍','⛩️','🕋','⛲','⛺','🌁','🌃','🏙️','🌄','🌅','🌆','🌇','🌉','♨️','🎠','🛝','🎡','🎢','💈','🎪'] },
+];
+
+function EmojiPicker({ onSelect, onClose }: { onSelect: (e: string) => void; onClose: () => void }) {
+  const [cat, setCat] = useState(0);
+  const [search, setSearch] = useState('');
+  const filtered = search
+    ? EMOJI_CATEGORIES.flatMap(c => c.emojis).filter(e => e.includes(search))
+    : EMOJI_CATEGORIES[cat].emojis;
+  return (
+    <div style={{ position:'absolute', bottom:'100%', left:0, right:0, background:'#fff', borderRadius:'16px 16px 0 0', boxShadow:'0 -4px 24px rgba(0,0,0,0.15)', zIndex:200, maxHeight:320, display:'flex', flexDirection:'column' }}>
+      {/* Search */}
+      <div style={{ padding:'10px 12px 6px', borderBottom:'1px solid #f0f2f5' }}>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un emoji…"
+          style={{ width:'100%', border:'1px solid #e9edef', borderRadius:20, padding:'6px 14px', fontSize:14, outline:'none', boxSizing:'border-box' }}/>
+      </div>
+      {/* Category tabs */}
+      {!search && (
+        <div style={{ display:'flex', overflowX:'auto', padding:'6px 8px', gap:4, borderBottom:'1px solid #f0f2f5', flexShrink:0 }}>
+          {EMOJI_CATEGORIES.map((c, i) => (
+            <button key={i} onClick={() => setCat(i)}
+              style={{ border:'none', background: cat===i ? '#e8f5f3' : 'transparent', borderRadius:8, padding:'4px 8px', fontSize:18, cursor:'pointer', flexShrink:0 }}>
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {/* Grid */}
+      <div style={{ overflowY:'auto', padding:'8px', display:'flex', flexWrap:'wrap', gap:2 }}>
+        {filtered.map((e, i) => (
+          <button key={i} onClick={() => onSelect(e)}
+            style={{ border:'none', background:'transparent', fontSize:24, cursor:'pointer', padding:'4px', borderRadius:8, lineHeight:1 }}>
+            {e}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 interface ChatWindowProps {
   onStartCall?: (conversationId: string, targetUserIds: string[], type: 'audio' | 'video') => void;
@@ -29,6 +77,13 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const [editMsg, setEditMsg]     = useState<Message | null>(null);
   const [sending, setSending]     = useState(false);
   const [profileModal, setProfileModal] = useState(false);
+  const [showEmoji, setShowEmoji] = useState(false);
+  // Audio recording
+  const [recording, setRecording]   = useState(false);
+  const [recSeconds, setRecSeconds] = useState(0);
+  const mediaRecRef  = useRef<MediaRecorder | null>(null);
+  const audioChunks  = useRef<Blob[]>([]);
+  const recTimer     = useRef<NodeJS.Timeout | null>(null);
   const bottomRef  = useRef<HTMLDivElement>(null);
   const typingTimer = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -95,6 +150,53 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     };
     reader.readAsDataURL(file);
     e.target.value = '';
+  }
+
+  // ── Audio recording ────────────────────────────────────────────────────────
+  async function startRecording() {
+    if (!activeConvId) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg' });
+      audioChunks.current = [];
+      mr.ondataavailable = e => { if (e.data.size > 0) audioChunks.current.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunks.current, { type: mr.mimeType });
+        const reader = new FileReader();
+        reader.onload = () => {
+          const b64 = reader.result as string;
+          sendMessage(activeConvId!, b64, 'audio');
+        };
+        reader.readAsDataURL(blob);
+        setRecording(false);
+        setRecSeconds(0);
+        if (recTimer.current) clearInterval(recTimer.current);
+      };
+      mr.start();
+      mediaRecRef.current = mr;
+      setRecording(true);
+      setRecSeconds(0);
+      recTimer.current = setInterval(() => setRecSeconds(s => s + 1), 1000);
+    } catch {
+      alert('Microphone non disponible');
+    }
+  }
+
+  function stopRecording() {
+    mediaRecRef.current?.stop();
+    if (recTimer.current) clearInterval(recTimer.current);
+  }
+
+  function cancelRecording() {
+    if (mediaRecRef.current) {
+      mediaRecRef.current.onstop = null;
+      mediaRecRef.current.stop();
+      mediaRecRef.current.stream?.getTracks().forEach(t => t.stop());
+    }
+    if (recTimer.current) clearInterval(recTimer.current);
+    setRecording(false);
+    setRecSeconds(0);
   }
 
   const name = conv?.type === 'group' ? conv.name : other?.name ?? 'Inconnu';
@@ -217,34 +319,80 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       )}
 
       {/* Input — toujours visible, safe-area iOS */}
-      <div style={{ padding:'8px 12px', paddingBottom:'max(8px, env(safe-area-inset-bottom))', background:'var(--bg-app)', flexShrink:0, display:'flex', alignItems:'flex-end', gap:8 }}>
-        {/* Trombone — ouvre sélecteur fichier/image */}
-        <input ref={fileInputRef} type="file" accept="*/*" onChange={handleFileChange} style={{ display:'none' }}/>
-        <button onClick={() => fileInputRef.current?.click()}
-          style={{ width:42, height:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--bg-surface)', cursor:'pointer', color:'var(--text-secondary)', flexShrink:0 }}>
-          <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-          </svg>
-        </button>
-        <div style={{ flex:1, background:'var(--bg-surface)', borderRadius:24, padding:'10px 16px', display:'flex', alignItems:'flex-end', gap:8, border:'1px solid var(--border)' }}>
-          <textarea value={input} onChange={e => handleInputChange(e.target.value)}
-            onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-            placeholder={t(lang,'chat.placeholder')} rows={1}
-            style={{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:16, color:'var(--text-primary)', resize:'none', maxHeight:128, lineHeight:1.5 }}
-            onInput={e => { const el = e.target as HTMLTextAreaElement; el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,128)+'px'; }}
+      <div style={{ position:'relative', padding:'8px 12px', paddingBottom:'max(8px, env(safe-area-inset-bottom))', background:'var(--bg-app)', flexShrink:0 }}>
+        {/* Emoji picker */}
+        {showEmoji && (
+          <EmojiPicker
+            onSelect={e => { setInput(v => v + e); setShowEmoji(false); }}
+            onClose={() => setShowEmoji(false)}
           />
-          <button style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--text-muted)', flexShrink:0 }}>
-            <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </button>
-        </div>
-        <button onClick={handleSend} disabled={!input.trim()||sending}
-          style={{ width:42, height:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--accent)', cursor:input.trim()?'pointer':'not-allowed', opacity:input.trim()?1:.5, flexShrink:0, transition:'opacity .2s' }}>
-          <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-          </svg>
-        </button>
+        )}
+
+        {/* Recording UI */}
+        {recording ? (
+          <div style={{ display:'flex', alignItems:'center', gap:12, padding:'8px 4px' }}>
+            <button onClick={cancelRecording}
+              style={{ width:42, height:42, borderRadius:'50%', border:'none', background:'#fee2e2', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <svg width="20" height="20" fill="#ef4444" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round"/></svg>
+            </button>
+            <div style={{ flex:1, display:'flex', alignItems:'center', gap:10, background:'var(--bg-surface)', borderRadius:24, padding:'10px 16px', border:'1px solid #ef4444' }}>
+              <div style={{ width:10, height:10, borderRadius:'50%', background:'#ef4444', animation:'pulse 1s infinite' }}/>
+              <span style={{ fontSize:15, color:'var(--text-primary)', fontWeight:600 }}>
+                {String(Math.floor(recSeconds/60)).padStart(2,'0')}:{String(recSeconds%60).padStart(2,'0')}
+              </span>
+              <span style={{ fontSize:13, color:'var(--text-muted)' }}>Enregistrement…</span>
+            </div>
+            <button onClick={stopRecording}
+              style={{ width:42, height:42, borderRadius:'50%', border:'none', background:'var(--accent)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <svg width="18" height="18" fill="white" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            </button>
+          </div>
+        ) : (
+          <div style={{ display:'flex', alignItems:'flex-end', gap:8 }}>
+            {/* Trombone */}
+            <input ref={fileInputRef} type="file" accept="*/*" onChange={handleFileChange} style={{ display:'none' }}/>
+            <button onClick={() => { setShowEmoji(false); fileInputRef.current?.click(); }}
+              style={{ width:42, height:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--bg-surface)', cursor:'pointer', color:'var(--text-secondary)', flexShrink:0 }}>
+              <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+              </svg>
+            </button>
+
+            {/* Textarea + emoji button */}
+            <div style={{ flex:1, background:'var(--bg-surface)', borderRadius:24, padding:'10px 16px', display:'flex', alignItems:'flex-end', gap:8, border:'1px solid var(--border)' }}>
+              <textarea value={input} onChange={e => handleInputChange(e.target.value)}
+                onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                placeholder={t(lang,'chat.placeholder')} rows={1}
+                style={{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:16, color:'var(--text-primary)', resize:'none', maxHeight:128, lineHeight:1.5 }}
+                onInput={e => { const el = e.target as HTMLTextAreaElement; el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,128)+'px'; }}
+              />
+              {/* Emoji button */}
+              <button onClick={() => setShowEmoji(v => !v)}
+                style={{ border:'none', background:'transparent', cursor:'pointer', color: showEmoji ? 'var(--accent)' : 'var(--text-muted)', flexShrink:0, fontSize:22, lineHeight:1, padding:0 }}>
+                😊
+              </button>
+            </div>
+
+            {/* Send ou Micro */}
+            {input.trim() ? (
+              <button onClick={handleSend} disabled={sending}
+                style={{ width:42, height:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--accent)', cursor:'pointer', flexShrink:0, transition:'opacity .2s' }}>
+                <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+              </button>
+            ) : (
+              <button onTouchStart={startRecording} onMouseDown={startRecording}
+                style={{ width:42, height:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--bg-surface)', cursor:'pointer', color:'var(--text-secondary)', flexShrink:0 }}>
+                <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                  <rect x="9" y="2" width="6" height="12" rx="3"/>
+                  <path strokeLinecap="round" d="M5 10a7 7 0 0014 0M12 19v3M8 22h8"/>
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
+        <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
       </div>
 
       {/* Modal profil complet */}

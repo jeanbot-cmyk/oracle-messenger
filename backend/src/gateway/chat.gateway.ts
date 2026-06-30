@@ -217,6 +217,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       for (const targetId of data.targetUserIds) {
         const sid = this.socketState.getSocketId(targetId);
         if (sid) {
+          // En ligne → socket temps réel
           this.server.to(sid).emit('call:incoming', {
             callId: data.callId,
             conversationId: data.conversationId,
@@ -225,6 +226,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             type: data.type,
             participants: data.targetUserIds,
           });
+        } else {
+          // Hors ligne → Push Notification pour faire sonner le téléphone
+          this.notif.sendPush(targetId, {
+            title: `📞 Appel ${data.type === 'video' ? 'vidéo' : 'audio'} — ${callerName}`,
+            body: 'Appuyez pour répondre',
+            url: '/chat',
+          }).catch(() => {});
         }
       }
     } catch {}
