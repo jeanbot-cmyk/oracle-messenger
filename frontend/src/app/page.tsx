@@ -24,6 +24,12 @@ function isStandalone() {
   return window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
 }
 
+function isCapacitorNative() {
+  if (typeof window === 'undefined') return false;
+  // Capacitor injecte window.Capacitor quand l'app tourne en natif (APK)
+  return !!(window as any).Capacitor?.isNativePlatform?.();
+}
+
 export default function HomePage() {
   const { status } = useSession();
   const router = useRouter();
@@ -48,9 +54,14 @@ export default function HomePage() {
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
-  // Redirection si déjà connecté ou standalone
+  // Redirection si déjà connecté, standalone ou APK natif
   useEffect(() => {
     if (status === 'loading') return;
+    // APK Capacitor natif → aller directement au chat ou login
+    if (isCapacitorNative()) {
+      router.replace(status === 'authenticated' ? '/chat' : '/login');
+      return;
+    }
     if (status === 'authenticated') { router.replace('/chat'); return; }
     if (isStandalone()) { router.replace('/login'); return; }
   }, [status]);
