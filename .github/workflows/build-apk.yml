@@ -14,13 +14,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
@@ -30,14 +23,6 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Capacitor sync
-        working-directory: frontend
-        run: npx cap sync android
-
       - name: Make gradlew executable
         working-directory: frontend/android
         run: chmod +x gradlew
@@ -46,17 +31,11 @@ jobs:
         working-directory: frontend/android
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Rename APK
-        run: |
-          mkdir -p dist
-          cp frontend/android/app/build/outputs/apk/debug/app-debug.apk dist/oracle-messenger.apk
-          echo "APK_FILE=dist/oracle-messenger.apk" >> $GITHUB_ENV
-
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: oracle-messenger-apk
-          path: ${{ env.APK_FILE }}
+          path: frontend/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
       - name: Create GitHub Release
@@ -68,11 +47,11 @@ jobs:
             ## Oracle Messenger — APK Android
 
             ### Installation
-            1. Télécharge **oracle-messenger.apk** ci-dessous
+            1. Télécharge **app-debug.apk** ci-dessous
             2. Android : Paramètres → Sécurité → Autoriser sources inconnues
             3. Ouvre le fichier et installe
             4. Lance Oracle Messenger depuis ton écran d'accueil
-          files: ${{ env.APK_FILE }}
+          files: frontend/android/app/build/outputs/apk/debug/app-debug.apk
           draft: false
           prerelease: false
         env:
