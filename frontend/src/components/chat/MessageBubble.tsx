@@ -112,7 +112,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
 
   return (
     <div
-      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative', overflow: 'hidden' }}
+      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative' }}
       onContextMenu={e => { e.preventDefault(); setShowMenu(true); }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}

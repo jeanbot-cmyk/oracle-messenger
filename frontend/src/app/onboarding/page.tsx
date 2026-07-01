@@ -196,29 +196,27 @@ export default function OnboardingPage() {
         </div>
 
         {/* Téléphone avec indicatif */}
-        <div style={{ background:'#f0f2f5', borderRadius:16, padding:'14px 16px' }}>
-          <p style={{ fontSize:11, fontWeight:700, color:ACCENT, margin:'0 0 10px', textTransform:'uppercase', letterSpacing:0.6 }}>Numéro de téléphone <span style={{ color:'#8696a0', fontWeight:400, textTransform:'none' }}>(optionnel)</span></p>
-          <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+        <div>
+          <p style={{ fontSize:11, fontWeight:700, color:ACCENT, margin:'0 0 8px', textTransform:'uppercase', letterSpacing:0.6 }}>
+            Numéro de téléphone <span style={{ color:'#8696a0', fontWeight:400, textTransform:'none' }}>(optionnel)</span>
+          </p>
+          <div style={{ display:'flex', gap:8, alignItems:'stretch' }}>
             {/* Sélecteur pays */}
             <button onClick={()=>setShowPicker(true)}
-              style={{ display:'flex', alignItems:'center', gap:6, padding:'10px 12px', background:'#fff', border:'1.5px solid #e9edef', borderRadius:12, cursor:'pointer', fontSize:14, fontWeight:600, color:'#111b21', flexShrink:0, whiteSpace:'nowrap' }}>
-              <span style={{ fontSize:18 }}>{country.flag}</span>
-              <span>{country.dial}</span>
-              <svg width="12" height="12" fill="none" stroke="#8696a0" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/></svg>
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'12px 14px', background:'#fff', border:'1.5px solid #e9edef', borderRadius:14, cursor:'pointer', fontSize:15, fontWeight:700, color:'#111b21', flexShrink:0, whiteSpace:'nowrap' }}>
+              <span style={{ fontSize:20 }}>{country.flag}</span>
+              <span style={{ color:ACCENT }}>{country.dial}</span>
+              <svg width="12" height="12" fill="none" stroke="#8696a0" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/></svg>
             </button>
             {/* Numéro */}
-            <input type="tel" value={phone} onChange={e=>setPhone(e.target.value.replace(/[^\d]/g,''))}
-              placeholder="Numéro sans indicatif"
-              style={{ flex:1, border:'none', outline:'none', fontSize:15, color:'#111b21', background:'transparent', padding:0 }}/>
-          </div>
-          {/* Saisie manuelle du code indicatif */}
-          <div style={{ marginTop:10, display:'flex', alignItems:'center', gap:8 }}>
-            <p style={{ fontSize:11, color:'#8696a0', margin:0, flexShrink:0 }}>Code manuel :</p>
-            <input value={dialInput} onChange={e=>handleDialInput(e.target.value)} placeholder="+225"
-              style={{ width:80, padding:'6px 10px', background:'#fff', border:'1.5px solid #e9edef', borderRadius:8, fontSize:13, outline:'none', color:'#111b21' }}/>
-            {dialInput && !COUNTRIES.find(c=>c.dial===dialInput||c.dial==='+'+dialInput) && (
-              <p style={{ fontSize:11, color:'#dc2626', margin:0 }}>Code inconnu</p>
-            )}
+            <input
+              type="tel"
+              inputMode="numeric"
+              value={phone}
+              onChange={e => setPhone(e.target.value.replace(/[^\d]/g,''))}
+              placeholder="Ex: 0102030405"
+              style={{ flex:1, padding:'12px 16px', background:'#fff', border:'1.5px solid #e9edef', borderRadius:14, fontSize:15, color:'#111b21', outline:'none', WebkitAppearance:'none' }}
+            />
           </div>
         </div>
 
