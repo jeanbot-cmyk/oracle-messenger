@@ -6,7 +6,7 @@ import { useSession } from 'next-auth/react';
 
 const ACCENT = '#128C7E';
 // URL du dernier APK — mise à jour automatiquement par GitHub Actions
-const APK_URL = 'https://github.com/jeanbot-cmyk/oracle-messenger/releases/latest/download/oracle-messenger.apk';
+const APK_URL = 'https://github.com/jeanbot-cmyk/oracle-messenger/releases/latest/download/app-debug.apk';
 const GITHUB_RELEASES = 'https://github.com/jeanbot-cmyk/oracle-messenger/releases/latest';
 
 type OS = 'android' | 'ios' | 'other';
