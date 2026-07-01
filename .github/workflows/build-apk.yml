@@ -52,6 +52,18 @@ jobs:
         working-directory: frontend/android
         run: ./gradlew assembleDebug --no-daemon
 
+      # Copier l'APK dans public/ pour qu'il soit servi par le frontend
+      - name: Copy APK to frontend public folder
+        run: cp frontend/android/app/build/outputs/apk/debug/app-debug.apk frontend/public/oracle-messenger.apk
+
+      - name: Commit APK to repo (sera déployé par Coolify)
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add frontend/public/oracle-messenger.apk
+          git diff --staged --quiet || git commit -m "chore: update APK build ${{ github.run_number }} [skip ci]"
+          git push
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -67,11 +79,13 @@ jobs:
           body: |
             ## Oracle Messenger — APK Android
 
+            ### Téléchargement direct
+            https://messenger.oracle-plus.online/oracle-messenger.apk
+
             ### Installation
-            1. Télécharge **app-debug.apk** ci-dessous
+            1. Télécharge l'APK via le lien ci-dessus
             2. Android : Paramètres → Sécurité → Autoriser sources inconnues
             3. Ouvre le fichier et installe
-            4. Lance Oracle Messenger depuis ton écran d'accueil
           files: frontend/android/app/build/outputs/apk/debug/app-debug.apk
           draft: false
           prerelease: false

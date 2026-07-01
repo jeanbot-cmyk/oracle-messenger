@@ -6,8 +6,8 @@ import { useSession } from 'next-auth/react';
 
 const ACCENT = '#128C7E';
 // URL du dernier APK — mise à jour automatiquement par GitHub Actions
-const APK_URL = 'https://github.com/jeanbot-cmyk/oracle-messenger/releases/latest/download/app-debug.apk';
-const GITHUB_RELEASES = 'https://github.com/jeanbot-cmyk/oracle-messenger/releases/latest';
+// APK hébergé directement sur le serveur → téléchargement immédiat sans passer par GitHub
+const APK_URL = 'https://messenger.oracle-plus.online/oracle-messenger.apk';
 
 type OS = 'android' | 'ios' | 'other';
 
@@ -154,8 +154,9 @@ export default function HomePage() {
               </p>
             </div>
 
-            {/* Option 1 : APK */}
-            <a href={GITHUB_RELEASES} target="_blank" rel="noopener noreferrer"
+            {/* Option 1 : APK — téléchargement direct */}
+            <a href={APK_URL}
+              download="oracle-messenger.apk"
               style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '18px 20px', background: ACCENT, borderRadius: 20, textDecoration: 'none', color: '#fff' }}>
               <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <svg width="26" height="26" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24">
@@ -164,7 +165,7 @@ export default function HomePage() {
               </div>
               <div>
                 <p style={{ fontSize: 16, fontWeight: 800, margin: '0 0 2px' }}>Télécharger l'APK</p>
-                <p style={{ fontSize: 12, margin: 0, opacity: 0.85 }}>Installation directe · Recommandé</p>
+                <p style={{ fontSize: 12, margin: 0, opacity: 0.85 }}>Installation directe · 3 MB</p>
               </div>
               <svg style={{ marginLeft: 'auto' }} width="20" height="20" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
             </a>
@@ -240,12 +241,12 @@ export default function HomePage() {
         {os === 'other' && (
           <>
             <h2 style={{ fontSize: 20, fontWeight: 800, color: '#111b21', margin: 0 }}>Choisissez votre plateforme</h2>
-            <a href={GITHUB_RELEASES} target="_blank" rel="noopener noreferrer"
+            <a href={APK_URL} download="oracle-messenger.apk"
               style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 16, textDecoration: 'none' }}>
               <span style={{ fontSize: 32 }}>🤖</span>
               <div>
                 <p style={{ fontSize: 15, fontWeight: 700, color: '#111b21', margin: '0 0 2px' }}>Android — Télécharger l'APK</p>
-                <p style={{ fontSize: 12, color: '#667781', margin: 0 }}>Installation directe sur Android</p>
+                <p style={{ fontSize: 12, color: '#667781', margin: 0 }}>Téléchargement direct · 3 MB</p>
               </div>
             </a>
             <button onClick={() => setShowIos(true)}
