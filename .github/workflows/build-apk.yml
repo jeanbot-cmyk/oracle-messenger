@@ -14,7 +14,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -34,23 +34,23 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Capacitor add + sync Android
+      - name: Capacitor sync (android folder already committed)
         working-directory: frontend
-        run: |
-          npx cap add android 2>/dev/null || true
-          npx cap sync android
+        run: npx cap sync android --no-build
 
-      - name: Build APK (debug)
+      - name: Make gradlew executable
+        working-directory: frontend/android
+        run: chmod +x gradlew
+
+      - name: Build APK debug
         working-directory: frontend/android
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: Rename and move APK
+      - name: Rename APK
         run: |
-          DATE=$(date +%Y%m%d-%H%M)
           mkdir -p dist
-          cp frontend/android/app/build/outputs/apk/debug/app-debug.apk dist/oracle-messenger-${DATE}.apk
-          echo "APK_FILE=dist/oracle-messenger-${DATE}.apk" >> $GITHUB_ENV
-          echo "APK_NAME=oracle-messenger-${DATE}.apk" >> $GITHUB_ENV
+          cp frontend/android/app/build/outputs/apk/debug/app-debug.apk dist/oracle-messenger.apk
+          echo "APK_FILE=dist/oracle-messenger.apk" >> $GITHUB_ENV
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -68,7 +68,7 @@ jobs:
             ## Oracle Messenger — APK Android
 
             ### Installation
-            1. Télécharge le fichier `.apk` ci-dessous
+            1. Télécharge **oracle-messenger.apk** ci-dessous
             2. Android : Paramètres → Sécurité → Autoriser sources inconnues
             3. Ouvre le fichier et installe
             4. Lance Oracle Messenger depuis ton écran d'accueil
