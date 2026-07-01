@@ -34,6 +34,9 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Create assets directory (required by cap sync)
+        run: mkdir -p frontend/android/app/src/main/assets
+
       - name: Capacitor sync
         working-directory: frontend
         run: npx cap sync android
