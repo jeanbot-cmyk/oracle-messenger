@@ -34,9 +34,9 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Capacitor sync (android folder already committed)
+      - name: Capacitor sync
         working-directory: frontend
-        run: npx cap sync android --no-build
+        run: npx cap sync android
 
       - name: Make gradlew executable
         working-directory: frontend/android
