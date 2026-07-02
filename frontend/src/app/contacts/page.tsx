@@ -34,6 +34,7 @@ export default function ContactsPage() {
   const [showAdd,  setShowAdd]  = useState(false);
   const [newName,  setNewName]  = useState('');
   const [newPhone, setNewPhone] = useState('');
+  const [permDenied, setPermDenied] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -61,11 +62,11 @@ export default function ContactsPage() {
     // 2. Pas de cache → tenter l'import automatique
     const hasNativeApi = 'contacts' in navigator && 'ContactsManager' in window;
     if (hasNativeApi) {
-      // Android Chrome : import auto sans demander (déjà demandé au premier lancement)
+      // Contact Picker API disponible (Android Chrome / Capacitor) :
+      // lancer l'import automatiquement — le navigateur affiche sa propre UI de permission
       importAndMatch();
     } else {
       // iOS / desktop : pas d'API native → charger tous les utilisateurs Oracle connus
-      // pour que l'utilisateur puisse au moins voir qui est sur l'app
       setImported(true);
       loadAllOracleUsers();
     }
@@ -105,25 +106,45 @@ export default function ContactsPage() {
 
   const importAndMatch = useCallback(async () => {
     setLoading(true);
+    setPermDenied(false);
     let locals: LocalContact[] = [];
     try {
       if ('contacts' in navigator && 'ContactsManager' in window) {
-        const raw = await (navigator as any).contacts.select(['name', 'tel', 'email'], { multiple: true });
-        locals = raw.map((c: any) => ({
+        // Contact Picker API — le navigateur affiche sa propre UI de sélection
+        const raw = await (navigator as any).contacts.select(
+          ['name', 'tel', 'email'],
+          { multiple: true },
+        );
+        locals = (raw as any[]).map((c: any) => ({
           name:   c.name?.[0] ?? 'Inconnu',
-          phones: c.tel   ?? [],
-          emails: c.email ?? [],
+          phones: (c.tel   ?? []).map((p: string) => p.trim()).filter(Boolean),
+          emails: (c.email ?? []).map((e: string) => e.trim()).filter(Boolean),
         }));
-        localStorage.setItem(CACHE_KEY, JSON.stringify(locals));
+        if (locals.length > 0) {
+          localStorage.setItem(CACHE_KEY, JSON.stringify(locals));
+        }
       } else {
         locals = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]');
       }
-    } catch {
+    } catch (err: any) {
+      // L'utilisateur a refusé ou l'API a échoué
+      const denied =
+        err?.name === 'SecurityError' ||
+        err?.name === 'NotAllowedError' ||
+        err?.message?.toLowerCase().includes('cancel') ||
+        err?.message?.toLowerCase().includes('denied');
+      if (denied) setPermDenied(true);
       locals = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]');
     }
     const manual: LocalContact[] = JSON.parse(localStorage.getItem(MANUAL_KEY) ?? '[]');
+    const all = mergeContacts(locals, manual);
     setImported(true);
-    await matchWithBackend(mergeContacts(locals, manual));
+    if (all.length > 0) {
+      await matchWithBackend(all);
+    } else {
+      // Aucun contact local → afficher les utilisateurs Oracle connus
+      await loadAllOracleUsers();
+    }
   }, [token]);
 
   async function matchWithBackend(locals: LocalContact[]) {
@@ -285,6 +306,25 @@ export default function ContactsPage() {
       {/* Body */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
 
+        {/* Bandeau permission refusée */}
+        {permDenied && (
+          <div style={{ margin: '12px 16px 0', background: '#fff3cd', border: '1px solid #ffc107', borderRadius: 12, padding: '12px 16px', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: '#856404', margin: '0 0 4px' }}>Accès aux contacts refusé</p>
+              <p style={{ fontSize: 12, color: '#856404', margin: '0 0 8px', lineHeight: 1.5 }}>
+                Pour importer vos contacts, autorisez l'accès dans les paramètres de votre navigateur, puis réessayez.
+              </p>
+              <button onClick={importAndMatch}
+                style={{ background: '#ffc107', color: '#212529', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                Réessayer
+              </button>
+            </div>
+            <button onClick={() => setPermDenied(false)}
+              style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#856404', fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>
+          </div>
+        )}
+
         {/* Empty state — first visit */}
         {!imported && !loading && (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20, padding: 32, textAlign: 'center' }}>
@@ -297,7 +337,7 @@ export default function ContactsPage() {
               <p style={{ fontSize: 17, fontWeight: 700, color: '#111b21', margin: '0 0 8px' }}>Vos contacts</p>
               <p style={{ fontSize: 14, color: '#8696a0', lineHeight: 1.6, margin: 0 }}>
                 {hasNative
-                  ? 'Importez vos contacts pour voir qui utilise déjà Oracle Messenger.'
+                  ? 'Sélectionnez vos contacts pour voir qui utilise déjà Oracle Messenger.'
                   : 'Ajoutez des contacts manuellement pour démarrer une conversation.'}
               </p>
             </div>

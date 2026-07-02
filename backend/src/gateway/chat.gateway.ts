@@ -7,6 +7,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ChatService } from '../chat/chat.service';
 import { UsersService } from '../users/users.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CallsService } from '../calls/calls.service';
 import { SocketStateService } from './socket-state.service';
 
 @WebSocketGateway({
@@ -20,11 +21,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // userId → socketId (en mémoire — suffisant pour 1 instance)
   // userSockets moved to SocketStateService
 
+  // callId → { callerId, callerName, type, startedAt, participants: Set<userId> }
+  private activeCalls = new Map<string, {
+    callerId: string; callerName: string;
+    type: 'audio' | 'video'; startedAt: number;
+    participants: Set<string>;
+  }>();
+
   constructor(
     private jwt: JwtService,
     private chat: ChatService,
     private users: UsersService,
     private notif: NotificationsService,
+    private callsSvc: CallsService,
     private socketState: SocketStateService,
   ) {}
 
@@ -214,10 +223,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       client.join(`call:${data.callId}`);
 
+      // Mémoriser l'appel actif pour le logging à la fin
+      this.activeCalls.set(data.callId, {
+        callerId,
+        callerName,
+        type: data.type,
+        startedAt: Date.now(),
+        participants: new Set([callerId, ...data.targetUserIds]),
+      });
+
       for (const targetId of data.targetUserIds) {
         const sid = this.socketState.getSocketId(targetId);
         if (sid) {
-          // En ligne → socket temps réel
           this.server.to(sid).emit('call:incoming', {
             callId: data.callId,
             conversationId: data.conversationId,
@@ -227,7 +244,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             participants: data.targetUserIds,
           });
         } else {
-          // Hors ligne → Push Notification pour faire sonner le téléphone
+          // Hors ligne → Push Notification
           this.notif.sendPush(targetId, {
             title: `📞 Appel ${data.type === 'video' ? 'vidéo' : 'audio'} — ${callerName}`,
             body: 'Appuyez pour répondre',
@@ -239,28 +256,83 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('call:answer')
-  handleCallAnswer(
+  async handleCallAnswer(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string; accepted: boolean },
   ) {
+    const responderId = client.data.userId;
     client.join(`call:${data.callId}`);
     this.server.to(`call:${data.callId}`).emit('call:answered', {
       callId: data.callId,
-      userId: client.data.userId,
+      userId: responderId,
       accepted: data.accepted,
     });
+
+    const call = this.activeCalls.get(data.callId);
+    if (!data.accepted && call) {
+      // Appel refusé → log "missed" pour le caller, "incoming" refusé pour le récepteur
+      const responder = await this.users.findById(responderId).catch(() => null);
+      const responderName = responder?.name ?? 'Inconnu';
+      this.callsSvc.logCall({
+        callId: data.callId, userId: call.callerId, peerId: responderId,
+        peerName: responderName, type: call.type, direction: 'outgoing',
+      }).catch(() => {});
+      this.callsSvc.logCall({
+        callId: data.callId, userId: responderId, peerId: call.callerId,
+        peerName: call.callerName, type: call.type, direction: 'missed',
+      }).catch(() => {});
+    }
   }
 
   @SubscribeMessage('call:end')
-  handleCallEnd(
+  async handleCallEnd(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string },
   ) {
+    const enderId = client.data.userId;
     this.server.to(`call:${data.callId}`).emit('call:ended', {
       callId: data.callId,
-      userId: client.data.userId,
+      userId: enderId,
     });
     client.leave(`call:${data.callId}`);
+
+    const call = this.activeCalls.get(data.callId);
+    if (call) {
+      const duration = Math.round((Date.now() - call.startedAt) / 1000);
+      const connected = duration > 3; // < 3s = appel manqué/non répondu
+
+      // Logger pour chaque participant
+      for (const uid of call.participants) {
+        const isCallerSide = uid === call.callerId;
+        const peerId = isCallerSide
+          ? [...call.participants].find(p => p !== uid) ?? ''
+          : call.callerId;
+
+        let peerName = call.callerName;
+        if (!isCallerSide) {
+          // peerName = callerName déjà connu
+        } else {
+          const peer = await this.users.findById(peerId).catch(() => null);
+          peerName = peer?.name ?? 'Inconnu';
+        }
+
+        const direction = !connected
+          ? (isCallerSide ? 'outgoing' : 'missed')
+          : (isCallerSide ? 'outgoing' : 'incoming');
+
+        this.callsSvc.logCall({
+          callId: data.callId,
+          userId: uid,
+          peerId,
+          peerName,
+          type: call.type,
+          direction,
+          duration: connected ? duration : undefined,
+        }).catch(() => {});
+      }
+
+      this.activeCalls.delete(data.callId);
+    }
   }
 
   // ── WebRTC Signaling ──────────────────────────────────────────────────────

@@ -15,9 +15,9 @@ interface Props {
 
 function StatusIcon({ status }: { status: Message['status'] }) {
   if (status === 'sending')   return <span style={{ fontSize: 10, opacity: .5 }}>⏳</span>;
-  if (status === 'sent')      return <span style={{ fontSize: 11, opacity: .6, color: '#667781' }}>✓</span>;
-  if (status === 'delivered') return <span style={{ fontSize: 11, opacity: .7, color: '#667781' }}>✓✓</span>;
-  if (status === 'read')      return <span style={{ fontSize: 11, color: '#53bdeb', fontWeight: 700 }}>✓✓</span>;
+  if (status === 'sent')      return <span style={{ fontSize: 12, opacity: .6, color: '#667781' }}>✓</span>;
+  if (status === 'delivered') return <span style={{ fontSize: 12, opacity: .7, color: '#667781' }}>✓✓</span>;
+  if (status === 'read')      return <span style={{ fontSize: 12, color: '#53bdeb', fontWeight: 700 }}>✓✓</span>;
   return null;
 }
 
@@ -102,8 +102,8 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
 
   const TimeRow = () => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', marginTop: 4 }}>
-      <span style={{ fontSize: 11, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>{timeStr}</span>
-      {message.isEdited && <span style={{ fontSize: 10, color: isOwn ? 'rgba(0,0,0,.4)' : 'var(--text-muted)' }}>modifié</span>}
+      <span style={{ fontSize: 12, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>{timeStr}</span>
+      {message.isEdited && <span style={{ fontSize: 12, color: isOwn ? 'rgba(0,0,0,.4)' : 'var(--text-muted)' }}>modifié</span>}
       {isOwn && <StatusIcon status={message.status} />}
     </div>
   );
@@ -141,7 +141,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
 
         {message.replyTo && (
           <div style={{ marginBottom: 4, padding: '6px 10px', borderRadius: 8, borderLeft: '3px solid var(--accent)', background: 'var(--bg-input)', fontSize: 12, color: 'var(--text-muted)' }}>
-            <p style={{ fontWeight: 600, color: 'var(--accent)', fontSize: 11, margin: '0 0 2px' }}>{message.replyTo.sender?.name}</p>
+            <p style={{ fontWeight: 600, color: 'var(--accent)', fontSize: 12, margin: '0 0 2px' }}>{message.replyTo.sender?.name}</p>
             <p style={{ margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{message.replyTo.content}</p>
           </div>
         )}
@@ -160,7 +160,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
                 style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 10, display: 'block', cursor: 'pointer', objectFit: 'cover' }}
                 onClick={() => window.open(message.content, '_blank')} />
               <div style={{ padding: '4px 8px 2px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
-                <span style={{ fontSize: 11, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>{timeStr}</span>
+                <span style={{ fontSize: 12, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>{timeStr}</span>
                 {isOwn && <StatusIcon status={message.status} />}
               </div>
             </div>
@@ -178,7 +178,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
               <video src={message.content} controls playsInline
                 style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 10, display: 'block' }} />
               <div style={{ padding: '4px 8px 2px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
-                <span style={{ fontSize: 11, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>{timeStr}</span>
+                <span style={{ fontSize: 12, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>{timeStr}</span>
                 {isOwn && <StatusIcon status={message.status} />}
               </div>
             </div>
@@ -203,7 +203,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>Fichier joint</p>
-                  <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: 0 }}>Appuyer pour télécharger</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>Appuyer pour télécharger</p>
                 </div>
               </a>
               <TimeRow />
@@ -213,7 +213,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
           {/* TEXT */}
           {effectiveType === 'text' && (
             <>
-              <p style={{ fontSize: 16, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}>
+              <p style={{ fontSize: 15, lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}>
                 {message.content}
               </p>
               <TimeRow />

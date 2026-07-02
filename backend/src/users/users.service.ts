@@ -61,13 +61,26 @@ export class UsersService {
 
   async matchByPhones(phones: string[]) {
     if (!phones.length) return [];
-    // Clean each phone to digits+plus for matching
-    const cleaned = phones.map(p => p.replace(/[^\d+]/g, '')).filter(p => p.length >= 8);
-    return this.prisma.user.findMany({
-      where: { phone: { in: cleaned } },
+
+    // Normalise a phone number to its last 8 digits (country-code-agnostic matching)
+    const last8 = (p: string) => p.replace(/[^\d]/g, '').slice(-8);
+
+    const suffixes = phones
+      .map(p => last8(p))
+      .filter(p => p.length === 8);
+
+    if (!suffixes.length) return [];
+
+    // Fetch all users that have a phone, then filter in-process for suffix match.
+    // This avoids DB-specific regex and works with any SQL dialect.
+    const allWithPhone = await this.prisma.user.findMany({
+      where: { phone: { not: null } },
       select: { id:true, name:true, username:true, avatar:true, status:true, phone:true },
-      take: 200,
+      take: 5000,
     });
+
+    const suffixSet = new Set(suffixes);
+    return allWithPhone.filter(u => u.phone && suffixSet.has(last8(u.phone)));
   }
 
   async setOnline(id: string, online: boolean) {

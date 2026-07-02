@@ -74,7 +74,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect }: Prop
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:3 }}>
                   <span style={{ fontWeight:600, fontSize:16, color:'#111B21', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>{name}</span>
-                  <span style={{ fontSize:12, color: conv.unreadCount > 0 ? '#128C7E' : '#8696a0', flexShrink:0, marginLeft:8 }}>{timeStr}</span>
+                  <span style={{ fontSize:13, color: conv.unreadCount > 0 ? '#128C7E' : '#8696a0', flexShrink:0, marginLeft:8 }}>{timeStr}</span>
                 </div>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                   <p style={{ fontSize:14, color:'#667781', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, margin:0 }}>
@@ -83,7 +83,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect }: Prop
                       : (lastMsg?.content ?? '')}
                   </p>
                   {conv.unreadCount > 0 && (
-                    <span style={{ marginLeft:8, flexShrink:0, minWidth:20, height:20, background:'#128C7E', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'#fff', fontWeight:700, padding:'0 5px' }}>
+                    <span style={{ marginLeft:8, flexShrink:0, minWidth:22, height:22, background:'#128C7E', borderRadius:11, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, color:'#fff', fontWeight:700, padding:'0 6px' }}>
                       {conv.unreadCount > 9 ? '9+' : conv.unreadCount}
                     </span>
                   )}

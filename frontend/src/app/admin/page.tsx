@@ -36,21 +36,30 @@ export default function AdminPage() {
   useEffect(() => {
     if (status === 'unauthenticated') { router.replace('/login'); return; }
     if (status === 'authenticated' && session.user.email !== ADMIN_EMAIL) { router.replace('/chat'); return; }
-    if (status === 'authenticated' && token) {
-      loadData();
-      const interval = setInterval(loadData, 30_000);
-      // WebSocket: listen for real-time online count updates
-      const socket = getSocket(token);
+    if (status !== 'authenticated' || !token) return;
+
+    loadData();
+    const interval = setInterval(loadData, 30_000);
+
+    // Socket peut ne pas être prêt immédiatement — on réessaie jusqu'à 3s
+    let socket = getSocket(token);
+    let retries = 0;
+    const trySocket = () => {
+      socket = getSocket(token);
       if (socket) {
         socket.on('admin_metrics_update', (d: { connectesEnTempsReel: number }) => {
           setLiveOnline(d.connectesEnTempsReel);
         });
+      } else if (retries++ < 6) {
+        setTimeout(trySocket, 500);
       }
-      return () => {
-        clearInterval(interval);
-        socket?.off('admin_metrics_update');
-      };
-    }
+    };
+    trySocket();
+
+    return () => {
+      clearInterval(interval);
+      socket?.off('admin_metrics_update');
+    };
   }, [status, token]);
 
   async function loadData() {

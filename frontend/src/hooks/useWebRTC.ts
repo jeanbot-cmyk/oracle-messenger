@@ -35,13 +35,8 @@ async function getIceServers(token: string): Promise<RTCIceServer[]> {
   return DEFAULT_ICE;
 }
 
-export interface CallLogEntry {
-  id: string; type: 'audio' | 'video'; direction: 'incoming' | 'outgoing' | 'missed';
-  name: string; at: string; duration?: number;
-}
-function loadCallLog(): CallLogEntry[] { try { return JSON.parse(localStorage.getItem('oracle-call-log') ?? '[]'); } catch { return []; } }
-function saveCallLog(log: CallLogEntry[]) { localStorage.setItem('oracle-call-log', JSON.stringify(log.slice(0, 200))); }
-function addCallLog(entry: Omit<CallLogEntry, 'id'>) { const log = loadCallLog(); log.unshift({ ...entry, id: Date.now().toString() }); saveCallLog(log); }
+// L'historique des appels est persisté côté serveur (CallLog en base).
+// Le gateway NestJS enregistre automatiquement chaque appel à la fin.
 
 export function useWebRTC(userId: string, token = '') {
   const [callState, setCallState]       = useState<CallState>('idle');
@@ -73,9 +68,16 @@ export function useWebRTC(userId: string, token = '') {
     pcs.current.get(targetUserId)?.close();
     const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
 
-    localStreamRef.current?.getTracks().forEach(t => pc.addTrack(t, localStreamRef.current!));
+    // Ajouter les tracks locaux — le stream est garanti présent ici car
+    // answerCall() attend getMediaStream() avant d'appeler createPC via webrtc:offer
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(t => pc.addTrack(t, localStreamRef.current!));
+    }
 
-    pc.ontrack = (e) => setRemoteStreams(prev => { const m = new Map(prev); m.set(targetUserId, e.streams[0]); return m; });
+    pc.ontrack = (e) => {
+      const stream = e.streams[0] ?? new MediaStream([e.track]);
+      setRemoteStreams(prev => { const m = new Map(prev); m.set(targetUserId, stream); return m; });
+    };
 
     pc.onicecandidate = (e) => {
       if (!e.candidate) return;
@@ -88,6 +90,10 @@ export function useWebRTC(userId: string, token = '') {
 
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'connected') { callStartRef.current = Date.now(); _setState('connected'); }
+      if (pc.connectionState === 'failed') {
+        console.warn('[WebRTC] connection failed, restarting ICE');
+        pc.restartIce();
+      }
     };
 
     pcs.current.set(targetUserId, pc);
@@ -102,10 +108,6 @@ export function useWebRTC(userId: string, token = '') {
   const endCall = useCallback((logOutgoing = false) => {
     const info = callInfoRef.current;
     stopRingtone();
-    if (logOutgoing && info && callStartRef.current) {
-      addCallLog({ type: info.type, direction: 'outgoing', name: info.callerName ?? 'Inconnu', at: new Date().toISOString(), duration: Math.round((Date.now() - callStartRef.current) / 1000) });
-      callStartRef.current = 0;
-    }
     if (info?.callId) getExistingSocket()?.emit('call:end', { callId: info.callId });
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
@@ -153,13 +155,22 @@ export function useWebRTC(userId: string, token = '') {
     }
     try {
       iceServersRef.current = await getIceServers(token);
+      // Obtenir le stream LOCAL avant d'avertir le caller.
+      // Ainsi quand le caller envoie webrtc:offer, localStreamRef est déjà prêt
+      // et createPC() peut ajouter les tracks immédiatement.
       const stream = await getMediaStream({ audio: true, video: info.type === 'video' });
       localStreamRef.current = stream;
       setLocalStream(stream);
+      // Seulement maintenant on notifie le caller → il va envoyer l'offer
       socket?.emit('call:answer', { callId: info.callId, accepted: true });
       _setState('connected');
       callStartRef.current = Date.now();
-    } catch (err) { console.error('[WebRTC] answerCall:', err); endCall(); }
+    } catch (err) {
+      console.error('[WebRTC] answerCall — impossible d\'obtenir le stream:', err);
+      // Refuser proprement si le micro/caméra est inaccessible
+      socket?.emit('call:answer', { callId: info.callId, accepted: false });
+      endCall();
+    }
   }, [token, endCall]);
 
   const toggleMute   = useCallback(() => { localStreamRef.current?.getAudioTracks().forEach(t => { t.enabled = !t.enabled; }); setIsMuted(v => !v); }, []);
@@ -195,8 +206,6 @@ export function useWebRTC(userId: string, token = '') {
           // Fallback si onconnectionstatechange ne se déclenche pas
           setTimeout(() => { if (callStateRef.current === 'calling') _setState('connected'); }, 4000);
         } else {
-          const info = callInfoRef.current;
-          if (info) addCallLog({ type: info.type, direction: 'outgoing', name: info.callerName ?? 'Inconnu', at: new Date().toISOString() });
           endCall();
         }
       });
@@ -206,9 +215,6 @@ export function useWebRTC(userId: string, token = '') {
         const state = callStateRef.current;
         if (state === 'incoming' && info) {
           notifyMissedCall(info.callerName ?? 'Quelqu\'un');
-          addCallLog({ type: info.type, direction: 'missed', name: info.callerName ?? 'Inconnu', at: new Date().toISOString() });
-        } else if (info && callStartRef.current) {
-          addCallLog({ type: info.type, direction: 'incoming', name: info.callerName ?? 'Inconnu', at: new Date().toISOString(), duration: Math.round((Date.now() - callStartRef.current) / 1000) });
         }
         endCall();
       });

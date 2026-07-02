@@ -29,6 +29,24 @@ model User {
   aiMemories       AiMemory[]
   stories          Story[]
   storyViews       StoryView[]
+  callLogs         CallLog[]
+}
+
+// Historique des appels persisté en base
+model CallLog {
+  id             String   @id @default(uuid())
+  callId         String   // identifiant de session WebRTC
+  userId         String   // utilisateur concerné par cette entrée
+  peerId         String   // l'autre participant
+  peerName       String
+  type           String   // audio | video
+  direction      String   // incoming | outgoing | missed
+  duration       Int?     // secondes, null si manqué/refusé
+  startedAt      DateTime @default(now())
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt(sort: Desc)])
 }
 
 model Conversation {

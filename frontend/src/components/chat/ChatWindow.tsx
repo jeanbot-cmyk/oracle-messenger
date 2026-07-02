@@ -238,8 +238,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         </button>
         <button onClick={() => setProfileModal(true)}
           style={{ flex:1, border:'none', background:'transparent', cursor:'pointer', textAlign:'left', padding:0, minWidth:0 }}>
-          <p style={{ fontWeight:700, fontSize:16, color:'var(--text-primary)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</p>
-          <p style={{ fontSize:12, color: typingNames.length > 0 ? 'var(--accent)' : isOnline ? '#25D366' : 'var(--text-muted)', margin:0 }}>
+          <p style={{ fontWeight:700, fontSize:17, color:'var(--text-primary)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</p>
+          <p style={{ fontSize:13, color: typingNames.length > 0 ? 'var(--accent)' : isOnline ? '#25D366' : 'var(--text-muted)', margin:0 }}>
             {typingNames.length > 0
               ? typingNames.length === 1
                 ? `${typingNames[0]} est en train d'écrire…`
@@ -363,7 +363,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               <textarea value={input} onChange={e => handleInputChange(e.target.value)}
                 onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 placeholder={t(lang,'chat.placeholder')} rows={1}
-                style={{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:16, color:'var(--text-primary)', resize:'none', maxHeight:128, lineHeight:1.5 }}
+                style={{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:16, color:'var(--text-primary)', resize:'none', maxHeight:128, lineHeight:1.6 }}
                 onInput={e => { const el = e.target as HTMLTextAreaElement; el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,128)+'px'; }}
               />
               {/* Emoji button */}

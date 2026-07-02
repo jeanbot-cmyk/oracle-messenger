@@ -25,6 +25,15 @@
   --unread-bg:       #128C7E;
   --online-dot:      #25D366;
   --shadow:          0 1px 3px rgba(0,0,0,.10);
+
+  /* Échelle typographique */
+  --text-xs:   12px;
+  --text-sm:   13px;
+  --text-base: 15px;
+  --text-md:   16px;
+  --text-lg:   18px;
+  --text-xl:   20px;
+  --text-2xl:  24px;
 }
 
 /* ── Thème SOMBRE (optionnel) ── */
@@ -56,7 +65,8 @@ html, body {
   background: var(--bg-app);
   color: var(--text-primary);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-size: 14px;
+  font-size: 16px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
 }
@@ -67,6 +77,23 @@ html, body {
 
 .safe-top    { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Lisibilité globale */
+input, textarea, select, button {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+/* Taille minimale des zones tactiles (accessibilité mobile) */
+button, [role="button"] {
+  min-height: 36px;
+}
 
 .bubble-out {
   background: var(--bubble-out);

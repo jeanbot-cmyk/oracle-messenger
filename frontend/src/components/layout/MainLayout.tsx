@@ -211,7 +211,11 @@ export function MainLayout({ onStartCall }: Props) {
   );
 }
 
-interface CallLogEntry { id: string; type: 'audio'|'video'; direction: 'incoming'|'outgoing'|'missed'; name: string; at: string; duration?: number; }
+interface CallLogEntry {
+  id: string; callId: string; peerId: string; peerName: string;
+  type: 'audio'|'video'; direction: 'incoming'|'outgoing'|'missed';
+  duration?: number; startedAt: string;
+}
 
 function formatDuration(s?: number) {
   if (!s) return '';
@@ -221,13 +225,44 @@ function formatDuration(s?: number) {
 
 function CallsTab() {
   const router = useRouter();
-  const [log, setLog] = useState<CallLogEntry[]>([]);
+  const { data: session } = useSession();
+  const token = session?.user?.backendToken ?? '';
+  const BASE  = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
+
+  const [log,     setLog]     = useState<CallLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
 
+  useEffect(() => { setMounted(true); }, []);
+
   useEffect(() => {
-    setMounted(true);
-    try { setLog(JSON.parse(localStorage.getItem('oracle-call-log') ?? '[]')); } catch {}
-  }, []);
+    if (!mounted || !token) return;
+    setLoading(true);
+    fetch(`${BASE}/calls/history?limit=100`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : [])
+      .then((data: CallLogEntry[]) => setLog(Array.isArray(data) ? data : []))
+      .catch(() => setLog([]))
+      .finally(() => setLoading(false));
+  }, [mounted, token]);
+
+  async function clearAll() {
+    if (!confirm('Effacer tout l\'historique des appels ?')) return;
+    await fetch(`${BASE}/calls/history`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+    setLog([]);
+  }
+
+  async function deleteEntry(id: string) {
+    await fetch(`${BASE}/calls/history/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+    setLog(prev => prev.filter(e => e.id !== id));
+  }
 
   if (!mounted) return null;
 
@@ -244,13 +279,26 @@ function CallsTab() {
       {/* Header */}
       <div style={{ background:ACCENT, padding:'14px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
         <h2 style={{ color:'#fff', fontSize:18, fontWeight:700, margin:0 }}>Appels</h2>
-        <button onClick={() => router.push('/contacts')}
-          style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:20, padding:'8px 16px', color:'#fff', fontWeight:600, fontSize:13, cursor:'pointer' }}>
-          + Nouvel appel
-        </button>
+        <div style={{ display:'flex', gap:8 }}>
+          {log.length > 0 && (
+            <button onClick={clearAll}
+              style={{ background:'rgba(255,255,255,0.15)', border:'none', borderRadius:20, padding:'8px 14px', color:'#fff', fontWeight:600, fontSize:13, cursor:'pointer' }}>
+              Effacer
+            </button>
+          )}
+          <button onClick={() => router.push('/contacts')}
+            style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:20, padding:'8px 16px', color:'#fff', fontWeight:600, fontSize:13, cursor:'pointer' }}>
+            + Nouvel appel
+          </button>
+        </div>
       </div>
 
-      {log.length === 0 ? (
+      {loading ? (
+        <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div style={{ width:28, height:28, border:'3px solid #e9edef', borderTopColor:ACCENT, borderRadius:'50%', animation:'spin .8s linear infinite' }}/>
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        </div>
+      ) : log.length === 0 ? (
         <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:12, color:'#8696a0', padding:24 }}>
           <div style={{ width:72, height:72, borderRadius:'50%', background:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>
             <svg width="36" height="36" fill="#8696a0" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
@@ -261,10 +309,10 @@ function CallsTab() {
       ) : (
         <div style={{ flex:1, overflowY:'auto' }}>
           {log.map(entry => {
-            const d = new Date(entry.at);
+            const d = new Date(entry.startedAt);
             const timeStr = d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' });
             const dateStr = d.toLocaleDateString('fr-FR', { weekday:'short', day:'numeric', month:'short' });
-            const initials = entry.name?.[0]?.toUpperCase() ?? '?';
+            const initials = entry.peerName?.[0]?.toUpperCase() ?? '?';
             return (
               <div key={entry.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 16px', background:'#fff', borderBottom:'1px solid #f0f2f5' }}>
                 {/* Avatar */}
@@ -273,7 +321,7 @@ function CallsTab() {
                 </div>
                 {/* Info */}
                 <div style={{ flex:1, minWidth:0 }}>
-                  <p style={{ fontSize:15, fontWeight:600, color:'#111b21', margin:'0 0 3px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{entry.name}</p>
+                  <p style={{ fontSize:15, fontWeight:600, color:'#111b21', margin:'0 0 3px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{entry.peerName}</p>
                   <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                     {dirIcon(entry.direction)}
                     {entry.type === 'video'
@@ -283,10 +331,14 @@ function CallsTab() {
                     {entry.duration ? <span style={{ fontSize:12, color:'#8696a0' }}>{formatDuration(entry.duration)}</span> : null}
                   </div>
                 </div>
-                {/* Date + heure */}
-                <div style={{ textAlign:'right', flexShrink:0 }}>
-                  <p style={{ fontSize:12, color:'#8696a0', margin:'0 0 2px' }}>{timeStr}</p>
+                {/* Date + heure + supprimer */}
+                <div style={{ textAlign:'right', flexShrink:0, display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
+                  <p style={{ fontSize:12, color:'#8696a0', margin:0 }}>{timeStr}</p>
                   <p style={{ fontSize:11, color:'#b0b8bf', margin:0 }}>{dateStr}</p>
+                  <button onClick={() => deleteEntry(entry.id)}
+                    style={{ border:'none', background:'none', cursor:'pointer', color:'#dc2626', fontSize:11, padding:0, opacity:0.6 }}>
+                    ✕
+                  </button>
                 </div>
               </div>
             );

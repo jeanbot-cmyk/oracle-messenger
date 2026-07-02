@@ -8,6 +8,7 @@ import { GatewayModule } from './gateway/gateway.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
 import { StoriesModule } from './stories/stories.module';
+import { CallsModule } from './calls/calls.module';
 import { JwtGuard } from './auth/jwt.guard';
 
 @Controller()
@@ -54,6 +55,7 @@ class HealthController {
     NotificationsModule,
     AdminModule,
     StoriesModule,
+    CallsModule,
   ],
   controllers: [HealthController],
 })
