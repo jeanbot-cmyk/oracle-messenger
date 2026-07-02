@@ -16,54 +16,86 @@ export class AuthService {
     if (cleaned.length < 8) throw new BadRequestException('Numéro invalide');
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
     otpStore.set(cleaned, { code, expiresAt });
 
-    // TODO: integrate SMS provider (Twilio, Orange SMS, etc.)
-    // For now, return code in dev mode only
     const isDev = process.env.NODE_ENV !== 'production';
     console.log(`[OTP] ${cleaned} → ${code}`);
 
+    // ── Envoi SMS via Twilio ──────────────────────────────────────────────
+    const twilioSid   = process.env.TWILIO_ACCOUNT_SID;
+    const twilioToken = process.env.TWILIO_AUTH_TOKEN;
+    const twilioFrom  = process.env.TWILIO_PHONE_NUMBER;
+
+    if (twilioSid && twilioToken && twilioFrom) {
+      try {
+        const body = `Votre code Oracle Messenger : ${code}\nValable 10 minutes. Ne le partagez pas.`;
+        const auth = Buffer.from(`${twilioSid}:${twilioToken}`).toString('base64');
+        const res = await fetch(
+          `https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Basic ${auth}`,
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({ To: cleaned, From: twilioFrom, Body: body }).toString(),
+          },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.error('[OTP] Twilio error:', err);
+          // Ne pas bloquer — le code est quand même stocké
+        }
+      } catch (e) {
+        console.error('[OTP] SMS send failed:', e);
+      }
+    }
+
     return {
-      message: 'Code envoyé',
-      ...(isDev ? { dev_code: code } : {}),
+      message: 'Code envoyé par SMS',
+      // En dev (sans Twilio), retourner le code pour faciliter les tests
+      ...(isDev && !twilioSid ? { dev_code: code } : {}),
     };
   }
 
-  async verifyOtp(phone: string, code: string): Promise<{ token: string; user: any }> {
+  async verifyOtp(phone: string, code: string): Promise<{ token: string; user: any; isNew: boolean }> {
     const cleaned = phone.replace(/[^\d+]/g, '');
     const entry = otpStore.get(cleaned);
 
     if (!entry) throw new BadRequestException('Aucun code envoyé pour ce numéro');
     if (Date.now() > entry.expiresAt) {
       otpStore.delete(cleaned);
-      throw new BadRequestException('Code expiré');
+      throw new BadRequestException('Code expiré — demandez un nouveau code');
     }
     if (entry.code !== code.trim()) throw new BadRequestException('Code incorrect');
 
     otpStore.delete(cleaned);
 
-    // Find or create user by phone
+    let isNew = false;
     let user = await this.prisma.user.findUnique({ where: { phone: cleaned } });
     if (!user) {
-      // New user — create with phone as identifier
-      let username = `user${cleaned.slice(-6)}`;
+      isNew = true;
+      let username = `user${cleaned.replace(/\D/g, '').slice(-7)}`;
       const exists = await this.prisma.user.findUnique({ where: { username } });
       if (exists) username = `${username}${Math.floor(Math.random() * 999)}`;
 
       user = await this.prisma.user.create({
         data: {
-          googleId: `phone_${cleaned}`, // placeholder — not a real Google ID
-          email: `${cleaned.replace('+', '')}@oracle.phone`,
-          name: cleaned, // user can update name in profile
+          googleId: `phone_${cleaned}_${Date.now()}`,
+          email: `${cleaned.replace(/\D/g, '')}@oracle.phone`,
+          name: cleaned,
           username,
           phone: cleaned,
+          status: 'online',
         },
       });
+    } else {
+      await this.prisma.user.update({ where: { id: user.id }, data: { status: 'online' } });
     }
 
     const token = this.jwt.sign({ sub: user.id, email: user.email });
-    return { token, user };
+    return { token, user, isNew };
   }
 
   // ── Phone login — no OTP, phone is the unique identifier ─────────────────

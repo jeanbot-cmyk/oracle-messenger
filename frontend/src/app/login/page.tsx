@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const ACCENT = '#00a884';
 const BASE = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
@@ -129,12 +129,20 @@ function LoginContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
+  // Étape 1 : saisie numéro | Étape 2 : saisie OTP
+  const [step, setStep]           = useState<1 | 2>(1);
   const [country, setCountry]     = useState(ALL_COUNTRIES[0]);
   const [phone, setPhone]         = useState('');
+  const [fullPhone, setFullPhone] = useState('');
+  const [otp, setOtp]             = useState(['', '', '', '', '', '']);
   const [loading, setLoading]     = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [error, setError]         = useState('');
+  const [resendCd, setResendCd]   = useState(0);
   const [showPicker, setShowPicker] = useState(false);
   const [search, setSearch]       = useState('');
+  const otpRefs                   = useRef<(HTMLInputElement | null)[]>([]);
+  const cdRef                     = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (status === 'authenticated') {
@@ -142,26 +150,59 @@ function LoginContent() {
     }
   }, [status, session]);
 
+  // Countdown renvoi
+  useEffect(() => {
+    if (resendCd <= 0) return;
+    cdRef.current = setTimeout(() => setResendCd(s => s - 1), 1000);
+    return () => { if (cdRef.current) clearTimeout(cdRef.current); };
+  }, [resendCd]);
+
   const filtered = ALL_COUNTRIES.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.dial.includes(search) ||
     c.code.toLowerCase().includes(search.toLowerCase())
   );
 
-  async function handleLogin() {
+  // ── Étape 1 : envoyer OTP ─────────────────────────────────────────────────
+  async function handleSendOtp() {
     const full = `${country.dial}${phone.replace(/^0+/, '')}`;
     if (phone.length < 6) { setError('Numéro trop court'); return; }
     setLoading(true); setError('');
     try {
-      const res = await fetch(`${BASE}/auth/phone`, {
+      const res = await fetch(`${BASE}/auth/otp/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: full }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message ?? 'Erreur');
+      if (!res.ok) throw new Error(data.message ?? 'Erreur envoi SMS');
+      setFullPhone(full);
+      setStep(2);
+      setOtp(['', '', '', '', '', '']);
+      setResendCd(60);
+      // Focus premier champ OTP
+      setTimeout(() => otpRefs.current[0]?.focus(), 100);
+    } catch (e: any) {
+      setError(e.message ?? 'Erreur réseau');
+    } finally {
+      setLoading(false);
+    }
+  }
 
-      // Sign in via NextAuth credentials provider
+  // ── Étape 2 : vérifier OTP et connecter ──────────────────────────────────
+  async function handleVerifyOtp(code?: string) {
+    const finalCode = code ?? otp.join('');
+    if (finalCode.length !== 6) return;
+    setVerifying(true); setError('');
+    try {
+      const res = await fetch(`${BASE}/auth/otp/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: fullPhone, code: finalCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? 'Code incorrect');
+
       const { signIn } = await import('next-auth/react');
       const result = await signIn('phone', {
         redirect: false,
@@ -172,91 +213,163 @@ function LoginContent() {
       });
       if (result?.error) throw new Error(result.error);
 
-      // Vérifier si une destination post-login est stockée (ex: lien /u/username)
       const afterLogin = sessionStorage.getItem('oracle-after-login');
-      if (afterLogin) {
-        sessionStorage.removeItem('oracle-after-login');
-        router.replace(afterLogin);
-        return;
-      }
-
-      // Nouveau compte → onboarding, compte existant → chat
+      if (afterLogin) { sessionStorage.removeItem('oracle-after-login'); router.replace(afterLogin); return; }
       router.replace(data.isNew ? '/onboarding' : '/chat');
     } catch (e: any) {
-      setError(e.message ?? 'Erreur réseau');
+      setError(e.message ?? 'Code invalide');
+      setOtp(['', '', '', '', '', '']);
+      setTimeout(() => otpRefs.current[0]?.focus(), 50);
     } finally {
-      setLoading(false);
+      setVerifying(false);
     }
   }
 
+  // Gestion saisie OTP case par case
+  function handleOtpChange(idx: number, val: string) {
+    const digit = val.replace(/\D/g, '').slice(-1);
+    const next = [...otp];
+    next[idx] = digit;
+    setOtp(next);
+    setError('');
+    if (digit && idx < 5) {
+      otpRefs.current[idx + 1]?.focus();
+    }
+    // Vérification automatique quand les 6 chiffres sont saisis
+    if (next.every(d => d !== '')) {
+      handleVerifyOtp(next.join(''));
+    }
+  }
+
+  function handleOtpKeyDown(idx: number, e: React.KeyboardEvent) {
+    if (e.key === 'Backspace' && !otp[idx] && idx > 0) {
+      otpRefs.current[idx - 1]?.focus();
+    }
+  }
+
+  // Coller un code depuis le presse-papier (ex: SMS auto-fill)
+  function handleOtpPaste(e: React.ClipboardEvent) {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (pasted.length === 6) {
+      const next = pasted.split('');
+      setOtp(next);
+      otpRefs.current[5]?.focus();
+      handleVerifyOtp(pasted);
+    }
+  }
+
+  const Logo = () => (
+    <div style={{ width:72, height:72, borderRadius:22, background:ACCENT, display:'flex', alignItems:'center', justifyContent:'center', marginBottom:20, boxShadow:`0 8px 24px ${ACCENT}44` }}>
+      <svg width="38" height="38" fill="none" viewBox="0 0 24 24">
+        <path fill="white" d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.05 21.95l4.782-1.388A9.953 9.953 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2z"/>
+        <circle cx="8.5" cy="12" r="1.3" fill={ACCENT}/><circle cx="12" cy="12" r="1.3" fill={ACCENT}/><circle cx="15.5" cy="12" r="1.3" fill={ACCENT}/>
+      </svg>
+    </div>
+  );
+
   return (
     <div style={{ minHeight:'100dvh', background:'#fff', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'32px 24px', boxSizing:'border-box', fontFamily:'system-ui,-apple-system,sans-serif' }}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
 
-      {/* Logo */}
-      <div style={{ width:72, height:72, borderRadius:22, background:ACCENT, display:'flex', alignItems:'center', justifyContent:'center', marginBottom:20, boxShadow:`0 8px 24px ${ACCENT}44` }}>
-        <svg width="38" height="38" fill="none" viewBox="0 0 24 24">
-          <path fill="white" d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.05 21.95l4.782-1.388A9.953 9.953 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2z"/>
-          <circle cx="8.5" cy="12" r="1.3" fill={ACCENT}/>
-          <circle cx="12"  cy="12" r="1.3" fill={ACCENT}/>
-          <circle cx="15.5" cy="12" r="1.3" fill={ACCENT}/>
-        </svg>
-      </div>
-
+      <Logo />
       <h1 style={{ fontSize:26, fontWeight:800, color:'#111b21', margin:'0 0 6px', textAlign:'center' }}>Oracle Messenger</h1>
-      <p style={{ color:'#667781', fontSize:14, margin:'0 0 36px', textAlign:'center' }}>Entrez votre numéro de téléphone</p>
 
       {error && (
-        <div style={{ width:'100%', maxWidth:360, marginBottom:16, padding:'12px 16px', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:12, color:'#dc2626', fontSize:13, textAlign:'center' }}>
+        <div style={{ width:'100%', maxWidth:360, margin:'12px 0', padding:'12px 16px', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:12, color:'#dc2626', fontSize:13, textAlign:'center' }}>
           {error}
         </div>
       )}
 
-      <div style={{ width:'100%', maxWidth:360 }}>
-        {/* Country + phone */}
-        <div style={{ display:'flex', gap:8, marginBottom:16 }}>
-          <button onClick={() => setShowPicker(true)}
-            style={{ display:'flex', alignItems:'center', gap:6, padding:'14px 12px', background:'#f0f2f5', border:'none', borderRadius:14, cursor:'pointer', fontSize:15, fontWeight:600, color:'#111b21', flexShrink:0 }}>
-            <span style={{ fontSize:20 }}>{country.flag}</span>
-            <span>{country.dial}</span>
-            <svg width="14" height="14" fill="none" stroke="#8696a0" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/>
-            </svg>
+      {/* ── ÉTAPE 1 : Numéro ── */}
+      {step === 1 && (
+        <div style={{ width:'100%', maxWidth:360, animation:'fadeIn .25s ease' }}>
+          <p style={{ color:'#667781', fontSize:14, margin:'0 0 24px', textAlign:'center' }}>Entrez votre numéro de téléphone</p>
+          <div style={{ display:'flex', gap:8, marginBottom:16 }}>
+            <button onClick={() => setShowPicker(true)}
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'14px 12px', background:'#f0f2f5', border:'none', borderRadius:14, cursor:'pointer', fontSize:15, fontWeight:600, color:'#111b21', flexShrink:0 }}>
+              <span style={{ fontSize:20 }}>{country.flag}</span>
+              <span>{country.dial}</span>
+              <svg width="14" height="14" fill="none" stroke="#8696a0" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/></svg>
+            </button>
+            <input type="tel" value={phone}
+              onChange={e => { setPhone(e.target.value.replace(/[^\d]/g, '')); setError(''); }}
+              placeholder="Numéro de téléphone"
+              onKeyDown={e => e.key === 'Enter' && handleSendOtp()}
+              autoFocus
+              style={{ flex:1, padding:'14px 16px', background:'#f0f2f5', border:'none', borderRadius:14, fontSize:16, outline:'none', color:'#111b21' }}
+            />
+          </div>
+          <button onClick={handleSendOtp} disabled={loading || phone.length < 6}
+            style={{ width:'100%', background: phone.length >= 6 ? ACCENT : '#e9edef', color: phone.length >= 6 ? '#fff' : '#8696a0', border:'none', borderRadius:28, padding:'17px 24px', fontSize:16, fontWeight:700, cursor: phone.length >= 6 ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:24, boxShadow: phone.length >= 6 ? `0 4px 16px ${ACCENT}44` : 'none' }}>
+            {loading ? <div style={{ width:20, height:20, border:'3px solid rgba(255,255,255,0.4)', borderTopColor:'#fff', borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/> : 'Recevoir le code SMS →'}
           </button>
-          <input
-            type="tel" value={phone}
-            onChange={e => setPhone(e.target.value.replace(/[^\d]/g, ''))}
-            placeholder="Numéro de téléphone"
-            onKeyDown={e => e.key === 'Enter' && handleLogin()}
-            autoFocus
-            style={{ flex:1, padding:'14px 16px', background:'#f0f2f5', border:'none', borderRadius:14, fontSize:16, outline:'none', color:'#111b21' }}
-          />
+          <p style={{ fontSize:11, color:'#8696a0', textAlign:'center', lineHeight:1.6, maxWidth:300 }}>
+            En continuant, vous acceptez nos <a href="/terms" style={{ color:ACCENT }}>conditions</a> et <a href="/privacy" style={{ color:ACCENT }}>politique de confidentialité</a>.
+          </p>
         </div>
+      )}
 
-        <button onClick={handleLogin} disabled={loading || phone.length < 6}
-          style={{
-            width:'100%',
-            background: phone.length >= 6 ? ACCENT : '#e9edef',
-            color: phone.length >= 6 ? '#fff' : '#8696a0',
-            border:'none', borderRadius:28, padding:'17px 24px',
-            fontSize:16, fontWeight:700,
-            cursor: phone.length >= 6 ? 'pointer' : 'default',
-            display:'flex', alignItems:'center', justifyContent:'center', gap:10,
-            marginBottom:24,
-            boxShadow: phone.length >= 6 ? `0 4px 16px ${ACCENT}44` : 'none',
-          }}>
-          {loading
-            ? <div style={{ width:20, height:20, border:'3px solid rgba(255,255,255,0.4)', borderTopColor:'#fff', borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/>
-            : 'Continuer →'
-          }
-        </button>
-      </div>
+      {/* ── ÉTAPE 2 : Code OTP ── */}
+      {step === 2 && (
+        <div style={{ width:'100%', maxWidth:360, animation:'fadeIn .25s ease' }}>
+          <p style={{ color:'#667781', fontSize:14, margin:'0 0 6px', textAlign:'center' }}>
+            Code envoyé au <strong style={{ color:'#111b21' }}>{fullPhone}</strong>
+          </p>
+          <p style={{ color:'#8696a0', fontSize:12, margin:'0 0 28px', textAlign:'center' }}>
+            Entrez le code à 6 chiffres reçu par SMS
+          </p>
 
-      <p style={{ fontSize:11, color:'#8696a0', textAlign:'center', lineHeight:1.6, maxWidth:300 }}>
-        En continuant, vous acceptez nos{' '}
-        <a href="/terms" style={{ color:ACCENT }}>conditions</a>{' '}et{' '}
-        <a href="/privacy" style={{ color:ACCENT }}>politique de confidentialité</a>.
-      </p>
+          {/* Cases OTP */}
+          <div style={{ display:'flex', gap:10, justifyContent:'center', marginBottom:24 }} onPaste={handleOtpPaste}>
+            {otp.map((digit, i) => (
+              <input
+                key={i}
+                ref={el => { otpRefs.current[i] = el; }}
+                type="tel"
+                inputMode="numeric"
+                maxLength={1}
+                value={digit}
+                onChange={e => handleOtpChange(i, e.target.value)}
+                onKeyDown={e => handleOtpKeyDown(i, e)}
+                style={{
+                  width:46, height:56, textAlign:'center', fontSize:24, fontWeight:700,
+                  border: `2px solid ${digit ? ACCENT : '#e9edef'}`,
+                  borderRadius:14, outline:'none', color:'#111b21',
+                  background: digit ? `${ACCENT}10` : '#f0f2f5',
+                  transition:'border-color .15s, background .15s',
+                  caretColor: ACCENT,
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Spinner vérification */}
+          {verifying && (
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:16, color:'#667781', fontSize:14 }}>
+              <div style={{ width:18, height:18, border:'2.5px solid #e9edef', borderTopColor:ACCENT, borderRadius:'50%', animation:'spin .7s linear infinite' }}/>
+              Vérification…
+            </div>
+          )}
+
+          {/* Renvoi */}
+          <div style={{ textAlign:'center', marginBottom:20 }}>
+            {resendCd > 0 ? (
+              <p style={{ fontSize:13, color:'#8696a0' }}>Renvoyer dans <strong>{resendCd}s</strong></p>
+            ) : (
+              <button onClick={handleSendOtp} disabled={loading}
+                style={{ border:'none', background:'none', color:ACCENT, fontSize:14, fontWeight:600, cursor:'pointer', textDecoration:'underline' }}>
+                {loading ? 'Envoi…' : 'Renvoyer le code'}
+              </button>
+            )}
+          </div>
+
+          <button onClick={() => { setStep(1); setError(''); setOtp(['','','','','','']); }}
+            style={{ width:'100%', border:'none', background:'transparent', color:'#8696a0', fontSize:14, cursor:'pointer', padding:'8px' }}>
+            ← Changer de numéro
+          </button>
+        </div>
+      )}
 
       {/* Country picker */}
       {showPicker && (

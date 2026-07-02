@@ -7,6 +7,8 @@ import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
 import { api } from '../../lib/api';
 import { MessageBubble } from './MessageBubble';
+import { MediaLightbox } from '../ui/MediaLightbox';
+import { CameraCapture } from '../ui/CameraCapture';
 import type { Message } from '../../types';
 import Image from 'next/image';
 
@@ -76,7 +78,10 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const [replyTo, setReplyTo]     = useState<Message | null>(null);
   const [editMsg, setEditMsg]     = useState<Message | null>(null);
   const [sending, setSending]     = useState(false);
-  const [profileModal, setProfileModal] = useState(false);
+  const [profileModal, setProfileModal]     = useState(false);
+  const [avatarLightbox, setAvatarLightbox] = useState(false);
+  const [showCamera, setShowCamera]         = useState(false);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   // Audio recording
   const [recording, setRecording]   = useState(false);
@@ -156,30 +161,43 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   async function startRecording() {
     if (!activeConvId) return;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg' });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 44100,
+          channelCount: 1,
+        },
+      });
+      // Choisir le meilleur codec disponible
+      const mimeType = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/ogg',
+        'audio/mp4',
+      ].find(m => MediaRecorder.isTypeSupported(m)) ?? '';
+
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 128000 } : {});
       audioChunks.current = [];
       mr.ondataavailable = e => { if (e.data.size > 0) audioChunks.current.push(e.data); };
       mr.onstop = () => {
         stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(audioChunks.current, { type: mr.mimeType });
+        const blob = new Blob(audioChunks.current, { type: mr.mimeType || 'audio/webm' });
         const reader = new FileReader();
-        reader.onload = () => {
-          const b64 = reader.result as string;
-          sendMessage(activeConvId!, b64, 'audio');
-        };
+        reader.onload = () => sendMessage(activeConvId!, reader.result as string, 'audio');
         reader.readAsDataURL(blob);
         setRecording(false);
         setRecSeconds(0);
         if (recTimer.current) clearInterval(recTimer.current);
       };
-      mr.start();
+      mr.start(100); // chunk toutes les 100ms pour un envoi plus fluide
       mediaRecRef.current = mr;
       setRecording(true);
       setRecSeconds(0);
       recTimer.current = setInterval(() => setRecSeconds(s => s + 1), 1000);
     } catch {
-      alert('Microphone non disponible');
+      alert('Microphone non disponible — vérifiez les permissions');
     }
   }
 
@@ -226,8 +244,10 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             </svg>
           </button>
         )}
-        {/* Avatar cliquable → modal profil */}
-        <button onClick={() => setProfileModal(true)}
+        {/* Avatar : simple clic → modal profil, double-clic → photo plein écran */}
+        <button
+          onClick={() => setProfileModal(true)}
+          onDoubleClick={e => { e.stopPropagation(); if (avatar) setAvatarLightbox(true); }}
           style={{ position:'relative', border:'none', background:'transparent', padding:0, cursor:'pointer', flexShrink:0 }}>
           <div style={{ width:42, height:42, borderRadius:'50%', background:'var(--accent)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
             {avatar ? <Image src={avatar} alt={name??''} width={42} height={42} style={{ objectFit:'cover' }} /> : (
@@ -349,14 +369,35 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           </div>
         ) : (
           <div style={{ display:'flex', alignItems:'flex-end', gap:8 }}>
-            {/* Trombone */}
-            <input ref={fileInputRef} type="file" accept="*/*" onChange={handleFileChange} style={{ display:'none' }}/>
-            <button onClick={() => { setShowEmoji(false); fileInputRef.current?.click(); }}
-              style={{ width:42, height:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--bg-surface)', cursor:'pointer', color:'var(--text-secondary)', flexShrink:0 }}>
-              <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-              </svg>
-            </button>
+            {/* Attachement : fichier + caméra */}
+            <input ref={fileInputRef} type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={handleFileChange} style={{ display:'none' }}/>
+            <div style={{ position:'relative', flexShrink:0 }}>
+              <button onClick={() => { setShowEmoji(false); setShowAttachMenu(v => !v); }}
+                style={{ width:42, height:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--bg-surface)', cursor:'pointer', color:'var(--text-secondary)' }}>
+                <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                </svg>
+              </button>
+              {showAttachMenu && (
+                <>
+                  <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setShowAttachMenu(false)} />
+                  <div style={{ position:'absolute', bottom:50, left:0, zIndex:50, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:16, boxShadow:'0 4px 24px rgba(0,0,0,.15)', overflow:'hidden', minWidth:180 }}>
+                    <button onClick={() => { setShowAttachMenu(false); setShowCamera(true); }}
+                      style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:14, color:'var(--text-primary)' }}>
+                      <span style={{ fontSize:20 }}>📷</span> Caméra
+                    </button>
+                    <button onClick={() => { setShowAttachMenu(false); fileInputRef.current?.setAttribute('accept','image/*'); fileInputRef.current?.click(); }}
+                      style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:14, color:'var(--text-primary)' }}>
+                      <span style={{ fontSize:20 }}>🖼️</span> Photo / Vidéo
+                    </button>
+                    <button onClick={() => { setShowAttachMenu(false); fileInputRef.current?.setAttribute('accept','.pdf,.doc,.docx,.xls,.xlsx,*/*'); fileInputRef.current?.click(); }}
+                      style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:14, color:'var(--text-primary)' }}>
+                      <span style={{ fontSize:20 }}>📄</span> Document
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* Textarea + emoji button */}
             <div style={{ flex:1, background:'var(--bg-surface)', borderRadius:24, padding:'10px 16px', display:'flex', alignItems:'flex-end', gap:8, border:'1px solid var(--border)' }}>
@@ -449,6 +490,27 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Caméra avant/arrière */}
+      {showCamera && (
+        <CameraCapture
+          mode="both"
+          onCapture={(dataUrl, type) => {
+            setShowCamera(false);
+            if (activeConvId) sendMessage(activeConvId, dataUrl, type);
+          }}
+          onClose={() => setShowCamera(false)}
+        />
+      )}
+
+      {/* Lightbox photo de profil (double-clic sur avatar) */}
+      {avatarLightbox && avatar && (
+        <MediaLightbox
+          src={avatar}
+          type="image"
+          onClose={() => setAvatarLightbox(false)}
+        />
       )}
     </div>
   );

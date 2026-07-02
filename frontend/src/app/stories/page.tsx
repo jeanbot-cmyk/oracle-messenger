@@ -29,20 +29,22 @@ export default function StoriesPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { lang } = useSettings();
-  const [mounted, setMounted] = useState(false);
-  const [stories, setStories] = useState<Story[]>([]);
-  const [viewing, setViewing] = useState<Story | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [newText, setNewText] = useState('');
-  const [newBg, setNewBg] = useState(BG_COLORS[0]);
-  const [newType, setNewType] = useState<'text' | 'image'>('text');
-  const [newImage, setNewImage] = useState('');
-  const [progress, setProgress] = useState(0);
-  const [paused, setPaused] = useState(false);
+  const [mounted, setMounted]     = useState(false);
+  const [stories, setStories]     = useState<Story[]>([]);
+  const [viewing, setViewing]     = useState<Story | null>(null);
+  const [creating, setCreating]   = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [pubError, setPubError]   = useState('');
+  const [newText, setNewText]     = useState('');
+  const [newBg, setNewBg]         = useState(BG_COLORS[0]);
+  const [newType, setNewType]     = useState<'text' | 'image'>('text');
+  const [newImage, setNewImage]   = useState('');
+  const [progress, setProgress]   = useState(0);
+  const [paused, setPaused]       = useState(false);
   const [newCaption, setNewCaption] = useState('');
   const progressRef = useRef<NodeJS.Timeout | null>(null);
-  const pausedRef = useRef(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const pausedRef   = useRef(false);
+  const fileRef     = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -72,10 +74,14 @@ export default function StoriesPage() {
     } catch {}
   }
 
+  // Recharger dès que token est disponible (évite le cas token vide au premier render)
   useEffect(() => {
     if (!mounted || !token) return;
     fetchStories();
-    // Handle camera capture from MainLayout
+  }, [mounted, token]);
+
+  useEffect(() => {
+    if (!mounted) return;
     const newParam = searchParams?.get('new');
     if (newParam === 'image') {
       const captured = sessionStorage.getItem('camera-capture');
@@ -127,8 +133,10 @@ export default function StoriesPage() {
 
   async function handleCreate() {
     if (!session?.user) return;
-    if (newType === 'text' && !newText.trim()) return;
-    if (newType === 'image' && !newImage) return;
+    if (newType === 'text' && !newText.trim()) { setPubError('Écrivez quelque chose'); return; }
+    if (newType === 'image' && !newImage) { setPubError('Choisissez une image'); return; }
+    setPublishing(true);
+    setPubError('');
     try {
       const res = await fetch(`${API}/stories`, {
         method: 'POST',
@@ -146,8 +154,16 @@ export default function StoriesPage() {
         setNewText('');
         setNewImage('');
         setNewCaption('');
+        setPubError('');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setPubError(err?.message ?? `Erreur serveur (${res.status})`);
       }
-    } catch {}
+    } catch (e: any) {
+      setPubError('Impossible de publier — vérifiez votre connexion');
+    } finally {
+      setPublishing(false);
+    }
   }
 
   function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -345,14 +361,21 @@ export default function StoriesPage() {
       {creating && (
         <div style={{ position:'fixed', inset:0, zIndex:400, background:'rgba(0,0,0,.6)', display:'flex', alignItems:'flex-end' }}>
           <div style={{ width:'100%', background:'var(--bg-surface)', borderRadius:'20px 20px 0 0', padding:24, maxHeight:'90vh', overflowY:'auto' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
-              <button onClick={() => setCreating(false)} style={{ border:'none', background:'transparent', cursor:'pointer', fontSize:22, color:'var(--text-primary)' }}>×</button>
+            <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:pubError ? 8 : 20 }}>
+              <button onClick={() => { setCreating(false); setPubError(''); }} style={{ border:'none', background:'transparent', cursor:'pointer', fontSize:22, color:'var(--text-primary)' }}>×</button>
               <h3 style={{ margin:0, fontSize:18, fontWeight:700, color:'var(--text-primary)', flex:1 }}>Nouvelle story</h3>
-              <button onClick={handleCreate}
-                style={{ background:'var(--accent)', color:'#fff', border:'none', borderRadius:12, padding:'8px 20px', cursor:'pointer', fontWeight:600, fontSize:14 }}>
-                Publier
+              <button onClick={handleCreate} disabled={publishing}
+                style={{ background:'var(--accent)', color:'#fff', border:'none', borderRadius:12, padding:'8px 20px', cursor: publishing ? 'not-allowed' : 'pointer', fontWeight:600, fontSize:14, opacity: publishing ? 0.7 : 1, display:'flex', alignItems:'center', gap:6 }}>
+                {publishing ? (
+                  <><div style={{ width:14, height:14, border:'2px solid rgba(255,255,255,0.4)', borderTopColor:'#fff', borderRadius:'50%', animation:'spin .7s linear infinite' }}/> Publication…</>
+                ) : 'Publier'}
               </button>
             </div>
+            {pubError && (
+              <div style={{ background:'#fef2f2', border:'1px solid #fecaca', borderRadius:10, padding:'8px 12px', marginBottom:16, fontSize:13, color:'#dc2626' }}>
+                {pubError}
+              </div>
+            )}
 
             {/* Tabs */}
             <div style={{ display:'flex', gap:8, marginBottom:20 }}>

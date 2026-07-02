@@ -6,6 +6,7 @@ import { useSettings } from '../../store/settings';
 import { t, LANGUAGES } from '../../lib/i18n';
 
 const ADMIN_EMAIL = 'tchingankonggeorges@gmail.com';
+const ADMIN_PHONE = '+2250504673829';
 
 export function MenuDots() {
   const [open, setOpen] = useState(false);
@@ -15,7 +16,7 @@ export function MenuDots() {
   const { lang, theme, setLang, toggleTheme } = useSettings();
   const { data: session } = useSession();
   const router = useRouter();
-  const isAdmin = session?.user?.email === ADMIN_EMAIL;
+  const isAdmin = session?.user?.email === ADMIN_EMAIL || (session?.user as any)?.phone === ADMIN_PHONE;
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setLangOpen(false); } };

@@ -34,12 +34,13 @@ export default function ProfilePage() {
     setBio(local.bio || '');
     setAvatar(local.avatar || session?.user?.image || '');
     setPhone(local.phone || '');
-    // Puis backend
+    // Puis backend (source de vérité)
     if (token) {
       api.users.me(token).then((u: any) => {
-        if (u.name) setName(u.name);
-        if (u.bio)  setBio(u.bio);
-        if (!local.avatar && u.avatar) setAvatar(u.avatar);
+        if (u.name)   setName(u.name);
+        if (u.bio)    setBio(u.bio);
+        if (u.avatar) setAvatar(u.avatar); // priorité backend sur local
+        if (u.phone)  setPhone(u.phone);
       }).catch(() => {});
     }
   }, [mounted, token]);
@@ -62,24 +63,28 @@ export default function ProfilePage() {
     if (!name.trim()) { setError('Le nom est requis'); return; }
     setSaving(true); setError('');
     try {
-      // 1. Toujours sauvegarder localement
-      const localData = { name: name.trim(), bio, avatar, phone };
-      localStorage.setItem('oracle-profile', JSON.stringify(localData));
+      // 1. Sauvegarder localement (toujours, même si backend échoue)
+      localStorage.setItem('oracle-profile', JSON.stringify({ name: name.trim(), bio, avatar, phone }));
 
-      // 2. Backend — envoyer nom + bio (pas l'avatar base64)
       if (token) {
+        // 2a. Avatar base64 → envoyer tel quel (le backend stocke en DB Text)
         const payload: Record<string, string> = { name: name.trim(), bio };
-        // Avatar URL seulement (pas base64)
-        if (avatar && !avatar.startsWith('data:')) payload.avatar = avatar;
-        try {
-          await api.users.update(token, payload);
-        } catch (e: any) {
-          // Continuer même si le backend échoue — sauvegarde locale OK
-          console.warn('Backend save failed:', e.message);
+        if (avatar) payload.avatar = avatar; // base64 ou URL, les deux acceptés
+        await api.users.update(token, payload).catch((e: any) => {
+          console.warn('Profile update failed:', e.message);
+        });
+
+        // 2b. Téléphone — endpoint dédié pour normalisation
+        if (phone.trim()) {
+          await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/users/me/phone`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ phone: phone.trim() }),
+          }).catch(() => {});
         }
       }
 
-      // 3. Mettre à jour la session
+      // 3. Mettre à jour la session NextAuth
       if (update) await update({ name: name.trim() }).catch(() => {});
 
       setSaved(true);

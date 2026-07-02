@@ -5,35 +5,35 @@ import { Providers } from './providers';
 
 export const metadata: Metadata = {
   title: 'Oracle Messenger',
-  description: 'Bienvenue dans votre application de messagerie et de suivi d\'entreprise. Connectez-vous, échangez et gérez vos clients en toute simplicité.',
+  description: 'Application de messagerie instantanée — chat, appels audio/vidéo, stories et suivi d\'entreprise.',
   manifest: '/manifest.json',
   appleWebApp: { capable: true, statusBarStyle: 'default', title: 'Oracle Messenger' },
   icons: { icon: '/icons/icon-192.png', apple: '/icons/icon-192.png' },
+  robots: { index: true, follow: true },
   openGraph: {
     title: 'Oracle Messenger',
-    description: 'Bienvenue dans votre application de messagerie et de suivi d\'entreprise.',
+    description: 'Application de messagerie instantanée — chat, appels audio/vidéo, stories.',
     url: 'https://messenger.oracle-plus.online',
     siteName: 'Oracle Messenger',
-    images: [{ url: '/icons/icon-512.png', width: 512, height: 512 }],
+    images: [{ url: 'https://messenger.oracle-plus.online/icons/icon-512.png', width: 512, height: 512 }],
     type: 'website',
   },
   twitter: {
-    card: 'summary',
+    card: 'summary_large_image',
     title: 'Oracle Messenger',
-    description: 'Messagerie et suivi d\'entreprise.',
-    images: ['/icons/icon-512.png'],
+    description: 'Application de messagerie instantanée.',
+    images: ['https://messenger.oracle-plus.online/icons/icon-512.png'],
   },
 };
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#f0f2f5' },
+    { media: '(prefers-color-scheme: light)', color: '#128C7E' },
     { media: '(prefers-color-scheme: dark)',  color: '#111b21' },
   ],
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // userScalable: false retiré — requis par Play Store accessibility policy
   viewportFit: 'cover',
 };
 

@@ -42,6 +42,7 @@ export const authOptions: NextAuthOptions = {
         token.userId       = user.id;
         token.username     = (user as any).username;
         token.isNew        = (user as any).isNew;
+        token.phone        = (user as any).phone;
       }
 
       // ── Google OAuth ──────────────────────────────────────────────────
@@ -81,6 +82,7 @@ export const authOptions: NextAuthOptions = {
       session.user.username     = (token.username     as string)  ?? '';
       session.user.backendToken = (token.backendToken as string)  ?? '';
       session.user.isNew        = (token.isNew        as boolean) ?? false;
+      if (token.phone) (session.user as any).phone = token.phone as string;
       return session;
     },
   },

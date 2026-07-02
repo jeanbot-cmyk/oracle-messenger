@@ -5,7 +5,9 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { getSocket } from '../../lib/socket';
 
-const ADMIN_EMAIL = 'tchingankonggeorges@gmail.com';
+const ADMIN_EMAIL  = 'tchingankonggeorges@gmail.com';
+const ADMIN_PHONE  = '+2250504673829';
+const isAdminUser  = (s: any) => s?.user?.email === ADMIN_EMAIL || s?.user?.phone === ADMIN_PHONE;
 
 interface Stats { totalUsers:number; onlineUsers:number; pwaInstalls:number; totalMessages:number; totalConversations:number; }
 interface Metrics { cpu:number; ramPct:number; ramUsed:number; ramTotal:number; uptime:number; }
@@ -35,7 +37,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (status === 'unauthenticated') { router.replace('/login'); return; }
-    if (status === 'authenticated' && session.user.email !== ADMIN_EMAIL) { router.replace('/chat'); return; }
+    if (status === 'authenticated' && !isAdminUser(session)) { router.replace('/chat'); return; }
     if (status !== 'authenticated' || !token) return;
 
     loadData();

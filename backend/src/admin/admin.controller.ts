@@ -4,19 +4,14 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { AdminService } from './admin.service';
 
 const ADMIN_EMAILS = ['tchingankonggeorges@gmail.com'];
+const ADMIN_PHONES = ['+2250504673829'];
 
-function AdminGuard() {
-  return function(target: any, key: string, descriptor: PropertyDescriptor) {
-    const original = descriptor.value;
-    descriptor.value = async function(...args: any[]) {
-      const user = args.find(a => a?.email);
-      if (!user || !ADMIN_EMAILS.includes(user.email)) {
-        throw new ForbiddenException('Accès réservé aux administrateurs');
-      }
-      return original.apply(this, args);
-    };
-    return descriptor;
-  };
+function isAdmin(user: any): boolean {
+  return ADMIN_EMAILS.includes(user?.email) || ADMIN_PHONES.includes(user?.phone);
+}
+
+function requireAdmin(user: any) {
+  if (!isAdmin(user)) throw new ForbiddenException('Accès réservé aux administrateurs');
 }
 
 @Controller('admin')
@@ -26,25 +21,25 @@ export class AdminController {
 
   @Get('stats')
   async stats(@CurrentUser() user: any) {
-    if (!ADMIN_EMAILS.includes(user?.email)) throw new ForbiddenException('Accès admin requis');
+    requireAdmin(user);
     return this.admin.getStats();
   }
 
   @Get('metrics')
   async metrics(@CurrentUser() user: any) {
-    if (!ADMIN_EMAILS.includes(user?.email)) throw new ForbiddenException('Accès admin requis');
+    requireAdmin(user);
     return this.admin.getMetrics();
   }
 
   @Get('users')
   async users(@CurrentUser() user: any) {
-    if (!ADMIN_EMAILS.includes(user?.email)) throw new ForbiddenException('Accès admin requis');
+    requireAdmin(user);
     return this.admin.getRecentUsers();
   }
 
   @Post('notify')
   async sendNotification(@CurrentUser() user: any, @Body() body: { title: string; body: string; url?: string }) {
-    if (!ADMIN_EMAILS.includes(user?.email)) throw new ForbiddenException('Accès admin requis');
+    requireAdmin(user);
     return this.admin.sendPushToAll(body);
   }
 
@@ -55,14 +50,14 @@ export class AdminController {
 
   @Post('broadcast')
   async broadcast(@CurrentUser() user: any, @Body() body: { content: string; mediaUrl?: string }) {
-    if (!ADMIN_EMAILS.includes(user?.email)) throw new ForbiddenException('Accès admin requis');
+    requireAdmin(user);
     if (!body.content?.trim()) throw new ForbiddenException('Contenu requis');
     return this.admin.broadcastSalesMessage(user.id, body.content.trim(), body.mediaUrl);
   }
 
   @Get('countries')
   async countries(@CurrentUser() user: any) {
-    if (!ADMIN_EMAILS.includes(user?.email)) throw new ForbiddenException('Accès admin requis');
+    requireAdmin(user);
     return this.admin.getCountryStats();
   }
 }

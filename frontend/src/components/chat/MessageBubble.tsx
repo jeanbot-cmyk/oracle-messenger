@@ -4,6 +4,8 @@ import { format } from 'date-fns';
 import type { Message } from '../../types';
 import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
+import { MediaLightbox } from '../ui/MediaLightbox';
+import { saveToGallery } from '../../lib/gallery';
 
 interface Props {
   message: Message;
@@ -40,10 +42,48 @@ function detectType(content: string, declaredType: string): 'image' | 'video' | 
 }
 
 export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Props) {
-  const [showMenu, setShowMenu] = useState(false);
-  const [imgError, setImgError] = useState(false);
-  const [swipeX, setSwipeX] = useState(0);
-  const [swiping, setSwiping] = useState(false);
+  const [showMenu, setShowMenu]       = useState(false);
+  const [imgError, setImgError]       = useState(false);
+  const [lightbox, setLightbox]       = useState(false);
+  const [swipeX, setSwipeX]           = useState(0);
+  const [swiping, setSwiping]         = useState(false);
+  const [copied, setCopied]           = useState(false);
+  const longPressTimer                = useRef<NodeJS.Timeout | null>(null);
+  const lastTapRef                    = useRef(0);
+
+  // Auto-save silencieux des médias reçus dans la galerie
+  const effectiveTypeEarly = detectType(message.content, message.type ?? 'text');
+  if (!isOwn && !message.isDeleted && (effectiveTypeEarly === 'image' || effectiveTypeEarly === 'video')) {
+    saveToGallery(message.content, effectiveTypeEarly, undefined);
+  }
+
+  // Double-tap → répondre
+  function handleTap() {
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) {
+      onReply(message);
+    }
+    lastTapRef.current = now;
+  }
+
+  // Long-press → menu contextuel
+  function handlePressStart() {
+    longPressTimer.current = setTimeout(() => setShowMenu(true), 500);
+  }
+  function handlePressEnd() {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  }
+
+  // Copier le texte
+  function copyText() {
+    if (message.content && effectiveTypeEarly === 'text') {
+      navigator.clipboard?.writeText(message.content).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }).catch(() => {});
+    }
+    setShowMenu(false);
+  }
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
   const swipeTriggered = useRef(false);
@@ -108,7 +148,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
     </div>
   );
 
-  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  // longPressTimer est géré via useRef ci-dessus
 
   return (
     <div
@@ -149,16 +189,17 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
         <div
           className={isOwn ? 'bubble-out' : 'bubble-in'}
           style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? '4px' : '8px 12px', overflow: 'hidden' }}
-          onTouchStart={e => { longPressTimer = setTimeout(() => setShowMenu(true), 500); }}
-          onTouchEnd={() => { if (longPressTimer) clearTimeout(longPressTimer); }}
-          onTouchMove={() => { if (longPressTimer) clearTimeout(longPressTimer); }}
+          onTouchStart={handlePressStart}
+          onTouchEnd={() => { handlePressEnd(); handleTap(); }}
+          onTouchMove={handlePressEnd}
+          onDoubleClick={() => onReply(message)}
         >
           {/* IMAGE */}
           {effectiveType === 'image' && !imgError && (
             <div>
               <img src={message.content} alt="image" onError={() => setImgError(true)}
-                style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 10, display: 'block', cursor: 'pointer', objectFit: 'cover' }}
-                onClick={() => window.open(message.content, '_blank')} />
+                style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 10, display: 'block', cursor: 'zoom-in', objectFit: 'cover' }}
+                onClick={() => setLightbox(true)} />
               <div style={{ padding: '4px 8px 2px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
                 <span style={{ fontSize: 12, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>{timeStr}</span>
                 {isOwn && <StatusIcon status={message.status} />}
@@ -175,8 +216,19 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
           {/* VIDEO */}
           {effectiveType === 'video' && (
             <div>
-              <video src={message.content} controls playsInline
-                style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 10, display: 'block' }} />
+              <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setLightbox(true)}>
+                <video src={message.content} playsInline muted
+                  style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 10, display: 'block', pointerEvents: 'none' }} />
+                {/* Bouton play overlay */}
+                <div style={{
+                  position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  borderRadius: 10,
+                }}>
+                  <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg width="22" height="22" fill="white" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                  </div>
+                </div>
+              </div>
               <div style={{ padding: '4px 8px 2px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
                 <span style={{ fontSize: 12, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>{timeStr}</span>
                 {isOwn && <StatusIcon status={message.status} />}
@@ -228,11 +280,25 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
               <button style={menuItemStyle} onClick={() => { onReply(message); setShowMenu(false); }}>
                 ↩️ {t(lang, 'chat.reply')}
               </button>
+              {/* Copier le texte */}
+              {effectiveType === 'text' && (
+                <button style={menuItemStyle} onClick={copyText}>
+                  {copied ? '✅ Copié !' : '📋 Copier'}
+                </button>
+              )}
+              {/* Ouvrir en plein écran pour image/vidéo */}
+              {(effectiveType === 'image' || effectiveType === 'video') && (
+                <button style={menuItemStyle} onClick={() => { setLightbox(true); setShowMenu(false); }}>
+                  🔍 Voir en plein écran
+                </button>
+              )}
               {isOwn && (
                 <>
-                  <button style={menuItemStyle} onClick={() => { onEdit(message); setShowMenu(false); }}>
-                    ✏️ {t(lang, 'chat.edit')}
-                  </button>
+                  {effectiveType === 'text' && (
+                    <button style={menuItemStyle} onClick={() => { onEdit(message); setShowMenu(false); }}>
+                      ✏️ {t(lang, 'chat.edit')}
+                    </button>
+                  )}
                   <div style={{ height: 1, background: 'var(--border)', margin: '0 12px' }} />
                   <button style={{ ...menuItemStyle, color: '#dc2626' }} onClick={() => { onDelete(message.id); setShowMenu(false); }}>
                     🗑️ {t(lang, 'chat.delete')}
@@ -243,6 +309,18 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
           </>
         )}
       </div>
+
+      {/* Lightbox plein écran */}
+      {lightbox && (effectiveType === 'image' || effectiveType === 'video') && (
+        <MediaLightbox
+          src={message.content}
+          type={effectiveType}
+          onClose={() => setLightbox(false)}
+          onSave={() => {
+            saveToGallery(message.content, effectiveType as 'image' | 'video');
+          }}
+        />
+      )}
     </div>
   );
 }
