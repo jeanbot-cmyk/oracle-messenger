@@ -108,16 +108,16 @@ export function MainLayout({ onStartCall }: Props) {
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', height: '100%' }}>
 
       {/* ── Panneau gauche (liste) ── */}
-      <div style={{ width: isMobile ? '100%' : '100%', maxWidth: isMobile ? '100%' : 420, display: showList ? 'flex' : 'none', flexDirection: 'column', background: '#fff', borderRight: isMobile ? 'none' : '1px solid #f0f2f5', height: '100%', flexShrink: 0, position: 'relative' }}>
+      <div style={{ width: isMobile ? '100%' : '100%', maxWidth: isMobile ? '100%' : 420, display: showList ? 'flex' : 'none', flexDirection: 'column', background: 'var(--bg-surface)', borderRight: isMobile ? 'none' : '1px solid var(--border)', height: '100%', flexShrink: 0, position: 'relative' }}>
 
         {/* Header */}
-        <div style={{ padding: '14px 16px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-          <span style={{ fontSize: 22, fontWeight: 800, color: '#111b21', letterSpacing: -0.3 }}>Oracle Messenger</span>
+        <div style={{ padding: '14px 16px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, background: 'var(--header-bg)', borderBottom: '1px solid rgba(214,178,94,0.22)' }}>
+          <span style={{ fontSize: 22, fontWeight: 900, color: '#FFFFFF', letterSpacing: 0 }}>Oracle Messenger</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             {/* Bouton caméra → ouvre caméra native */}
             <button
               onClick={() => cameraRef.current?.click()}
-              style={{ width: 38, height: 38, borderRadius: '50%', border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#54656f' }}
+              style={{ width: 38, height: 38, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(255,255,255,0.08)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F8FAFC' }}
               title="Prendre une photo"
             >
               <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -134,13 +134,13 @@ export function MainLayout({ onStartCall }: Props) {
         </div>
 
         {/* Barre de recherche */}
-        <div style={{ padding: '0 12px 10px', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f0f2f5', borderRadius: 24, padding: '9px 14px' }}>
-            <svg width="16" height="16" fill="none" stroke="#8696a0" strokeWidth="2" viewBox="0 0 24 24">
+        <div style={{ padding: '10px 12px', flexShrink: 0, background: 'var(--bg-surface)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#FFFFFF', border: '1px solid var(--border)', borderRadius: 24, padding: '9px 14px' }}>
+            <svg width="16" height="16" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
             </svg>
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher…"
-              style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 14, color: '#111b21' }} />
+              style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 14, color: 'var(--text-primary)', fontWeight: 600 }} />
           </div>
         </div>
 
@@ -149,13 +149,13 @@ export function MainLayout({ onStartCall }: Props) {
           <div style={{ display: 'flex', gap: 8, padding: '0 12px 10px', overflowX: 'auto', flexShrink: 0 }}>
             {FILTERS.map(f => (
               <button key={f.id} onClick={() => setFilter(f.id as any)}
-                style={{ flexShrink: 0, padding: '6px 16px', borderRadius: 20, border: filter === f.id ? 'none' : '1px solid #e9edef', background: filter === f.id ? '#111b21' : 'transparent', color: filter === f.id ? '#fff' : '#111b21', fontSize: 13, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              style={{ flexShrink: 0, padding: '6px 16px', borderRadius: 20, border: filter === f.id ? 'none' : '1px solid var(--border)', background: filter === f.id ? '#D6B25E' : 'transparent', color: filter === f.id ? '#102A2A' : 'var(--text-primary)', fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 {f.label}
               </button>
             ))}
             <button
               onClick={() => router.push('/contacts')}
-              style={{ flexShrink: 0, width: 32, height: 32, borderRadius: '50%', border: '1px solid #e9edef', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#111b21', fontSize: 18, fontWeight: 300 }}>
+              style={{ flexShrink: 0, width: 32, height: 32, borderRadius: '50%', border: '1px solid var(--border)', background: 'rgba(214,178,94,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#102A2A', fontSize: 18, fontWeight: 700 }}>
               +
             </button>
           </div>
@@ -179,20 +179,20 @@ export function MainLayout({ onStartCall }: Props) {
         {tab === 'discussions' && (
           <button
             onClick={() => router.push('/contacts')}
-            style={{ position: 'absolute', bottom: 72, right: 16, width: 56, height: 56, borderRadius: '50%', background: '#128C7E', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(0,168,132,0.4)', zIndex: 10 }}
+            style={{ position: 'absolute', bottom: 72, right: 16, width: 56, height: 56, borderRadius: '50%', background: '#D6B25E', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(201,168,76,0.35)', zIndex: 10 }}
             title="Nouveau message"
           >
-            <svg width="24" height="24" fill="white" viewBox="0 0 24 24">
+            <svg width="24" height="24" fill="#102A2A" viewBox="0 0 24 24">
               <path d="M20 2H4a2 2 0 00-2 2v18l4-4h14a2 2 0 002-2V4a2 2 0 00-2-2zm-2 10h-4v4h-2v-4H8v-2h4V6h2v4h4v2z"/>
             </svg>
           </button>
         )}
 
         {/* Tabs bas */}
-        <div style={{ display: 'flex', borderTop: '1px solid #f0f2f5', background: '#fff', flexShrink: 0, paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        <div style={{ display: 'flex', borderTop: '1px solid var(--border)', background: 'var(--bg-surface)', flexShrink: 0, paddingBottom: 'env(safe-area-inset-bottom)' }}>
           {TABS.map(tb => (
             <button key={tb.id} onClick={() => setTab(tb.id)}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '10px 4px 8px', border: 'none', background: 'transparent', cursor: 'pointer', color: tab === tb.id ? '#128C7E' : '#8696a0', fontSize: 11, fontWeight: tab === tb.id ? 600 : 400, transition: 'color 0.15s' }}>
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '10px 4px 8px', border: 'none', background: 'transparent', cursor: 'pointer', color: tab === tb.id ? '#D6B25E' : 'var(--text-muted)', fontSize: 11, fontWeight: tab === tb.id ? 800 : 500, transition: 'color 0.15s' }}>
               {tb.icon}
               {tb.label}
             </button>
@@ -266,28 +266,28 @@ function CallsTab() {
 
   if (!mounted) return null;
 
-  const ACCENT = '#128C7E';
+  const ACCENT = '#D6B25E';
 
   const dirIcon = (d: string) => {
     if (d === 'missed')   return <span style={{ color:'#dc2626', fontSize:13 }}>↙ Manqué</span>;
-    if (d === 'incoming') return <span style={{ color:ACCENT,    fontSize:13 }}>↙ Reçu</span>;
-    return                       <span style={{ color:'#667781', fontSize:13 }}>↗ Émis</span>;
+    if (d === 'incoming') return <span style={{ color:ACCENT,    fontSize:13, fontWeight:700 }}>↙ Reçu</span>;
+    return                       <span style={{ color:'var(--text-muted)', fontSize:13 }}>↗ Émis</span>;
   };
 
   return (
-    <div style={{ height:'100%', display:'flex', flexDirection:'column', background:'#f0f2f5' }}>
+    <div style={{ height:'100%', display:'flex', flexDirection:'column', background:'var(--bg-app)' }}>
       {/* Header */}
-      <div style={{ background:ACCENT, padding:'14px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
-        <h2 style={{ color:'#fff', fontSize:18, fontWeight:700, margin:0 }}>Appels</h2>
+      <div style={{ background:'#102A2A', padding:'14px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0, borderBottom:'1px solid rgba(214,178,94,0.22)' }}>
+        <h2 style={{ color:'#fff', fontSize:18, fontWeight:800, margin:0 }}>Appels</h2>
         <div style={{ display:'flex', gap:8 }}>
           {log.length > 0 && (
             <button onClick={clearAll}
-              style={{ background:'rgba(255,255,255,0.15)', border:'none', borderRadius:20, padding:'8px 14px', color:'#fff', fontWeight:600, fontSize:13, cursor:'pointer' }}>
+              style={{ background:'rgba(255,255,255,0.10)', border:'1px solid rgba(255,255,255,0.14)', borderRadius:20, padding:'8px 14px', color:'#fff', fontWeight:700, fontSize:13, cursor:'pointer' }}>
               Effacer
             </button>
           )}
           <button onClick={() => router.push('/contacts')}
-            style={{ background:'rgba(255,255,255,0.2)', border:'none', borderRadius:20, padding:'8px 16px', color:'#fff', fontWeight:600, fontSize:13, cursor:'pointer' }}>
+            style={{ background:'#D6B25E', border:'none', borderRadius:20, padding:'8px 16px', color:'#102A2A', fontWeight:800, fontSize:13, cursor:'pointer' }}>
             + Nouvel appel
           </button>
         </div>
@@ -299,11 +299,11 @@ function CallsTab() {
           <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
         </div>
       ) : log.length === 0 ? (
-        <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:12, color:'#8696a0', padding:24 }}>
-          <div style={{ width:72, height:72, borderRadius:'50%', background:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <svg width="36" height="36" fill="#8696a0" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+        <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:12, color:'var(--text-muted)', padding:24 }}>
+          <div style={{ width:72, height:72, borderRadius:'50%', background:'rgba(214,178,94,0.12)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <svg width="36" height="36" fill="#D6B25E" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
           </div>
-          <p style={{ fontSize:15, fontWeight:600, color:'#111b21', margin:0 }}>Aucun appel récent</p>
+          <p style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)', margin:0 }}>Aucun appel récent</p>
           <p style={{ fontSize:13, textAlign:'center', lineHeight:1.5, margin:0 }}>Vos appels apparaîtront ici</p>
         </div>
       ) : (
@@ -314,27 +314,27 @@ function CallsTab() {
             const dateStr = d.toLocaleDateString('fr-FR', { weekday:'short', day:'numeric', month:'short' });
             const initials = entry.peerName?.[0]?.toUpperCase() ?? '?';
             return (
-              <div key={entry.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 16px', background:'#fff', borderBottom:'1px solid #f0f2f5' }}>
+              <div key={entry.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 16px', background:'var(--bg-surface)', borderBottom:'1px solid var(--border)' }}>
                 {/* Avatar */}
-                <div style={{ width:48, height:48, borderRadius:'50%', background: entry.direction==='missed' ? '#fef2f2' : `${ACCENT}22`, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <span style={{ fontSize:20, fontWeight:700, color: entry.direction==='missed' ? '#dc2626' : ACCENT }}>{initials}</span>
+                <div style={{ width:48, height:48, borderRadius:'50%', background: entry.direction==='missed' ? '#fef2f2' : 'rgba(214,178,94,0.15)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <span style={{ fontSize:20, fontWeight:800, color: entry.direction==='missed' ? '#dc2626' : '#102A2A' }}>{initials}</span>
                 </div>
                 {/* Info */}
                 <div style={{ flex:1, minWidth:0 }}>
-                  <p style={{ fontSize:15, fontWeight:600, color:'#111b21', margin:'0 0 3px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{entry.peerName}</p>
+                  <p style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)', margin:'0 0 3px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{entry.peerName}</p>
                   <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                     {dirIcon(entry.direction)}
                     {entry.type === 'video'
-                      ? <svg width="13" height="13" fill="#8696a0" viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z"/></svg>
-                      : <svg width="13" height="13" fill="#8696a0" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+                      ? <svg width="13" height="13" fill="var(--text-muted)" viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z"/></svg>
+                      : <svg width="13" height="13" fill="var(--text-muted)" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
                     }
-                    {entry.duration ? <span style={{ fontSize:12, color:'#8696a0' }}>{formatDuration(entry.duration)}</span> : null}
+                    {entry.duration ? <span style={{ fontSize:12, color:'var(--text-muted)' }}>{formatDuration(entry.duration)}</span> : null}
                   </div>
                 </div>
                 {/* Date + heure + supprimer */}
                 <div style={{ textAlign:'right', flexShrink:0, display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
-                  <p style={{ fontSize:12, color:'#8696a0', margin:0 }}>{timeStr}</p>
-                  <p style={{ fontSize:11, color:'#b0b8bf', margin:0 }}>{dateStr}</p>
+                  <p style={{ fontSize:12, color:'var(--text-muted)', margin:0 }}>{timeStr}</p>
+                  <p style={{ fontSize:11, color:'var(--text-muted)', margin:0, opacity:0.7 }}>{dateStr}</p>
                   <button onClick={() => deleteEntry(entry.id)}
                     style={{ border:'none', background:'none', cursor:'pointer', color:'#dc2626', fontSize:11, padding:0, opacity:0.6 }}>
                     ✕
@@ -352,14 +352,14 @@ function CallsTab() {
 function ActusTab() {
   const router = useRouter();
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: '#8696a0', padding: 24 }}>
-      <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#F8F9FA', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8696a0' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--text-muted)', padding: 24, background: 'var(--bg-app)' }}>
+      <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(214,178,94,0.12)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D6B25E' }}>
         <svg width="36" height="36" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/></svg>
       </div>
-      <p style={{ fontSize: 15, fontWeight: 600, color: '#111b21' }}>Stories & Actus</p>
+      <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Stories & Actus</p>
       <p style={{ fontSize: 13, textAlign: 'center', lineHeight: 1.5 }}>Partagez des moments avec vos contacts</p>
       <button onClick={() => router.push('/stories')}
-        style={{ background: '#128C7E', color: '#fff', border: 'none', borderRadius: 20, padding: '10px 24px', cursor: 'pointer', fontWeight: 600, fontSize: 14, marginTop: 8 }}>
+        style={{ background: '#D6B25E', color: '#102A2A', border: 'none', borderRadius: 20, padding: '10px 24px', cursor: 'pointer', fontWeight: 800, fontSize: 14, marginTop: 8 }}>
         Voir les stories
       </button>
     </div>
@@ -415,22 +415,22 @@ function OutilsTab({ onPickPhoto }: { onPickPhoto: () => void }) {
   ];
 
   return (
-    <div style={{ overflowY: 'auto', height: '100%', background: '#F8F9FA' }}>
+    <div style={{ overflowY: 'auto', height: '100%', background: 'var(--bg-app)' }}>
       {sections.map(section => (
         <div key={section.title}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: '#8696a0', padding: '14px 16px 6px', textTransform: 'uppercase', letterSpacing: 0.8, margin: 0 }}>
+          <p style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)', padding: '14px 16px 6px', textTransform: 'uppercase', letterSpacing: 0.8, margin: 0 }}>
             {section.title}
           </p>
-          <div style={{ background: '#fff', borderTop: '1px solid #E9EDEF', borderBottom: '1px solid #E9EDEF' }}>
+          <div style={{ background: 'var(--bg-surface)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
             {section.items.map((tool, i) => (
               <button key={tool.label} onClick={tool.action}
-                style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%', borderBottom: i < section.items.length - 1 ? '1px solid #F8F9FA' : 'none' }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: '#F8F9FA', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#128C7E', flexShrink: 0 }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%', borderBottom: i < section.items.length - 1 ? '1px solid rgba(214,178,94,0.14)' : 'none' }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(214,178,94,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D6B25E', flexShrink: 0 }}>
                   {TOOL_ICONS[tool.iconKey]}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 15, fontWeight: 600, color: '#111B21', margin: '0 0 2px' }}>{tool.label}</p>
-                  <p style={{ fontSize: 12, color: '#8696a0', margin: 0, lineHeight: 1.4 }}>{tool.sub}</p>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 2px' }}>{tool.label}</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>{tool.sub}</p>
                 </div>
                 <svg style={{ color: '#C4C4C4', flexShrink: 0 }} width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/>

@@ -21,6 +21,12 @@ export default function ToolsPage() {
   const [tab, setTab] = useState<'meeting'|'notes'|'events'>(initialTab);
 
   useEffect(() => { if (status === 'unauthenticated') router.replace('/login'); }, [status]);
+  useEffect(() => {
+    const nextTab = searchParams?.get('tab');
+    if (nextTab === 'meeting' || nextTab === 'notes' || nextTab === 'events') {
+      setTab(nextTab);
+    }
+  }, [searchParams]);
   if (status === 'loading') return <Spinner />;
 
   const userName = session?.user?.name ?? 'Utilisateur';

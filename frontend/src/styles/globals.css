@@ -6,25 +6,25 @@
 
 /* ── Thème CLAIR — Palette Corporate ── */
 :root {
-  --bg-app:          #F8F9FA;
-  --bg-surface:      #ffffff;
-  --bg-elevated:     #F8F9FA;
-  --bg-input:        #F8F9FA;
-  --text-primary:    #111B21;
-  --text-secondary:  #667781;
-  --text-muted:      #8696a0;
-  --accent:          #128C7E;
-  --accent-hover:    #0e7268;
-  --accent-text:     #ffffff;
-  --border:          #E9EDEF;
-  --bubble-out:      #d9fdd3;
-  --bubble-out-text: #111B21;
-  --bubble-in:       #ffffff;
-  --bubble-in-text:  #111B21;
-  --header-bg:       #F8F9FA;
-  --unread-bg:       #128C7E;
+  --bg-app:          #F5F1EA;
+  --bg-surface:      #FFFDF7;
+  --bg-elevated:     #F5F1EA;
+  --bg-input:        #FFFFFF;
+  --text-primary:    #151A23;
+  --text-secondary:  #475569;
+  --text-muted:      #64748B;
+  --accent:          #D6B25E;
+  --accent-hover:    #C9A84C;
+  --accent-text:     #102A2A;
+  --border:          rgba(214,178,94,0.22);
+  --bubble-out:      #E4F7DF;
+  --bubble-out-text: #151A23;
+  --bubble-in:       #FFFDF7;
+  --bubble-in-text:  #151A23;
+  --header-bg:       #102A2A;
+  --unread-bg:       #D6B25E;
   --online-dot:      #25D366;
-  --shadow:          0 1px 3px rgba(0,0,0,.10);
+  --shadow:          0 3px 10px rgba(17,24,39,.08);
 
   /* Échelle typographique */
   --text-xs:   12px;
@@ -38,23 +38,23 @@
 
 /* ── Thème SOMBRE (optionnel) ── */
 .dark {
-  --bg-app:          #111b21;
-  --bg-surface:      #202c33;
-  --bg-elevated:     #2a3942;
-  --bg-input:        #2a3942;
-  --text-primary:    #e9edef;
-  --text-secondary:  #8696a0;
-  --text-muted:      #667781;
-  --accent:          #128C7E;
-  --accent-hover:    #25D366;
-  --accent-text:     #ffffff;
-  --border:          #2a3942;
-  --bubble-out:      #005c4b;
-  --bubble-out-text: #e9edef;
-  --bubble-in:       #202c33;
-  --bubble-in-text:  #e9edef;
-  --header-bg:       #202c33;
-  --unread-bg:       #00a884;
+  --bg-app:          #0C1717;
+  --bg-surface:      #102A2A;
+  --bg-elevated:     #0F2323;
+  --bg-input:        #152F2F;
+  --text-primary:    #F8FAFC;
+  --text-secondary:  #CBD5E1;
+  --text-muted:      #94A3B8;
+  --accent:          #D6B25E;
+  --accent-hover:    #E4C36A;
+  --accent-text:     #102A2A;
+  --border:          rgba(214,178,94,0.24);
+  --bubble-out:      #1D3A2F;
+  --bubble-out-text: #F8FAFC;
+  --bubble-in:       #142525;
+  --bubble-in-text:  #F8FAFC;
+  --header-bg:       #102A2A;
+  --unread-bg:       #D6B25E;
   --shadow:          0 1px 3px rgba(0,0,0,.4);
 }
 
@@ -98,13 +98,15 @@ button, [role="button"] {
 .bubble-out {
   background: var(--bubble-out);
   color: var(--bubble-out-text);
-  border-radius: 8px 8px 0 8px;
+  border: 1px solid rgba(16,42,42,0.06);
+  border-radius: 18px 18px 6px 18px;
   box-shadow: var(--shadow);
 }
 .bubble-in {
   background: var(--bubble-in);
   color: var(--bubble-in-text);
-  border-radius: 8px 8px 8px 0;
+  border: 1px solid rgba(214,178,94,0.18);
+  border-radius: 18px 18px 18px 6px;
   box-shadow: var(--shadow);
 }
 

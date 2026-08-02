@@ -38,6 +38,35 @@ export class ChatService {
     });
   }
 
+  async getConversation(conversationId: string, userId: string) {
+    const participant = await this.prisma.participant.findUnique({
+      where: { userId_conversationId: { userId, conversationId } },
+    });
+    if (!participant) throw new ForbiddenException();
+
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    });
+    if (!conv) throw new NotFoundException();
+
+    const others = conv.participants.filter(p => p.userId !== userId).map(p => p.user);
+    return {
+      id: conv.id,
+      type: conv.type,
+      name: conv.name,
+      avatar: conv.avatar,
+      participants: others,
+      lastMessage: conv.messages[0] ?? null,
+      unreadCount: 0,
+      isPinned: false,
+      updatedAt: conv.updatedAt,
+    };
+  }
+
   async getOrCreateDirect(userId: string, participantId: string) {
     // Chercher une conversation directe existante
     let conv = await this.prisma.conversation.findFirst({

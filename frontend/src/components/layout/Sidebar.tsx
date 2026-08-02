@@ -10,13 +10,13 @@ import Image from 'next/image';
 const S = {
   root:    { width:360, flexShrink:0, display:'flex', flexDirection:'column' as const, height:'100vh', borderRight:'1px solid var(--border)', background:'var(--bg-surface)' },
   header:  { padding:'12px 16px', display:'flex', alignItems:'center', gap:12, background:'var(--header-bg)', borderBottom:'1px solid var(--border)' },
-  title:   { flex:1, fontWeight:700, fontSize:20, color:'var(--text-primary)' },
-  iconBtn: { width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'transparent', cursor:'pointer', color:'var(--text-secondary)' },
+  title:   { flex:1, fontWeight:900, fontSize:20, color:'#FFFFFF' },
+  iconBtn: { width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' },
   searchWrap: { padding:'8px 12px', background:'var(--bg-surface)' },
   searchBox:  { display:'flex', alignItems:'center', gap:8, background:'var(--bg-input)', borderRadius:24, padding:'8px 14px' },
   searchInput:{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:14, color:'var(--text-primary)' },
   tabs:    { display:'flex', padding:'4px 12px 8px', gap:6, background:'var(--bg-surface)' },
-  tab:     (active:boolean) => ({ flex:1, padding:'6px 0', borderRadius:20, border: active ? 'none' : '1px solid var(--border)', background: active ? 'var(--accent)' : 'transparent', color: active ? '#fff' : 'var(--text-secondary)', fontSize:13, fontWeight:500, cursor:'pointer' }),
+  tab:     (active:boolean) => ({ flex:1, padding:'6px 0', borderRadius:20, border: active ? 'none' : '1px solid var(--border)', background: active ? 'var(--accent)' : 'transparent', color: active ? 'var(--accent-text)' : 'var(--text-secondary)', fontSize:13, fontWeight:700, cursor:'pointer' }),
 };
 
 interface SidebarProps {
@@ -44,7 +44,7 @@ export function Sidebar({ onStartCall }: SidebarProps) {
             <Image src={session.user.image} alt="avatar" width={36} height={36} />
           </div>
         ) : (
-          <div style={{ width:36, height:36, borderRadius:'50%', background:'var(--accent)', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontWeight:700, fontSize:16 }}>
+          <div style={{ width:36, height:36, borderRadius:'50%', background:'var(--accent)', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--accent-text)', fontWeight:800, fontSize:16 }}>
             {session?.user?.name?.[0]?.toUpperCase() ?? 'U'}
           </div>
         )}

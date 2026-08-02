@@ -17,8 +17,8 @@ interface Props {
 
 function StatusIcon({ status }: { status: Message['status'] }) {
   if (status === 'sending')   return <span style={{ fontSize: 10, opacity: .5 }}>⏳</span>;
-  if (status === 'sent')      return <span style={{ fontSize: 12, opacity: .6, color: '#667781' }}>✓</span>;
-  if (status === 'delivered') return <span style={{ fontSize: 12, opacity: .7, color: '#667781' }}>✓✓</span>;
+  if (status === 'sent')      return <span style={{ fontSize: 12, opacity: .6, color: 'var(--text-muted)' }}>✓</span>;
+  if (status === 'delivered') return <span style={{ fontSize: 12, opacity: .7, color: 'var(--text-muted)' }}>✓✓</span>;
   if (status === 'read')      return <span style={{ fontSize: 12, color: '#53bdeb', fontWeight: 700 }}>✓✓</span>;
   return null;
 }

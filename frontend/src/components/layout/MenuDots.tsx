@@ -39,7 +39,7 @@ export function MenuDots() {
 
   return (
     <div ref={ref} style={{ position:'relative' }}>
-      <button onClick={() => setOpen(v => !v)} style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'transparent', cursor:'pointer', color:'var(--text-secondary)' }}>
+      <button onClick={() => setOpen(v => !v)} style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }}>
         <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
           <circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/>
         </svg>

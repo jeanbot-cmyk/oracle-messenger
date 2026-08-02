@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { CallOverlay } from '../../components/call/CallOverlay';
 import { MainLayout } from '../../components/layout/MainLayout';
 import { useChatStore } from '../../store/chat';
@@ -13,9 +13,10 @@ import { api } from '../../lib/api';
 export function ChatLayout() {
   const { data: session } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const token  = session?.user?.backendToken ?? '';
   const userId = session?.user?.id ?? '';
-  const { setConversations, setCurrentUser, conversations } = useChatStore();
+  const { setConversations, setCurrentUser, setActiveConv, conversations } = useChatStore();
   const { requestPermission, permission } = useNotifications();
   const [showNotifBanner, setShowNotifBanner] = useState(false);
   useSocket();
@@ -31,6 +32,12 @@ export function ChatLayout() {
     api.users.me(token).then(setCurrentUser).catch(() => {});
     api.conversations.list(token).then(setConversations).catch(() => {});
   }, [token]);
+
+  useEffect(() => {
+    const convId = searchParams?.get('conv');
+    if (!convId || conversations.length === 0) return;
+    if (conversations.some(c => c.id === convId)) setActiveConv(convId);
+  }, [searchParams, conversations, setActiveConv]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -50,11 +57,11 @@ export function ChatLayout() {
 
       {/* Bannière notifs */}
       {showNotifBanner && permission === 'default' && (
-        <div style={{ background:'#00a884', color:'#fff', padding:'10px 16px', display:'flex', alignItems:'center', gap:10, flexShrink:0, fontSize:13 }}>
+        <div style={{ background:'#102A2A', color:'#fff', padding:'10px 16px', display:'flex', alignItems:'center', gap:10, flexShrink:0, fontSize:13, borderBottom:'1px solid rgba(214,178,94,0.22)' }}>
           <span style={{ fontSize:16 }}>🔔</span>
           <span style={{ flex:1 }}>Activez les notifications pour ne rien manquer</span>
           <button onClick={async () => { setShowNotifBanner(false); await requestPermission(); }}
-            style={{ background:'#fff', color:'#00a884', border:'none', borderRadius:8, padding:'5px 12px', cursor:'pointer', fontWeight:700, fontSize:12 }}>
+            style={{ background:'#D6B25E', color:'#102A2A', border:'none', borderRadius:8, padding:'5px 12px', cursor:'pointer', fontWeight:800, fontSize:12 }}>
             Activer
           </button>
           <button onClick={() => setShowNotifBanner(false)}

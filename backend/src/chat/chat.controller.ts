@@ -17,6 +17,11 @@ export class ChatController {
     return this.chat.getOrCreateDirect(req.user.id, participantId);
   }
 
+  @Get('conversations/:id')
+  get(@Param('id') id: string, @Request() req: any) {
+    return this.chat.getConversation(id, req.user.id);
+  }
+
   @Get('conversations/:id/messages')
   messages(@Param('id') id: string, @Query('before') before: string, @Request() req: any) {
     return this.chat.getMessages(id, req.user.id, before);

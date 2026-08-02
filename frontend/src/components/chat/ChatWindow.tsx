@@ -234,11 +234,11 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', height:'100dvh', background:'var(--bg-elevated)', overflow:'hidden' }}>
       {/* Header */}
-      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px', background:'var(--header-bg)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px', background:'var(--header-bg)', borderBottom:'1px solid rgba(214,178,94,0.22)', flexShrink:0 }}>
         {/* Back button — mobile only */}
         {onBack && (
           <button onClick={onBack}
-            style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'transparent', cursor:'pointer', color:'var(--text-secondary)', flexShrink:0 }}>
+            style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'transparent', cursor:'pointer', color:'#F8FAFC', flexShrink:0 }}>
             <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
             </svg>
@@ -249,17 +249,17 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           onClick={() => setProfileModal(true)}
           onDoubleClick={e => { e.stopPropagation(); if (avatar) setAvatarLightbox(true); }}
           style={{ position:'relative', border:'none', background:'transparent', padding:0, cursor:'pointer', flexShrink:0 }}>
-          <div style={{ width:42, height:42, borderRadius:'50%', background:'var(--accent)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
+          <div style={{ width:42, height:42, borderRadius:'50%', background:'#F8F2E2', border:'1.5px solid rgba(214,178,94,0.72)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
             {avatar ? <Image src={avatar} alt={name??''} width={42} height={42} style={{ objectFit:'cover' }} /> : (
-              <span style={{ fontWeight:600, color:'#fff', fontSize:18 }}>{(name??'?')[0].toUpperCase()}</span>
+              <span style={{ fontWeight:800, color:'#102A2A', fontSize:18 }}>{(name??'?')[0].toUpperCase()}</span>
             )}
           </div>
           {isOnline && <span style={{ position:'absolute', bottom:1, right:1, width:11, height:11, background:'var(--online-dot)', borderRadius:'50%', border:'2px solid var(--header-bg)' }} />}
         </button>
         <button onClick={() => setProfileModal(true)}
           style={{ flex:1, border:'none', background:'transparent', cursor:'pointer', textAlign:'left', padding:0, minWidth:0 }}>
-          <p style={{ fontWeight:700, fontSize:17, color:'var(--text-primary)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</p>
-          <p style={{ fontSize:13, color: typingNames.length > 0 ? 'var(--accent)' : isOnline ? '#25D366' : 'var(--text-muted)', margin:0 }}>
+          <p style={{ fontWeight:800, fontSize:17, color:'#FFFFFF', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</p>
+          <p style={{ fontSize:13, color: typingNames.length > 0 ? '#D6B25E' : isOnline ? '#34D399' : 'rgba(255,255,255,0.58)', margin:0, fontWeight:600 }}>
             {typingNames.length > 0
               ? typingNames.length === 1
                 ? `${typingNames[0]} est en train d'écrire…`
@@ -277,7 +277,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                   : other ? [other.id] : [];
                 if (ids.length) onStartCall(conv.id, ids, 'audio');
               }}
-              style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'transparent', cursor:'pointer', color:'var(--text-secondary)' }} title="Appel audio">
+              style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title="Appel audio">
               <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/>
               </svg>
@@ -289,14 +289,14 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                   : other ? [other.id] : [];
                 if (ids.length) onStartCall(conv.id, ids, 'video');
               }}
-              style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'transparent', cursor:'pointer', color:'var(--text-secondary)' }} title="Appel vidéo">
+              style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title="Appel vidéo">
               <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.89L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
               </svg>
             </button>
           </>
         )}
-        <button style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'transparent', cursor:'pointer', color:'var(--text-secondary)' }}>
+        <button style={{ width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }}>
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
@@ -304,7 +304,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       </div>
 
       {/* Messages */}
-      <div style={{ flex:1, overflowY:'auto', overflowX:'hidden', padding:'12px 16px', display:'flex', flexDirection:'column', gap:4, WebkitOverflowScrolling:'touch' } as React.CSSProperties}>
+      <div style={{ flex:1, overflowY:'auto', overflowX:'hidden', padding:'12px 16px', display:'flex', flexDirection:'column', gap:4, WebkitOverflowScrolling:'touch', background:'var(--bg-app)' } as React.CSSProperties}>
         {convMessages.map(msg => (
           <MessageBubble key={msg.id} message={msg} isOwn={msg.senderId === userId} onReply={setReplyTo} onDelete={handleDelete} onEdit={setEditMsg} />
         ))}
@@ -339,7 +339,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       )}
 
       {/* Input — toujours visible, safe-area iOS */}
-      <div style={{ position:'relative', padding:'8px 12px', paddingBottom:'max(8px, env(safe-area-inset-bottom))', background:'var(--bg-app)', flexShrink:0 }}>
+      <div style={{ position:'relative', padding:'8px 12px', paddingBottom:'max(8px, env(safe-area-inset-bottom))', background:'#F0F2F5', borderTop:'1px solid #D7DBDF', flexShrink:0 }}>
         {/* Emoji picker */}
         {showEmoji && (
           <EmojiPicker
@@ -417,7 +417,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             {/* Send ou Micro */}
             {input.trim() ? (
               <button onClick={handleSend} disabled={sending}
-                style={{ width:42, height:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--accent)', cursor:'pointer', flexShrink:0, transition:'opacity .2s' }}>
+                style={{ width:42, height:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'#25D366', cursor:'pointer', flexShrink:0, transition:'opacity .2s' }}>
                 <svg width="20" height="20" fill="none" stroke="white" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                 </svg>
@@ -440,34 +440,34 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       {profileModal && (
         <div style={{ position:'fixed', inset:0, zIndex:500, background:'rgba(0,0,0,0.6)', display:'flex', alignItems:'flex-end' }}
           onClick={e => { if (e.target === e.currentTarget) setProfileModal(false); }}>
-          <div style={{ width:'100%', background:'#fff', borderRadius:'20px 20px 0 0', paddingBottom:40, overflow:'hidden' }}>
+          <div style={{ width:'100%', background:'var(--bg-surface)', borderRadius:'20px 20px 0 0', paddingBottom:40, overflow:'hidden' }}>
             {/* Cover + avatar */}
-            <div style={{ height:120, background:'linear-gradient(135deg,#128C7E,#075E54)', position:'relative', display:'flex', alignItems:'flex-end', justifyContent:'center', paddingBottom:0 }}>
+            <div style={{ height:120, background:'#102A2A', borderBottom:'1px solid rgba(214,178,94,0.24)', position:'relative', display:'flex', alignItems:'flex-end', justifyContent:'center', paddingBottom:0 }}>
               <button onClick={() => setProfileModal(false)}
                 style={{ position:'absolute', top:12, right:12, width:32, height:32, borderRadius:'50%', border:'none', background:'rgba(0,0,0,0.3)', cursor:'pointer', color:'#fff', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center' }}>
                 ✕
               </button>
-              <div style={{ position:'absolute', bottom:-44, width:88, height:88, borderRadius:'50%', overflow:'hidden', border:'4px solid #fff', background:'#128C7E' }}>
+              <div style={{ position:'absolute', bottom:-44, width:88, height:88, borderRadius:'50%', overflow:'hidden', border:'4px solid var(--bg-surface)', background:'#D6B25E' }}>
                 {avatar
                   ? <img src={avatar} alt={name??''} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
                   : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                      <span style={{ fontSize:36, fontWeight:700, color:'#fff' }}>{(name??'?')[0].toUpperCase()}</span>
+                      <span style={{ fontSize:36, fontWeight:800, color:'#102A2A' }}>{(name??'?')[0].toUpperCase()}</span>
                     </div>
                 }
               </div>
             </div>
             {/* Infos */}
             <div style={{ paddingTop:56, paddingLeft:24, paddingRight:24, textAlign:'center' }}>
-              <p style={{ fontSize:20, fontWeight:800, color:'#111b21', margin:'0 0 4px' }}>{name}</p>
-              {other?.username && <p style={{ fontSize:13, color:'#8696a0', margin:'0 0 4px' }}>@{other.username}</p>}
-              <div style={{ display:'inline-flex', alignItems:'center', gap:6, background: isOnline ? '#e8f5e9' : '#f0f2f5', borderRadius:20, padding:'4px 14px', marginBottom:20 }}>
-                <div style={{ width:8, height:8, borderRadius:'50%', background: isOnline ? '#25D366' : '#8696a0' }}/>
-                <span style={{ fontSize:13, color: isOnline ? '#25D366' : '#8696a0', fontWeight:600 }}>{isOnline ? 'En ligne' : 'Hors ligne'}</span>
+              <p style={{ fontSize:20, fontWeight:800, color:'var(--text-primary)', margin:'0 0 4px' }}>{name}</p>
+              {other?.username && <p style={{ fontSize:13, color:'var(--text-muted)', margin:'0 0 4px' }}>@{other.username}</p>}
+              <div style={{ display:'inline-flex', alignItems:'center', gap:6, background: isOnline ? 'rgba(52,211,153,0.12)' : 'rgba(100,116,139,0.10)', borderRadius:20, padding:'4px 14px', marginBottom:20 }}>
+                <div style={{ width:8, height:8, borderRadius:'50%', background: isOnline ? '#25D366' : 'var(--text-muted)' }}/>
+                <span style={{ fontSize:13, color: isOnline ? '#16A34A' : 'var(--text-muted)', fontWeight:700 }}>{isOnline ? 'En ligne' : 'Hors ligne'}</span>
               </div>
               {other?.phone && (
-                <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 0', borderTop:'1px solid #f0f2f5' }}>
-                  <svg width="20" height="20" fill="#128C7E" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
-                  <span style={{ fontSize:15, color:'#111b21' }}>{other.phone}</span>
+                <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 0', borderTop:'1px solid var(--border)' }}>
+                  <svg width="20" height="20" fill="#D6B25E" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+                  <span style={{ fontSize:15, color:'var(--text-primary)' }}>{other.phone}</span>
                 </div>
               )}
               {/* Actions */}
@@ -475,13 +475,13 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                 {onStartCall && other && (
                   <>
                     <button onClick={() => { setProfileModal(false); onStartCall(conv!.id, [other.id], 'audio'); }}
-                      style={{ flex:1, background:'#128C7E', color:'#fff', border:'none', borderRadius:14, padding:'14px 0', fontSize:15, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-                      <svg width="18" height="18" fill="#fff" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+                      style={{ flex:1, background:'#D6B25E', color:'#102A2A', border:'none', borderRadius:14, padding:'14px 0', fontSize:15, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                      <svg width="18" height="18" fill="#102A2A" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
                       Appel
                     </button>
                     <button onClick={() => { setProfileModal(false); onStartCall(conv!.id, [other.id], 'video'); }}
-                      style={{ flex:1, background:'#f0f2f5', color:'#111b21', border:'none', borderRadius:14, padding:'14px 0', fontSize:15, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-                      <svg width="18" height="18" fill="none" stroke="#111b21" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.89L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
+                      style={{ flex:1, background:'rgba(214,178,94,0.12)', color:'var(--text-primary)', border:'1px solid var(--border)', borderRadius:14, padding:'14px 0', fontSize:15, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                      <svg width="18" height="18" fill="none" stroke="var(--text-primary)" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.89L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
                       Vidéo
                     </button>
                   </>

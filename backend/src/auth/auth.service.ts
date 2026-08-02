@@ -159,51 +159,6 @@ export class AuthService {
     };
   }
 
-  // ── Firebase Phone Auth — vérifier le idToken Firebase et connecter ──────
-  async firebasePhoneLogin(idToken: string, phone: string): Promise<{ token: string; user: any; isNew: boolean }> {
-    // Vérifier le token Firebase via l'API Google
-    const firebaseProjectId = process.env.FIREBASE_PROJECT_ID ?? 'tchingankong';
-    const verifyUrl = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${process.env.FIREBASE_API_KEY ?? 'AIzaSyA9UHWSZXDwgpSEG5ZyI8LdljxQedkI07A'}`;
-
-    const verifyRes = await fetch(verifyUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken }),
-    });
-    const verifyData = await verifyRes.json();
-    if (!verifyRes.ok || !verifyData.users?.[0]) {
-      throw new BadRequestException('Token Firebase invalide');
-    }
-
-    const firebaseUser = verifyData.users[0];
-    const verifiedPhone = firebaseUser.phoneNumber ?? phone;
-    const cleaned = verifiedPhone.replace(/[^\d+]/g, '');
-
-    let isNew = false;
-    let user = await this.prisma.user.findUnique({ where: { phone: cleaned } });
-    if (!user) {
-      isNew = true;
-      let username = `user${cleaned.replace(/\D/g,'').slice(-7)}`;
-      const exists = await this.prisma.user.findUnique({ where: { username } });
-      if (exists) username = `${username}${Math.floor(Math.random() * 999)}`;
-      user = await this.prisma.user.create({
-        data: {
-          googleId: `firebase_${cleaned}_${Date.now()}`,
-          email: `${cleaned.replace(/\D/g,'')}@oracle.phone`,
-          name: cleaned,
-          username,
-          phone: cleaned,
-          status: 'online',
-        },
-      });
-    } else {
-      await this.prisma.user.update({ where: { id: user.id }, data: { status: 'online' } });
-    }
-
-    const token = this.jwt.sign({ sub: user.id, email: user.email });
-    return { token, user, isNew };
-  }
-
   async verifyOtp(phone: string, code: string): Promise<{ token: string; user: any; isNew: boolean }> {
     const cleaned = phone.replace(/[^\d+]/g, '');
     const entry = otpStore.get(cleaned);

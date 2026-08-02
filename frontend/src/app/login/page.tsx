@@ -3,10 +3,9 @@ export const dynamic = 'force-dynamic';
 import { useSession, signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { RecaptchaVerifier, signInWithPhoneNumber, type ConfirmationResult } from 'firebase/auth';
-import { firebaseAuth } from '../../lib/firebase';
 
-const ACCENT = '#00a884';
+const ACCENT = '#D6B25E';
+const DEEP = '#102A2A';
 const BASE   = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
 
 const ALL_COUNTRIES = [
@@ -130,8 +129,6 @@ function LoginContent() {
   const [showPicker, setShowPicker] = useState(false);
   const [search, setSearch]         = useState('');
 
-  const confirmRef  = useRef<ConfirmationResult | null>(null);
-  const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
   const otpRefs     = useRef<(HTMLInputElement|null)[]>([]);
   const cdRef       = useRef<NodeJS.Timeout|null>(null);
 
@@ -147,66 +144,60 @@ function LoginContent() {
     return () => { if (cdRef.current) clearTimeout(cdRef.current); };
   }, [resendCd]);
 
-  // Initialiser reCAPTCHA invisible (requis par Firebase Phone Auth)
-  function initRecaptcha() {
-    if (recaptchaRef.current) return recaptchaRef.current;
-    const verifier = new RecaptchaVerifier(firebaseAuth, 'recaptcha-container', {
-      size: 'invisible',
-      callback: () => {},
-    });
-    recaptchaRef.current = verifier;
-    return verifier;
+  // Normaliser le numéro : supprimer le code pays s'il est déjà inclus
+  function buildFullPhone(dialCode: string, rawPhone: string): string {
+    const digits = rawPhone.replace(/\D/g, '');
+    const dialDigits = dialCode.replace(/\D/g, '');
+    // Si l'utilisateur a tapé le numéro complet avec l'indicatif (ex: 2250504673829)
+    if (digits.startsWith(dialDigits)) {
+      return `+${digits}`;
+    }
+    // Sinon supprimer les zéros de tête et concaténer
+    return `${dialCode}${digits.replace(/^0+/, '')}`;
   }
 
-  // ── Étape 1 : envoyer OTP via Firebase ───────────────────────────────────
+  // ── Étape 1 : envoyer OTP via le backend Oracle ──────────────────────────
   async function handleSendOtp() {
-    const full = `${country.dial}${phone.replace(/^0+/, '')}`;
-    if (phone.length < 6) { setError('Numéro trop court'); return; }
+    const full = buildFullPhone(country.dial, phone);
+    if (phone.replace(/\D/g,'').length < 6) { setError('Numéro trop court'); return; }
     setLoading(true); setError('');
     try {
-      const verifier = initRecaptcha();
-      const confirmation = await signInWithPhoneNumber(firebaseAuth, full, verifier);
-      confirmRef.current = confirmation;
+      const res = await fetch(`${BASE}/auth/otp/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: full }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message ?? 'Impossible d’envoyer le code.');
       setFullPhone(full);
       setStep(2);
       setOtp(['','','','','','']);
       setResendCd(60);
       setTimeout(() => otpRefs.current[0]?.focus(), 100);
     } catch (e: any) {
-      console.error('[Firebase OTP]', e);
-      // Reset reCAPTCHA en cas d'erreur
-      recaptchaRef.current?.clear();
-      recaptchaRef.current = null;
-      const msg = e.code === 'auth/invalid-phone-number'   ? 'Numéro de téléphone invalide'
-                : e.code === 'auth/too-many-requests'      ? 'Trop de tentatives — réessayez dans quelques minutes'
-                : e.code === 'auth/quota-exceeded'         ? 'Quota SMS dépassé — réessayez plus tard'
-                : e.message ?? 'Erreur envoi SMS';
+      const msg = /num[eé]ro/i.test(e.message ?? '')
+        ? `Numéro invalide — vérifiez le format, par exemple 0504673829 avec ${country.dial}.`
+        : e.message ?? 'Impossible d’envoyer le SMS. Réessayez.';
       setError(msg);
     } finally {
       setLoading(false);
     }
   }
 
-  // ── Étape 2 : vérifier le code Firebase puis connecter au backend ─────────
+  // ── Étape 2 : vérifier le code puis connecter au backend ─────────────────
   async function handleVerifyOtp(code?: string) {
     const finalCode = code ?? otp.join('');
     if (finalCode.length !== 6) return;
     setVerifying(true); setError('');
     try {
-      // 1. Vérifier le code avec Firebase
-      const result = await confirmRef.current!.confirm(finalCode);
-      const firebaseToken = await result.user.getIdToken();
-
-      // 2. Échanger le token Firebase contre un token backend Oracle
-      const res = await fetch(`${BASE}/auth/firebase-phone`, {
+      const res = await fetch(`${BASE}/auth/otp/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken: firebaseToken, phone: fullPhone }),
+        body: JSON.stringify({ phone: fullPhone, code: finalCode }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.message ?? 'Erreur serveur');
 
-      // 3. Connecter via NextAuth
       const result2 = await signIn('phone', {
         redirect: false,
         backendToken: data.token,
@@ -220,9 +211,11 @@ function LoginContent() {
       if (afterLogin) { sessionStorage.removeItem('oracle-after-login'); router.replace(afterLogin); return; }
       router.replace(data.isNew ? '/onboarding' : '/chat');
     } catch (e: any) {
-      const msg = e.code === 'auth/invalid-verification-code' ? 'Code incorrect'
-                : e.code === 'auth/code-expired'              ? 'Code expiré — renvoyez un nouveau code'
-                : e.message ?? 'Code invalide';
+      const msg = e.message?.includes('expir')
+        ? 'Code expiré — renvoyez un nouveau code.'
+        : e.message?.includes('incorrect')
+          ? 'Code incorrect.'
+          : e.message ?? 'Code invalide.';
       setError(msg);
       setOtp(['','','','','','']);
       setTimeout(() => otpRefs.current[0]?.focus(), 50);
@@ -261,11 +254,8 @@ function LoginContent() {
     <div style={{ minHeight:'100dvh', background:'#fff', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'32px 24px', boxSizing:'border-box', fontFamily:'system-ui,-apple-system,sans-serif' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
 
-      {/* reCAPTCHA invisible — requis par Firebase */}
-      <div id="recaptcha-container" />
-
       {/* Logo */}
-      <div style={{ width:72, height:72, borderRadius:22, background:ACCENT, display:'flex', alignItems:'center', justifyContent:'center', marginBottom:20, boxShadow:`0 8px 24px ${ACCENT}44` }}>
+      <div style={{ width:72, height:72, borderRadius:22, background:DEEP, border:'1px solid rgba(214,178,94,0.35)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:20, boxShadow:`0 8px 24px rgba(16,42,42,0.22)` }}>
         <svg width="38" height="38" fill="none" viewBox="0 0 24 24">
           <path fill="white" d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.05 21.95l4.782-1.388A9.953 9.953 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2z"/>
           <circle cx="8.5" cy="12" r="1.3" fill={ACCENT}/>
@@ -301,9 +291,9 @@ function LoginContent() {
             />
           </div>
           <button onClick={handleSendOtp} disabled={loading || phone.length < 6}
-            style={{ width:'100%', background: phone.length >= 6 ? ACCENT : '#e9edef', color: phone.length >= 6 ? '#fff' : '#8696a0', border:'none', borderRadius:28, padding:'17px 24px', fontSize:16, fontWeight:700, cursor: phone.length >= 6 ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:24, boxShadow: phone.length >= 6 ? `0 4px 16px ${ACCENT}44` : 'none' }}>
+            style={{ width:'100%', background: phone.length >= 6 ? ACCENT : '#e9edef', color: phone.length >= 6 ? DEEP : '#8696a0', border:'none', borderRadius:28, padding:'17px 24px', fontSize:16, fontWeight:800, cursor: phone.length >= 6 ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', gap:10, marginBottom:24, boxShadow: phone.length >= 6 ? `0 4px 16px rgba(201,168,76,0.35)` : 'none' }}>
             {loading
-              ? <div style={{ width:20, height:20, border:'3px solid rgba(255,255,255,0.4)', borderTopColor:'#fff', borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/>
+              ? <div style={{ width:20, height:20, border:'3px solid rgba(16,42,42,0.25)', borderTopColor:DEEP, borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/>
               : '📱 Recevoir le code SMS →'}
           </button>
           <p style={{ fontSize:11, color:'#8696a0', textAlign:'center', lineHeight:1.6, maxWidth:300 }}>
@@ -351,7 +341,7 @@ function LoginContent() {
             }
           </div>
 
-          <button onClick={() => { setStep(1); setError(''); setOtp(['','','','','','']); confirmRef.current = null; }}
+          <button onClick={() => { setStep(1); setError(''); setOtp(['','','','','','']); }}
             style={{ width:'100%', border:'none', background:'transparent', color:'#8696a0', fontSize:14, cursor:'pointer', padding:'8px' }}>
             ← Changer de numéro
           </button>

@@ -25,8 +25,4 @@ export class AuthController {
     return this.auth.verifyOtp(body.phone, body.code);
   }
 
-  @Post('firebase-phone')
-  async firebasePhone(@Body() body: { idToken: string; phone: string }) {
-    return this.auth.firebasePhoneLogin(body.idToken, body.phone);
-  }
 }
