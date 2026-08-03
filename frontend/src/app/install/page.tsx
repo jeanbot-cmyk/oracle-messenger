@@ -5,6 +5,7 @@ import { api } from '../../lib/api';
 import { openCurrentAndroidLinkInChrome } from '../../lib/androidChrome';
 
 const ACCENT = 'var(--brand)';
+const MANUAL_CONTACTS_KEY = 'oracle-manual-contacts';
 
 type Device = 'ios' | 'android' | 'other';
 type Inviter = { id: string; name: string; username: string; avatar?: string; phone?: string };
@@ -45,9 +46,38 @@ function escapeVcard(value = '') {
   return value.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
 }
 
+function normalizeInternationalPhone(phone = '') {
+  const trimmed = phone.trim();
+  const digits = trimmed.replace(/\D/g, '');
+  if (!digits) return '';
+  return `+${digits}`;
+}
+
+function rememberOracleContact(inviter: Inviter) {
+  const phone = normalizeInternationalPhone(inviter.phone || '');
+  const contact = {
+    name: inviter.name || inviter.username || 'Oracle Messenger',
+    phones: phone ? [phone] : [],
+    emails: [],
+    avatar: inviter.avatar || null,
+  };
+  try {
+    const current = JSON.parse(localStorage.getItem(MANUAL_CONTACTS_KEY) || '[]');
+    const exists = current.some((c: any) =>
+      c?.name === contact.name ||
+      (phone && Array.isArray(c?.phones) && c.phones.some((p: string) => normalizeInternationalPhone(p) === phone))
+    );
+    if (!exists) {
+      localStorage.setItem(MANUAL_CONTACTS_KEY, JSON.stringify([contact, ...current]));
+    }
+  } catch {
+    localStorage.setItem(MANUAL_CONTACTS_KEY, JSON.stringify([contact]));
+  }
+}
+
 function saveContact(inviter: Inviter) {
   const name = inviter.name || inviter.username || 'Oracle Messenger';
-  const phone = inviter.phone || '';
+  const phone = normalizeInternationalPhone(inviter.phone || '');
   const profileUrl = `https://messenger.oracle-plus.online/u/${encodeURIComponent(inviter.username)}`;
   const vcard = [
     'BEGIN:VCARD',
@@ -67,6 +97,11 @@ function saveContact(inviter: Inviter) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function openDiscussionWithInviter(inviter: Inviter | null) {
+  if (inviter) rememberOracleContact(inviter);
+  goToAppEntry();
 }
 
 const IOS_STEPS = [
@@ -373,14 +408,14 @@ export default function InstallPage() {
           <p style={{ margin: '0 0 12px', fontSize: 13, lineHeight: 1.45, color: 'var(--text-secondary)' }}>
             Cette personne t’a invité. Enregistre son contact en un clic ou continue directement vers la discussion Oracle Messenger.
           </p>
-          <div style={{ display: 'grid', gridTemplateColumns: inviter.phone ? '1fr 1fr' : '1fr', gap: 8 }}>
-            {inviter.phone && (
+          <div style={{ display: 'grid', gridTemplateColumns: normalizeInternationalPhone(inviter.phone || '') ? '1fr 1fr' : '1fr', gap: 8 }}>
+            {normalizeInternationalPhone(inviter.phone || '') && (
               <button onClick={() => saveContact(inviter)}
                 style={{ border: 'none', borderRadius: 999, background: 'var(--header-bg)', color: '#fff', padding: '11px 12px', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>
                 Enregistrer contact
               </button>
             )}
-            <button onClick={goToAppEntry}
+            <button onClick={() => openDiscussionWithInviter(inviter)}
               style={{ border: 'none', borderRadius: 999, background: ACCENT, color: '#fff', padding: '11px 12px', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>
               Ouvrir discussion
             </button>
