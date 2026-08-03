@@ -101,6 +101,10 @@ function canUseContactPicker() {
   return typeof navigator !== 'undefined' && typeof (navigator as any).contacts?.select === 'function';
 }
 
+function isPhoneSearch(value: string) {
+  return value.replace(/\D/g, '').length >= 6;
+}
+
 async function getSupportedContactProps() {
   const manager = (navigator as any).contacts;
   const fallback = ['name', 'tel', 'email'];
@@ -180,6 +184,48 @@ export default function ContactsPage() {
 
     setImported(false);
   }, [mounted, status, token]);
+
+  useEffect(() => {
+    if (!token || !isPhoneSearch(search)) return;
+    const timer = setTimeout(async () => {
+      try {
+        const users: AppUser[] = await api.users.search(search, token);
+        if (!users.length) return;
+        setContacts(current => {
+          const additions = users
+            .filter(user => !current.some(c => c.appUser?.id === user.id))
+            .map(user => ({
+              local: { name: user.name, phones: user.phone ? [user.phone] : [], emails: [], avatar: user.avatar ?? null },
+              appUser: user,
+            }));
+          return additions.length ? [...additions, ...current] : current;
+        });
+        setImported(true);
+      } catch {}
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [search, token]);
+
+  useEffect(() => {
+    if (!token || !isPhoneSearch(newPhone)) return;
+    const timer = setTimeout(async () => {
+      try {
+        const users: AppUser[] = await api.users.search(newPhone, token);
+        if (!users.length) return;
+        const user = users[0];
+        setNewName(name => name.trim() ? name : user.name);
+        setContacts(current => {
+          if (current.some(c => c.appUser?.id === user.id)) return current;
+          return [{
+            local: { name: user.name, phones: user.phone ? [user.phone] : [newPhone], emails: [], avatar: user.avatar ?? null },
+            appUser: user,
+          }, ...current];
+        });
+        setImported(true);
+      } catch {}
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [newPhone, token]);
 
   function mergeContacts(base: LocalContact[], extra: LocalContact[]): LocalContact[] {
     return [...base, ...extra.filter(m => !base.some(b => b.name === m.name))];

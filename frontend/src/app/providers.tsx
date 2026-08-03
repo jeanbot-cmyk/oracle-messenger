@@ -6,7 +6,7 @@ import { useSettings } from '../store/settings';
 import { detectLanguage } from '../lib/i18n';
 import { PhoneOnboarding } from '../components/PhoneOnboarding';
 
-const CLIENT_CACHE_VERSION = '20260803-invite-phone-plus';
+const CLIENT_CACHE_VERSION = '20260803-phone-account-lookup';
 
 function ThemeApplier() {
   const { theme, lang, setLang } = useSettings();

@@ -57,7 +57,9 @@ export class UsersService {
 
   async search(q: string, excludeId: string) {
     const cleaned = q.replace(/[^\d+]/g, '');
-    return this.prisma.user.findMany({
+    const digits = cleaned.replace(/\D/g, '');
+    const phoneCandidates = this.phoneLookupCandidates(q);
+    const users = await this.prisma.user.findMany({
       where: {
         AND: [
           { id: { not: excludeId } },
@@ -66,13 +68,23 @@ export class UsersService {
             { username: { contains: q, mode: 'insensitive' } },
             { email:    { contains: q, mode: 'insensitive' } },
             // Recherche par numéro de téléphone (partielle)
-            ...(cleaned.length >= 6 ? [{ phone: { contains: cleaned } }] : []),
+            ...(digits.length >= 6 ? phoneCandidates.map(candidate => ({ phone: { contains: candidate } })) : []),
           ]},
         ],
       },
       select: { id:true, name:true, username:true, avatar:true, status:true, phone:true },
-      take: 20,
+      take: digits.length >= 6 ? 200 : 20,
     });
+
+    if (digits.length < 6) return users.slice(0, 20);
+
+    const ranked = users
+      .map(user => ({ user, score: this.phoneMatchScore(q, user.phone ?? '') }))
+      .filter(item => item.score > 0 || users.length <= 20)
+      .sort((a, b) => b.score - a.score)
+      .map(item => item.user);
+
+    return ranked.slice(0, 20);
   }
 
   async matchByPhoneHashes(hashes: string[], requesterId: string) {
@@ -127,5 +139,32 @@ export class UsersService {
     const normalized = this.normalizePhone(phone);
     const digits = normalized.replace(/\D/g, '');
     return [this.sha256(normalized), this.sha256(digits), this.sha256(digits.slice(-8))];
+  }
+
+  private phoneLookupCandidates(phone: string) {
+    const normalized = this.normalizePhone(phone);
+    const digits = normalized.replace(/\D/g, '');
+    const withoutLeadingZero = digits.replace(/^0+/, '');
+    const candidates = new Set<string>();
+    if (normalized.length >= 7) candidates.add(normalized);
+    if (digits.length >= 6) candidates.add(digits);
+    if (withoutLeadingZero.length >= 6) candidates.add(withoutLeadingZero);
+    if (digits.length >= 8) candidates.add(digits.slice(-8));
+    if (digits.length >= 9) candidates.add(digits.slice(-9));
+    return [...candidates];
+  }
+
+  private phoneMatchScore(query: string, phone: string) {
+    const queryDigits = this.normalizePhone(query).replace(/\D/g, '');
+    const phoneDigits = this.normalizePhone(phone).replace(/\D/g, '');
+    if (queryDigits.length < 6 || phoneDigits.length < 6) return 0;
+    if (queryDigits === phoneDigits) return 100;
+    if (phoneDigits.endsWith(queryDigits)) return 90;
+    if (queryDigits.endsWith(phoneDigits)) return 85;
+    if (phoneDigits.includes(queryDigits)) return 75;
+    if (queryDigits.includes(phoneDigits)) return 70;
+    if (queryDigits.length >= 8 && phoneDigits.endsWith(queryDigits.slice(-8))) return 60;
+    if (queryDigits.length >= 9 && phoneDigits.endsWith(queryDigits.slice(-9))) return 65;
+    return 0;
   }
 }
