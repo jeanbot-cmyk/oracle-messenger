@@ -313,22 +313,22 @@ textarea:focus {
 @media (max-width: 768px) and (pointer: coarse) {
   .om-chat-header {
     gap: 8px !important;
-    padding: calc(2px + env(safe-area-inset-top, 0px)) 8px 3px !important;
-    min-height: calc(44px + env(safe-area-inset-top, 0px)) !important;
+    padding: calc(7px + env(safe-area-inset-top, 0px)) 9px 7px !important;
+    min-height: calc(58px + env(safe-area-inset-top, 0px)) !important;
   }
 
   .om-chat-avatar {
-    width: 34px !important;
-    height: 34px !important;
+    width: 40px !important;
+    height: 40px !important;
   }
 
   .om-chat-title {
-    font-size: 15px !important;
+    font-size: 16px !important;
   }
 
   .om-chat-subtitle {
-    font-size: 11px !important;
-    margin-top: 2px !important;
+    font-size: 12px !important;
+    margin-top: 3px !important;
   }
 
   .om-chat-action {

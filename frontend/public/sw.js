@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v42
+// Oracle Messenger — Service Worker v43
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '42-20260803-persistent-call-ring';
+const CACHE_VERSION = '43-20260803-whatsapp-header-profile';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [

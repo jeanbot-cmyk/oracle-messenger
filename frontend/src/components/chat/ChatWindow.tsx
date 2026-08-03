@@ -386,7 +386,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   return (
     <div className="om-chat-window" style={{ flex:1, display:'flex', flexDirection:'column', height:'100%', minHeight:0, background:'var(--bg-elevated)', overflow:'hidden', position:'relative' }}>
       {/* Header */}
-      <div className="om-chat-header" style={{ display:'flex', alignItems:'center', gap:8, padding:'calc(2px + env(safe-area-inset-top, 0px)) 8px 3px', minHeight:'calc(44px + env(safe-area-inset-top, 0px))', background:'var(--header-bg)', borderBottom:'1px solid rgba(0,0,0,0.08)', flexShrink:0, position:'sticky', top:0, zIndex:30 }}>
+      <div className="om-chat-header" style={{ display:'flex', alignItems:'center', gap:9, padding:'calc(7px + env(safe-area-inset-top, 0px)) 10px 7px', minHeight:'calc(58px + env(safe-area-inset-top, 0px))', background:'var(--header-bg)', borderBottom:'1px solid rgba(0,0,0,0.08)', flexShrink:0, position:'sticky', top:0, zIndex:30 }}>
         {/* Back button — mobile only */}
         {onBack && (
           <button onClick={onBack}
@@ -401,7 +401,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           onClick={() => setProfileModal(true)}
           onDoubleClick={e => { e.stopPropagation(); if (avatar) setAvatarLightbox(true); }}
           style={{ position:'relative', border:'none', background:'transparent', padding:0, cursor:'pointer', flexShrink:0 }}>
-          <div className="om-chat-avatar" style={{ width:34, height:34, borderRadius:'50%', background:'#F8FAFC', border:'1.5px solid rgba(255,255,255,0.72)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', flexShrink:0 }}>
+          <div className="om-chat-avatar" style={{ width:40, height:40, borderRadius:'50%', background:'#F8FAFC', border:'1.5px solid rgba(255,255,255,0.72)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', flexShrink:0 }}>
             {avatar ? <img src={avatar} alt={name??''} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} /> : (
               <span style={{ fontWeight:800, color:'var(--header-bg)', fontSize:18 }}>{(name??'?')[0].toUpperCase()}</span>
             )}
@@ -410,8 +410,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         </button>
         <button onClick={() => setProfileModal(true)}
           style={{ flex:1, border:'none', background:'transparent', cursor:'pointer', textAlign:'left', padding:0, minWidth:0 }}>
-          <p className="om-chat-title" style={{ fontWeight:800, fontSize:15, lineHeight:1.05, color:'#FFFFFF', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', letterSpacing:0 }}>{name}</p>
-          <p className="om-chat-subtitle" style={{ fontSize:11, lineHeight:1.1, color: typingNames.length > 0 ? '#DDEFEA' : isOnline ? '#34D399' : 'rgba(255,255,255,0.62)', margin:'2px 0 0', fontWeight:600 }}>
+          <p className="om-chat-title" style={{ fontWeight:800, fontSize:16, lineHeight:1.08, color:'#FFFFFF', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', letterSpacing:0 }}>{name}</p>
+          <p className="om-chat-subtitle" style={{ fontSize:12, lineHeight:1.15, color: typingNames.length > 0 ? '#DDEFEA' : isOnline ? '#34D399' : 'rgba(255,255,255,0.62)', margin:'3px 0 0', fontWeight:600 }}>
             {typingNames.length > 0
               ? typingNames.length === 1
                 ? `${typingNames[0]} est en train d'écrire…`
