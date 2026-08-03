@@ -118,6 +118,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const bottomRef  = useRef<HTMLDivElement>(null);
   const messagesViewportRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const initialScrollPending = useRef(false);
   const isNearBottomRef = useRef(true);
   const prevConvRef = useRef<string | null>(null);
@@ -262,6 +263,51 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     sendTyping(activeConvId, true);
     if (typingTimer.current) clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => sendTyping(activeConvId, false), 2000);
+  }
+
+  function resizeTextarea(el: HTMLTextAreaElement | null) {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  }
+
+  function insertTextAtCursor(text: string) {
+    if (!text) return;
+    const el = textareaRef.current;
+    const start = el?.selectionStart ?? input.length;
+    const end = el?.selectionEnd ?? input.length;
+    const next = `${input.slice(0, start)}${text}${input.slice(end)}`;
+    handleInputChange(next);
+    requestAnimationFrame(() => {
+      const target = textareaRef.current;
+      if (!target) return;
+      const cursor = start + text.length;
+      target.focus();
+      target.setSelectionRange(cursor, cursor);
+      resizeTextarea(target);
+    });
+  }
+
+  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    if (!text) return;
+    e.preventDefault();
+    insertTextAtCursor(text);
+  }
+
+  async function pasteFromClipboard() {
+    try {
+      const text = await navigator.clipboard?.readText?.();
+      if (!text) {
+        setCallNotice('Aucun texte trouvé dans le presse-papiers.');
+        setTimeout(() => setCallNotice(''), 2500);
+        return;
+      }
+      insertTextAtCursor(text);
+    } catch {
+      setCallNotice('Appuie longuement dans la zone de message puis choisis Coller.');
+      setTimeout(() => setCallNotice(''), 3500);
+    }
   }
 
   async function handleSend() {
@@ -701,14 +747,21 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
 
             {/* Textarea + emoji button */}
             <div className="om-composer-input-shell" style={{ flex:1, background:'var(--bg-surface)', borderRadius:23, padding:'7px 12px', minHeight:42, display:'flex', alignItems:'center', gap:7, border:'1px solid var(--border)' }}>
-              <textarea value={input} onChange={e => handleInputChange(e.target.value)}
+              <textarea ref={textareaRef} value={input} onChange={e => handleInputChange(e.target.value)}
                 onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                onPaste={handlePaste}
                 placeholder={t(lang,'chat.placeholder')} rows={1}
                 className="om-composer-textarea"
-                style={{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:16, color:'var(--text-primary)', resize:'none', maxHeight:108, lineHeight:1.28, padding:'1px 0', minHeight:22 }}
+                style={{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:16, color:'var(--text-primary)', resize:'none', maxHeight:108, lineHeight:1.28, padding:'1px 0', minHeight:22, WebkitUserSelect:'text', userSelect:'text', touchAction:'auto' }}
                 onFocus={() => setTimeout(() => { if (isNearBottomRef.current) scrollMessagesToBottom('smooth'); }, 120)}
-                onInput={e => { const el = e.target as HTMLTextAreaElement; el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,128)+'px'; }}
+                onInput={e => resizeTextarea(e.target as HTMLTextAreaElement)}
               />
+              <button onClick={pasteFromClipboard}
+                className="om-composer-paste"
+                title="Coller"
+                style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--text-muted)', flexShrink:0, fontSize:19, lineHeight:1, padding:0 }}>
+                📋
+              </button>
               {/* Emoji button */}
               <button onClick={() => setShowEmoji(v => !v)}
                 className="om-composer-emoji"
