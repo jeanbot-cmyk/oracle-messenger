@@ -7,7 +7,7 @@ import { detectLanguage } from '../lib/i18n';
 import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 
-const CLIENT_CACHE_VERSION = '50-20260803-history-persistence';
+const CLIENT_CACHE_VERSION = '51-20260803-call-presence-stability';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 
@@ -29,8 +29,6 @@ function ThemeApplier() {
   }, [lang, setLang]);
 
   useEffect(() => {
-    openCurrentAndroidLinkInChrome('global');
-
     // Cookie PWA si mode standalone
     const isStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||

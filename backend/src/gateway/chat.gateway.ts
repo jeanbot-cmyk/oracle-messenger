@@ -37,6 +37,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     type: 'audio' | 'video'; startedAt: number;
     participants: Set<string>;
   }>();
+  private offlineTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private jwt: JwtService,
@@ -59,6 +60,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (!token) { client.disconnect(); return; }
       const payload = this.jwt.verify(token) as { sub: string };
       client.data.userId = payload.sub;
+      const pendingOffline = this.offlineTimers.get(payload.sub);
+      if (pendingOffline) {
+        clearTimeout(pendingOffline);
+        this.offlineTimers.delete(payload.sub);
+      }
       this.socketState.setUserSocket(payload.sub, client.id);
       await this.users.setOnline(payload.sub, true);
       this.server.emit('user:online', { userId: payload.sub });
@@ -73,8 +79,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!userId) return;
     this.socketState.removeUserSocket(userId, client.id);
     if (!this.socketState.hasUserSockets(userId)) {
-      await this.users.setOnline(userId, false);
-      this.server.emit('user:offline', { userId });
+      const existingTimer = this.offlineTimers.get(userId);
+      if (existingTimer) clearTimeout(existingTimer);
+      const timer = setTimeout(async () => {
+        this.offlineTimers.delete(userId);
+        if (this.socketState.hasUserSockets(userId)) return;
+        await this.users.setOnline(userId, false);
+        this.server.emit('user:offline', { userId });
+      }, 75_000);
+      this.offlineTimers.set(userId, timer);
     }
   }
 
