@@ -126,7 +126,7 @@ export function MainLayout({ onStartCall }: Props) {
       <div style={{ width: isMobile ? '100%' : '100%', maxWidth: isMobile ? '100%' : 420, display: showList ? 'flex' : 'none', flexDirection: 'column', background: 'var(--bg-surface)', borderRight: isMobile ? 'none' : '1px solid var(--border)', height: '100%', minHeight:0, flexShrink: 0, position: 'relative' }}>
 
         {/* Header */}
-        <div style={{ padding: 'calc(14px + env(safe-area-inset-top, 0px)) 18px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, background: 'linear-gradient(180deg, var(--header-bg), #235F58)', borderBottom: '1px solid rgba(255,255,255,0.10)', boxShadow: '0 1px 0 rgba(17,24,28,0.05)' }}>
+        <div style={{ padding: 'calc(14px + env(safe-area-inset-top, 0px)) 18px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, background: 'linear-gradient(180deg, var(--header-bg), #0B1628)', borderBottom: '1px solid rgba(255,255,255,0.10)', boxShadow: '0 1px 0 rgba(16,42,42,0.05)' }}>
           <span style={{ fontSize: 24, lineHeight: 1.1, fontWeight: 850, color: '#FFFFFF', letterSpacing: 0 }}>Oracle Messenger</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {/* Bouton caméra → ouvre caméra native */}
@@ -164,7 +164,7 @@ export function MainLayout({ onStartCall }: Props) {
           <div style={{ display: 'flex', gap: 8, padding: '0 16px 12px', overflowX: 'auto', flexShrink: 0 }}>
             {FILTERS.map(f => (
               <button key={f.id} onClick={() => setFilter(f.id as any)}
-              style={{ flexShrink: 0, minHeight: 36, padding: '8px 15px', borderRadius: 999, border: filter === f.id ? '1px solid transparent' : '1px solid var(--border)', background: filter === f.id ? 'var(--brand-soft)' : '#FFFFFF', color: filter === f.id ? 'var(--brand)' : 'var(--text-secondary)', fontSize: 14, lineHeight: 1.15, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: filter === f.id ? '0 6px 16px rgba(30,97,89,0.08)' : 'none' }}>
+              style={{ flexShrink: 0, minHeight: 36, padding: '8px 15px', borderRadius: 999, border: filter === f.id ? '1px solid transparent' : '1px solid var(--border)', background: filter === f.id ? 'var(--brand-soft)' : '#FFFFFF', color: filter === f.id ? 'var(--brand)' : 'var(--text-secondary)', fontSize: 14, lineHeight: 1.15, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: filter === f.id ? '0 6px 16px rgba(201,168,76,0.08)' : 'none' }}>
                 {f.label}
               </button>
             ))}
@@ -195,17 +195,17 @@ export function MainLayout({ onStartCall }: Props) {
         {tab === 'discussions' && (
           <button
             onClick={() => router.push('/contacts')}
-            style={{ position: 'absolute', bottom: 78, right: 18, width: 54, height: 54, minHeight: 54, borderRadius: '18px', background: 'var(--brand)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 12px 26px rgba(30,97,89,0.24)', zIndex: 10 }}
+            style={{ position: 'absolute', bottom: 78, right: 18, width: 54, height: 54, minHeight: 54, borderRadius: '18px', background: 'var(--brand)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 12px 26px rgba(201,168,76,0.24)', zIndex: 10 }}
             title="Nouveau message"
           >
-            <svg width="23" height="23" fill="none" stroke="#FFFFFF" strokeWidth="2" viewBox="0 0 24 24">
+            <svg width="23" height="23" fill="none" stroke="var(--accent-text)" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14"/>
             </svg>
           </button>
         )}
 
         {/* Tabs bas */}
-        <div style={{ display: 'flex', borderTop: '1px solid var(--border)', background: 'rgba(255,255,255,0.96)', flexShrink: 0, paddingBottom: 'env(safe-area-inset-bottom)', boxShadow: '0 -8px 24px rgba(17,24,28,0.04)' }}>
+        <div style={{ display: 'flex', borderTop: '1px solid var(--border)', background: 'rgba(255,255,255,0.96)', flexShrink: 0, paddingBottom: 'env(safe-area-inset-bottom)', boxShadow: '0 -8px 24px rgba(16,42,42,0.04)' }}>
           {TABS.map(tb => (
             <button key={tb.id} onClick={() => setTab(tb.id)}
               style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '9px 4px 8px', minHeight: 62, border: 'none', background: 'transparent', cursor: 'pointer', color: tab === tb.id ? 'var(--brand)' : 'var(--text-muted)', fontSize: 12, lineHeight: 1.1, fontWeight: tab === tb.id ? 800 : 600, transition: 'color 0.2s ease, transform 0.2s ease' }}>

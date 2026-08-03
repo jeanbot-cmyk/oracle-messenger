@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { api } from '../../lib/api';
 
-const ACCENT = '#128C7E';
+const ACCENT = 'var(--brand)';
 
 const COUNTRIES = [
   {code:'DZ',name:'Algérie',dial:'+213',flag:'🇩🇿'},{code:'AO',name:'Angola',dial:'+244',flag:'🇦🇴'},
@@ -66,14 +66,14 @@ const COUNTRIES = [
 function Spinner() {
   return (
     <div style={{ height:'100dvh', display:'flex', alignItems:'center', justifyContent:'center', background:'#fff' }}>
-      <div style={{ width:32, height:32, border:'3px solid #e9edef', borderTopColor:ACCENT, borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/>
+      <div style={{ width:32, height:32, border:'3px solid var(--border)', borderTopColor:ACCENT, borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 }
 
 export default function OnboardingPage() {
-  const { data: session, status } = useSession();
+  const { data: session, status, update } = useSession();
   const router = useRouter();
   const token = session?.user?.backendToken ?? '';
 
@@ -94,6 +94,11 @@ export default function OnboardingPage() {
     setMounted(true);
     if (status === 'unauthenticated') router.replace('/login');
   }, [status]);
+
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    setName(current => current || session?.user?.name || '');
+  }, [status, session]);
 
   useEffect(() => {
     if (status === 'authenticated' && !(session?.user as any)?.isNew) {
@@ -126,6 +131,7 @@ export default function OnboardingPage() {
 
   async function handleSave() {
     if (!name.trim()) { setError('Le nom est requis'); return; }
+    if (phone.replace(/\D/g,'').length < 6) { setError('Le numéro de téléphone est requis'); return; }
     setSaving(true); setError('');
     try {
       const fullPhone = phone ? `${country.dial}${phone.replace(/^0+/,'')}` : '';
@@ -133,12 +139,16 @@ export default function OnboardingPage() {
         const payload: Record<string,string> = { name: name.trim(), bio };
         if (avatar && !avatar.startsWith('data:')) payload.avatar = avatar;
         if (fullPhone) payload.phone = fullPhone;
-        try { await api.users.update(token, payload); } catch(e:any) { console.warn('Backend save:', e.message); }
+        const saved = await api.users.update(token, payload);
+        await update({ user: { phone: saved.phone, username: saved.username } });
       }
       localStorage.setItem('oracle-profile', JSON.stringify({ name: name.trim(), bio, avatar, phone: `${country.dial}${phone}` }));
       router.replace('/chat');
     } catch(err:any) {
-      setError('Erreur lors de la sauvegarde.');
+      const raw = String(err?.message ?? '');
+      setError(raw.includes('déjà associé') || raw.includes('deja associe') || raw.includes('409')
+        ? 'Ce numéro est déjà utilisé par un autre compte Oracle Messenger.'
+        : 'Erreur lors de la sauvegarde.');
     } finally {
       setSaving(false);
     }
@@ -162,10 +172,10 @@ export default function OnboardingPage() {
       {/* Avatar */}
       <div style={{ display:'flex', justifyContent:'center', marginTop:-48 }}>
         <label style={{ cursor:'pointer', position:'relative' }}>
-          <div style={{ width:96, height:96, borderRadius:'50%', overflow:'hidden', background:'#e9edef', display:'flex', alignItems:'center', justifyContent:'center', border:'4px solid #fff', boxShadow:'0 4px 16px rgba(0,0,0,0.12)' }}>
+          <div style={{ width:96, height:96, borderRadius:'50%', overflow:'hidden', background:'var(--border)', display:'flex', alignItems:'center', justifyContent:'center', border:'4px solid #fff', boxShadow:'0 4px 16px rgba(0,0,0,0.12)' }}>
             {avatar
               ? <img src={avatar} alt="avatar" style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
-              : <span style={{ fontSize:40, fontWeight:700, color:'#8696a0' }}>{initials}</span>
+              : <span style={{ fontSize:40, fontWeight:700, color:'var(--text-muted)' }}>{initials}</span>
             }
           </div>
           <div style={{ position:'absolute', bottom:2, right:2, width:30, height:30, borderRadius:'50%', background:ACCENT, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 8px rgba(0,0,0,0.2)' }}>
@@ -174,39 +184,39 @@ export default function OnboardingPage() {
           <input ref={fileRef} type="file" accept="image/*" onChange={handleAvatarChange} style={{ display:'none' }}/>
         </label>
       </div>
-      <p style={{ textAlign:'center', fontSize:12, color:'#8696a0', margin:'8px 0 0' }}>Appuyez pour ajouter une photo</p>
+      <p style={{ textAlign:'center', fontSize:12, color:'var(--text-muted)', margin:'8px 0 0' }}>Appuyez pour ajouter une photo</p>
 
       {/* Formulaire */}
       <div style={{ flex:1, padding:'20px 20px 32px', display:'flex', flexDirection:'column', gap:12, animation:'fadeUp 0.3s ease' }}>
         {error && <div style={{ background:'#fef2f2', border:'1px solid #fecaca', borderRadius:12, padding:'10px 14px', color:'#dc2626', fontSize:13 }}>{error}</div>}
 
         {/* Nom */}
-        <div style={{ background:'#f0f2f5', borderRadius:16, padding:'14px 16px' }}>
+        <div style={{ background:'var(--bg-input)', borderRadius:16, padding:'14px 16px' }}>
           <p style={{ fontSize:11, fontWeight:700, color:ACCENT, margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.6 }}>Votre nom *</p>
           <input value={name} onChange={e=>{setName(e.target.value);setError('');}} maxLength={50} placeholder="Ex : Jean Dupont" autoFocus
-            style={{ width:'100%', border:'none', outline:'none', fontSize:16, color:'#111b21', background:'transparent', padding:0 }}/>
+            style={{ width:'100%', border:'none', outline:'none', fontSize:16, color:'var(--text-primary)', background:'transparent', padding:0 }}/>
         </div>
 
         {/* Bio */}
-        <div style={{ background:'#f0f2f5', borderRadius:16, padding:'14px 16px' }}>
-          <p style={{ fontSize:11, fontWeight:700, color:ACCENT, margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.6 }}>Bio <span style={{ color:'#8696a0', fontWeight:400, textTransform:'none' }}>(optionnel)</span></p>
+        <div style={{ background:'var(--bg-input)', borderRadius:16, padding:'14px 16px' }}>
+          <p style={{ fontSize:11, fontWeight:700, color:ACCENT, margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.6 }}>Bio <span style={{ color:'var(--text-muted)', fontWeight:400, textTransform:'none' }}>(optionnel)</span></p>
           <textarea value={bio} onChange={e=>setBio(e.target.value)} maxLength={160} rows={2} placeholder="Dites quelque chose sur vous…"
-            style={{ width:'100%', border:'none', outline:'none', fontSize:15, color:'#111b21', background:'transparent', resize:'none', padding:0, lineHeight:1.5 }}/>
-          <p style={{ fontSize:11, color:'#8696a0', textAlign:'right', margin:'4px 0 0' }}>{bio.length}/160</p>
+            style={{ width:'100%', border:'none', outline:'none', fontSize:15, color:'var(--text-primary)', background:'transparent', resize:'none', padding:0, lineHeight:1.5 }}/>
+          <p style={{ fontSize:11, color:'var(--text-muted)', textAlign:'right', margin:'4px 0 0' }}>{bio.length}/160</p>
         </div>
 
         {/* Téléphone avec indicatif */}
         <div>
           <p style={{ fontSize:11, fontWeight:700, color:ACCENT, margin:'0 0 8px', textTransform:'uppercase', letterSpacing:0.6 }}>
-            Numéro de téléphone <span style={{ color:'#8696a0', fontWeight:400, textTransform:'none' }}>(optionnel)</span>
+            Numéro de téléphone *
           </p>
           <div style={{ display:'flex', gap:8, alignItems:'stretch' }}>
             {/* Sélecteur pays */}
             <button onClick={()=>setShowPicker(true)}
-              style={{ display:'flex', alignItems:'center', gap:6, padding:'12px 14px', background:'#fff', border:'1.5px solid #e9edef', borderRadius:14, cursor:'pointer', fontSize:15, fontWeight:700, color:'#111b21', flexShrink:0, whiteSpace:'nowrap' }}>
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'12px 14px', background:'#fff', border:'1.5px solid var(--border)', borderRadius:14, cursor:'pointer', fontSize:15, fontWeight:700, color:'var(--text-primary)', flexShrink:0, whiteSpace:'nowrap' }}>
               <span style={{ fontSize:20 }}>{country.flag}</span>
               <span style={{ color:ACCENT }}>{country.dial}</span>
-              <svg width="12" height="12" fill="none" stroke="#8696a0" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/></svg>
+              <svg width="12" height="12" fill="none" stroke="var(--text-muted)" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7"/></svg>
             </button>
             {/* Numéro */}
             <input
@@ -215,7 +225,7 @@ export default function OnboardingPage() {
               value={phone}
               onChange={e => setPhone(e.target.value.replace(/[^\d]/g,''))}
               placeholder="Ex: 0102030405"
-              style={{ flex:1, padding:'12px 16px', background:'#fff', border:'1.5px solid #e9edef', borderRadius:14, fontSize:15, color:'#111b21', outline:'none', WebkitAppearance:'none' }}
+              style={{ flex:1, padding:'12px 16px', background:'#fff', border:'1.5px solid var(--border)', borderRadius:14, fontSize:15, color:'var(--text-primary)', outline:'none', WebkitAppearance:'none' }}
             />
           </div>
         </div>
@@ -223,16 +233,12 @@ export default function OnboardingPage() {
         <div style={{ flex:1 }}/>
 
         {/* Bouton */}
-        <button onClick={handleSave} disabled={saving||!name.trim()}
-          style={{ background:name.trim()?ACCENT:'#e9edef', color:name.trim()?'#fff':'#8696a0', border:'none', borderRadius:28, padding:'17px 24px', fontSize:16, fontWeight:700, cursor:name.trim()&&!saving?'pointer':'default', display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow:name.trim()?`0 4px 16px ${ACCENT}44`:'none' }}>
+        <button onClick={handleSave} disabled={saving||!name.trim()||phone.replace(/\D/g,'').length<6}
+          style={{ background:name.trim()&&phone.replace(/\D/g,'').length>=6?ACCENT:'var(--border)', color:name.trim()&&phone.replace(/\D/g,'').length>=6?'#fff':'var(--text-muted)', border:'none', borderRadius:28, padding:'17px 24px', fontSize:16, fontWeight:700, cursor:name.trim()&&phone.replace(/\D/g,'').length>=6&&!saving?'pointer':'default', display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow:name.trim()&&phone.replace(/\D/g,'').length>=6?'0 10px 24px rgba(201,168,76,0.18)':'none' }}>
           {saving
             ? <div style={{ width:20, height:20, border:'3px solid rgba(255,255,255,0.4)', borderTopColor:'#fff', borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/>
             : 'Commencer à discuter →'
           }
-        </button>
-        <button onClick={()=>router.replace('/chat')}
-          style={{ background:'none', border:'none', color:'#8696a0', fontSize:14, cursor:'pointer', padding:'8px', textDecoration:'underline' }}>
-          Passer pour l'instant
         </button>
       </div>
 
@@ -243,17 +249,17 @@ export default function OnboardingPage() {
           <div style={{ width:'100%', background:'#fff', borderRadius:'20px 20px 0 0', maxHeight:'80vh', display:'flex', flexDirection:'column' }}>
             <div style={{ padding:'16px 20px 8px', display:'flex', alignItems:'center', gap:12 }}>
               <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher un pays ou code…"
-                style={{ flex:1, padding:'10px 14px', background:'#f0f2f5', border:'none', borderRadius:20, fontSize:14, outline:'none' }} autoFocus/>
+                style={{ flex:1, padding:'10px 14px', background:'var(--bg-input)', border:'none', borderRadius:20, fontSize:14, outline:'none' }} autoFocus/>
               <button onClick={()=>{setShowPicker(false);setSearch('');}}
-                style={{ border:'none', background:'none', fontSize:20, cursor:'pointer', color:'#8696a0' }}>✕</button>
+                style={{ border:'none', background:'none', fontSize:20, cursor:'pointer', color:'var(--text-muted)' }}>✕</button>
             </div>
             <div style={{ overflowY:'auto', flex:1 }}>
               {filtered.map(c=>(
                 <button key={c.code} onClick={()=>{setCountry(c);setShowPicker(false);setSearch('');}}
                   style={{ width:'100%', display:'flex', alignItems:'center', gap:14, padding:'12px 20px', border:'none', background:c.code===country.code?'#f0fdf4':'transparent', cursor:'pointer', textAlign:'left' }}>
                   <span style={{ fontSize:22 }}>{c.flag}</span>
-                  <span style={{ flex:1, fontSize:15, color:'#111b21' }}>{c.name}</span>
-                  <span style={{ fontSize:14, color:'#8696a0', fontWeight:600 }}>{c.dial}</span>
+                  <span style={{ flex:1, fontSize:15, color:'var(--text-primary)' }}>{c.name}</span>
+                  <span style={{ fontSize:14, color:'var(--text-muted)', fontWeight:600 }}>{c.dial}</span>
                 </button>
               ))}
             </div>

@@ -20,7 +20,7 @@ interface Story {
   views: string[];           // userIds
 }
 
-const BG_COLORS = ['#128C7E','#25D366','#075E54','#34B7F1','#ECE5DD','#FF6B6B','#4ECDC4','#45B7D1','#96CEB4','#FFEAA7'];
+const BG_COLORS = ['var(--brand)','#25D366','var(--header-bg)','#34B7F1','#ECE5DD','#FF6B6B','#4ECDC4','#45B7D1','#96CEB4','#FFEAA7'];
 const API = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
 
 export default function StoriesPage() {
@@ -128,6 +128,10 @@ export default function StoriesPage() {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => {});
+    if (myId && !story.views.includes(myId)) {
+      setStories(prev => prev.map(s => s.id === story.id ? { ...s, views: [...s.views, myId] } : s));
+      story = { ...story, views: [...story.views, myId] };
+    }
     setViewing(story);
   }
 
@@ -193,13 +197,13 @@ export default function StoriesPage() {
   );
 
   return (
-    <div style={{ minHeight:'100vh', background:'var(--bg-app)' }}>
+    <div style={{ minHeight:'100dvh', background:'var(--bg-app)' }}>
       {/* Header */}
-      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'14px 16px', background:'var(--header-bg)', borderBottom:'1px solid var(--border)', position:'sticky', top:0, zIndex:10 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'calc(14px + env(safe-area-inset-top, 0px)) 16px 14px', background:'var(--header-bg)', borderBottom:'1px solid rgba(200,168,90,0.22)', position:'sticky', top:0, zIndex:10 }}>
         <button onClick={() => router.back()} style={{ width:36, height:36, borderRadius:'50%', border:'none', background:'var(--bg-surface)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--text-primary)', fontSize:18 }}>←</button>
-        <h1 style={{ fontSize:18, fontWeight:700, color:'var(--text-primary)', margin:0, flex:1 }}>Stories</h1>
+        <h1 style={{ fontSize:18, fontWeight:900, color:'#FFFFFF', margin:0, flex:1 }}>Stories</h1>
         <button onClick={() => setCreating(true)}
-          style={{ background:'var(--accent)', color:'#fff', border:'none', borderRadius:20, padding:'8px 16px', cursor:'pointer', fontWeight:600, fontSize:14 }}>
+          style={{ background:'var(--accent)', color:'var(--accent-text)', border:'none', borderRadius:20, padding:'8px 16px', cursor:'pointer', fontWeight:900, fontSize:14 }}>
           + Créer
         </button>
       </div>
@@ -278,7 +282,7 @@ export default function StoriesPage() {
       {viewing && (
         <div style={{ position:'fixed', inset:0, zIndex:500, background:'#000', display:'flex', flexDirection:'column' }}>
           {/* Barre de progression */}
-          <div style={{ position:'absolute', top:0, left:0, right:0, zIndex:10, padding:'8px 12px', display:'flex', gap:4 }}>
+          <div style={{ position:'absolute', top:0, left:0, right:0, zIndex:10, padding:'calc(8px + env(safe-area-inset-top, 0px)) 12px 8px', display:'flex', gap:4 }}>
             {(byAuthor[viewing.authorId] ?? []).map((s, i) => {
               const authorStories = byAuthor[viewing.authorId] ?? [];
               const currentIdx = authorStories.findIndex(x => x.id === viewing.id);
@@ -291,7 +295,7 @@ export default function StoriesPage() {
           </div>
 
           {/* Header */}
-          <div style={{ position:'absolute', top:20, left:0, right:0, zIndex:10, display:'flex', alignItems:'center', gap:10, padding:'0 16px' }}>
+          <div style={{ position:'absolute', top:'calc(20px + env(safe-area-inset-top, 0px))', left:0, right:0, zIndex:10, display:'flex', alignItems:'center', gap:10, padding:'0 16px' }}>
             <div style={{ width:40, height:40, borderRadius:'50%', background:'var(--accent)', overflow:'hidden', border:'2px solid #fff' }}>
               {viewing.authorAvatar ? (
                 <img src={viewing.authorAvatar} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
@@ -365,7 +369,7 @@ export default function StoriesPage() {
               <button onClick={() => { setCreating(false); setPubError(''); }} style={{ border:'none', background:'transparent', cursor:'pointer', fontSize:22, color:'var(--text-primary)' }}>×</button>
               <h3 style={{ margin:0, fontSize:18, fontWeight:700, color:'var(--text-primary)', flex:1 }}>Nouvelle story</h3>
               <button onClick={handleCreate} disabled={publishing}
-                style={{ background:'var(--accent)', color:'#fff', border:'none', borderRadius:12, padding:'8px 20px', cursor: publishing ? 'not-allowed' : 'pointer', fontWeight:600, fontSize:14, opacity: publishing ? 0.7 : 1, display:'flex', alignItems:'center', gap:6 }}>
+                style={{ background:'var(--accent)', color:'var(--accent-text)', border:'none', borderRadius:12, padding:'8px 20px', cursor: publishing ? 'not-allowed' : 'pointer', fontWeight:600, fontSize:14, opacity: publishing ? 0.7 : 1, display:'flex', alignItems:'center', gap:6 }}>
                 {publishing ? (
                   <><div style={{ width:14, height:14, border:'2px solid rgba(255,255,255,0.4)', borderTopColor:'#fff', borderRadius:'50%', animation:'spin .7s linear infinite' }}/> Publication…</>
                 ) : 'Publier'}

@@ -5,6 +5,7 @@ import { api } from '../../lib/api';
 import { openCurrentAndroidLinkInChrome } from '../../lib/androidChrome';
 
 const ACCENT = 'var(--brand)';
+const ACCENT_TEXT = 'var(--accent-text)';
 const MANUAL_CONTACTS_KEY = 'oracle-manual-contacts';
 
 type Device = 'ios' | 'android' | 'other';
@@ -348,12 +349,12 @@ export default function InstallPage() {
         <div style={{ padding: '0 24px 44px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {isLast ? (
             <button onClick={goToAppEntry}
-              style={{ width: '100%', background: ACCENT, color: '#fff', border: 'none', borderRadius: 28, padding: '18px 24px', fontSize: 17, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+              style={{ width: '100%', background: ACCENT, color: ACCENT_TEXT, border: 'none', borderRadius: 28, padding: '18px 24px', fontSize: 17, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
               Ouvrir Oracle Messenger →
             </button>
           ) : (
             <button onClick={() => setIosStep(s => s + 1)}
-              style={{ width: '100%', background: ACCENT, color: '#fff', border: 'none', borderRadius: 28, padding: '18px 24px', fontSize: 17, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+              style={{ width: '100%', background: ACCENT, color: ACCENT_TEXT, border: 'none', borderRadius: 28, padding: '18px 24px', fontSize: 17, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
               Suivant →
             </button>
           )}
@@ -416,7 +417,7 @@ export default function InstallPage() {
               </button>
             )}
             <button onClick={() => openDiscussionWithInviter(inviter)}
-              style={{ border: 'none', borderRadius: 999, background: ACCENT, color: '#fff', padding: '11px 12px', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>
+              style={{ border: 'none', borderRadius: 999, background: ACCENT, color: ACCENT_TEXT, padding: '11px 12px', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>
               Ouvrir discussion
             </button>
           </div>
@@ -440,7 +441,7 @@ export default function InstallPage() {
           padding: '18px 24px', fontSize: 17, fontWeight: 700,
           cursor: installing ? 'not-allowed' : 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
-          boxShadow: '0 10px 24px rgba(30,97,89,0.20)',
+          boxShadow: '0 10px 24px rgba(201,168,76,0.20)',
           marginBottom: 14,
         }}
       >

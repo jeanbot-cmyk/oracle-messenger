@@ -4,32 +4,32 @@
 
 /* System font stack — no external font dependency */
 
-/* ── Thème CLAIR — Premium Messenger ── */
+/* ── Thème CLAIR — aligné sur la consultation publique Oracle Plus ── */
 :root {
-  --bg-app:          #F5F7F8;
+  --bg-app:          #F5F1EA;
   --bg-surface:      #FFFFFF;
-  --bg-elevated:     #F9FAFB;
-  --bg-input:        #F3F5F6;
-  --text-primary:    #11181C;
-  --text-secondary:  #3B4850;
-  --text-muted:      #71808A;
-  --accent:          #BFA46A;
-  --accent-hover:    #AB925A;
-  --accent-soft:     rgba(191,164,106,0.14);
-  --accent-text:     #163333;
-  --brand:           #1E6159;
-  --brand-soft:      #E8F1EF;
-  --border:          rgba(17,24,28,0.08);
-  --border-strong:   rgba(17,24,28,0.13);
-  --bubble-out:      #DCF8E7;
-  --bubble-out-text: #11181C;
-  --bubble-in:       #FFFFFF;
-  --bubble-in-text:  #11181C;
-  --header-bg:       #1E6159;
-  --unread-bg:       #BFA46A;
+  --bg-elevated:     #F8FAFC;
+  --bg-input:        #F0F2F5;
+  --text-primary:    #151A23;
+  --text-secondary:  #475569;
+  --text-muted:      #64748B;
+  --accent:          #D6B25E;
+  --accent-hover:    #C9A84C;
+  --accent-soft:     rgba(214,178,94,0.15);
+  --accent-text:     #102A2A;
+  --brand:           #D6B25E;
+  --brand-soft:      rgba(214,178,94,0.16);
+  --border:          rgba(16,42,42,0.10);
+  --border-strong:   rgba(16,42,42,0.18);
+  --bubble-out:      #E4F7DF;
+  --bubble-out-text: #151A23;
+  --bubble-in:       #FFFDF7;
+  --bubble-in-text:  #151A23;
+  --header-bg:       #102A2A;
+  --unread-bg:       #D6B25E;
   --online-dot:      #25D366;
-  --shadow:          0 1px 2px rgba(17,24,28,.08);
-  --shadow-soft:     0 10px 30px rgba(17,24,28,.08);
+  --shadow:          0 1px 2px rgba(16,42,42,.08);
+  --shadow-soft:     0 10px 30px rgba(16,42,42,.10);
   --radius-sm:       10px;
   --radius-md:       14px;
   --radius-lg:       18px;
@@ -49,27 +49,27 @@
 
 /* ── Thème SOMBRE (optionnel) ── */
 .dark {
-  --bg-app:          #0B1414;
-  --bg-surface:      #111C1C;
-  --bg-elevated:     #162424;
-  --bg-input:        #1D2D2D;
-  --text-primary:    #F8FAFC;
-  --text-secondary:  #CBD5E1;
-  --text-muted:      #94A3B8;
-  --accent:          #C6AB70;
-  --accent-hover:    #D0B77E;
-  --accent-soft:     rgba(198,171,112,0.16);
-  --accent-text:     #112222;
-  --brand:           #2C736A;
-  --brand-soft:      #18302E;
-  --border:          rgba(255,255,255,0.10);
-  --border-strong:   rgba(255,255,255,0.16);
-  --bubble-out:      #1D3A2F;
-  --bubble-out-text: #F8FAFC;
-  --bubble-in:       #162424;
-  --bubble-in-text:  #F8FAFC;
-  --header-bg:       #1E6159;
-  --unread-bg:       #C6AB70;
+  --bg-app:          #080B14;
+  --bg-surface:      #0F1E35;
+  --bg-elevated:     #102A2A;
+  --bg-input:        rgba(255,255,255,0.08);
+  --text-primary:    #FDF8EE;
+  --text-secondary:  rgba(248,250,252,0.78);
+  --text-muted:      rgba(248,250,252,0.58);
+  --accent:          #D6B25E;
+  --accent-hover:    #C9A84C;
+  --accent-soft:     rgba(214,178,94,0.18);
+  --accent-text:     #102A2A;
+  --brand:           #D6B25E;
+  --brand-soft:      rgba(214,178,94,0.16);
+  --border:          rgba(214,178,94,0.22);
+  --border-strong:   rgba(214,178,94,0.34);
+  --bubble-out:      #E4F7DF;
+  --bubble-out-text: #151A23;
+  --bubble-in:       #FFFDF7;
+  --bubble-in-text:  #151A23;
+  --header-bg:       #102A2A;
+  --unread-bg:       #D6B25E;
   --shadow:          0 1px 3px rgba(0,0,0,.4);
   --shadow-soft:     0 10px 30px rgba(0,0,0,.24);
 }
@@ -198,7 +198,7 @@ textarea:focus {
   border: none;
   border-radius: var(--radius-pill);
   background: var(--brand);
-  color: #FFFFFF;
+  color: var(--accent-text);
   min-height: 46px;
   padding: 12px 20px;
   font-size: 15px;
@@ -208,8 +208,8 @@ textarea:focus {
 }
 
 .om-primary-button:hover {
-  background: #245F58;
-  box-shadow: 0 12px 26px rgba(30,97,89,.22);
+  background: #C9A84C;
+  box-shadow: 0 12px 26px rgba(201,168,76,.22);
 }
 
 .om-secondary-button {
@@ -235,15 +235,15 @@ textarea:focus {
 .bubble-out {
   background: var(--bubble-out);
   color: var(--bubble-out-text);
-  border: 1px solid rgba(16,42,42,0.045);
-  border-radius: 15px 15px 5px 15px;
+  border: 1px solid rgba(16,42,42,0.06);
+  border-radius: 18px 18px 6px 18px;
   box-shadow: var(--shadow);
 }
 .bubble-in {
   background: var(--bubble-in);
   color: var(--bubble-in-text);
-  border: 1px solid rgba(17,24,28,0.065);
-  border-radius: 15px 15px 15px 5px;
+  border: 1px solid rgba(214,178,94,0.18);
+  border-radius: 18px 18px 18px 6px;
   box-shadow: var(--shadow);
 }
 
@@ -352,16 +352,17 @@ textarea:focus {
   .om-message-bubble {
     max-width: 100%;
     min-width: 78px;
-    border-radius: 14px 14px 5px 14px;
+    border-radius: 18px 18px 6px 18px;
   }
 
   .bubble-in.om-message-bubble {
-    border-radius: 14px 14px 14px 5px;
+    border-radius: 18px 18px 18px 6px;
   }
 
   .om-message-text {
     font-size: 14.5px !important;
-    line-height: 1.32 !important;
+    line-height: 1.52 !important;
+    font-weight: 500 !important;
   }
 
   .om-message-time-row {

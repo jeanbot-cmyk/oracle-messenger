@@ -32,9 +32,9 @@ export default function ToolsPage() {
   const userName = session?.user?.name ?? 'Utilisateur';
 
   return (
-    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: '#f0f2f5' }}>
+    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: 'var(--bg-input)' }}>
       {/* Header */}
-      <div style={{ background: '#00a884', padding: '14px 16px 0', flexShrink: 0 }}>
+      <div style={{ background: 'var(--brand)', padding: '14px 16px 0', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
           <button onClick={() => router.back()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fff', padding: 4 }}>
             <svg width="22" height="22" fill="currentColor" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
@@ -83,10 +83,10 @@ function MeetingTab({ userName }: { userName: string }) {
   return (
     <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ background: '#fff', borderRadius: 16, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-        <p style={{ fontSize: 12, fontWeight: 700, color: '#00a884', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Nouvelle réunion</p>
+        <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand)', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Nouvelle réunion</p>
         <input value={room} onChange={e => setRoom(e.target.value)} placeholder="Nom de la salle (optionnel)"
-          style={{ width: '100%', border: '1px solid #e9edef', borderRadius: 10, padding: '10px 12px', fontSize: 15, outline: 'none', boxSizing: 'border-box', marginBottom: 12 }} />
-        <button onClick={startMeeting} style={{ width: '100%', background: '#00a884', color: '#fff', border: 'none', borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
+          style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', fontSize: 15, outline: 'none', boxSizing: 'border-box', marginBottom: 12 }} />
+        <button onClick={startMeeting} style={{ width: '100%', background: 'var(--brand)', color: 'var(--accent-text)', border: 'none', borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
           🎥 Démarrer la réunion
         </button>
       </div>
@@ -94,12 +94,12 @@ function MeetingTab({ userName }: { userName: string }) {
       {active && (
         <div style={{ background: '#e8f5e9', borderRadius: 16, padding: 16, border: '1px solid #c8e6c9' }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: '#2e7d32', margin: '0 0 6px' }}>✅ Réunion : <strong>{roomName}</strong></p>
-          <div style={{ background: '#fff', borderRadius: 10, padding: '8px 12px', marginBottom: 10, wordBreak: 'break-all', fontSize: 13, color: '#00a884' }}>{shareLink}</div>
+          <div style={{ background: '#fff', borderRadius: 10, padding: '8px 12px', marginBottom: 10, wordBreak: 'break-all', fontSize: 13, color: 'var(--brand)' }}>{shareLink}</div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <button onClick={() => navigator.clipboard?.writeText(shareLink).then(() => alert('Lien copié !'))}
-              style={{ flex: 1, background: '#f0f2f5', border: 'none', borderRadius: 10, padding: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>📋 Copier</button>
+              style={{ flex: 1, background: 'var(--bg-input)', border: 'none', borderRadius: 10, padding: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>📋 Copier</button>
             <button onClick={() => navigator.share?.({ title: 'Rejoins ma réunion', url: shareLink }).catch(() => {})}
-              style={{ flex: 1, background: '#00a884', border: 'none', borderRadius: 10, padding: 10, cursor: 'pointer', fontSize: 13, color: '#fff', fontWeight: 600 }}>📤 Partager</button>
+              style={{ flex: 1, background: 'var(--brand)', border: 'none', borderRadius: 10, padding: 10, cursor: 'pointer', fontSize: 13, color: '#fff', fontWeight: 600 }}>📤 Partager</button>
           </div>
           <button onClick={() => { setActive(false); setRoom(''); setRoomName(''); }}
             style={{ width: '100%', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: 10, cursor: 'pointer', fontSize: 13, color: '#dc2626', fontWeight: 600 }}>
@@ -109,11 +109,11 @@ function MeetingTab({ userName }: { userName: string }) {
       )}
 
       <div style={{ background: '#fff', borderRadius: 16, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-        <p style={{ fontSize: 12, fontWeight: 700, color: '#00a884', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Rejoindre une réunion</p>
+        <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand)', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Rejoindre une réunion</p>
         <div style={{ display: 'flex', gap: 8 }}>
           <input value={joinLink} onChange={e => setJoinLink(e.target.value)} placeholder="Lien ou nom de salle"
-            style={{ flex: 1, border: '1px solid #e9edef', borderRadius: 10, padding: '10px 12px', fontSize: 15, outline: 'none' }} />
-          <button onClick={joinMeeting} style={{ background: '#00a884', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', fontSize: 14, fontWeight: 700 }}>
+            style={{ flex: 1, border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', fontSize: 15, outline: 'none' }} />
+          <button onClick={joinMeeting} style={{ background: 'var(--brand)', color: 'var(--accent-text)', border: 'none', borderRadius: 10, padding: '10px 16px', cursor: 'pointer', fontSize: 14, fontWeight: 700 }}>
             Rejoindre
           </button>
         </div>
@@ -151,15 +151,15 @@ function NotesTab() {
     return (
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button onClick={() => setEditing(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: '#8696a0' }}>←</button>
+          <button onClick={() => setEditing(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: 'var(--text-muted)' }}>←</button>
           <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Titre de la note"
-            style={{ flex: 1, border: 'none', borderBottom: '2px solid #00a884', padding: '6px 0', fontSize: 17, fontWeight: 700, outline: 'none', background: 'transparent' }} />
-          <button onClick={saveNote} style={{ background: '#00a884', color: '#fff', border: 'none', borderRadius: 10, padding: '8px 16px', cursor: 'pointer', fontWeight: 700 }}>
+            style={{ flex: 1, border: 'none', borderBottom: '2px solid var(--brand)', padding: '6px 0', fontSize: 17, fontWeight: 700, outline: 'none', background: 'transparent' }} />
+          <button onClick={saveNote} style={{ background: 'var(--brand)', color: 'var(--accent-text)', border: 'none', borderRadius: 10, padding: '8px 16px', cursor: 'pointer', fontWeight: 700 }}>
             Sauver
           </button>
         </div>
         <textarea value={body} onChange={e => setBody(e.target.value)} placeholder="Écrivez votre note ici…"
-          style={{ flex: 1, border: '1px solid #e9edef', borderRadius: 12, padding: 14, fontSize: 15, outline: 'none', resize: 'none', minHeight: 300, lineHeight: 1.6 }} />
+          style={{ flex: 1, border: '1px solid var(--border)', borderRadius: 12, padding: 14, fontSize: 15, outline: 'none', resize: 'none', minHeight: 300, lineHeight: 1.6 }} />
       </div>
     );
   }
@@ -167,11 +167,11 @@ function NotesTab() {
   return (
     <div style={{ padding: 16 }}>
       <button onClick={openNew}
-        style={{ width: '100%', background: '#00a884', color: '#fff', border: 'none', borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 16 }}>
+        style={{ width: '100%', background: 'var(--brand)', color: 'var(--accent-text)', border: 'none', borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 16 }}>
         + Nouvelle note
       </button>
       {notes.length === 0 && (
-        <div style={{ textAlign: 'center', color: '#8696a0', marginTop: 40 }}>
+        <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 40 }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>📝</div>
           <p>Aucune note pour l'instant</p>
         </div>
@@ -180,8 +180,8 @@ function NotesTab() {
         {notes.map(n => (
           <div key={n.id} style={{ background: '#fff', borderRadius: 14, padding: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.06)', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
             <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openEdit(n)}>
-              <p style={{ fontSize: 15, fontWeight: 700, color: '#111b21', margin: '0 0 4px' }}>{n.title || '(sans titre)'}</p>
-              <p style={{ fontSize: 13, color: '#8696a0', margin: '0 0 4px', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>{n.body}</p>
+              <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 4px' }}>{n.title || '(sans titre)'}</p>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 4px', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as any }}>{n.body}</p>
               <p style={{ fontSize: 11, color: '#c4c4c4', margin: 0 }}>{new Date(n.updatedAt).toLocaleDateString('fr-FR')}</p>
             </div>
             <button onClick={() => deleteNote(n.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 18, padding: 4 }}>🗑</button>
@@ -269,15 +269,15 @@ function EventsTab() {
     <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Add form */}
       <div style={{ background: '#fff', borderRadius: 16, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
-        <p style={{ fontSize: 12, fontWeight: 700, color: '#00a884', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Ajouter un rappel</p>
+        <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand)', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Ajouter un rappel</p>
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Titre de l'événement"
-          style={{ width: '100%', border: '1px solid #e9edef', borderRadius: 10, padding: '10px 12px', fontSize: 15, outline: 'none', boxSizing: 'border-box', marginBottom: 10 }} />
+          style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', fontSize: 15, outline: 'none', boxSizing: 'border-box', marginBottom: 10 }} />
         <input type="date" value={date} onChange={e => setDate(e.target.value)} min={today}
-          style={{ width: '100%', border: '1px solid #e9edef', borderRadius: 10, padding: '10px 12px', fontSize: 15, outline: 'none', boxSizing: 'border-box', marginBottom: 10 }} />
+          style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', fontSize: 15, outline: 'none', boxSizing: 'border-box', marginBottom: 10 }} />
         <input value={note} onChange={e => setNote(e.target.value)} placeholder="Note (optionnel)"
-          style={{ width: '100%', border: '1px solid #e9edef', borderRadius: 10, padding: '10px 12px', fontSize: 15, outline: 'none', boxSizing: 'border-box', marginBottom: 12 }} />
+          style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', fontSize: 15, outline: 'none', boxSizing: 'border-box', marginBottom: 12 }} />
         <button onClick={addEvent} disabled={!title.trim() || !date}
-          style={{ width: '100%', background: '#00a884', color: '#fff', border: 'none', borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer', opacity: (!title.trim() || !date) ? 0.5 : 1 }}>
+          style={{ width: '100%', background: 'var(--brand)', color: 'var(--accent-text)', border: 'none', borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer', opacity: (!title.trim() || !date) ? 0.5 : 1 }}>
           + Ajouter le rappel
         </button>
       </div>
@@ -285,7 +285,7 @@ function EventsTab() {
       {/* Upcoming */}
       {upcoming.length > 0 && (
         <div>
-          <p style={{ fontSize: 12, fontWeight: 700, color: '#00a884', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: 0.5 }}>À venir</p>
+          <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand)', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: 0.5 }}>À venir</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {upcoming.map(ev => (
               <EventCard key={ev.id} ev={ev} onDelete={deleteEvent} />
@@ -297,7 +297,7 @@ function EventsTab() {
       {/* Past */}
       {past.length > 0 && (
         <div>
-          <p style={{ fontSize: 12, fontWeight: 700, color: '#8696a0', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Passés</p>
+          <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Passés</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {past.map(ev => (
               <EventCard key={ev.id} ev={ev} onDelete={deleteEvent} past />
@@ -307,7 +307,7 @@ function EventsTab() {
       )}
 
       {events.length === 0 && (
-        <div style={{ textAlign: 'center', color: '#8696a0', marginTop: 40 }}>
+        <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: 40 }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>📅</div>
           <p>Aucun rappel pour l'instant</p>
         </div>
@@ -321,16 +321,16 @@ function EventCard({ ev, onDelete, past }: { ev: CalEvent; onDelete: (id: string
   const today = new Date(); today.setHours(0,0,0,0);
   const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
   const badge = diff === 0 ? "Aujourd'hui" : diff === 1 ? 'Demain' : diff > 0 ? `Dans ${diff} j` : `Il y a ${-diff} j`;
-  const badgeColor = diff <= 2 && diff >= 0 ? '#dc2626' : diff > 2 ? '#00a884' : '#8696a0';
+  const badgeColor = diff <= 2 && diff >= 0 ? '#dc2626' : diff > 2 ? 'var(--brand)' : 'var(--text-muted)';
 
   return (
     <div style={{ background: '#fff', borderRadius: 14, padding: 14, boxShadow: '0 1px 3px rgba(0,0,0,0.06)', display: 'flex', alignItems: 'flex-start', gap: 10, opacity: past ? 0.6 : 1 }}>
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <p style={{ fontSize: 15, fontWeight: 700, color: '#111b21', margin: 0 }}>{ev.title}</p>
+          <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>{ev.title}</p>
           <span style={{ fontSize: 11, fontWeight: 700, color: badgeColor, background: `${badgeColor}18`, borderRadius: 6, padding: '2px 6px' }}>{badge}</span>
         </div>
-        <p style={{ fontSize: 13, color: '#8696a0', margin: '0 0 2px' }}>{d.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 2px' }}>{d.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
         {ev.note && <p style={{ fontSize: 12, color: '#555', margin: 0 }}>{ev.note}</p>}
       </div>
       <button onClick={() => onDelete(ev.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 18, padding: 4 }}>🗑</button>
@@ -340,8 +340,8 @@ function EventCard({ ev, onDelete, past }: { ev: CalEvent; onDelete: (id: string
 
 function Spinner() {
   return (
-    <div style={{ height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f5' }}>
-      <div style={{ width: 32, height: 32, border: '3px solid #e9edef', borderTopColor: '#00a884', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+    <div style={{ height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-input)' }}>
+      <div style={{ width: 32, height: 32, border: '3px solid var(--border)', borderTopColor: 'var(--brand)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );

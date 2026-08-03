@@ -552,16 +552,16 @@ export default function ContactsPage() {
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} *{-webkit-tap-highlight-color:transparent}`}</style>
 
       {/* Header */}
-      <div style={{ padding: 'calc(14px + env(safe-area-inset-top, 0px)) 16px 12px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: '#FFFFFF', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ padding: 'calc(14px + env(safe-area-inset-top, 0px)) 16px 12px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--header-bg)', borderBottom: '1px solid rgba(214,178,94,0.22)' }}>
         <button onClick={() => router.back()}
           className="om-icon-button"
-          style={{ flexShrink: 0 }}>
+          style={{ flexShrink: 0, background:'rgba(255,255,255,0.10)', borderColor:'rgba(255,255,255,0.16)', color:'#FFFFFF' }}>
           ←
         </button>
         <div style={{ flex: 1 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: 0, lineHeight: 1.14 }}>Sélectionner un contact</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: '#FFFFFF', margin: 0, lineHeight: 1.14 }}>Sélectionner un contact</h1>
           {imported && !loading && (
-            <p style={{ fontSize: 15, color: '#3B4A54', margin: '2px 0 0', lineHeight: 1.2 }}>
+            <p style={{ fontSize: 15, color: 'rgba(248,250,252,0.72)', margin: '2px 0 0', lineHeight: 1.2 }}>
               {contacts.length} contact{contacts.length !== 1 ? 's' : ''}
             </p>
           )}
@@ -577,7 +577,7 @@ export default function ContactsPage() {
             </button>
           )}
           <button onClick={hasNative ? importAndMatch : loadAllOracleUsers} disabled={loading}
-            style={{ minHeight: 42, borderRadius: 999, border: 'none', background: 'var(--brand)', color: '#FFFFFF', cursor: loading ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '0 14px', fontSize: 14, fontWeight: 800, whiteSpace: 'nowrap', boxShadow:'0 8px 18px rgba(30,97,89,0.16)' }}>
+            style={{ minHeight: 42, borderRadius: 999, border: 'none', background: 'var(--brand)', color: 'var(--accent-text)', cursor: loading ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '0 14px', fontSize: 14, fontWeight: 800, whiteSpace: 'nowrap', boxShadow:'0 8px 18px rgba(201,168,76,0.16)' }}>
             <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2.3" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
               <circle cx="8.5" cy="7" r="4"/>
@@ -609,12 +609,12 @@ export default function ContactsPage() {
           )}
           {!token ? (
             <button onClick={reconnect}
-              style={{ border: 'none', borderRadius: 999, background: 'var(--brand)', color: '#fff', padding: '9px 14px', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>
+              style={{ border: 'none', borderRadius: 999, background: 'var(--brand)', color: 'var(--accent-text)', padding: '9px 14px', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>
               Reconnecter
             </button>
           ) : pendingInvite ? (
             <button onClick={() => openConvByUsername(pendingInvite)} disabled={inviteOpening}
-              style={{ border: 'none', borderRadius: 999, background: 'var(--brand)', color: '#fff', padding: '9px 14px', fontSize: 13, fontWeight: 900, cursor: inviteOpening ? 'wait' : 'pointer', opacity: inviteOpening ? 0.72 : 1 }}>
+              style={{ border: 'none', borderRadius: 999, background: 'var(--brand)', color: 'var(--accent-text)', padding: '9px 14px', fontSize: 13, fontWeight: 900, cursor: inviteOpening ? 'wait' : 'pointer', opacity: inviteOpening ? 0.72 : 1 }}>
               {inviteOpening ? 'Ouverture...' : 'Ouvrir la conversation'}
             </button>
           ) : null}

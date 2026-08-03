@@ -201,7 +201,7 @@ export function MediaGallery({ onSend, onClose }: Props) {
               style={{ width:'100%', accentColor:'var(--accent)' }} />
           )}
           <div style={{ display:'flex', gap:8 }}>
-            <button onClick={applyAndSave} style={{ flex:1, background:'var(--accent)', color:'#fff', border:'none', borderRadius:10, padding:12, cursor:'pointer', fontWeight:600 }}>
+            <button onClick={applyAndSave} style={{ flex:1, background:'var(--accent)', color:'var(--accent-text)', border:'none', borderRadius:10, padding:12, cursor:'pointer', fontWeight:600 }}>
               💾 Sauvegarder
             </button>
             {onSend && (

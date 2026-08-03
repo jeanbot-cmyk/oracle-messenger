@@ -494,7 +494,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
 
       {/* Reply/Edit bar */}
       {(replyTo || editMsg) && (
-        <div style={{ padding:'9px 12px', borderTop:'1px solid var(--border)', background:'var(--bg-surface)', display:'flex', alignItems:'center', gap:10, boxShadow:'0 -6px 18px rgba(17,24,28,0.05)', flexShrink:0 }}>
+        <div style={{ padding:'9px 12px', borderTop:'1px solid var(--border)', background:'var(--bg-surface)', display:'flex', alignItems:'center', gap:10, boxShadow:'0 -6px 18px rgba(16,42,42,0.05)', flexShrink:0 }}>
           <div style={{ flex:1, minWidth:0, borderLeft:'4px solid var(--accent)', padding:'7px 10px', borderRadius:12, background:'var(--bg-input)' }}>
             <p style={{ fontSize:12, color:'var(--accent-text)', fontWeight:850, margin:0, lineHeight:1.2 }}>
               {editMsg ? t(lang,'chat.edit.msg') : `${t(lang,'chat.reply.to')} ${replyTo?.sender?.name}`}

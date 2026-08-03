@@ -60,7 +60,7 @@ export function ForwardModal({ message, onClose, onForward }: Props) {
             </p>
           </div>
           {selected.size > 0 && remaining > 0 && (
-            <button onClick={handleForward} style={{ background:'var(--accent)', color:'#fff', border:'none', borderRadius:10, padding:'8px 16px', cursor:'pointer', fontWeight:600, fontSize:14 }}>
+            <button onClick={handleForward} style={{ background:'var(--accent)', color:'var(--accent-text)', border:'none', borderRadius:10, padding:'8px 16px', cursor:'pointer', fontWeight:600, fontSize:14 }}>
               Envoyer ({selected.size})
             </button>
           )}

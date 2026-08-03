@@ -109,7 +109,7 @@ export function PhoneOnboarding({ onDone }: { onDone: () => void }) {
       </div>
 
       <button onClick={handleSubmit} disabled={!number.trim()}
-        style={{ width:'100%',maxWidth:380,background:'var(--brand)',color:'#fff',border:'none',borderRadius:14,padding:16,fontSize:16,fontWeight:700,cursor:'pointer',marginTop:16,opacity:!number.trim()?.5:1,fontFamily:F }}>
+        style={{ width:'100%',maxWidth:380,background:'var(--brand)',color:'var(--accent-text)',border:'none',borderRadius:14,padding:16,fontSize:16,fontWeight:700,cursor:'pointer',marginTop:16,opacity:!number.trim()?.5:1,fontFamily:F }}>
         Valider et continuer
       </button>
 

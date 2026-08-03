@@ -24,7 +24,7 @@ export function ChatLayout() {
   const {
     callState, callInfo, localStream, remoteStreams,
     isMuted, isCamOff,
-    startCall, answerCall, endCall, toggleMute, toggleCamera,
+    startCall, answerCall, endCall, toggleMute, toggleCamera, switchCamera,
   } = useWebRTC(userId, token);
 
   useEffect(() => {
@@ -41,6 +41,28 @@ export function ChatLayout() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    const updateViewport = () => {
+      const vv = window.visualViewport;
+      const height = vv?.height ?? window.innerHeight;
+      const top = vv?.offsetTop ?? 0;
+      document.documentElement.style.setProperty('--om-viewport-height', `${height}px`);
+      document.documentElement.style.setProperty('--om-viewport-top', `${top}px`);
+    };
+    updateViewport();
+    window.visualViewport?.addEventListener('resize', updateViewport);
+    window.visualViewport?.addEventListener('scroll', updateViewport);
+    window.addEventListener('resize', updateViewport);
+    window.addEventListener('orientationchange', updateViewport);
+    return () => {
+      window.visualViewport?.removeEventListener('resize', updateViewport);
+      window.visualViewport?.removeEventListener('scroll', updateViewport);
+      window.removeEventListener('resize', updateViewport);
+      window.removeEventListener('orientationchange', updateViewport);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
     if ('Notification' in window && Notification.permission === 'default') {
       const t = setTimeout(() => setShowNotifBanner(true), 3000);
       return () => clearTimeout(t);
@@ -53,15 +75,15 @@ export function ChatLayout() {
     ?? 'Inconnu';
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100dvh', overflow:'hidden', background:'var(--bg-app)' }}>
+    <div className="chat-app-shell" style={{ display:'flex', flexDirection:'column', height:'var(--om-viewport-height, 100dvh)', minHeight:0, overflow:'hidden', background:'var(--bg-app)' }}>
 
       {/* Bannière notifs */}
       {showNotifBanner && permission === 'default' && (
-        <div style={{ background:'#102A2A', color:'#fff', padding:'10px 16px', display:'flex', alignItems:'center', gap:10, flexShrink:0, fontSize:13, borderBottom:'1px solid rgba(214,178,94,0.22)' }}>
+        <div style={{ background:'var(--header-bg)', color:'#fff', padding:'calc(10px + env(safe-area-inset-top, 0px)) 16px 10px', display:'flex', alignItems:'center', gap:10, flexShrink:0, fontSize:13, borderBottom:'1px solid rgba(200,168,90,0.22)' }}>
           <span style={{ fontSize:16 }}>🔔</span>
           <span style={{ flex:1 }}>Activez les notifications pour ne rien manquer</span>
           <button onClick={async () => { setShowNotifBanner(false); await requestPermission(); }}
-            style={{ background:'#D6B25E', color:'#102A2A', border:'none', borderRadius:8, padding:'5px 12px', cursor:'pointer', fontWeight:800, fontSize:12 }}>
+            style={{ background:'var(--accent)', color:'var(--header-bg)', border:'none', borderRadius:8, padding:'5px 12px', cursor:'pointer', fontWeight:800, fontSize:12 }}>
             Activer
           </button>
           <button onClick={() => setShowNotifBanner(false)}
@@ -83,6 +105,7 @@ export function ChatLayout() {
         onEnd={endCall}
         onToggleMute={toggleMute}
         onToggleCamera={toggleCamera}
+        onSwitchCamera={switchCamera}
       />
     </div>
   );

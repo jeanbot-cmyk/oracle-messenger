@@ -148,7 +148,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
                   onClick={() => setOpenMenuId(null)}
                   style={{ position:'fixed', inset:0, zIndex:50, border:'none', background:'transparent', minHeight:0, cursor:'default' }}
                 />
-                <div style={{ position:'absolute', right:12, top:54, zIndex:60, minWidth:210, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, boxShadow:'0 14px 34px rgba(17,24,28,0.18)', overflow:'hidden' }}>
+                <div style={{ position:'absolute', right:12, top:54, zIndex:60, minWidth:210, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, boxShadow:'0 14px 34px rgba(16,42,42,0.18)', overflow:'hidden' }}>
                   <button
                     onClick={() => {
                       setOpenMenuId(null);

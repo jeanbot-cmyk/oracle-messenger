@@ -171,7 +171,7 @@ export default function AdminPage() {
               placeholder="Message…" rows={3}
               style={{ padding:'12px 16px', borderRadius:10, border:'1px solid var(--border)', background:'var(--bg-input)', color:'var(--text-primary)', fontSize:14, outline:'none', resize:'vertical' }} />
             <button onClick={sendNotif} disabled={sending || !notif.title || !notif.body}
-              style={{ background:'var(--accent)', color:'#fff', border:'none', borderRadius:10, padding:'12px 24px', fontSize:15, fontWeight:600, cursor:'pointer', opacity: sending||!notif.title||!notif.body ? .6 : 1 }}>
+              style={{ background:'var(--accent)', color:'var(--accent-text)', border:'none', borderRadius:10, padding:'12px 24px', fontSize:15, fontWeight:600, cursor:'pointer', opacity: sending||!notif.title||!notif.body ? .6 : 1 }}>
               {sending ? 'Envoi…' : '📤 Envoyer à tous'}
             </button>
             {msg && <p style={{ color:'var(--accent)', fontSize:14, margin:0 }}>{msg}</p>}
@@ -189,7 +189,7 @@ export default function AdminPage() {
               placeholder="Rédigez votre message de vente ou d'annonce…" rows={4}
               style={{ padding:'12px 16px', borderRadius:10, border:'1px solid var(--border)', background:'var(--bg-input)', color:'var(--text-primary)', fontSize:14, outline:'none', resize:'vertical' }} />
             <button onClick={sendBroadcast} disabled={broadcasting || !broadcast.trim()}
-              style={{ background:'#128C7E', color:'#fff', border:'none', borderRadius:10, padding:'12px 24px', fontSize:15, fontWeight:600, cursor:'pointer', opacity: broadcasting || !broadcast.trim() ? .6 : 1 }}>
+              style={{ background:'var(--brand)', color:'var(--accent-text)', border:'none', borderRadius:10, padding:'12px 24px', fontSize:15, fontWeight:600, cursor:'pointer', opacity: broadcasting || !broadcast.trim() ? .6 : 1 }}>
               {broadcasting ? 'Envoi en cours…' : '📤 Diffuser à tous les utilisateurs'}
             </button>
             {broadcastMsg && <p style={{ color:'var(--accent)', fontSize:14, margin:0 }}>{broadcastMsg}</p>}

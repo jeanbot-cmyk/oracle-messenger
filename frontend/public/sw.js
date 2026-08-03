@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v36
+// Oracle Messenger — Service Worker v37
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '36-20260803-delete-contact-conversation';
+const CACHE_VERSION = '37-20260803-oracle-plus-consultation-theme';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [

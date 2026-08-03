@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-const ACCENT = '#128C7E';
+const ACCENT = 'var(--brand)';
 
 interface Adjustments {
   brightness: number; // 0-200 (100=normal)
@@ -154,7 +154,7 @@ export default function PhotoEditPage() {
         <div style={{ display:'flex', borderBottom:'1px solid rgba(255,255,255,0.1)' }}>
           {(['adjust','filter'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
-              style={{ flex:1, padding:'10px', border:'none', background:'transparent', color: tab===t ? ACCENT : 'rgba(255,255,255,0.5)', fontSize:13, fontWeight: tab===t ? 700 : 400, borderBottom: tab===t ? `2px solid ${ACCENT}` : '2px solid transparent', cursor:'pointer' }}>
+              style={{ flex:1, padding:'10px', border:'none', background:'transparent', color: tab===t ? ACCENT : 'rgba(255,255,255,0.5)', fontSize:13, fontWeight: tab===t ? 700 : 400, borderBottom: tab===t ? '2px solid var(--brand)' : '2px solid transparent', cursor:'pointer' }}>
               {t === 'adjust' ? '🎛 Ajustements' : '✨ Filtres'}
             </button>
           ))}
@@ -199,7 +199,7 @@ export default function PhotoEditPage() {
               {FILTERS.map((f, i) => (
                 <button key={f.name} onClick={() => setFilter(i)}
                   style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, border:'none', background:'transparent', cursor:'pointer', padding:0 }}>
-                  <div style={{ width:64, height:64, borderRadius:12, overflow:'hidden', border: filter===i ? `2.5px solid ${ACCENT}` : '2.5px solid transparent' }}>
+                  <div style={{ width:64, height:64, borderRadius:12, overflow:'hidden', border: filter===i ? '2.5px solid var(--brand)' : '2.5px solid transparent' }}>
                     <img src={src} alt={f.name} style={{ width:'100%', height:'100%', objectFit:'cover', filter: f.css || 'none' }}/>
                   </div>
                   <span style={{ fontSize:11, color: filter===i ? ACCENT : 'rgba(255,255,255,0.6)', fontWeight: filter===i ? 700 : 400 }}>{f.name}</span>

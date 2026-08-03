@@ -2,14 +2,14 @@
 
 import { useRouter } from 'next/navigation';
 
-const DEEP = '#102A2A';
-const GOLD = '#D6B25E';
+const DEEP = 'var(--header-bg)';
+const GOLD = 'var(--accent)';
 
 export default function PrivacyPage() {
   const router = useRouter();
 
   return (
-    <main style={{ minHeight:'100dvh', background:'#F5F1EA', color:'#111b21', fontFamily:'system-ui,-apple-system,sans-serif' }}>
+    <main style={{ minHeight:'100dvh', background:'#F5F1EA', color:'var(--text-primary)', fontFamily:'system-ui,-apple-system,sans-serif' }}>
       <header style={{ background:DEEP, color:'#fff', padding:'16px 20px', display:'flex', alignItems:'center', gap:12 }}>
         <button onClick={() => router.back()} aria-label="Retour"
           style={{ width:36, height:36, borderRadius:'50%', border:'1px solid rgba(255,255,255,.16)', background:'rgba(255,255,255,.08)', color:'#fff', cursor:'pointer', fontSize:18 }}>

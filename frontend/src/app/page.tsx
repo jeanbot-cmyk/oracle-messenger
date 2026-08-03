@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 
 const ACCENT = 'var(--brand)';
+const ACCENT_TEXT = 'var(--accent-text)';
 
 type OS = 'android' | 'ios' | 'other';
 
@@ -116,7 +117,7 @@ export default function HomePage() {
           <div style={{ height: '100%', background: ACCENT, borderRadius: 2, width: `${((iosStep + 1) / steps.length) * 100}%`, transition: 'width 0.3s' }} />
         </div>
         <div key={iosStep} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, animation: 'fadeIn 0.25s ease', gap: 24, textAlign: 'center' }}>
-          <div style={{ width: 90, height: 90, borderRadius: '50%', background: 'rgba(30,97,89,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48 }}>{step.icon}</div>
+          <div style={{ width: 90, height: 90, borderRadius: '50%', background: 'rgba(201,168,76,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48 }}>{step.icon}</div>
           <div>
             <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 12px' }}>{step.title}</h2>
             <p style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{step.desc}</p>
@@ -124,8 +125,8 @@ export default function HomePage() {
         </div>
         <div style={{ padding: '0 24px 44px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {iosStep < steps.length - 1
-            ? <button onClick={() => setIosStep(s => s + 1)} style={{ width: '100%', background: ACCENT, color: '#fff', border: 'none', borderRadius: 28, padding: 18, fontSize: 17, fontWeight: 700, cursor: 'pointer' }}>Suivant →</button>
-            : <button onClick={handleOpen} style={{ width: '100%', background: ACCENT, color: '#fff', border: 'none', borderRadius: 28, padding: 18, fontSize: 17, fontWeight: 700, cursor: 'pointer' }}>Ouvrir Oracle Messenger →</button>
+            ? <button onClick={() => setIosStep(s => s + 1)} style={{ width: '100%', background: ACCENT, color: ACCENT_TEXT, border: 'none', borderRadius: 28, padding: 18, fontSize: 17, fontWeight: 700, cursor: 'pointer' }}>Suivant →</button>
+            : <button onClick={handleOpen} style={{ width: '100%', background: ACCENT, color: ACCENT_TEXT, border: 'none', borderRadius: 28, padding: 18, fontSize: 17, fontWeight: 700, cursor: 'pointer' }}>Ouvrir Oracle Messenger →</button>
           }
           <button onClick={handleOpen} style={{ width: '100%', background: 'transparent', color: 'var(--text-muted)', border: '1.5px solid var(--border)', borderRadius: 28, padding: 14, fontSize: 14, cursor: 'pointer' }}>
             Accéder sans installer
