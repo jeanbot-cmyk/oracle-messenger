@@ -29,6 +29,8 @@ const tabs = [
   ['auto', 'Auto'],
 ] as const;
 
+const filterOrder = ['all', 'chaud', 'froid', 'payé', 'relancer', 'prospect', 'vip', 'perdu'] as const;
+
 function ld<T>(k:string,d:T):T{if(typeof window==='undefined')return d;try{return JSON.parse(localStorage.getItem(k)??'null')??d;}catch{return d;}}
 function sv(k:string,v:any){if(typeof window!=='undefined')localStorage.setItem(k,JSON.stringify(v));}
 
@@ -77,21 +79,31 @@ export default function BusinessPage() {
 
   return(
     <div style={{height:'100dvh',display:'flex',flexDirection:'column',background:'var(--bg-app)'}}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .om-business-scroll::-webkit-scrollbar{display:none}
+        .om-business-scroll{scrollbar-width:none;-ms-overflow-style:none}
+        @media(max-width:420px){
+          .om-business-title{font-size:20px!important}
+          .om-business-subtitle{font-size:12.5px!important}
+          .om-business-tab{font-size:13px!important;padding:10px 8px!important}
+          .om-business-chip{font-size:13px!important;padding:8px 12px!important}
+        }
+      `}</style>
       {/* Header */}
-      <div style={{background:'var(--header-bg)',padding:'14px 16px',display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
-        <button onClick={()=>router.back()} style={{width:36,height:36,borderRadius:'50%',border:'none',background:'rgba(255,255,255,0.2)',cursor:'pointer',color:'#fff',fontSize:18,display:'flex',alignItems:'center',justifyContent:'center'}}>←</button>
-        <div style={{flex:1}}>
-          <h1 style={{fontSize:18,fontWeight:900,color:'#fff',margin:0}}>Business & CRM</h1>
-          <p style={{fontSize:12,color:'rgba(255,255,255,0.8)',margin:0}}>{clients.length} clients · {pending} rappels · {totalValue.toLocaleString()}€</p>
+      <div style={{background:'var(--header-bg)',padding:'calc(13px + env(safe-area-inset-top, 0px)) 16px 15px',display:'flex',alignItems:'center',gap:12,flexShrink:0,boxShadow:'0 8px 22px rgba(16,42,42,0.16)'}}>
+        <button onClick={()=>router.back()} aria-label="Retour" style={{width:42,height:42,minHeight:42,borderRadius:'50%',border:'1px solid rgba(255,255,255,0.14)',background:'rgba(255,255,255,0.12)',cursor:'pointer',color:'#fff',fontSize:20,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>←</button>
+        <div style={{flex:1,minWidth:0}}>
+          <h1 className="om-business-title" style={{fontSize:22,lineHeight:1.1,fontWeight:900,color:'#fff',margin:0,letterSpacing:0,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>Business & CRM</h1>
+          <p className="om-business-subtitle" style={{fontSize:13,lineHeight:1.35,color:'rgba(255,255,255,0.76)',margin:'5px 0 0',fontWeight:650,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{clients.length} clients · {pending} rappels · {totalValue.toLocaleString()}€</p>
         </div>
-        <button onClick={()=>{setEditClient(null);setShowForm(true);}} style={{width:36,height:36,borderRadius:'50%',border:'none',background:'var(--accent)',cursor:'pointer',color:'var(--accent-text)',fontSize:22,fontWeight:800,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+        <button onClick={()=>{setEditClient(null);setShowForm(true);}} aria-label="Ajouter un client" style={{width:42,height:42,minHeight:42,borderRadius:'50%',border:'none',background:'var(--accent)',cursor:'pointer',color:'var(--accent-text)',fontSize:26,lineHeight:1,fontWeight:900,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,boxShadow:'0 8px 20px rgba(0,0,0,0.16)'}}>+</button>
       </div>
       {/* Tabs */}
-      <div style={{background:'var(--bg-surface)',borderBottom:'1px solid var(--border)',flexShrink:0,padding:'10px 12px'}}>
-        <div style={{display:'flex',gap:8,overflowX:'auto'}}>
+      <div style={{background:'var(--bg-surface)',borderBottom:'1px solid var(--border)',flexShrink:0,padding:'10px 10px'}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4, minmax(0, 1fr))',gap:7}}>
         {tabs.map(([id,lbl])=>(
-          <button key={id} onClick={()=>setTab(id)} style={{flex:'1 0 auto',padding:'9px 14px',border:'1px solid var(--border)',borderRadius:999,background:tab===id?'var(--accent)':'var(--bg-app)',cursor:'pointer',fontSize:13,fontWeight:tab===id?900:700,color:tab===id?'var(--accent-text)':'var(--text-secondary)',boxShadow:tab===id?'var(--shadow)':'none'}}>{lbl}</button>
+          <button className="om-business-tab" key={id} onClick={()=>setTab(id)} style={{minWidth:0,padding:'10px 8px',border:'1px solid var(--border)',borderRadius:999,background:tab===id?'var(--header-bg)':'var(--bg-app)',cursor:'pointer',fontSize:13,fontWeight:tab===id?900:800,color:tab===id?'#fff':'var(--text-secondary)',boxShadow:tab===id?'0 8px 18px rgba(16,42,42,0.15)':'none',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{lbl}</button>
         ))}
         </div>
       </div>
@@ -99,24 +111,31 @@ export default function BusinessPage() {
         {tab==='clients'&&(
           <>
             {/* Search + filter */}
-            <div style={{padding:'10px 12px',background:'var(--bg-surface)',borderBottom:'1px solid var(--border)'}}>
-              <div style={{display:'flex',alignItems:'center',gap:8,background:'var(--bg-app)',border:'1px solid var(--border)',borderRadius:24,padding:'8px 14px',marginBottom:8}}>
-                <span style={{color:'var(--text-muted)'}}>🔍</span>
-                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher…" style={{flex:1,border:'none',outline:'none',background:'transparent',fontSize:14,color:'var(--text-primary)'}}/>
+            <div style={{padding:'12px 12px 10px',background:'var(--bg-surface)',borderBottom:'1px solid var(--border)'}}>
+              <div style={{display:'flex',alignItems:'center',gap:9,background:'var(--bg-app)',border:'1px solid var(--border)',borderRadius:22,padding:'9px 13px',marginBottom:9}}>
+                <svg width="18" height="18" fill="none" stroke="var(--text-muted)" strokeWidth="2.2" viewBox="0 0 24 24" style={{flexShrink:0}}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.2-5.2m1.7-4.8a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z"/>
+                </svg>
+                <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Rechercher un client" style={{flex:1,minWidth:0,border:'none',outline:'none',background:'transparent',fontSize:15,color:'var(--text-primary)',fontWeight:500}}/>
               </div>
-              <div style={{display:'flex',gap:6,overflowX:'auto'}}>
-                {(['all',...Object.keys(TAG_META)] as const).map(t=>(
-                  <button key={t} onClick={()=>setFilterTag(t as any)} style={{flexShrink:0,padding:'5px 12px',borderRadius:16,border:'1px solid var(--border)',background:filterTag===t?'var(--accent)':'var(--bg-app)',color:filterTag===t?'var(--accent-text)':'var(--text-primary)',fontSize:12,cursor:'pointer',fontWeight:700}}>
+              <div className="om-business-scroll" style={{display:'flex',gap:7,overflowX:'auto',WebkitOverflowScrolling:'touch',padding:'2px 2px 6px',margin:'0 -2px'}}>
+                {filterOrder.map(t=>(
+                  <button className="om-business-chip" key={t} onClick={()=>setFilterTag(t as any)} style={{flex:'0 0 auto',maxWidth:150,padding:'8px 13px',borderRadius:999,border:'1px solid var(--border)',background:filterTag===t?'var(--header-bg)':'var(--bg-app)',color:filterTag===t?'#fff':'var(--text-primary)',fontSize:13,cursor:'pointer',fontWeight:850,whiteSpace:'nowrap',boxShadow:filterTag===t?'0 6px 14px rgba(16,42,42,0.13)':'none'}}>
                     {t==='all'?'Tous':TAG_META[t as Tag].label}
                   </button>
                 ))}
               </div>
             </div>
             {filtered.length===0?(
-              <div style={{padding:40,textAlign:'center',color:'var(--text-muted)'}}>
-                <div style={{fontSize:48,marginBottom:12}}>💼</div>
-                <p style={{fontWeight:600,color:'var(--text-primary)'}}>Aucun client</p>
-                <p style={{fontSize:13}}>Ajoutez votre premier client avec le bouton +</p>
+              <div style={{minHeight:'48vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'34px 28px',textAlign:'center',color:'var(--text-muted)'}}>
+                <div style={{width:72,height:72,borderRadius:24,background:'rgba(16,42,42,0.08)',display:'flex',alignItems:'center',justifyContent:'center',marginBottom:16,color:'var(--header-bg)'}}>
+                  <svg width="34" height="34" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 7V6a3 3 0 116 0v1m-9 4h12M5 7h14a2 2 0 012 2v8a3 3 0 01-3 3H6a3 3 0 01-3-3V9a2 2 0 012-2z"/>
+                  </svg>
+                </div>
+                <p style={{fontWeight:900,color:'var(--text-primary)',fontSize:18,lineHeight:1.2,margin:'0 0 7px'}}>Aucun client</p>
+                <p style={{fontSize:14,lineHeight:1.45,margin:'0 0 18px',maxWidth:280}}>Ajoutez votre premier client pour suivre vos rappels, relances et paiements.</p>
+                <button onClick={()=>{setEditClient(null);setShowForm(true);}} style={{border:'none',borderRadius:999,background:'var(--header-bg)',color:'#fff',padding:'12px 18px',fontSize:14,fontWeight:900,cursor:'pointer',boxShadow:'0 8px 18px rgba(16,42,42,0.15)'}}>Ajouter un client</button>
               </div>
             ):(
               filtered.map(c=>(
