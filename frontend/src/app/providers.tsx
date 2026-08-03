@@ -6,8 +6,9 @@ import { useSettings } from '../store/settings';
 import { detectLanguage } from '../lib/i18n';
 import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { clearOldTextMessages } from '../lib/db';
+import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 
-const CLIENT_CACHE_VERSION = '72-20260803-business-page';
+const CLIENT_CACHE_VERSION = '73-20260803-install-simplified';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 
@@ -156,6 +157,10 @@ function InstallBanner() {
   }, []);
 
   async function install() {
+    if (shouldOpenAndroidLinkInChrome()) {
+      window.location.assign(buildChromeInstallIntentUrl());
+      return;
+    }
     const prompt = (window as any).__installPrompt;
     if (prompt?.prompt) {
       setInstalling(true);

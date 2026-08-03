@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { buildChromeIntentUrl, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
+import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
@@ -83,7 +83,7 @@ export default function HomePage() {
 
   function handleAndroidPWA() {
     if (shouldOpenAndroidLinkInChrome()) {
-      window.location.href = buildChromeIntentUrl();
+      window.location.assign(buildChromeInstallIntentUrl());
       return;
     }
     const prompt = promptRef.current || (window as any).__installPrompt || (window as any).__pwaPrompt;
@@ -192,7 +192,7 @@ export default function HomePage() {
                 <p style={{ fontSize: 14, color: '#102A2A', margin: '0 0 10px', lineHeight: 1.5, fontWeight: 750 }}>
                   Pour éviter les alertes Samsung Internet, ouvre Oracle Messenger avec Chrome.
                 </p>
-                <button onClick={() => { window.location.href = buildChromeIntentUrl(); }}
+                <button onClick={() => { window.location.assign(buildChromeInstallIntentUrl()); }}
                   style={{ width: '100%', border: 'none', borderRadius: 14, background: 'var(--header-bg)', color: '#fff', padding: '12px 14px', fontSize: 14, fontWeight: 900, cursor: 'pointer' }}>
                   Ouvrir dans Chrome
                 </button>

@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
-import { buildChromeIntentUrl, shouldOpenAndroidLinkInChrome } from '../../lib/androidChrome';
+import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../../lib/androidChrome';
 
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
@@ -287,7 +287,7 @@ export default function InstallPage() {
   async function handleAndroidInstall() {
     if (shouldOpenAndroidLinkInChrome()) {
       setInstallMessage('Ouverture dans Chrome pour lancer une installation sûre...');
-      window.location.href = buildChromeIntentUrl();
+      window.location.assign(buildChromeInstallIntentUrl());
       return;
     }
     const prompt = promptRef.current || (window as any).__installPrompt || (window as any).__pwaPrompt;
@@ -445,7 +445,7 @@ export default function InstallPage() {
           <p style={{ margin: '0 0 10px', fontSize: 13, lineHeight: 1.45, fontWeight: 800 }}>
             Ouvre ce lien dans Chrome pour installer sans alerte Samsung Internet.
           </p>
-          <button onClick={() => { window.location.href = buildChromeIntentUrl(); }}
+          <button onClick={() => { window.location.assign(buildChromeInstallIntentUrl()); }}
             style={{ width: '100%', border: 'none', borderRadius: 999, background: 'var(--header-bg)', color: '#fff', padding: '11px 12px', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>
             Ouvrir avec Chrome
           </button>
