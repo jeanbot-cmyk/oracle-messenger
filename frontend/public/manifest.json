@@ -3,7 +3,7 @@
   "short_name": "Oracle Messenger",
   "description": "Messagerie privée, rapide et sécurisée",
   "id": "https://messenger.oracle-plus.online/",
-  "start_url": "/login?source=pwa&v=20260803-crisp-icon-78",
+  "start_url": "/login?source=pwa&v=20260803-png-manifest-79",
   "scope": "/",
   "display": "standalone",
   "background_color": "#F7FAF8",
@@ -12,7 +12,6 @@
   "lang": "fr",
   "prefer_related_applications": false,
   "icons": [
-    { "src": "/icons/icon.svg?v=20260803-crisp-icon", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "/icons/icon-72-v20260803.png",  "sizes": "72x72",   "type": "image/png" },
     { "src": "/icons/icon-96-v20260803.png",  "sizes": "96x96",   "type": "image/png" },
     { "src": "/icons/icon-128-v20260803.png", "sizes": "128x128", "type": "image/png" },

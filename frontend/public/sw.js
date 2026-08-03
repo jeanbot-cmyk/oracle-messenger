@@ -1,11 +1,11 @@
-// Oracle Messenger — Service Worker v78
+// Oracle Messenger — Service Worker v79
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '78-20260803-crisp-icon';
+const CACHE_VERSION = '79-20260803-png-manifest';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [
   '/reset-pwa.html', '/manifest.json',
-  '/icons/icon.svg', '/icons/icon-192-v20260803.png', '/icons/icon-512-v20260803.png', '/icons/icon-1024-v20260803.png'
+  '/icons/icon-192-v20260803.png', '/icons/icon-512-v20260803.png', '/icons/icon-1024-v20260803.png'
 ];
 
 // ── Install : skipWaiting immédiat ────────────────────────────────────────────
