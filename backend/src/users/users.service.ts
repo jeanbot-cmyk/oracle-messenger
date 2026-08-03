@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { createHash } from 'crypto';
 
 @Injectable()
 export class UsersService {
@@ -10,24 +11,39 @@ export class UsersService {
   }
 
   async findByUsername(username: string) {
-    return this.prisma.user.findUnique({ where: { username } });
+    let decoded = username || '';
+    try {
+      decoded = decodeURIComponent(decoded);
+    } catch {}
+    const normalized = decoded.trim().replace(/^@+/, '').toLowerCase();
+    if (!normalized) return null;
+    return this.prisma.user.findFirst({
+      where: { username: { equals: normalized, mode: 'insensitive' } },
+      select: { id:true, name:true, username:true, avatar:true, status:true, phone:true },
+    });
   }
 
   async updateProfile(id: string, data: { name?: string; bio?: string; avatar?: string; phone?: string }) {
+    const phone = data.phone !== undefined && data.phone !== ''
+      ? await this.normalizeUniquePhone(id, data.phone)
+      : data.phone === ''
+        ? null
+        : undefined;
+
     return this.prisma.user.update({
       where: { id },
       data: {
         ...(data.name   ? { name: data.name }     : {}),
         ...(data.bio    !== undefined ? { bio: data.bio } : {}),
         ...(data.avatar ? { avatar: data.avatar } : {}),
-        ...(data.phone  !== undefined ? { phone: data.phone || null } : {}),
+        ...(phone !== undefined ? { phone } : {}),
       },
     });
   }
 
   async setPhone(id: string, phone: string) {
-    // Nettoyer le numéro : garder uniquement chiffres et +
-    const cleaned = phone.replace(/[^\d+]/g, '');
+    const cleaned = await this.normalizeUniquePhone(id, phone);
+
     return this.prisma.user.update({
       where: { id },
       data: { phone: cleaned },
@@ -59,28 +75,20 @@ export class UsersService {
     });
   }
 
-  async matchByPhones(phones: string[]) {
-    if (!phones.length) return [];
+  async matchByPhoneHashes(hashes: string[], requesterId: string) {
+    const hashSet = new Set((hashes ?? []).filter(h => /^[a-f0-9]{64}$/i.test(h)));
+    if (!hashSet.size) return [];
 
-    // Normalise a phone number to its last 8 digits (country-code-agnostic matching)
-    const last8 = (p: string) => p.replace(/[^\d]/g, '').slice(-8);
-
-    const suffixes = phones
-      .map(p => last8(p))
-      .filter(p => p.length === 8);
-
-    if (!suffixes.length) return [];
-
-    // Fetch all users that have a phone, then filter in-process for suffix match.
-    // This avoids DB-specific regex and works with any SQL dialect.
-    const allWithPhone = await this.prisma.user.findMany({
-      where: { phone: { not: null } },
+    const users = await this.prisma.user.findMany({
+      where: { phone: { not: null }, id: { not: requesterId } },
       select: { id:true, name:true, username:true, avatar:true, status:true, phone:true },
       take: 5000,
     });
 
-    const suffixSet = new Set(suffixes);
-    return allWithPhone.filter(u => u.phone && suffixSet.has(last8(u.phone)));
+    return users.filter(user => {
+      const variants = this.phoneHashVariants(user.phone ?? '');
+      return variants.some(hash => hashSet.has(hash));
+    });
   }
 
   async setOnline(id: string, online: boolean) {
@@ -92,5 +100,32 @@ export class UsersService {
 
   async savePushToken(userId: string, token: string) {
     return this.prisma.user.update({ where: { id: userId }, data: { pushToken: token } });
+  }
+
+  private normalizePhone(phone: string) {
+    const cleaned = phone.replace(/[^\d+]/g, '');
+    if (cleaned.startsWith('+')) return `+${cleaned.slice(1).replace(/\D/g, '')}`;
+    return `+${cleaned.replace(/\D/g, '')}`;
+  }
+
+  private async normalizeUniquePhone(userId: string, phone: string) {
+    const cleaned = this.normalizePhone(phone);
+    if (cleaned.replace(/\D/g, '').length < 8) throw new BadRequestException('Numéro de téléphone invalide');
+
+    const owner = await this.prisma.user.findUnique({ where: { phone: cleaned } });
+    if (owner && owner.id !== userId) {
+      throw new ConflictException('Ce numéro de téléphone est déjà associé à un autre compte Oracle Messenger.');
+    }
+    return cleaned;
+  }
+
+  private sha256(value: string) {
+    return createHash('sha256').update(value).digest('hex');
+  }
+
+  private phoneHashVariants(phone: string) {
+    const normalized = this.normalizePhone(phone);
+    const digits = normalized.replace(/\D/g, '');
+    return [this.sha256(normalized), this.sha256(digits), this.sha256(digits.slice(-8))];
   }
 }

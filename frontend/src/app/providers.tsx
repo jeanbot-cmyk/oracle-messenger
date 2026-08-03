@@ -6,39 +6,7 @@ import { useSettings } from '../store/settings';
 import { detectLanguage } from '../lib/i18n';
 import { PhoneOnboarding } from '../components/PhoneOnboarding';
 
-// Import contacts automatique au lancement (Android Chrome 80+)
-async function autoImportContacts() {
-  try {
-    // Vérifier support API Contacts
-    if (!('contacts' in navigator) || !('ContactsManager' in window)) return;
-
-    // Ne pas redemander si déjà importé aujourd'hui
-    const lastImport = localStorage.getItem('oracle-contacts-imported');
-    const today = new Date().toDateString();
-    if (lastImport === today) return;
-
-    const props = ['name', 'tel', 'email', 'icon'];
-    const opts  = { multiple: true };
-    const raw   = await (navigator as any).contacts.select(props, opts);
-
-    if (!raw || raw.length === 0) return;
-
-    const parsed = raw.map((c: any) => ({
-      name:   c.name?.[0] ?? 'Inconnu',
-      phones: c.tel   ?? [],
-      emails: c.email ?? [],
-      // Photo contact en base64 si disponible
-      avatar: c.icon?.[0] ? URL.createObjectURL(c.icon[0]) : null,
-    }));
-
-    localStorage.setItem('oracle-contacts', JSON.stringify(parsed));
-    localStorage.setItem('oracle-contacts-imported', today);
-    console.log(`[Contacts] ${parsed.length} contacts importés`);
-  } catch (err) {
-    // L'utilisateur a refusé ou l'API n'est pas disponible — silencieux
-    console.log('[Contacts] import ignoré:', err);
-  }
-}
+const CLIENT_CACHE_VERSION = '20260803-no-apk-invite';
 
 function ThemeApplier() {
   const { theme, lang, setLang } = useSettings();
@@ -70,6 +38,14 @@ function ThemeApplier() {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
         .then(reg => {
+          const storedVersion = localStorage.getItem('oracle-client-cache-version');
+          if (storedVersion !== CLIENT_CACHE_VERSION && 'caches' in window) {
+            caches.keys()
+              .then(keys => Promise.all(keys.map(key => caches.delete(key))))
+              .then(() => localStorage.setItem('oracle-client-cache-version', CLIENT_CACHE_VERSION))
+              .then(() => reg.update().catch(() => {}))
+              .catch(() => localStorage.setItem('oracle-client-cache-version', CLIENT_CACHE_VERSION));
+          }
           // Check for updates every time the page loads
           reg.update().catch(() => {});
 
@@ -107,15 +83,85 @@ function ThemeApplier() {
       }).catch(() => {});
     }
 
-    // Auto-import contacts — skip on /install and /login (user not authenticated yet)
-    const path = window.location.pathname;
-    if (!path.startsWith('/install') && !path.startsWith('/login')) {
-      const t = setTimeout(() => autoImportContacts(), 2000);
-      return () => clearTimeout(t);
-    }
+    // Contacts are imported only from /contacts after an explicit user tap.
+    // Browsers display a native contact picker that cannot be styled by the app.
   }, []);
 
   return null;
+}
+
+function isStandaloneMode() {
+  return window.matchMedia('(display-mode: standalone)').matches ||
+    (window.navigator as any).standalone === true ||
+    !!(window as any).Capacitor?.isNativePlatform?.();
+}
+
+function InstallBanner() {
+  const [visible, setVisible] = useState(false);
+  const [installing, setInstalling] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const path = window.location.pathname;
+    if (path.startsWith('/install') || isStandaloneMode()) return;
+
+    const showTimer = setTimeout(() => setVisible(!isStandaloneMode()), 900);
+    const onPrompt = (e: any) => {
+      e.preventDefault();
+      (window as any).__installPrompt = e;
+      setVisible(!isStandaloneMode());
+    };
+    const onInstalled = () => {
+      setVisible(false);
+      document.cookie = 'pwa-installed=1; path=/; max-age=31536000; SameSite=Lax';
+      const pending = localStorage.getItem('oracle-after-login') || sessionStorage.getItem('oracle-after-login');
+      window.location.replace(pending || '/chat');
+    };
+
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      clearTimeout(showTimer);
+      window.removeEventListener('beforeinstallprompt', onPrompt);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, []);
+
+  async function install() {
+    const prompt = (window as any).__installPrompt;
+    if (prompt?.prompt) {
+      setInstalling(true);
+      try {
+        prompt.prompt();
+        await prompt.userChoice;
+      } finally {
+        setInstalling(false);
+      }
+      return;
+    }
+    window.location.href = '/install';
+  }
+
+  if (!visible) return null;
+  return (
+    <div style={{ position:'fixed', top:0, left:0, right:0, zIndex:2000, background:'var(--header-bg)', color:'#fff', borderBottom:'1px solid rgba(200,168,90,0.28)', boxShadow:'0 6px 20px rgba(0,0,0,0.18)', padding:'8px 10px env(safe-area-inset-top)' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:10, maxWidth:720, margin:'0 auto' }}>
+        <div style={{ width:34, height:34, borderRadius:10, background:'rgba(200,168,90,0.16)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+          <img src="/icons/icon-72-v20260803.png" alt="" style={{ width:26, height:26, borderRadius:7 }} />
+        </div>
+        <div style={{ flex:1, minWidth:0 }}>
+          <p style={{ margin:0, fontSize:13, fontWeight:900, lineHeight:1.25 }}>Installer Oracle Messenger</p>
+          <p style={{ margin:0, fontSize:11, color:'rgba(255,255,255,0.72)', lineHeight:1.25 }}>Ouvrir sans barre d'adresse et recevoir les appels.</p>
+        </div>
+        <button onClick={install} disabled={installing}
+          style={{ border:'none', borderRadius:999, background:'var(--accent)', color:'var(--accent-text)', padding:'8px 12px', fontSize:12, fontWeight:900, cursor:'pointer', whiteSpace:'nowrap' }}>
+          {installing ? 'Installation…' : 'Installer'}
+        </button>
+        <button onClick={() => setVisible(false)} aria-label="Fermer"
+          style={{ width:30, height:30, borderRadius:'50%', border:'none', background:'rgba(255,255,255,0.10)', color:'#fff', fontSize:18, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>×</button>
+      </div>
+    </div>
+  );
 }
 
 function PhoneGate({ children }: { children: React.ReactNode }) {
@@ -168,6 +214,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           <PhoneGate>
             {children}
           </PhoneGate>
+          <InstallBanner />
           <Toaster
             position="top-center"
             toastOptions={{

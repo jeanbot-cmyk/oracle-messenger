@@ -1,12 +1,11 @@
-// Oracle Messenger — Service Worker v7
-// Version liée au timestamp de build pour forcer la mise à jour instantanée
-const CACHE_VERSION = 7;
-const BUILD_TS = Date.now(); // change à chaque déploiement
+// Oracle Messenger — Service Worker v11
+// Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
+const CACHE_VERSION = '11-20260803-no-apk-invite';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [
   '/', '/chat', '/install', '/manifest.json',
-  '/icons/icon-192.png', '/icons/icon-512.png'
+  '/icons/icon-192-v20260803.png', '/icons/icon-512-v20260803.png'
 ];
 
 // ── Install : skipWaiting immédiat ────────────────────────────────────────────
@@ -27,6 +26,7 @@ self.addEventListener('activate', e => {
       caches.keys().then(keys =>
         Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
       ),
+      caches.open(CACHE_NAME).then(cache => cache.delete('/oracle-messenger.apk')).catch(() => {}),
       // Prendre le contrôle de tous les clients immédiatement
       self.clients.claim(),
     ])
@@ -45,6 +45,14 @@ self.addEventListener('fetch', e => {
     e.request.method !== 'GET'
   ) {
     e.respondWith(fetch(e.request).catch(() => new Response('', { status: 503 })));
+    return;
+  }
+
+  if (url.pathname === '/oracle-messenger.apk') {
+    e.respondWith(new Response('APK disabled. Install Oracle Messenger from the browser as a PWA.', {
+      status: 410,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+    }));
     return;
   }
 
@@ -147,7 +155,11 @@ self.addEventListener('message', e => {
 
   // Force update : le client demande au SW de se mettre à jour
   if (e.data?.type === 'force-update') {
-    self.skipWaiting();
+    e.waitUntil(
+      caches.keys()
+        .then(keys => Promise.all(keys.map(k => caches.delete(k))))
+        .then(() => self.skipWaiting())
+    );
   }
 });
 

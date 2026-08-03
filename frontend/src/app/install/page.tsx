@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState } from 'react';
 
-const ACCENT = '#128C7E';
+const ACCENT = 'var(--brand)';
 
 type Device = 'ios' | 'android' | 'other';
 function detectDevice(): Device {
@@ -12,16 +12,21 @@ function detectDevice(): Device {
   return 'other';
 }
 
+function appEntry() {
+  if (typeof window === 'undefined') return '/';
+  return localStorage.getItem('oracle-after-login') || sessionStorage.getItem('oracle-after-login') || '/';
+}
+
 const IOS_STEPS = [
   {
     title: 'Appuyez sur Partager',
     desc: 'En bas de Safari, appuyez sur le bouton Partager (carré avec une flèche vers le haut).',
     svg: (
       <svg viewBox="0 0 280 200" fill="none" style={{ width: '100%', maxWidth: 260 }}>
-        <rect x="60" y="10" width="160" height="180" rx="18" fill="#f0f2f5" stroke="#e9edef" strokeWidth="2"/>
+        <rect x="60" y="10" width="160" height="180" rx="18" fill="var(--bg-input)" stroke="var(--border)" strokeWidth="2"/>
         <rect x="68" y="20" width="144" height="160" rx="12" fill="#fff"/>
         <rect x="68" y="20" width="144" height="28" rx="12" fill="#f8f9fa"/>
-        <rect x="80" y="28" width="100" height="12" rx="6" fill="#e9edef"/>
+        <rect x="80" y="28" width="100" height="12" rx="6" fill="var(--border)"/>
         <rect x="68" y="158" width="144" height="22" rx="0" fill="#f8f9fa"/>
         {/* Share button */}
         <rect x="128" y="161" width="24" height="16" rx="4" fill={ACCENT} opacity="0.2"/>
@@ -39,17 +44,17 @@ const IOS_STEPS = [
     desc: 'Dans le menu Partager, faites défiler vers le bas et appuyez sur "Sur l\'écran d\'accueil".',
     svg: (
       <svg viewBox="0 0 280 200" fill="none" style={{ width: '100%', maxWidth: 260 }}>
-        <rect x="20" y="80" width="240" height="110" rx="16" fill="#fff" stroke="#e9edef" strokeWidth="1.5"/>
+        <rect x="20" y="80" width="240" height="110" rx="16" fill="#fff" stroke="var(--border)" strokeWidth="1.5"/>
         <rect x="20" y="80" width="240" height="32" rx="16" fill="#f8f9fa"/>
-        <rect x="100" y="90" width="80" height="10" rx="5" fill="#e9edef"/>
+        <rect x="100" y="90" width="80" height="10" rx="5" fill="var(--border)"/>
         {/* Highlighted row */}
         <rect x="36" y="122" width="208" height="36" rx="10" fill={ACCENT} opacity="0.1"/>
         <rect x="36" y="122" width="208" height="36" rx="10" stroke={ACCENT} strokeWidth="1.5"/>
         <path d="M56 140 L62 133 L68 140 L68 147 L64 147 L64 143 L60 143 L60 147 L56 147 Z" fill={ACCENT}/>
         <rect x="76" y="136" width="90" height="8" rx="4" fill={ACCENT}/>
         {/* Other rows */}
-        <rect x="36" y="166" width="208" height="18" rx="8" fill="#f0f2f5"/>
-        <rect x="52" y="172" width="100" height="6" rx="3" fill="#e9edef"/>
+        <rect x="36" y="166" width="208" height="18" rx="8" fill="var(--bg-input)"/>
+        <rect x="52" y="172" width="100" height="6" rx="3" fill="var(--border)"/>
       </svg>
     ),
   },
@@ -58,9 +63,9 @@ const IOS_STEPS = [
     desc: 'En haut à droite de la fenêtre qui s\'ouvre, appuyez sur "Ajouter".',
     svg: (
       <svg viewBox="0 0 280 200" fill="none" style={{ width: '100%', maxWidth: 260 }}>
-        <rect x="30" y="40" width="220" height="130" rx="16" fill="#fff" stroke="#e9edef" strokeWidth="1.5"/>
+        <rect x="30" y="40" width="220" height="130" rx="16" fill="#fff" stroke="var(--border)" strokeWidth="1.5"/>
         <rect x="30" y="40" width="220" height="38" rx="16" fill="#f8f9fa"/>
-        <rect x="46" y="52" width="60" height="10" rx="5" fill="#e9edef"/>
+        <rect x="46" y="52" width="60" height="10" rx="5" fill="var(--border)"/>
         {/* Ajouter button */}
         <rect x="188" y="46" width="48" height="26" rx="8" fill={ACCENT}/>
         <rect x="196" y="54" width="32" height="8" rx="4" fill="#fff"/>
@@ -118,7 +123,7 @@ export default function InstallPage() {
       window.matchMedia('(display-mode: standalone)').matches ||
       (navigator as any).standalone === true
     ) {
-      window.location.replace('/');
+      window.location.replace(appEntry());
       return;
     }
 
@@ -135,7 +140,7 @@ export default function InstallPage() {
     window.addEventListener('beforeinstallprompt', handler);
     window.addEventListener('appinstalled', () => {
       setInstalled(true);
-      setTimeout(() => window.location.replace('/'), 1800);
+      setTimeout(() => window.location.replace(appEntry()), 1800);
     });
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -153,7 +158,7 @@ export default function InstallPage() {
         .then((choice: any) => {
           if (choice.outcome === 'accepted') {
             setInstalled(true);
-            setTimeout(() => window.location.replace('/'), 1800);
+            setTimeout(() => window.location.replace(appEntry()), 1800);
           }
           setInstalling(false);
         })
@@ -199,8 +204,8 @@ export default function InstallPage() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/>
         </svg>
       </div>
-      <h2 style={{ fontSize: 24, fontWeight: 800, color: '#111b21', margin: 0 }}>Installé !</h2>
-      <p style={{ color: '#667781', fontSize: 15, margin: 0 }}>Ouverture d'Oracle Messenger…</p>
+      <h2 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Installé !</h2>
+      <p style={{ color: 'var(--text-secondary)', fontSize: 15, margin: 0 }}>Ouverture d'Oracle Messenger…</p>
     </div>
   );
 
@@ -216,17 +221,17 @@ export default function InstallPage() {
         <div style={{ padding: '20px 24px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
           {iosStep > 0 && (
             <button onClick={() => setIosStep(s => s - 1)}
-              style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: '#f0f2f5', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: '#111b21', flexShrink: 0 }}>
+              style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: 'var(--bg-input)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: 'var(--text-primary)', flexShrink: 0 }}>
               ←
             </button>
           )}
-          <p style={{ fontSize: 12, color: '#8696a0', margin: 0, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
             iPhone / iPad · Étape {iosStep + 1} / {IOS_STEPS.length}
           </p>
         </div>
 
         {/* Progress */}
-        <div style={{ margin: '12px 24px 0', height: 4, background: '#f0f2f5', borderRadius: 2 }}>
+        <div style={{ margin: '12px 24px 0', height: 4, background: 'var(--bg-input)', borderRadius: 2 }}>
           <div style={{ height: '100%', background: ACCENT, borderRadius: 2, width: `${((iosStep + 1) / IOS_STEPS.length) * 100}%`, transition: 'width 0.3s ease' }}/>
         </div>
 
@@ -234,15 +239,15 @@ export default function InstallPage() {
         <div key={iosStep} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 32px', animation: 'fadeIn 0.25s ease', gap: 24 }}>
           {step.svg}
           <div style={{ textAlign: 'center' }}>
-            <h2 style={{ fontSize: 22, fontWeight: 800, color: '#111b21', margin: '0 0 12px' }}>{step.title}</h2>
-            <p style={{ fontSize: 15, color: '#667781', lineHeight: 1.6, margin: 0 }}>{step.desc}</p>
+            <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 12px' }}>{step.title}</h2>
+            <p style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{step.desc}</p>
           </div>
         </div>
 
         {/* Buttons */}
         <div style={{ padding: '0 24px 44px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {isLast ? (
-            <button onClick={() => window.location.replace('/')}
+            <button onClick={() => window.location.replace(appEntry())}
               style={{ width: '100%', background: ACCENT, color: '#fff', border: 'none', borderRadius: 28, padding: '18px 24px', fontSize: 17, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
               Ouvrir Oracle Messenger →
             </button>
@@ -253,7 +258,7 @@ export default function InstallPage() {
             </button>
           )}
           <button onClick={() => window.location.replace('/login')}
-            style={{ width: '100%', background: 'transparent', color: '#8696a0', border: '1.5px solid #e9edef', borderRadius: 28, padding: '14px 24px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
+            style={{ width: '100%', background: 'transparent', color: 'var(--text-muted)', border: '1.5px solid var(--border)', borderRadius: 28, padding: '14px 24px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
             Accéder sans installer
           </button>
         </div>
@@ -274,10 +279,10 @@ export default function InstallPage() {
           <rect x="38" y="52" width="84" height="7" rx="3.5" fill={ACCENT} opacity="0.5"/>
           <rect x="38" y="67" width="64" height="7" rx="3.5" fill={ACCENT} opacity="0.35"/>
           <rect x="38" y="82" width="44" height="7" rx="3.5" fill={ACCENT} opacity="0.2"/>
-          <rect x="100" y="12" width="84" height="56" rx="14" fill="#f0f2f5" stroke="#e9edef" strokeWidth="1.5"/>
-          <path d="M176 68 L184 82 L162 68Z" fill="#f0f2f5" stroke="#e9edef" strokeWidth="1" strokeLinejoin="round"/>
-          <rect x="114" y="28" width="56" height="6" rx="3" fill="#8696a0" opacity="0.4"/>
-          <rect x="114" y="42" width="40" height="6" rx="3" fill="#8696a0" opacity="0.25"/>
+          <rect x="100" y="12" width="84" height="56" rx="14" fill="var(--bg-input)" stroke="var(--border)" strokeWidth="1.5"/>
+          <path d="M176 68 L184 82 L162 68Z" fill="var(--bg-input)" stroke="var(--border)" strokeWidth="1" strokeLinejoin="round"/>
+          <rect x="114" y="28" width="56" height="6" rx="3" fill="var(--text-muted)" opacity="0.4"/>
+          <rect x="114" y="42" width="40" height="6" rx="3" fill="var(--text-muted)" opacity="0.25"/>
           <rect x="136" y="118" width="34" height="28" rx="6" fill={ACCENT}/>
           <path d="M143 118 V111 a9 9 0 0 1 18 0 V118" stroke={ACCENT} strokeWidth="3.5" fill="none" strokeLinecap="round"/>
           <circle cx="153" cy="132" r="3.5" fill="white"/>
@@ -285,13 +290,13 @@ export default function InstallPage() {
         </svg>
       </div>
 
-      <h1 style={{ fontSize: 26, fontWeight: 800, color: '#111b21', textAlign: 'center', margin: '0 0 10px', lineHeight: 1.2 }}>
+      <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-primary)', textAlign: 'center', margin: '0 0 10px', lineHeight: 1.2 }}>
         Oracle Messenger
       </h1>
-      <p style={{ fontSize: 14, color: '#667781', textAlign: 'center', lineHeight: 1.6, margin: '0 0 6px', maxWidth: 300 }}>
+      <p style={{ fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.6, margin: '0 0 6px', maxWidth: 300 }}>
         Messagerie rapide et sécurisée.
       </p>
-      <p style={{ fontSize: 12, color: '#8696a0', textAlign: 'center', margin: '0 0 36px', maxWidth: 300, lineHeight: 1.5 }}>
+      <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', margin: '0 0 36px', maxWidth: 300, lineHeight: 1.5 }}>
         En continuant, vous acceptez nos{' '}
         <a href="/terms" style={{ color: ACCENT, fontWeight: 600 }}>Conditions</a>
         {' '}et{' '}
@@ -304,12 +309,12 @@ export default function InstallPage() {
         disabled={installing}
         style={{
           width: '100%', maxWidth: 380,
-          background: installing ? '#8696a0' : ACCENT,
+          background: installing ? 'var(--text-muted)' : ACCENT,
           color: '#fff', border: 'none', borderRadius: 28,
           padding: '18px 24px', fontSize: 17, fontWeight: 700,
           cursor: installing ? 'not-allowed' : 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
-          boxShadow: `0 4px 20px ${ACCENT}55`,
+          boxShadow: '0 10px 24px rgba(30,97,89,0.20)',
           marginBottom: 14,
         }}
       >
@@ -333,8 +338,8 @@ export default function InstallPage() {
         onClick={() => window.location.replace('/login')}
         style={{
           width: '100%', maxWidth: 380,
-          background: 'transparent', color: '#8696a0',
-          border: '1.5px solid #e9edef', borderRadius: 28,
+          background: 'transparent', color: 'var(--text-muted)',
+          border: '1.5px solid var(--border)', borderRadius: 28,
           padding: '14px 24px', fontSize: 14, fontWeight: 500,
           cursor: 'pointer',
         }}
