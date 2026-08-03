@@ -7,6 +7,7 @@ import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../.
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
 const MANUAL_CONTACTS_KEY = 'oracle-manual-contacts';
+const INSTALL_RESET_KEY = 'oracle-install-reset-v75';
 
 type Device = 'ios' | 'android' | 'other';
 type Inviter = { id: string; name: string; username: string; avatar?: string; phone?: string };
@@ -41,6 +42,28 @@ function rememberInviteFromUrl() {
 
 function goToAppEntry() {
   window.location.replace(appEntry());
+}
+
+async function resetInstallCacheState() {
+  document.cookie = 'pwa-installed=; path=/; max-age=0; SameSite=Lax';
+  localStorage.removeItem('oracle-client-cache-version');
+  localStorage.removeItem('oracle-pwa-install-pending');
+  sessionStorage.removeItem('oracle-install-reload-attempted');
+  Object.keys(sessionStorage)
+    .filter(key => key.startsWith('oracle-sw-reloaded-'))
+    .forEach(key => sessionStorage.removeItem(key));
+
+  if ('caches' in window) {
+    const keys = await caches.keys();
+    await Promise.all(keys.map(key => caches.delete(key)));
+  }
+
+  if ('serviceWorker' in navigator) {
+    const regs = await navigator.serviceWorker.getRegistrations().catch(() => []);
+    await Promise.all(regs.map(reg => reg.unregister().catch(() => false)));
+    const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
+    await reg.update().catch(() => {});
+  }
 }
 
 function escapeVcard(value = '') {
@@ -209,6 +232,14 @@ export default function InstallPage() {
   useEffect(() => {
     setMounted(true);
     setDevice(detectDevice());
+    if (
+      !window.matchMedia('(display-mode: standalone)').matches &&
+      (navigator as any).standalone !== true &&
+      sessionStorage.getItem(INSTALL_RESET_KEY) !== '1'
+    ) {
+      sessionStorage.setItem(INSTALL_RESET_KEY, '1');
+      resetInstallCacheState().catch(() => {});
+    }
     const inviteUsername = rememberInviteFromUrl();
     if (inviteUsername) {
       api.users.byUsername(inviteUsername)
@@ -530,6 +561,31 @@ export default function InstallPage() {
           </p>
         </div>
       )}
+
+      <button
+        onClick={() => {
+          setInstallMessage("Nettoyage de l'ancienne installation...");
+          resetInstallCacheState()
+            .then(() => {
+              setManualInstall(true);
+              setInstallMessage("Ancien cache supprimé. Appuie maintenant sur Installer Oracle Messenger.");
+            })
+            .catch(() => {
+              setManualInstall(true);
+              setInstallMessage("Nettoyage partiel effectué. Ferme Chrome puis rouvre cette page.");
+            });
+        }}
+        style={{
+          width: '100%', maxWidth: 380,
+          background: '#fff', color: 'var(--header-bg)',
+          border: '1.5px solid rgba(16,42,42,0.18)', borderRadius: 28,
+          padding: '13px 20px', fontSize: 13.5, fontWeight: 850,
+          cursor: 'pointer',
+          marginBottom: 10,
+        }}
+      >
+        Réinitialiser l'installation
+      </button>
 
       {/* Fallback — never block access */}
       <button

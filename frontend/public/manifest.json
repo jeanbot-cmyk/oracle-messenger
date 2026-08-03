@@ -3,7 +3,7 @@
   "short_name": "Oracle Messenger",
   "description": "Messagerie privée, rapide et sécurisée",
   "id": "https://messenger.oracle-plus.online/",
-  "start_url": "/chat?source=pwa&v=20260803-install-unblocked-74",
+  "start_url": "/chat?source=pwa&v=20260803-reinstall-fast-75",
   "scope": "/",
   "display": "standalone",
   "background_color": "#F7FAF8",
