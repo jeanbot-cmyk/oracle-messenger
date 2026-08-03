@@ -117,9 +117,10 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const [showMessageSearch, setShowMessageSearch] = useState(false);
   const [messageSearch, setMessageSearch] = useState('');
   const [activeSearchIndex, setActiveSearchIndex] = useState(0);
-  const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
+  const [forwardMessages, setForwardMessages] = useState<Message[]>([]);
   const [forwardTargets, setForwardTargets] = useState<string[]>([]);
   const [forwarding, setForwarding] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   // Audio recording
   const [recording, setRecording]   = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
@@ -163,6 +164,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       )
     : [];
   const activeSearchMessage = searchMatches[activeSearchIndex]?.id ?? '';
+  const selectedMessages = convMessages.filter(msg => selectedMessageIds.includes(msg.id) && !msg.isDeleted);
+  const selectionMode = selectedMessageIds.length > 0;
 
   useEffect(() => {
     setReplyTo(null);
@@ -170,6 +173,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     setShowMessageSearch(false);
     setMessageSearch('');
     setActiveSearchIndex(0);
+    setSelectedMessageIds([]);
+    setForwardMessages([]);
+    setForwardTargets([]);
     if (!activeConvId || !token) return;
     initialScrollPending.current = true;
     isNearBottomRef.current = true;
@@ -487,15 +493,36 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     setTimeout(() => setCallNotice(''), duration);
   }
 
+  function toggleMessageSelection(message: Message) {
+    if (message.isDeleted) return;
+    setShowEmoji(false);
+    setReplyTo(null);
+    setEditMsg(null);
+    setSelectedMessageIds(current => {
+      if (current.includes(message.id)) return current.filter(id => id !== message.id);
+      return [...current, message.id];
+    });
+  }
+
+  function clearMessageSelection() {
+    setSelectedMessageIds([]);
+  }
+
   function openForwardSheet(message: Message) {
     if (message.isDeleted) return;
-    setForwardMessage(message);
+    setForwardMessages([message]);
+    setForwardTargets([]);
+  }
+
+  function openSelectedForwardSheet() {
+    if (selectedMessages.length === 0) return;
+    setForwardMessages(selectedMessages);
     setForwardTargets([]);
   }
 
   function closeForwardSheet() {
     if (forwarding) return;
-    setForwardMessage(null);
+    setForwardMessages([]);
     setForwardTargets([]);
   }
 
@@ -512,17 +539,21 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     });
   }
 
-  function forwardSelectedMessage() {
-    if (!forwardMessage || forwarding || forwardTargets.length === 0) return;
+  function forwardSelectedMessages() {
+    if (forwardMessages.length === 0 || forwarding || forwardTargets.length === 0) return;
     const targets = forwardTargets.slice(0, 50);
     setForwarding(true);
     try {
       targets.forEach(conversationId => {
-        sendMessage(conversationId, forwardMessage.content, forwardMessage.type);
+        forwardMessages.forEach(message => {
+          sendMessage(conversationId, message.content, message.type);
+        });
       });
-      showNotice(`Message transféré à ${targets.length} contact${targets.length > 1 ? 's' : ''}.`);
-      setForwardMessage(null);
+      const messageLabel = forwardMessages.length > 1 ? `${forwardMessages.length} messages transférés` : 'Message transféré';
+      showNotice(`${messageLabel} à ${targets.length} contact${targets.length > 1 ? 's' : ''}.`);
+      setForwardMessages([]);
       setForwardTargets([]);
+      setSelectedMessageIds([]);
     } finally {
       setForwarding(false);
     }
@@ -607,7 +638,37 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         </button>
       </div>
 
-      {showMessageSearch && (
+      {selectionMode && (
+        <div style={{ flexShrink:0, background:'#FFFFFF', borderBottom:'1px solid var(--border)', padding:'8px 10px', display:'flex', alignItems:'center', gap:10, boxShadow:'0 4px 14px rgba(16,42,42,0.06)', zIndex:25 }}>
+          <button
+            onClick={clearMessageSelection}
+            aria-label="Annuler la sélection"
+            style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:'var(--bg-input)', color:'var(--text-primary)', cursor:'pointer', fontSize:20, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
+          >
+            ×
+          </button>
+          <div style={{ flex:1, minWidth:0 }}>
+            <p style={{ margin:0, fontSize:15, lineHeight:1.18, fontWeight:900, color:'var(--text-primary)' }}>
+              {selectedMessages.length} message{selectedMessages.length > 1 ? 's' : ''} sélectionné{selectedMessages.length > 1 ? 's' : ''}
+            </p>
+            <p style={{ margin:'2px 0 0', fontSize:12, lineHeight:1.2, fontWeight:700, color:'var(--text-muted)' }}>
+              Choisissez image, vidéo, lien ou texte, puis transférez.
+            </p>
+          </div>
+          <button
+            onClick={openSelectedForwardSheet}
+            disabled={selectedMessages.length === 0}
+            title="Transférer"
+            style={{ width:40, height:40, minHeight:40, borderRadius:'50%', border:'none', background:selectedMessages.length ? 'var(--header-bg)' : 'rgba(16,42,42,0.14)', color:selectedMessages.length ? '#fff' : 'var(--text-muted)', cursor:selectedMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow:selectedMessages.length ? '0 6px 18px rgba(16,42,42,0.18)' : 'none' }}
+          >
+            <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.3" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m-6-6l6 6-6 6" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {showMessageSearch && !selectionMode && (
         <div style={{ flexShrink:0, background:'#FFFFFF', borderBottom:'1px solid var(--border)', padding:'8px 10px', display:'flex', alignItems:'center', gap:8 }}>
           <div style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', gap:8, background:'var(--bg-input)', border:'1px solid var(--border)', borderRadius:999, padding:'8px 12px' }}>
             <svg width="16" height="16" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24">
@@ -688,6 +749,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                 onDelete={handleDelete}
                 onEdit={setEditMsg}
                 onForward={openForwardSheet}
+                onSelect={toggleMessageSelection}
+                selectionMode={selectionMode}
+                selected={selectedMessageIds.includes(msg.id)}
                 onMediaLoad={() => {
                   if (isNearBottomRef.current) requestAnimationFrame(() => scrollMessagesToBottom('auto'));
                 }}
@@ -872,7 +936,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       </div>
 
       {/* Transfert de message */}
-      {forwardMessage && (
+      {forwardMessages.length > 0 && (
         <div
           style={{ position:'fixed', inset:0, zIndex:520, background:'rgba(0,0,0,0.48)', display:'flex', alignItems:'flex-end' }}
           onClick={e => { if (e.target === e.currentTarget) closeForwardSheet(); }}
@@ -881,7 +945,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             style={{ width:'100%', maxHeight:'min(82dvh, 720px)', background:'var(--bg-surface)', borderRadius:'22px 22px 0 0', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 -14px 42px rgba(0,0,0,0.24)' }}
             role="dialog"
             aria-modal="true"
-            aria-label="Transférer le message"
+            aria-label="Transférer les messages"
           >
             <div style={{ padding:'14px 16px 10px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
               <button
@@ -897,7 +961,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                 <p style={{ margin:'3px 0 0', color:'var(--text-muted)', fontSize:12.5, fontWeight:750 }}>{forwardTargets.length}/50 contacts sélectionnés</p>
               </div>
               <button
-                onClick={forwardSelectedMessage}
+                onClick={forwardSelectedMessages}
                 disabled={forwardTargets.length === 0 || forwarding}
                 style={{ border:'none', borderRadius:999, background: forwardTargets.length === 0 || forwarding ? 'rgba(16,42,42,0.14)' : 'var(--header-bg)', color: forwardTargets.length === 0 || forwarding ? 'var(--text-muted)' : '#fff', padding:'10px 16px', fontSize:14, fontWeight:900, cursor: forwardTargets.length === 0 || forwarding ? 'default' : 'pointer', flexShrink:0 }}
               >
@@ -906,9 +970,13 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             </div>
 
             <div style={{ margin:'12px 16px 8px', padding:'10px 12px', borderRadius:14, background:'#EAF4F1', border:'1px solid rgba(16,42,42,0.12)', color:'var(--text-primary)', flexShrink:0 }}>
-              <p style={{ margin:'0 0 3px', fontSize:12, color:'var(--text-muted)', fontWeight:850 }}>Message sélectionné</p>
+              <p style={{ margin:'0 0 3px', fontSize:12, color:'var(--text-muted)', fontWeight:850 }}>
+                {forwardMessages.length} message{forwardMessages.length > 1 ? 's' : ''} à transférer
+              </p>
               <p style={{ margin:0, fontSize:14, lineHeight:1.35, fontWeight:750, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-                {messagePreview(forwardMessage)}
+                {forwardMessages.length === 1
+                  ? messagePreview(forwardMessages[0])
+                  : forwardMessages.slice(0, 3).map(messagePreview).join(' · ') + (forwardMessages.length > 3 ? ` · +${forwardMessages.length - 3}` : '')}
               </p>
             </div>
 

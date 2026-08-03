@@ -14,6 +14,9 @@ interface Props {
   onDelete: (id: string) => void;
   onEdit: (m: Message) => void;
   onForward: (m: Message) => void;
+  onSelect: (m: Message) => void;
+  selectionMode?: boolean;
+  selected?: boolean;
   onMediaLoad?: () => void;
 }
 
@@ -210,7 +213,7 @@ function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }
   );
 }
 
-export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onForward, onMediaLoad }: Props) {
+export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onForward, onSelect, selectionMode = false, selected = false, onMediaLoad }: Props) {
   const [showMenu, setShowMenu]       = useState(false);
   const [imgError, setImgError]       = useState(false);
   const [lightbox, setLightbox]       = useState(false);
@@ -231,6 +234,10 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
 
   // Double-tap → répondre
   function handleTap() {
+    if (selectionMode) {
+      onSelect(message);
+      return;
+    }
     const now = Date.now();
     if (now - lastTapRef.current < 300) {
       onReply(message);
@@ -240,6 +247,10 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
 
   // Long-press → menu contextuel
   function openMenu() {
+    if (selectionMode) {
+      onSelect(message);
+      return;
+    }
     const rect = wrapRef.current?.getBoundingClientRect();
     const vw = window.innerWidth || 360;
     const vh = window.innerHeight || 640;
@@ -287,6 +298,10 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
   }
 
   function onTouchMove(e: React.TouchEvent) {
+    if (selectionMode) {
+      handlePressEnd();
+      return;
+    }
     const dx = e.touches[0].clientX - touchStartX.current;
     const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
     if (Math.abs(dx) > 12 || dy > 12) handlePressEnd();
@@ -305,6 +320,11 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
 
   function onTouchEnd() {
     handlePressEnd();
+    if (selectionMode) {
+      setSwiping(false);
+      setSwipeX(0);
+      return;
+    }
     setSwiping(false);
     if (swipeTriggered.current) {
       onReply(message);
@@ -349,7 +369,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
   return (
     <div
       className={`om-message-row ${isOwn ? 'om-message-row-own' : 'om-message-row-in'}`}
-      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative', padding: '2px 0' }}
+      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative', padding: '2px 0', background: selected ? 'rgba(15,118,110,0.10)' : 'transparent', borderRadius: 12 }}
       ref={wrapRef}
       onContextMenu={e => { e.preventDefault(); openMenu(); }}
       onTouchStart={onTouchStart}
@@ -359,6 +379,38 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
       onMouseUp={handlePressEnd}
       onMouseLeave={handlePressEnd}
     >
+      {selectionMode && (
+        <button
+          type="button"
+          aria-label={selected ? 'Message sélectionné' : 'Sélectionner ce message'}
+          onClick={e => { e.stopPropagation(); onSelect(message); }}
+          style={{
+            position:'absolute',
+            left: isOwn ? 'auto' : 2,
+            right: isOwn ? 2 : 'auto',
+            top:'50%',
+            transform:'translateY(-50%)',
+            width:24,
+            height:24,
+            borderRadius:'50%',
+            border:selected ? 'none' : '2px solid var(--border)',
+            background:selected ? 'var(--header-bg)' : '#fff',
+            color:'#fff',
+            display:'flex',
+            alignItems:'center',
+            justifyContent:'center',
+            zIndex:2,
+            cursor:'pointer',
+            boxShadow:'0 2px 8px rgba(0,0,0,0.12)',
+          }}
+        >
+          {selected && (
+            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </button>
+      )}
       {/* Icône répondre qui apparaît au swipe */}
       <div style={{
         position: 'absolute', left: isOwn ? 'auto' : 8, right: isOwn ? 8 : 'auto',
@@ -378,6 +430,8 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
         position: 'relative',
         maxWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(74vw, 390px)' : 'min(76vw, 560px)',
         minWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(54vw, 240px)' : effectiveType === 'text' ? 82 : undefined,
+        marginLeft: selectionMode && !isOwn ? 30 : undefined,
+        marginRight: selectionMode && isOwn ? 30 : undefined,
         transform: swipeX ? `translateX(${swipeX}px)` : undefined,
         transition: swiping ? 'none' : 'transform 0.2s ease',
       }}>
@@ -415,7 +469,13 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
               <img src={mediaSrc} alt="image" onError={() => setImgError(true)}
                 style={{ width: '100%', maxHeight: 'min(52vh, 520px)', borderRadius: 8, display: 'block', cursor: 'zoom-in', objectFit: 'contain', background: '#111' }}
                 onLoad={onMediaLoad}
-                onClick={() => setLightbox(true)} />
+                onClick={event => {
+                  if (selectionMode) {
+                    event.preventDefault();
+                    return;
+                  }
+                  setLightbox(true);
+                }} />
               <div style={{ padding: '3px 6px 1px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
                 <span style={{ fontSize: 11.5, color: isOwn ? 'rgba(0,0,0,.48)' : 'var(--text-muted)' }}>{timeStr}</span>
                 {isOwn && <StatusIcon status={message.status} />}
@@ -432,7 +492,13 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
           {/* VIDEO */}
           {effectiveType === 'video' && !missingLocalMedia && (
             <div>
-              <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setLightbox(true)}>
+              <div style={{ position: 'relative', cursor: 'pointer' }} onClick={event => {
+                if (selectionMode) {
+                  event.preventDefault();
+                  return;
+                }
+                setLightbox(true);
+              }}>
                 <video src={mediaSrc} playsInline muted onLoadedMetadata={onMediaLoad}
                   style={{ width: '100%', maxHeight: 'min(52vh, 520px)', borderRadius: 8, display: 'block', pointerEvents: 'none', objectFit:'contain', background:'#111' }} />
                 {/* Bouton play overlay */}
@@ -500,6 +566,9 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
               </button>
               <button style={menuItemStyle} onClick={() => { onForward(message); setShowMenu(false); }}>
                 ↪️ Transférer
+              </button>
+              <button style={menuItemStyle} onClick={() => { onSelect(message); setShowMenu(false); }}>
+                ☑️ Sélectionner
               </button>
               {/* Copier le texte */}
               {effectiveType === 'text' && (
