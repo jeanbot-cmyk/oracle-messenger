@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v44
+// Oracle Messenger — Service Worker v45
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '44-20260803-incoming-ring-only';
+const CACHE_VERSION = '45-20260803-route-stability';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [

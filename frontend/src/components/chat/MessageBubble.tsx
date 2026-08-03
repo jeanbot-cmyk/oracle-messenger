@@ -453,7 +453,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onMed
                 const file = parseFilePayload(message.content);
                 return (
               <a href={file.url} download={file.name} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit', minWidth:220 }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(200,168,90,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color:'var(--accent-text)', fontSize:10, fontWeight:900 }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(16,42,42,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color:'var(--header-bg)', fontSize:10, fontWeight:900 }}>
                   {fileIcon(file.mime, file.name)}
                 </div>
                 <div style={{ minWidth: 0 }}>

@@ -61,7 +61,7 @@ function LoginContent() {
     <div style={{ minHeight:'100dvh', background:'#fff', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'32px 24px', boxSizing:'border-box', fontFamily:'system-ui,-apple-system,sans-serif' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
 
-      <div style={{ width:72, height:72, borderRadius:22, background:DEEP, border:'1px solid rgba(200,168,90,0.35)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:20, boxShadow:`0 8px 24px rgba(16,42,42,0.22)` }}>
+      <div style={{ width:72, height:72, borderRadius:22, background:DEEP, border:'1px solid rgba(16,42,42,0.14)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:20, boxShadow:`0 8px 24px rgba(16,42,42,0.22)` }}>
         <svg width="38" height="38" fill="none" viewBox="0 0 24 24">
           <path fill="white" d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.05 21.95l4.782-1.388A9.953 9.953 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2z"/>
           <circle cx="8.5" cy="12" r="1.3" fill={ACCENT}/>

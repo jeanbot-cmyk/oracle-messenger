@@ -701,8 +701,8 @@ export default function ContactsPage() {
         {!imported && !loading && (
           <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center', gap: 18, padding: 20 }}>
             <div style={{ background: SURFACE, border:`1px solid ${BORDER}`, borderRadius:22, padding:22, boxShadow:'var(--shadow)', textAlign:'center' }}>
-            <div style={{ width: 82, height: 82, borderRadius: '50%', background: 'rgba(200,168,90,0.16)', border: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin:'0 auto 16px' }}>
-              <svg width="40" height="40" fill="none" stroke="var(--accent-text)" strokeWidth="1.5" viewBox="0 0 24 24">
+            <div style={{ width: 82, height: 82, borderRadius: '50%', background: 'rgba(16,42,42,0.08)', border: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin:'0 auto 16px' }}>
+              <svg width="40" height="40" fill="none" stroke="var(--header-bg)" strokeWidth="1.5" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
               </svg>
             </div>
@@ -847,7 +847,7 @@ export default function ContactsPage() {
 
 function Avatar({ name, avatar, size = 48 }: { name: string; avatar?: string | null; size?: number }) {
   return (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: avatar ? 'transparent' : 'rgba(200,168,90,0.18)', border: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+    <div style={{ width: size, height: size, borderRadius: '50%', background: avatar ? 'transparent' : 'rgba(16,42,42,0.08)', border: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
       {avatar
         ? <img src={avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
         : <span style={{ fontSize: size * 0.42, fontWeight: 900, color: 'var(--accent-text)' }}>{name[0]?.toUpperCase()}</span>

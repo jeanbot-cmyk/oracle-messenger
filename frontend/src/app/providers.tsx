@@ -7,7 +7,7 @@ import { detectLanguage } from '../lib/i18n';
 import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 
-const CLIENT_CACHE_VERSION = '20260803-oracle-plus-consultation-theme';
+const CLIENT_CACHE_VERSION = '45-20260803-route-stability';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 
 function ThemeApplier() {
@@ -51,13 +51,6 @@ function ThemeApplier() {
                 navigator.serviceWorker.controller?.postMessage({ type: 'force-update' });
                 return reg.update().catch(() => {});
               })
-              .then(() => {
-                const reloadKey = `oracle-cache-reloaded-${CLIENT_CACHE_VERSION}`;
-                if (!sessionStorage.getItem(reloadKey)) {
-                  sessionStorage.setItem(reloadKey, '1');
-                  window.location.reload();
-                }
-              })
               .catch(() => localStorage.setItem('oracle-client-cache-version', CLIENT_CACHE_VERSION));
           }
           // Check for updates every time the page loads
@@ -66,7 +59,11 @@ function ThemeApplier() {
           // When a new SW takes over, reload to get fresh assets
           navigator.serviceWorker.addEventListener('message', e => {
             if (e.data?.type === 'SW_UPDATED') {
-              window.location.reload();
+              const reloadKey = `oracle-sw-reloaded-${CLIENT_CACHE_VERSION}`;
+              if (!sessionStorage.getItem(reloadKey)) {
+                sessionStorage.setItem(reloadKey, '1');
+                window.location.reload();
+              }
             }
           });
         })
@@ -197,9 +194,9 @@ function InstallBanner() {
 
   if (!visible) return null;
   return (
-    <div style={{ position:'fixed', top:0, left:0, right:0, zIndex:2000, background:'var(--header-bg)', color:'#fff', borderBottom:'1px solid rgba(200,168,90,0.28)', boxShadow:'0 6px 20px rgba(0,0,0,0.18)', padding:'8px 10px env(safe-area-inset-top)' }}>
+    <div style={{ position:'fixed', top:0, left:0, right:0, zIndex:2000, background:'var(--header-bg)', color:'#fff', borderBottom:'1px solid rgba(255,255,255,0.12)', boxShadow:'0 6px 20px rgba(0,0,0,0.18)', padding:'8px 10px env(safe-area-inset-top)' }}>
       <div style={{ display:'flex', alignItems:'center', gap:10, maxWidth:720, margin:'0 auto' }}>
-        <div style={{ width:34, height:34, borderRadius:10, background:'rgba(200,168,90,0.16)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+        <div style={{ width:34, height:34, borderRadius:10, background:'rgba(255,255,255,0.12)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
           <img src="/icons/icon-72-v20260803.png" alt="" style={{ width:26, height:26, borderRadius:7 }} />
         </div>
         <div style={{ flex:1, minWidth:0 }}>
@@ -244,8 +241,8 @@ function PhoneGate({ children }: { children: React.ReactNode }) {
         setChecked(true);
       })
       .catch(() => {
-        // Backend unreachable — require phone to be safe
-        setNeedsPhone(true);
+        // En cas de réseau faible, ne pas afficher une fausse étape qui fait clignoter l'app.
+        setNeedsPhone(false);
         setChecked(true);
       });
   }, [status, session]);

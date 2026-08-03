@@ -293,7 +293,7 @@ function CallsTab() {
   return (
     <div style={{ height:'100%', display:'flex', flexDirection:'column', background:'var(--bg-app)' }}>
       {/* Header */}
-      <div style={{ background:'var(--header-bg)', padding:'14px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0, borderBottom:'1px solid rgba(200,168,90,0.22)' }}>
+      <div style={{ background:'var(--header-bg)', padding:'14px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0, borderBottom:'1px solid rgba(255,255,255,0.12)' }}>
         <h2 style={{ color:'#fff', fontSize:18, fontWeight:800, margin:0 }}>Appels</h2>
         <div style={{ display:'flex', gap:8 }}>
           {log.length > 0 && (
@@ -303,7 +303,7 @@ function CallsTab() {
             </button>
           )}
           <button onClick={() => router.push('/contacts')}
-            style={{ background:'var(--accent)', border:'none', borderRadius:20, padding:'8px 16px', color:'var(--header-bg)', fontWeight:800, fontSize:13, cursor:'pointer' }}>
+            style={{ background:'#fff', border:'none', borderRadius:20, padding:'8px 16px', color:'var(--header-bg)', fontWeight:800, fontSize:13, cursor:'pointer' }}>
             + Nouvel appel
           </button>
         </div>
@@ -316,7 +316,7 @@ function CallsTab() {
         </div>
       ) : log.length === 0 ? (
         <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:12, color:'var(--text-muted)', padding:24 }}>
-          <div style={{ width:72, height:72, borderRadius:'50%', background:'rgba(200,168,90,0.12)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div style={{ width:72, height:72, borderRadius:'50%', background:'rgba(16,42,42,0.08)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center' }}>
             <svg width="36" height="36" fill="var(--accent)" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
           </div>
           <p style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)', margin:0 }}>Aucun appel récent</p>
@@ -332,7 +332,7 @@ function CallsTab() {
             return (
               <div key={entry.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 16px', background:'var(--bg-surface)', borderBottom:'1px solid var(--border)' }}>
                 {/* Avatar */}
-                <div style={{ width:48, height:48, borderRadius:'50%', background: entry.direction==='missed' ? '#fef2f2' : 'rgba(200,168,90,0.15)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                <div style={{ width:48, height:48, borderRadius:'50%', background: entry.direction==='missed' ? '#fef2f2' : 'rgba(16,42,42,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                   <span style={{ fontSize:20, fontWeight:800, color: entry.direction==='missed' ? '#dc2626' : 'var(--header-bg)' }}>{initials}</span>
                 </div>
                 {/* Info */}
@@ -369,13 +369,13 @@ function ActusTab() {
   const router = useRouter();
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--text-muted)', padding: 24, background: 'var(--bg-app)' }}>
-      <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(200,168,90,0.12)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>
+      <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(16,42,42,0.08)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>
         <svg width="36" height="36" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/></svg>
       </div>
       <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Stories & Actus</p>
       <p style={{ fontSize: 13, textAlign: 'center', lineHeight: 1.5 }}>Partagez des moments avec vos contacts</p>
       <button onClick={() => router.push('/stories')}
-        style={{ background: 'var(--accent)', color: 'var(--header-bg)', border: 'none', borderRadius: 20, padding: '10px 24px', cursor: 'pointer', fontWeight: 800, fontSize: 14, marginTop: 8 }}>
+        style={{ background: 'var(--header-bg)', color: '#fff', border: 'none', borderRadius: 20, padding: '10px 24px', cursor: 'pointer', fontWeight: 800, fontSize: 14, marginTop: 8 }}>
         Voir les stories
       </button>
     </div>
@@ -440,8 +440,8 @@ function OutilsTab({ onPickPhoto }: { onPickPhoto: () => void }) {
           <div style={{ background: 'var(--bg-surface)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
             {section.items.map((tool, i) => (
               <button key={tool.label} onClick={tool.action}
-                style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%', borderBottom: i < section.items.length - 1 ? '1px solid rgba(200,168,90,0.14)' : 'none' }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(200,168,90,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)', flexShrink: 0 }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%', borderBottom: i < section.items.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(16,42,42,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)', flexShrink: 0 }}>
                   {TOOL_ICONS[tool.iconKey]}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>

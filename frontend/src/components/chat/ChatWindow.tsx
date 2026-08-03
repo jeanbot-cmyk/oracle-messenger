@@ -562,7 +562,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                 <path strokeLinecap="round" d="M6 18L18 6M6 6l12 12"/>
               </svg>
             </button>
-            <div style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', gap:10, background:'var(--bg-surface)', borderRadius:24, padding:'6px 10px', border:'1px solid rgba(200,168,90,0.24)' }}>
+            <div style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', gap:10, background:'var(--bg-surface)', borderRadius:24, padding:'6px 10px', border:'1px solid var(--border)' }}>
               <audio src={voiceDraft.dataUrl} controls preload="metadata" style={{ width:'100%', height:34 }} />
               <span style={{ fontSize:12, color:'var(--text-muted)', fontWeight:700, whiteSpace:'nowrap' }}>
                 {String(Math.floor(voiceDraft.seconds / 60)).padStart(2,'0')}:{String(voiceDraft.seconds % 60).padStart(2,'0')}
@@ -609,7 +609,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             </div>
 
             {/* Textarea + emoji button */}
-            <div className="om-composer-input-shell" style={{ flex:1, background:'var(--bg-surface)', borderRadius:23, padding:'7px 12px', minHeight:42, display:'flex', alignItems:'center', gap:7, border:'1px solid rgba(200,168,90,0.20)' }}>
+            <div className="om-composer-input-shell" style={{ flex:1, background:'var(--bg-surface)', borderRadius:23, padding:'7px 12px', minHeight:42, display:'flex', alignItems:'center', gap:7, border:'1px solid var(--border)' }}>
               <textarea value={input} onChange={e => handleInputChange(e.target.value)}
                 onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 placeholder={t(lang,'chat.placeholder')} rows={1}
@@ -656,7 +656,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           onClick={e => { if (e.target === e.currentTarget) setProfileModal(false); }}>
           <div style={{ width:'100%', background:'var(--bg-surface)', borderRadius:'20px 20px 0 0', paddingBottom:40, overflow:'hidden' }}>
             {/* Cover + avatar */}
-            <div style={{ height:120, background:'var(--header-bg)', borderBottom:'1px solid rgba(200,168,90,0.24)', position:'relative', display:'flex', alignItems:'flex-end', justifyContent:'center', paddingBottom:0 }}>
+            <div style={{ height:120, background:'var(--header-bg)', borderBottom:'1px solid rgba(255,255,255,0.12)', position:'relative', display:'flex', alignItems:'flex-end', justifyContent:'center', paddingBottom:0 }}>
               <button onClick={() => setProfileModal(false)}
                 style={{ position:'absolute', top:12, right:12, width:32, height:32, borderRadius:'50%', border:'none', background:'rgba(0,0,0,0.3)', cursor:'pointer', color:'#fff', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center' }}>
                 ✕
@@ -689,12 +689,12 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                 {onStartCall && other && (
                   <>
                     <button onClick={() => { setProfileModal(false); startConversationCall('audio'); }}
-                      style={{ flex:1, background:'var(--accent)', color:'var(--header-bg)', border:'none', borderRadius:14, padding:'14px 0', fontSize:15, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
-                      <svg width="18" height="18" fill="var(--header-bg)" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+                      style={{ flex:1, background:'var(--header-bg)', color:'#fff', border:'none', borderRadius:14, padding:'14px 0', fontSize:15, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                      <svg width="18" height="18" fill="#fff" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
                       Appel
                     </button>
                     <button onClick={() => { setProfileModal(false); startConversationCall('video'); }}
-                      style={{ flex:1, background:'rgba(200,168,90,0.12)', color:'var(--text-primary)', border:'1px solid var(--border)', borderRadius:14, padding:'14px 0', fontSize:15, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                      style={{ flex:1, background:'rgba(16,42,42,0.08)', color:'var(--text-primary)', border:'1px solid var(--border)', borderRadius:14, padding:'14px 0', fontSize:15, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
                       <svg width="18" height="18" fill="none" stroke="var(--text-primary)" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.89L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
                       Vidéo
                     </button>

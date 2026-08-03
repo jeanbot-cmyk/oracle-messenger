@@ -79,7 +79,7 @@ export function ChatLayout() {
 
       {/* Bannière notifs */}
       {showNotifBanner && permission !== 'granted' && (
-        <div style={{ background:'var(--header-bg)', color:'#fff', padding:'calc(10px + env(safe-area-inset-top, 0px)) 16px 10px', display:'flex', alignItems:'center', gap:10, flexShrink:0, fontSize:13, borderBottom:'1px solid rgba(200,168,90,0.22)' }}>
+        <div style={{ background:'var(--header-bg)', color:'#fff', padding:'calc(10px + env(safe-area-inset-top, 0px)) 16px 10px', display:'flex', alignItems:'center', gap:10, flexShrink:0, fontSize:13, borderBottom:'1px solid rgba(255,255,255,0.12)' }}>
           <span style={{ fontSize:16 }}>🔔</span>
           <span style={{ flex:1 }}>
             {permission === 'denied'
@@ -88,7 +88,7 @@ export function ChatLayout() {
           </span>
           {permission !== 'denied' && (
           <button onClick={async () => { const ok = await requestPermission(); if (ok) setShowNotifBanner(false); }}
-            style={{ background:'var(--accent)', color:'var(--header-bg)', border:'none', borderRadius:8, padding:'5px 12px', cursor:'pointer', fontWeight:800, fontSize:12 }}>
+            style={{ background:'#fff', color:'var(--header-bg)', border:'none', borderRadius:8, padding:'5px 12px', cursor:'pointer', fontWeight:800, fontSize:12 }}>
             Activer
           </button>
           )}
