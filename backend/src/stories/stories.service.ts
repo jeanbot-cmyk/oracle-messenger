@@ -6,17 +6,27 @@ export class StoriesService {
   constructor(private prisma: PrismaService) {}
 
   private async visibleAuthorIds(userId: string) {
-    const participants = await this.prisma.participant.findMany({
-      where: {
-        userId: { not: userId },
-        conversation: {
-          participants: { some: { userId } },
+    const [participants, contacts] = await Promise.all([
+      this.prisma.participant.findMany({
+        where: {
+          userId: { not: userId },
+          conversation: {
+            participants: { some: { userId } },
+          },
         },
-      },
-      select: { userId: true },
-    });
+        select: { userId: true },
+      }),
+      this.prisma.contact.findMany({
+        where: { ownerId: userId },
+        select: { contactUserId: true },
+      }),
+    ]);
 
-    return [...new Set([userId, ...participants.map(p => p.userId)])];
+    return [...new Set([
+      userId,
+      ...participants.map(p => p.userId),
+      ...contacts.map(c => c.contactUserId),
+    ])];
   }
 
   async create(authorId: string, dto: { content: string; caption?: string; type: string; bg: string }) {

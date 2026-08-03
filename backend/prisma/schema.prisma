@@ -35,10 +35,29 @@ model User {
   storyViews       StoryView[]
   callLogs         CallLog[]
   pwaInstall       PwaInstall?
+  contacts         Contact[]     @relation("ContactOwner")
+  contactedBy      Contact[]     @relation("ContactTarget")
 
   @@index([phoneDigitsHash])
   @@index([phoneLast8Hash])
   @@index([phoneLast9Hash])
+}
+
+model Contact {
+  id            String   @id @default(uuid())
+  ownerId       String
+  contactUserId String
+  source        String   @default("phone_import") // phone_import | invite_link | conversation
+  displayName   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  owner         User     @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  contactUser   User     @relation("ContactTarget", fields: [contactUserId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, contactUserId])
+  @@index([ownerId])
+  @@index([contactUserId])
 }
 
 model PwaInstall {

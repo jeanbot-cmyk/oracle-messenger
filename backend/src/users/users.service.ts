@@ -102,10 +102,12 @@ export class UsersService {
       take: 500,
     });
 
-    return users.filter(user => {
+    const matched = users.filter(user => {
       const variants = this.phoneHashVariants(user.phone ?? '');
       return variants.some(hash => hashSet.has(hash));
     });
+    await this.rememberContacts(requesterId, matched.map(user => user.id), 'phone_import');
+    return matched;
   }
 
   async setOnline(id: string, online: boolean) {
@@ -117,6 +119,18 @@ export class UsersService {
 
   async savePushToken(userId: string, token: string) {
     return this.prisma.user.update({ where: { id: userId }, data: { pushToken: token } });
+  }
+
+  private async rememberContacts(ownerId: string, contactUserIds: string[], source: string) {
+    const ids = [...new Set(contactUserIds.filter(id => id && id !== ownerId))];
+    if (!ids.length) return;
+    await this.prisma.$transaction(ids.map(contactUserId => (
+      this.prisma.contact.upsert({
+        where: { ownerId_contactUserId: { ownerId, contactUserId } },
+        create: { ownerId, contactUserId, source },
+        update: { source },
+      })
+    )));
   }
 
   private normalizePhone(phone: string) {
