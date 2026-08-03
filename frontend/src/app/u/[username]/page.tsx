@@ -1,6 +1,6 @@
 'use client';
 export const dynamic = 'force-dynamic';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../../../lib/androidChrome';
@@ -29,9 +29,17 @@ export default function UserLandingPage({ params }: Props) {
   const username = normalizeUsername(params.username);
   const { status } = useSession();
   const router = useRouter();
+  const [sessionTimedOut, setSessionTimedOut] = useState(false);
 
   useEffect(() => {
-    if (status === 'loading') return;
+    if (status !== 'loading') return;
+    const timer = setTimeout(() => setSessionTimedOut(true), 3500);
+    return () => clearTimeout(timer);
+  }, [status]);
+
+  useEffect(() => {
+    const effectiveStatus = status === 'loading' && sessionTimedOut ? 'unauthenticated' : status;
+    if (effectiveStatus === 'loading') return;
     if (openCurrentAndroidLinkInChrome()) return;
     if (!username) {
       router.replace('/login');
@@ -44,12 +52,12 @@ export default function UserLandingPage({ params }: Props) {
       router.replace(`/install?from=${encodeURIComponent(username)}`);
       return;
     }
-    if (status === 'authenticated') {
+    if (effectiveStatus === 'authenticated') {
       router.replace(next);
     } else {
       router.replace(`/login?from=${encodeURIComponent(username)}`);
     }
-  }, [status, username, router]);
+  }, [status, sessionTimedOut, username, router]);
 
   return (
     <div style={{ margin:0, fontFamily:'system-ui,sans-serif', background:'var(--bg-app)', display:'flex', alignItems:'center', justifyContent:'center', minHeight:'100dvh' }}>

@@ -8,7 +8,7 @@ import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 import { clearOldTextMessages } from '../lib/db';
 
-const CLIENT_CACHE_VERSION = '57-20260803-android-chrome-direct';
+const CLIENT_CACHE_VERSION = '59-20260803-invite-session-timeout';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 
@@ -232,13 +232,30 @@ function InstallBanner() {
   );
 }
 
+function AppLoadingScreen({ text = 'Ouverture d’Oracle Messenger...' }: { text?: string }) {
+  return (
+    <div style={{ height:'100dvh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:14, background:'var(--bg-app)', color:'var(--text-primary)', fontFamily:'system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif', padding:24, textAlign:'center' }}>
+      <div style={{ width:52, height:52, borderRadius:16, background:'var(--header-bg)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 10px 28px rgba(16,42,42,0.18)' }}>
+        <img src="/icons/icon-72-v20260803.png" alt="" style={{ width:36, height:36, borderRadius:10 }} />
+      </div>
+      <div style={{ width:34, height:34, border:'3px solid var(--border)', borderTopColor:'var(--brand)', borderRadius:'50%', animation:'spin .8s linear infinite' }} />
+      <p style={{ margin:0, fontSize:14, lineHeight:1.45, fontWeight:800 }}>{text}</p>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+}
+
 function PhoneGate({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
   const [needsPhone, setNeedsPhone] = useState(false);
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    if (status === 'loading') return;
+    if (status === 'loading') {
+      const timer = setTimeout(() => setChecked(true), 3500);
+      return () => clearTimeout(timer);
+    }
+    setChecked(false);
     if (status !== 'authenticated') { setChecked(true); return; }
     const token = (session?.user as any)?.backendToken;
     if (!token) { setChecked(true); return; }
@@ -265,7 +282,7 @@ function PhoneGate({ children }: { children: React.ReactNode }) {
       });
   }, [status, session]);
 
-  if (!checked) return null;
+  if (!checked) return <AppLoadingScreen />;
   if (needsPhone) return <PhoneOnboarding onDone={() => setNeedsPhone(false)} />;
   return <>{children}</>;
 }
@@ -280,9 +297,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       {mounted ? (
         <>
           <PwaInstallTracker />
-          <PhoneGate>
-            <AndroidChromeGate>{children}</AndroidChromeGate>
-          </PhoneGate>
+          <AndroidChromeGate>
+            <PhoneGate>{children}</PhoneGate>
+          </AndroidChromeGate>
           <InstallBanner />
           <Toaster
             position="top-center"

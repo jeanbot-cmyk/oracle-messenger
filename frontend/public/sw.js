@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v57
+// Oracle Messenger — Service Worker v59
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '57-20260803-android-chrome-direct';
+const CACHE_VERSION = '59-20260803-invite-session-timeout';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [
