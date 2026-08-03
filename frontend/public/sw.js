@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v80
+// Oracle Messenger — Service Worker v81
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '80-20260803-stability';
+const CACHE_VERSION = '81-20260803-pwa-install';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [

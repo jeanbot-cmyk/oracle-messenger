@@ -7,7 +7,7 @@ import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../.
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
 const MANUAL_CONTACTS_KEY = 'oracle-manual-contacts';
-const INSTALL_VERSION = '80-20260803-stability';
+const INSTALL_VERSION = '81-20260803-pwa-install';
 const INSTALL_RESET_KEY = `oracle-install-reset-${INSTALL_VERSION}`;
 
 type Device = 'ios' | 'android' | 'other';
@@ -411,7 +411,6 @@ export default function InstallPage() {
   }, []);
 
   async function handleAndroidInstall() {
-    await refreshDiagnostic();
     if (shouldOpenAndroidLinkInChrome()) {
       setInstallMessage('Ouverture dans Chrome pour lancer une installation sûre...');
       window.location.assign(buildChromeInstallIntentUrl());
@@ -422,7 +421,7 @@ export default function InstallPage() {
     setInstallMessage('');
 
     if (prompt) {
-      // Call synchronously — must stay in user gesture context
+      // Must be called before any await, otherwise Chrome can lose the user gesture.
       setInstalling(true);
       try {
         prompt.prompt();
@@ -450,13 +449,13 @@ export default function InstallPage() {
       return;
     }
 
+    await refreshDiagnostic(false);
     if ('serviceWorker' in navigator) {
       try {
         const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
         reg.update().catch(() => {});
       } catch {}
     }
-    await refreshDiagnostic(false);
     setManualInstall(true);
     setInstallMessage("Si la fenêtre d'installation ne s'ouvre pas automatiquement, Chrome ne l'autorise pas maintenant. Appuie sur ⋮ en haut à droite, puis sur Installer l'application ou Ajouter à l'écran d'accueil.");
   }
