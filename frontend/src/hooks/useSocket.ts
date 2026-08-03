@@ -6,6 +6,22 @@ import { useChatStore } from '../store/chat';
 import { useNotifications } from './useNotifications';
 import type { Message } from '../types';
 
+function attachmentPreview(msg: Message) {
+  if (msg.isDeleted) return 'Message supprimé';
+  const content = msg.content ?? '';
+  let src = content.trim();
+  try {
+    const parsed = JSON.parse(src);
+    if (parsed && typeof parsed === 'object' && typeof parsed.url === 'string') src = parsed.url.trim();
+  } catch {}
+  const type = String(msg.type);
+  if (type === 'image' || src.startsWith('data:image')) return 'Photo';
+  if (type === 'video' || src.startsWith('data:video')) return 'Vidéo';
+  if (type === 'audio' || type === 'voice' || src.startsWith('data:audio')) return 'Audio';
+  if (type === 'file' || type === 'document' || src.startsWith('data:') || (src.length > 500 && /^[A-Za-z0-9+/=\r\n]+$/.test(src))) return 'Fichier';
+  return content;
+}
+
 export function useSocket() {
   const { data: session } = useSession();
   const token = session?.user?.backendToken;
@@ -31,7 +47,7 @@ export function useSocket() {
       // Notifier seulement si le message vient de quelqu'un d'autre
       if (msg.senderId !== userId) {
         const senderName = msg.sender?.name ?? 'Nouveau message';
-        const content = msg.isDeleted ? 'Message supprimé' : msg.content;
+        const content = attachmentPreview(msg);
         notifyMessage(senderName, content, msg.conversationId);
         // Sonnerie moderne à la réception
         import('../lib/sounds').then(({ playMessageSound }) => playMessageSound()).catch(() => {});
@@ -94,7 +110,7 @@ export function useSocket() {
     socket.emit(isTyping ? 'typing:start' : 'typing:stop', { conversationId: convId });
   }
 
-  function sendMessage(convId: string, content: string, type = 'text') {
+  function sendMessage(convId: string, content: string, type = 'text', replyToId?: string, replyTo?: Message | null) {
     if (!token) return;
     const socket = getSocket(token);
     if (!socket) return;
@@ -118,13 +134,15 @@ export function useSocket() {
       type: resolvedType,
       status: 'sending',
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       isEdited: false,
-      replyTo: null,
+      isDeleted: false,
+      replyTo: replyTo ?? null,
       sender: { id: userId, name: '', username: '', avatar: undefined },
     };
     useChatStore.getState().addMessage(optimistic);
 
-    socket.emit('message:send', { conversationId: convId, content, type: resolvedType }, (ack: any) => {
+    socket.emit('message:send', { conversationId: convId, content, type: resolvedType, replyToId }, (ack: any) => {
       // When server confirms, replace temp message with real one
       if (ack?.id) {
         useChatStore.getState().deleteMessage(convId, tempId);
@@ -133,12 +151,28 @@ export function useSocket() {
     });
   }
 
-  function markRead(convId: string, messageId: string) {
+  function deleteMessage(convId: string, messageId: string) {
+    if (!token) return;
+    const socket = getSocket(token);
+    if (!socket) return;
+    socket.emit('message:delete', { conversationId: convId, messageId });
+    store.deleteMessage(convId, messageId);
+  }
+
+  function editMessage(messageId: string, content: string) {
+    if (!token) return;
+    const socket = getSocket(token);
+    if (!socket) return;
+    socket.emit('message:edit', { messageId, content });
+    store.updateMessage(messageId, { content, isEdited: true });
+  }
+
+  function markRead(convId: string, messageId?: string) {
     if (!token) return;
     const socket = getSocket(token);
     if (!socket) return;
     socket.emit('message:read', { conversationId: convId, messageId });
   }
 
-  return { joinConversation, sendTyping, sendMessage, markRead };
+  return { joinConversation, sendTyping, sendMessage, deleteMessage, editMessage, markRead };
 }

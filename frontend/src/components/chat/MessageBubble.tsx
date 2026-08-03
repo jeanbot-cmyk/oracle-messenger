@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { format } from 'date-fns';
 import type { Message } from '../../types';
 import { useSettings } from '../../store/settings';
@@ -13,6 +13,7 @@ interface Props {
   onReply: (m: Message) => void;
   onDelete: (id: string) => void;
   onEdit: (m: Message) => void;
+  onMediaLoad?: () => void;
 }
 
 function StatusIcon({ status }: { status: Message['status'] }) {
@@ -23,38 +24,194 @@ function StatusIcon({ status }: { status: Message['status'] }) {
   return null;
 }
 
-function isBase64(s: string) {
-  return typeof s === 'string' && s.startsWith('data:');
+function attachmentUrl(content: string) {
+  const trimmed = typeof content === 'string' ? content.trim() : '';
+  if (!trimmed) return '';
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object' && typeof parsed.url === 'string') return parsed.url.trim();
+  } catch {}
+  return trimmed;
+}
+
+function isDataUrl(s: string) {
+  return typeof s === 'string' && s.trim().startsWith('data:');
+}
+
+function looksLikeRawEncodedMedia(s: string) {
+  const trimmed = typeof s === 'string' ? s.trim() : '';
+  return trimmed.length > 500 && /^[A-Za-z0-9+/=\r\n]+$/.test(trimmed);
 }
 
 function detectType(content: string, declaredType: string): 'image' | 'video' | 'audio' | 'file' | 'text' {
-  if (declaredType === 'image' || (isBase64(content) && content.startsWith('data:image'))) return 'image';
-  if (declaredType === 'video' || (isBase64(content) && content.startsWith('data:video'))) return 'video';
-  if (declaredType === 'audio' || (isBase64(content) && content.startsWith('data:audio'))) return 'audio';
+  const src = attachmentUrl(content);
+  if (declaredType === 'image' || (isDataUrl(src) && src.startsWith('data:image'))) return 'image';
+  if (declaredType === 'video' || (isDataUrl(src) && src.startsWith('data:video'))) return 'video';
+  if (declaredType === 'audio' || declaredType === 'voice' || (isDataUrl(src) && src.startsWith('data:audio'))) return 'audio';
   if (declaredType === 'file' || declaredType === 'document') return 'file';
-  if (isBase64(content)) {
-    if (content.includes('image/')) return 'image';
-    if (content.includes('video/')) return 'video';
-    if (content.includes('audio/')) return 'audio';
+  if (isDataUrl(src)) {
+    if (src.includes('image/')) return 'image';
+    if (src.includes('video/')) return 'video';
+    if (src.includes('audio/')) return 'audio';
     return 'file';
   }
+  if (looksLikeRawEncodedMedia(content)) return 'file';
   return 'text';
 }
 
-export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Props) {
+function parseFilePayload(content: string) {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object' && typeof parsed.url === 'string') {
+      return {
+        url: parsed.url as string,
+        name: typeof parsed.name === 'string' ? parsed.name : 'Fichier joint',
+        size: typeof parsed.size === 'number' ? parsed.size : undefined,
+        mime: typeof parsed.mime === 'string' ? parsed.mime : '',
+      };
+    }
+  } catch {}
+  return { url: attachmentUrl(content), name: 'Fichier joint', size: undefined as number | undefined, mime: '' };
+}
+
+function formatBytes(size?: number) {
+  if (!size) return '';
+  if (size < 1024) return `${size} o`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} Ko`;
+  return `${(size / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
+function fileIcon(mime: string, name: string) {
+  const lower = `${mime} ${name}`.toLowerCase();
+  if (lower.includes('pdf')) return 'PDF';
+  if (lower.includes('word') || lower.includes('.doc')) return 'DOC';
+  if (lower.includes('excel') || lower.includes('sheet') || lower.includes('.xls')) return 'XLS';
+  if (lower.includes('zip') || lower.includes('rar')) return 'ZIP';
+  return 'FILE';
+}
+
+function linkifyText(text: string) {
+  const parts = text.split(/((?:https?:\/\/|www\.)[^\s<]+)/gi);
+  return parts.map((part, index) => {
+    if (!/^(https?:\/\/|www\.)/i.test(part)) return part;
+    const href = part.startsWith('www.') ? `https://${part}` : part;
+    return (
+      <a
+        key={`${part}-${index}`}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(event) => event.stopPropagation()}
+        style={{ color: '#0B63CE', textDecoration: 'underline', fontWeight: 600, overflowWrap: 'anywhere' }}
+      >
+        {part}
+      </a>
+    );
+  });
+}
+
+function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [current, setCurrent] = useState(0);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.defaultPlaybackRate = 1;
+    audio.playbackRate = 1;
+    const onLoaded = () => setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+    const onTime = () => setCurrent(audio.currentTime || 0);
+    const onEnded = () => setPlaying(false);
+    const onError = () => setError(true);
+    audio.addEventListener('loadedmetadata', onLoaded);
+    audio.addEventListener('timeupdate', onTime);
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('error', onError);
+    return () => {
+      audio.removeEventListener('loadedmetadata', onLoaded);
+      audio.removeEventListener('timeupdate', onTime);
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('error', onError);
+    };
+  }, [src]);
+
+  function fmt(seconds: number) {
+    if (!Number.isFinite(seconds) || seconds <= 0) return '00:00';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+
+  async function toggle() {
+    const audio = audioRef.current;
+    if (!audio || error) return;
+    try {
+      if (audio.paused) {
+        await audio.play();
+        setPlaying(true);
+      } else {
+        audio.pause();
+        setPlaying(false);
+      }
+    } catch {
+      setError(true);
+    }
+  }
+
+  const pct = duration > 0 ? Math.min(100, (current / duration) * 100) : 0;
+
+  return (
+    <div style={{ padding: '7px 9px', minWidth: 244, maxWidth: 340 }}>
+      <audio ref={audioRef} src={src} preload="metadata" />
+      <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+        <button onClick={toggle} disabled={error}
+          style={{ width:40, height:40, borderRadius:'50%', border:'none', background:error ? 'var(--bg-app)' : 'transparent', color:error ? 'var(--text-muted)' : '#5F6B70', cursor:error ? 'not-allowed' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+          {playing ? (
+            <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+          ) : (
+            <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          )}
+        </button>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ height:4, borderRadius:999, background:'rgba(16,42,42,0.18)', overflow:'hidden', marginBottom:5 }}>
+            <div style={{ width:`${pct}%`, height:'100%', background:'#5F6B70', borderRadius:999 }} />
+          </div>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+            <span style={{ fontSize:12, color:'var(--text-secondary)', fontWeight:600 }}>{fmt(current)}</span>
+            <span style={{ fontSize:12, color:'var(--text-muted)' }}>{duration ? fmt(duration) : 'Message vocal'}</span>
+          </div>
+        </div>
+      </div>
+      {error && (
+        <div style={{ marginTop:8, padding:'8px 10px', borderRadius:10, background:'rgba(220,38,38,0.08)', color:'#991b1b', fontSize:12, lineHeight:1.4 }}>
+          Lecture impossible sur ce téléphone. <a href={src} download="message-vocal" style={{ color:'#991b1b', fontWeight:800 }}>Télécharger l'audio</a>
+        </div>
+      )}
+      {timeRow}
+    </div>
+  );
+}
+
+export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onMediaLoad }: Props) {
   const [showMenu, setShowMenu]       = useState(false);
   const [imgError, setImgError]       = useState(false);
   const [lightbox, setLightbox]       = useState(false);
   const [swipeX, setSwipeX]           = useState(0);
   const [swiping, setSwiping]         = useState(false);
   const [copied, setCopied]           = useState(false);
+  const [menuPos, setMenuPos]         = useState<{ top: number; left: number; width: number } | null>(null);
   const longPressTimer                = useRef<NodeJS.Timeout | null>(null);
   const lastTapRef                    = useRef(0);
+  const wrapRef                       = useRef<HTMLDivElement | null>(null);
 
   // Auto-save silencieux des médias reçus dans la galerie
   const effectiveTypeEarly = detectType(message.content, message.type ?? 'text');
+  const mediaSrcEarly = attachmentUrl(message.content);
   if (!isOwn && !message.isDeleted && (effectiveTypeEarly === 'image' || effectiveTypeEarly === 'video')) {
-    saveToGallery(message.content, effectiveTypeEarly, undefined);
+    saveToGallery(mediaSrcEarly, effectiveTypeEarly, undefined);
   }
 
   // Double-tap → répondre
@@ -67,8 +224,24 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
   }
 
   // Long-press → menu contextuel
+  function openMenu() {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    const vw = window.innerWidth || 360;
+    const vh = window.innerHeight || 640;
+    const width = Math.min(260, vw - 16);
+    const estimatedHeight = isOwn ? 224 : effectiveTypeEarly === 'text' ? 116 : 116;
+    let left = rect ? (isOwn ? rect.right - width : rect.left) : 8;
+    let top = rect ? rect.top - estimatedHeight - 8 : 80;
+    if (top < 8 && rect) top = rect.bottom + 8;
+    left = Math.max(8, Math.min(left, vw - width - 8));
+    top = Math.max(8, Math.min(top, vh - estimatedHeight - 8));
+    setMenuPos({ top, left, width });
+    setShowMenu(true);
+  }
+
   function handlePressStart() {
-    longPressTimer.current = setTimeout(() => setShowMenu(true), 500);
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = setTimeout(openMenu, 500);
   }
   function handlePressEnd() {
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
@@ -91,6 +264,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
 
   // ── Swipe to reply (WhatsApp style) ──────────────────────────────────────
   function onTouchStart(e: React.TouchEvent) {
+    handlePressStart();
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
     swipeTriggered.current = false;
@@ -100,6 +274,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
   function onTouchMove(e: React.TouchEvent) {
     const dx = e.touches[0].clientX - touchStartX.current;
     const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
+    if (Math.abs(dx) > 12 || dy > 12) handlePressEnd();
     // Ignorer si scroll vertical dominant
     if (dy > Math.abs(dx)) return;
     // Swipe droite uniquement (répondre)
@@ -114,6 +289,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
   }
 
   function onTouchEnd() {
+    handlePressEnd();
     setSwiping(false);
     if (swipeTriggered.current) {
       onReply(message);
@@ -126,13 +302,17 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
   if (message.isDeleted) return null;
 
   const effectiveType = detectType(message.content, message.type ?? 'text');
+  const mediaSrc = attachmentUrl(message.content);
   const timeStr = (() => { try { return format(new Date(message.createdAt), 'HH:mm'); } catch { return ''; } })();
 
   const menuStyle: React.CSSProperties = {
-    position: 'absolute', zIndex: 50,
+    position: 'fixed', zIndex: 1000,
     background: 'var(--bg-surface)', border: '1px solid var(--border)',
-    borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,.18)', minWidth: 160,
-    ...(isOwn ? { right: 0 } : { left: 0 }), bottom: '100%', marginBottom: 6, overflow: 'hidden',
+    borderRadius: 12, boxShadow: '0 10px 34px rgba(0,0,0,.22)', minWidth: 160,
+    width: menuPos?.width ?? 230,
+    left: menuPos?.left ?? 8,
+    top: menuPos?.top ?? 80,
+    overflow: 'hidden',
   };
   const menuItemStyle: React.CSSProperties = {
     width: '100%', display: 'flex', alignItems: 'center', gap: 10,
@@ -141,8 +321,8 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
   };
 
   const TimeRow = () => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', marginTop: 4 }}>
-      <span style={{ fontSize: 12, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>{timeStr}</span>
+    <div className="om-message-time-row" style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', marginTop: 1, minHeight: 14 }}>
+      <span style={{ fontSize: 10.8, color: isOwn ? 'rgba(0,0,0,.46)' : 'var(--text-muted)', lineHeight: 1 }}>{timeStr}</span>
       {message.isEdited && <span style={{ fontSize: 12, color: isOwn ? 'rgba(0,0,0,.4)' : 'var(--text-muted)' }}>modifié</span>}
       {isOwn && <StatusIcon status={message.status} />}
     </div>
@@ -152,11 +332,16 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
 
   return (
     <div
-      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative' }}
-      onContextMenu={e => { e.preventDefault(); setShowMenu(true); }}
+      className={`om-message-row ${isOwn ? 'om-message-row-own' : 'om-message-row-in'}`}
+      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative', padding: '2px 0' }}
+      ref={wrapRef}
+      onContextMenu={e => { e.preventDefault(); openMenu(); }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
+      onMouseDown={handlePressStart}
+      onMouseUp={handlePressEnd}
+      onMouseLeave={handlePressEnd}
     >
       {/* Icône répondre qui apparaît au swipe */}
       <div style={{
@@ -174,8 +359,10 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
       </div>
 
       <div style={{
-        position: 'relative', maxWidth: '78%',
-        transform: `translateX(${swipeX}px)`,
+        position: 'relative',
+        maxWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(74vw, 390px)' : 'min(76vw, 560px)',
+        minWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(54vw, 240px)' : undefined,
+        transform: swipeX ? `translateX(${swipeX}px)` : undefined,
         transition: swiping ? 'none' : 'transform 0.2s ease',
       }}>
 
@@ -187,21 +374,25 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
         )}
 
         <div
-          className={isOwn ? 'bubble-out' : 'bubble-in'}
-          style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? '4px' : '8px 12px', overflow: 'hidden' }}
+          className={`om-message-bubble ${isOwn ? 'bubble-out' : 'bubble-in'}`}
+          style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? 3 : '6px 8px 4px 9px', overflow: 'hidden' }}
           onTouchStart={handlePressStart}
           onTouchEnd={() => { handlePressEnd(); handleTap(); }}
           onTouchMove={handlePressEnd}
+          onMouseDown={handlePressStart}
+          onMouseUp={() => { handlePressEnd(); handleTap(); }}
+          onMouseLeave={handlePressEnd}
           onDoubleClick={() => onReply(message)}
         >
           {/* IMAGE */}
           {effectiveType === 'image' && !imgError && (
             <div>
-              <img src={message.content} alt="image" onError={() => setImgError(true)}
-                style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 10, display: 'block', cursor: 'zoom-in', objectFit: 'cover' }}
+              <img src={mediaSrc} alt="image" onError={() => setImgError(true)}
+                style={{ width: '100%', maxHeight: 520, borderRadius: 8, display: 'block', cursor: 'zoom-in', objectFit: 'contain', background: '#111' }}
+                onLoad={onMediaLoad}
                 onClick={() => setLightbox(true)} />
-              <div style={{ padding: '4px 8px 2px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
-                <span style={{ fontSize: 12, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>{timeStr}</span>
+              <div style={{ padding: '3px 6px 1px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 11.5, color: isOwn ? 'rgba(0,0,0,.48)' : 'var(--text-muted)' }}>{timeStr}</span>
                 {isOwn && <StatusIcon status={message.status} />}
               </div>
             </div>
@@ -217,8 +408,8 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
           {effectiveType === 'video' && (
             <div>
               <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setLightbox(true)}>
-                <video src={message.content} playsInline muted
-                  style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 10, display: 'block', pointerEvents: 'none' }} />
+                <video src={mediaSrc} playsInline muted onLoadedMetadata={onMediaLoad}
+                  style={{ width: '100%', maxHeight: 520, borderRadius: 8, display: 'block', pointerEvents: 'none', objectFit:'contain', background:'#111' }} />
                 {/* Bouton play overlay */}
                 <div style={{
                   position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -229,8 +420,8 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
                   </div>
                 </div>
               </div>
-              <div style={{ padding: '4px 8px 2px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
-                <span style={{ fontSize: 12, color: isOwn ? 'rgba(0,0,0,.45)' : 'var(--text-muted)' }}>{timeStr}</span>
+              <div style={{ padding: '3px 6px 1px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 11.5, color: isOwn ? 'rgba(0,0,0,.48)' : 'var(--text-muted)' }}>{timeStr}</span>
                 {isOwn && <StatusIcon status={message.status} />}
               </div>
             </div>
@@ -238,26 +429,28 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
 
           {/* AUDIO */}
           {effectiveType === 'audio' && (
-            <div style={{ padding: '8px 12px' }}>
-              <audio src={message.content} controls style={{ width: '100%', maxWidth: 260 }} />
-              <TimeRow />
-            </div>
+            <AudioPlayer src={mediaSrc} timeRow={<TimeRow />} />
           )}
 
           {/* FILE */}
           {effectiveType === 'file' && (
             <div style={{ padding: '8px 12px' }}>
-              <a href={message.content} download style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit' }}>
-                <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
-                  </svg>
+              {(() => {
+                const file = parseFilePayload(message.content);
+                return (
+              <a href={file.url} download={file.name} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit', minWidth:220 }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(200,168,90,0.18)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color:'var(--accent-text)', fontSize:10, fontWeight:900 }}>
+                  {fileIcon(file.mime, file.name)}
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>Fichier joint</p>
-                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>Appuyer pour télécharger</p>
+                  <p style={{ fontSize: 13, fontWeight: 800, margin: 0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:210 }}>{file.name}</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
+                    {[file.mime || 'Document', formatBytes(file.size)].filter(Boolean).join(' · ')}
+                  </p>
                 </div>
               </a>
+                );
+              })()}
               <TimeRow />
             </div>
           )}
@@ -265,8 +458,8 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
           {/* TEXT */}
           {effectiveType === 'text' && (
             <>
-              <p style={{ fontSize: 15, lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}>
-                {message.content}
+              <p className="om-message-text" style={{ fontSize: 15, lineHeight: 1.34, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere', margin: 0, letterSpacing: 0 }}>
+                {linkifyText(message.content)}
               </p>
               <TimeRow />
             </>
@@ -313,11 +506,11 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit }: Pro
       {/* Lightbox plein écran */}
       {lightbox && (effectiveType === 'image' || effectiveType === 'video') && (
         <MediaLightbox
-          src={message.content}
+          src={mediaSrc}
           type={effectiveType}
           onClose={() => setLightbox(false)}
           onSave={() => {
-            saveToGallery(message.content, effectiveType as 'image' | 'video');
+            saveToGallery(mediaSrc, effectiveType as 'image' | 'video');
           }}
         />
       )}
