@@ -96,6 +96,23 @@ async function normalizeNativeContact(c: any): Promise<LocalContact> {
   };
 }
 
+function canUseContactPicker() {
+  return typeof navigator !== 'undefined' && typeof (navigator as any).contacts?.select === 'function';
+}
+
+async function getSupportedContactProps() {
+  const manager = (navigator as any).contacts;
+  const fallback = ['name', 'tel', 'email'];
+  if (typeof manager?.getProperties !== 'function') return fallback;
+  try {
+    const supported = await manager.getProperties();
+    const props = ['name', 'tel', 'email', 'icon'].filter(prop => supported.includes(prop));
+    return props.length ? props : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export default function ContactsPage() {
   const { data: session, status } = useSession();
   const router     = useRouter();
@@ -249,18 +266,21 @@ export default function ContactsPage() {
     setNotice('');
     let locals: LocalContact[] = [];
     try {
-      if ('contacts' in navigator && 'ContactsManager' in window) {
+      if (canUseContactPicker()) {
         // Contact Picker API — le navigateur affiche sa propre UI de sélection
-        const raw = await (navigator as any).contacts.select(
-          ['name', 'tel', 'email', 'icon'],
-          { multiple: true },
-        );
+        const props = await getSupportedContactProps();
+        const raw = await (navigator as any).contacts.select(props, { multiple: true });
         locals = await Promise.all((raw as any[]).map(normalizeNativeContact));
         if (locals.length > 0) {
           localStorage.setItem(CACHE_KEY, JSON.stringify(locals));
+        } else {
+          setNotice('Aucun contact sélectionné. Appuyez sur “Ajouter un contact” pour continuer manuellement.');
         }
       } else {
         locals = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]');
+        if (locals.length === 0) {
+          setNotice('Ce navigateur ne permet pas l’import automatique des contacts. Utilisez Chrome Android ou ajoutez un contact manuellement.');
+        }
       }
     } catch (err: any) {
       // L'utilisateur a refusé ou l'API a échoué
@@ -270,6 +290,7 @@ export default function ContactsPage() {
         err?.message?.toLowerCase().includes('cancel') ||
         err?.message?.toLowerCase().includes('denied');
       if (denied) setPermDenied(true);
+      setNotice('L’import des contacts n’a pas pu s’ouvrir. Autorisez les contacts ou ajoutez un contact manuellement.');
       locals = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]');
     }
     const manual: LocalContact[] = JSON.parse(localStorage.getItem(MANUAL_KEY) ?? '[]');
@@ -278,7 +299,7 @@ export default function ContactsPage() {
     if (all.length > 0) {
       await matchWithBackend(all);
     } else {
-      // Aucun contact local → afficher les utilisateurs Oracle connus
+      // Aucun contact local → afficher les utilisateurs Oracle connus et garder une action manuelle visible.
       await loadAllOracleUsers();
     }
   }, [token]);
@@ -388,7 +409,7 @@ export default function ContactsPage() {
   );
   const oracleContacts = filtered.filter(c => c.appUser);
   const inviteContacts = filtered.filter(c => !c.appUser);
-  const hasNative     = typeof window !== 'undefined' && 'contacts' in navigator && 'ContactsManager' in window;
+  const hasNative     = canUseContactPicker();
 
   if (!mounted || status === 'loading') return <Spinner />;
 
@@ -435,7 +456,7 @@ export default function ContactsPage() {
               <circle cx="8.5" cy="7" r="4"/>
               <path strokeLinecap="round" strokeLinejoin="round" d="M20 8v6m3-3h-6"/>
             </svg>
-            Importer
+            {hasNative ? 'Importer' : 'Chercher'}
           </button>
         </div>
       </div>
