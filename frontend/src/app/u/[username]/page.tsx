@@ -2,10 +2,8 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { buildChromeIntentUrl, shouldOpenAndroidLinkInChrome } from '../../../lib/androidChrome';
-
-interface Props { params: { username: string }; }
 
 function decodeSafe(value: string) {
   try {
@@ -25,8 +23,10 @@ function isStandaloneMode() {
 }
 
 // Client component — gère la session et redirige correctement
-export default function UserLandingPage({ params }: Props) {
-  const username = normalizeUsername(params.username);
+export default function UserLandingPage() {
+  const params = useParams<{ username?: string | string[] }>();
+  const rawUsername = Array.isArray(params?.username) ? params.username[0] : params?.username;
+  const username = normalizeUsername(rawUsername ?? '');
   const { status } = useSession();
   const router = useRouter();
   const [sessionTimedOut, setSessionTimedOut] = useState(false);
