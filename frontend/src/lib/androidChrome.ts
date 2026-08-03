@@ -25,7 +25,8 @@ export function shouldOpenAndroidLinkInChrome() {
 export function buildChromeIntentUrl(url = window.location.href) {
   const target = new URL(url);
   const path = `${target.pathname}${target.search}${target.hash}`;
-  return `intent://${target.host}${path}#Intent;scheme=${target.protocol.replace(':', '')};package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(target.href)};end`;
+  const chromeFallback = 'https://play.google.com/store/apps/details?id=com.android.chrome';
+  return `intent://${target.host}${path}#Intent;scheme=https;package=com.android.chrome;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.browser_fallback_url=${encodeURIComponent(chromeFallback)};end`;
 }
 
 export function openCurrentAndroidLinkInChrome(scope = 'route') {
