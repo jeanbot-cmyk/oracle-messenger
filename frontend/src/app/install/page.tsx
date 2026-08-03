@@ -17,6 +17,27 @@ function appEntry() {
   return localStorage.getItem('oracle-after-login') || sessionStorage.getItem('oracle-after-login') || '/';
 }
 
+function normalizeInviteUsername(value: string) {
+  try {
+    return decodeURIComponent(value || '').trim().replace(/^@+/, '').replace(/[^a-z0-9._-].*$/i, '').toLowerCase();
+  } catch {
+    return (value || '').trim().replace(/^@+/, '').replace(/[^a-z0-9._-].*$/i, '').toLowerCase();
+  }
+}
+
+function rememberInviteFromUrl() {
+  const from = normalizeInviteUsername(new URLSearchParams(window.location.search).get('from') || '');
+  if (!from) return '';
+  const next = `/contacts?from=${encodeURIComponent(from)}`;
+  sessionStorage.setItem('oracle-after-login', next);
+  localStorage.setItem('oracle-after-login', next);
+  return next;
+}
+
+function goToAppEntry() {
+  window.location.replace(appEntry());
+}
+
 const IOS_STEPS = [
   {
     title: 'Appuyez sur Partager',
@@ -118,13 +139,14 @@ export default function InstallPage() {
   useEffect(() => {
     setMounted(true);
     setDevice(detectDevice());
+    rememberInviteFromUrl();
 
     // Already installed → go straight to app
     if (
       window.matchMedia('(display-mode: standalone)').matches ||
       (navigator as any).standalone === true
     ) {
-      window.location.replace(appEntry());
+      goToAppEntry();
       return;
     }
 
@@ -141,7 +163,7 @@ export default function InstallPage() {
     window.addEventListener('beforeinstallprompt', handler);
     window.addEventListener('appinstalled', () => {
       setInstalled(true);
-      setTimeout(() => window.location.replace(appEntry()), 1800);
+      setTimeout(goToAppEntry, 1800);
     });
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
@@ -160,7 +182,7 @@ export default function InstallPage() {
         .then((choice: any) => {
           if (choice.outcome === 'accepted') {
             setInstalled(true);
-            setTimeout(() => window.location.replace(appEntry()), 1800);
+            setTimeout(goToAppEntry, 1800);
           }
           setInstalling(false);
         })
@@ -184,7 +206,7 @@ export default function InstallPage() {
         .then((choice: any) => {
           if (choice.outcome === 'accepted') {
             setInstalled(true);
-            setTimeout(() => window.location.replace(appEntry()), 1800);
+            setTimeout(goToAppEntry, 1800);
           }
           setInstalling(false);
         })
@@ -252,7 +274,7 @@ export default function InstallPage() {
         {/* Buttons */}
         <div style={{ padding: '0 24px 44px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {isLast ? (
-            <button onClick={() => window.location.replace(appEntry())}
+            <button onClick={goToAppEntry}
               style={{ width: '100%', background: ACCENT, color: '#fff', border: 'none', borderRadius: 28, padding: '18px 24px', fontSize: 17, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
               Ouvrir Oracle Messenger →
             </button>
@@ -262,7 +284,7 @@ export default function InstallPage() {
               Suivant →
             </button>
           )}
-          <button onClick={() => window.location.replace('/login')}
+          <button onClick={goToAppEntry}
             style={{ width: '100%', background: 'transparent', color: 'var(--text-muted)', border: '1.5px solid var(--border)', borderRadius: 28, padding: '14px 24px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
             Accéder sans installer
           </button>
@@ -351,7 +373,7 @@ export default function InstallPage() {
 
       {/* Fallback — never block access */}
       <button
-        onClick={() => window.location.replace('/login')}
+        onClick={goToAppEntry}
         style={{
           width: '100%', maxWidth: 380,
           background: 'transparent', color: 'var(--text-muted)',

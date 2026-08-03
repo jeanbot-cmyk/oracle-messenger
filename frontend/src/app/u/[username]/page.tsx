@@ -19,6 +19,11 @@ function normalizeUsername(value: string) {
   return decodeSafe(value).trim().replace(/^@+/, '').replace(/[^a-z0-9._-].*$/i, '').toLowerCase();
 }
 
+function isStandaloneMode() {
+  return window.matchMedia('(display-mode: standalone)').matches ||
+    (window.navigator as any).standalone === true;
+}
+
 // Client component — gère la session et redirige correctement
 export default function UserLandingPage({ params }: Props) {
   const username = normalizeUsername(params.username);
@@ -32,12 +37,16 @@ export default function UserLandingPage({ params }: Props) {
       router.replace('/login');
       return;
     }
+    const next = `/contacts?from=${encodeURIComponent(username)}`;
+    sessionStorage.setItem('oracle-after-login', next);
+    localStorage.setItem('oracle-after-login', next);
+    if (!isStandaloneMode()) {
+      router.replace(`/install?from=${encodeURIComponent(username)}`);
+      return;
+    }
     if (status === 'authenticated') {
-      router.replace(`/contacts?from=${encodeURIComponent(username)}`);
+      router.replace(next);
     } else {
-      const next = `/contacts?from=${encodeURIComponent(username)}`;
-      sessionStorage.setItem('oracle-after-login', next);
-      localStorage.setItem('oracle-after-login', next);
       router.replace(`/login?from=${encodeURIComponent(username)}`);
     }
   }, [status, username, router]);
