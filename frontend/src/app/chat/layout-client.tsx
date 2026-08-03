@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CallOverlay } from '../../components/call/CallOverlay';
@@ -19,6 +19,8 @@ export function ChatLayout() {
   const { setConversations, setCurrentUser, setActiveConv, conversations } = useChatStore();
   const { requestPermission, permission } = useNotifications();
   const [showNotifBanner, setShowNotifBanner] = useState(false);
+  const viewportRaf = useRef<number | null>(null);
+  const lastViewport = useRef({ height: 0, top: 0 });
   useSocket();
 
   const {
@@ -41,23 +43,42 @@ export function ChatLayout() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const updateViewport = () => {
+    const applyViewport = () => {
       const vv = window.visualViewport;
-      const height = vv?.height ?? window.innerHeight;
-      const top = vv?.offsetTop ?? 0;
-      document.documentElement.style.setProperty('--om-viewport-height', `${height}px`);
-      document.documentElement.style.setProperty('--om-viewport-top', `${top}px`);
+      const height = Math.round(vv?.height ?? window.innerHeight);
+      const rawTop = Math.round(vv?.offsetTop ?? 0);
+      const top = Math.abs(rawTop) <= 2 ? 0 : rawTop;
+      const previous = lastViewport.current;
+      if (Math.abs(previous.height - height) > 1) {
+        document.documentElement.style.setProperty('--om-viewport-height', `${height}px`);
+        previous.height = height;
+      }
+      if (Math.abs(previous.top - top) > 1) {
+        document.documentElement.style.setProperty('--om-viewport-top', `${top}px`);
+        previous.top = top;
+      }
     };
-    updateViewport();
-    window.visualViewport?.addEventListener('resize', updateViewport);
-    window.visualViewport?.addEventListener('scroll', updateViewport);
-    window.addEventListener('resize', updateViewport);
-    window.addEventListener('orientationchange', updateViewport);
+    const scheduleViewportUpdate = () => {
+      if (viewportRaf.current !== null) return;
+      viewportRaf.current = window.requestAnimationFrame(() => {
+        viewportRaf.current = null;
+        applyViewport();
+      });
+    };
+    applyViewport();
+    window.visualViewport?.addEventListener('resize', scheduleViewportUpdate);
+    window.visualViewport?.addEventListener('scroll', scheduleViewportUpdate);
+    window.addEventListener('resize', scheduleViewportUpdate);
+    window.addEventListener('orientationchange', scheduleViewportUpdate);
     return () => {
-      window.visualViewport?.removeEventListener('resize', updateViewport);
-      window.visualViewport?.removeEventListener('scroll', updateViewport);
-      window.removeEventListener('resize', updateViewport);
-      window.removeEventListener('orientationchange', updateViewport);
+      if (viewportRaf.current !== null) {
+        window.cancelAnimationFrame(viewportRaf.current);
+        viewportRaf.current = null;
+      }
+      window.visualViewport?.removeEventListener('resize', scheduleViewportUpdate);
+      window.visualViewport?.removeEventListener('scroll', scheduleViewportUpdate);
+      window.removeEventListener('resize', scheduleViewportUpdate);
+      window.removeEventListener('orientationchange', scheduleViewportUpdate);
     };
   }, []);
 

@@ -20,6 +20,11 @@ interface Props {
   onMediaLoad?: () => void;
 }
 
+const LONG_PRESS_MS = 650;
+const LONG_PRESS_CANCEL_PX = 18;
+const SWIPE_REPLY_TRIGGER_PX = 66;
+const SYNTHETIC_MOUSE_SUPPRESS_MS = 750;
+
 function StatusIcon({ status }: { status: Message['status'] }) {
   if (status === 'sending')   return <span style={{ fontSize: 10, opacity: .5 }}>⏳</span>;
   if (status === 'sent')      return <span style={{ fontSize: 12, opacity: .6, color: 'var(--text-muted)' }}>✓</span>;
@@ -226,6 +231,8 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
   const suppressNextClick             = useRef(false);
   const lastTapRef                    = useRef(0);
   const wrapRef                       = useRef<HTMLDivElement | null>(null);
+  const touchActiveRef                = useRef(false);
+  const ignoreMouseUntilRef           = useRef(0);
 
   const effectiveTypeEarly = detectType(message.content, message.type ?? 'text');
   const mediaSrcEarly = attachmentUrl(message.content);
@@ -261,13 +268,22 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
     if ('vibrate' in navigator) navigator.vibrate(30);
   }
 
+  function clearLongPress() {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }
+
   function handlePressStart() {
+    if (selectionMode || message.isDeleted) return;
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
     longPressFired.current = false;
-    longPressTimer.current = setTimeout(openMenu, 500);
+    longPressTimer.current = setTimeout(openMenu, LONG_PRESS_MS);
   }
+
   function handlePressEnd() {
-    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+    clearLongPress();
   }
 
   // Copier le texte
@@ -287,11 +303,12 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
 
   // ── Swipe to reply (WhatsApp style) ──────────────────────────────────────
   function onTouchStart(e: React.TouchEvent) {
-    handlePressStart();
+    touchActiveRef.current = true;
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
     swipeTriggered.current = false;
     setSwiping(true);
+    handlePressStart();
   }
 
   function onTouchMove(e: React.TouchEvent) {
@@ -301,14 +318,14 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
     }
     const dx = e.touches[0].clientX - touchStartX.current;
     const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
-    if (Math.abs(dx) > 12 || dy > 12) handlePressEnd();
+    if (Math.abs(dx) > LONG_PRESS_CANCEL_PX || dy > LONG_PRESS_CANCEL_PX) handlePressEnd();
     // Ignorer si scroll vertical dominant
     if (dy > Math.abs(dx)) return;
     // Swipe droite uniquement (répondre)
     if (dx > 0 && dx < 80) {
       setSwipeX(dx);
     }
-    if (dx >= 60 && !swipeTriggered.current) {
+    if (dx >= SWIPE_REPLY_TRIGGER_PX && !swipeTriggered.current) {
       swipeTriggered.current = true;
       // Vibration légère
       if ('vibrate' in navigator) navigator.vibrate(30);
@@ -316,6 +333,8 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
   }
 
   function onTouchEnd() {
+    touchActiveRef.current = false;
+    ignoreMouseUntilRef.current = Date.now() + SYNTHETIC_MOUSE_SUPPRESS_MS;
     handlePressEnd();
     if (longPressFired.current) {
       longPressFired.current = false;
@@ -336,6 +355,20 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
     }
     // Retour animé
     setSwipeX(0);
+  }
+
+  function onTouchCancel() {
+    touchActiveRef.current = false;
+    ignoreMouseUntilRef.current = Date.now() + SYNTHETIC_MOUSE_SUPPRESS_MS;
+    handlePressEnd();
+    setSwiping(false);
+    setSwipeX(0);
+  }
+
+  function onMousePressStart(e: React.MouseEvent) {
+    if (e.button !== 0) return;
+    if (touchActiveRef.current || Date.now() < ignoreMouseUntilRef.current) return;
+    handlePressStart();
   }
 
   function onPointerPressEnd() {
@@ -393,12 +426,17 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
       className={`om-message-row ${isOwn ? 'om-message-row-own' : 'om-message-row-in'} ${selectionMode ? 'om-message-row-selecting' : ''} ${selected ? 'om-message-row-selected' : ''}`}
       style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative', padding: '2px 0', background: selected ? 'rgba(15,118,110,0.10)' : 'transparent', borderRadius: 14 }}
       ref={wrapRef}
-      onContextMenu={e => { e.preventDefault(); openMenu(); }}
+      onContextMenu={e => {
+        e.preventDefault();
+        if (touchActiveRef.current || Date.now() < ignoreMouseUntilRef.current) return;
+        openMenu();
+      }}
       onClick={handleRowClick}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
-      onMouseDown={handlePressStart}
+      onTouchCancel={onTouchCancel}
+      onMouseDown={onMousePressStart}
       onMouseUp={onPointerPressEnd}
       onMouseLeave={handlePressEnd}
     >
