@@ -7,7 +7,7 @@ import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../.
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
 const MANUAL_CONTACTS_KEY = 'oracle-manual-contacts';
-const INSTALL_RESET_KEY = 'oracle-install-reset-v75';
+const INSTALL_RESET_KEY = 'oracle-install-reset-v76';
 
 type Device = 'ios' | 'android' | 'other';
 type Inviter = { id: string; name: string; username: string; avatar?: string; phone?: string };
@@ -586,6 +586,23 @@ export default function InstallPage() {
       >
         Réinitialiser l'installation
       </button>
+
+      <a
+        href="/reset-pwa.html?next=/install"
+        style={{
+          width: '100%', maxWidth: 380,
+          background: '#fff', color: 'var(--header-bg)',
+          border: '1.5px solid rgba(16,42,42,0.18)', borderRadius: 28,
+          padding: '13px 20px', fontSize: 13.5, fontWeight: 850,
+          cursor: 'pointer',
+          marginBottom: 10,
+          textAlign: 'center',
+          textDecoration: 'none',
+          boxSizing: 'border-box',
+        }}
+      >
+        Page blanche ? Réparer Chrome
+      </a>
 
       {/* Fallback — never block access */}
       <button

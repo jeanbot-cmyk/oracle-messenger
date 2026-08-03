@@ -26,6 +26,13 @@ const nextConfig = {
         ],
       },
       {
+        source: '/reset-pwa.html',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, max-age=0, must-revalidate' },
+          { key: 'Content-Type', value: 'text/html; charset=utf-8' },
+        ],
+      },
+      {
         source: '/icons/:path*',
         headers: [
           { key: 'Cache-Control', value: 'no-cache, no-store, max-age=0, must-revalidate' },

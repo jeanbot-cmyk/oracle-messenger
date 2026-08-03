@@ -1,10 +1,10 @@
-// Oracle Messenger — Service Worker v75
+// Oracle Messenger — Service Worker v76
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '75-20260803-reinstall-fast';
+const CACHE_VERSION = '76-20260803-reset-page';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [
-  '/', '/chat', '/install', '/manifest.json',
+  '/reset-pwa.html', '/manifest.json',
   '/icons/icon-192-v20260803.png', '/icons/icon-512-v20260803.png'
 ];
 
@@ -57,18 +57,19 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // HTML pages : network-first (toujours la version fraîche)
+  if (url.pathname === '/reset-pwa.html') {
+    e.respondWith(fetch(e.request, { cache: 'no-store' }));
+    return;
+  }
+
+  // HTML pages : network-only. On evite de garder une ancienne page blanche.
   if (e.request.mode === 'navigate' || e.request.headers.get('accept')?.includes('text/html')) {
     e.respondWith(
       fetch(e.request, { cache: 'no-store' })
-        .then(res => {
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
-          }
-          return res;
-        })
-        .catch(() => caches.match(e.request).then(cached => cached || caches.match('/chat')))
+        .catch(() => caches.match('/reset-pwa.html').then(cached => cached || new Response(
+          '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Oracle Messenger</title><body style="font-family:system-ui;padding:24px"><h1>Oracle Messenger</h1><p>Connexion indisponible. Rouvrez l application avec Internet.</p><p><a href="/reset-pwa.html">Reparer l installation</a></p></body>',
+          { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+        )))
     );
     return;
   }
