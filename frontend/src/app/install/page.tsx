@@ -1,10 +1,13 @@
 'use client';
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState } from 'react';
+import { api } from '../../lib/api';
+import { openCurrentAndroidLinkInChrome } from '../../lib/androidChrome';
 
 const ACCENT = 'var(--brand)';
 
 type Device = 'ios' | 'android' | 'other';
+type Inviter = { id: string; name: string; username: string; avatar?: string; phone?: string };
 function detectDevice(): Device {
   const ua = navigator.userAgent.toLowerCase();
   if (/iphone|ipad|ipod/.test(ua)) return 'ios';
@@ -31,11 +34,39 @@ function rememberInviteFromUrl() {
   const next = `/contacts?from=${encodeURIComponent(from)}`;
   sessionStorage.setItem('oracle-after-login', next);
   localStorage.setItem('oracle-after-login', next);
-  return next;
+  return from;
 }
 
 function goToAppEntry() {
   window.location.replace(appEntry());
+}
+
+function escapeVcard(value = '') {
+  return value.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
+}
+
+function saveContact(inviter: Inviter) {
+  const name = inviter.name || inviter.username || 'Oracle Messenger';
+  const phone = inviter.phone || '';
+  const profileUrl = `https://messenger.oracle-plus.online/u/${encodeURIComponent(inviter.username)}`;
+  const vcard = [
+    'BEGIN:VCARD',
+    'VERSION:3.0',
+    `FN:${escapeVcard(name)}`,
+    phone ? `TEL;TYPE=CELL:${phone}` : '',
+    `URL:${profileUrl}`,
+    'NOTE:Contact Oracle Messenger',
+    'END:VCARD',
+  ].filter(Boolean).join('\n');
+  const blob = new Blob([vcard], { type: 'text/vcard;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${inviter.username || 'oracle-contact'}.vcf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 const IOS_STEPS = [
@@ -134,12 +165,19 @@ export default function InstallPage() {
   const [mounted,    setMounted]    = useState(false);
   const [iosStep,    setIosStep]    = useState(0);
   const [manualInstall, setManualInstall] = useState(false);
+  const [inviter, setInviter] = useState<Inviter | null>(null);
   const promptRef = useRef<any>(null);
 
   useEffect(() => {
     setMounted(true);
     setDevice(detectDevice());
-    rememberInviteFromUrl();
+    const inviteUsername = rememberInviteFromUrl();
+    if (openCurrentAndroidLinkInChrome()) return;
+    if (inviteUsername) {
+      api.users.byUsername(inviteUsername)
+        .then(user => setInviter(user?.id ? user : null))
+        .catch(() => setInviter(null));
+    }
 
     // Already installed → go straight to app
     if (
@@ -323,6 +361,32 @@ export default function InstallPage() {
       <p style={{ fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.6, margin: '0 0 6px', maxWidth: 300 }}>
         Messagerie rapide et sécurisée.
       </p>
+      {inviter && (
+        <div style={{ width: '100%', maxWidth: 380, background: '#f8fbfa', border: '1px solid var(--border)', borderRadius: 22, padding: 14, margin: '8px 0 18px', boxShadow: '0 8px 22px rgba(16,42,42,0.06)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <img src={inviter.avatar || '/icons/icon-96-v20260803.png'} alt="" style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', background: 'var(--bg-input)' }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ margin: 0, fontSize: 15, fontWeight: 900, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inviter.name}</p>
+              <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{inviter.username}</p>
+            </div>
+          </div>
+          <p style={{ margin: '0 0 12px', fontSize: 13, lineHeight: 1.45, color: 'var(--text-secondary)' }}>
+            Cette personne t’a invité. Enregistre son contact en un clic ou continue directement vers la discussion Oracle Messenger.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: inviter.phone ? '1fr 1fr' : '1fr', gap: 8 }}>
+            {inviter.phone && (
+              <button onClick={() => saveContact(inviter)}
+                style={{ border: 'none', borderRadius: 999, background: 'var(--header-bg)', color: '#fff', padding: '11px 12px', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>
+                Enregistrer contact
+              </button>
+            )}
+            <button onClick={goToAppEntry}
+              style={{ border: 'none', borderRadius: 999, background: ACCENT, color: '#fff', padding: '11px 12px', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>
+              Ouvrir discussion
+            </button>
+          </div>
+        </div>
+      )}
       <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', margin: '0 0 36px', maxWidth: 300, lineHeight: 1.5 }}>
         En continuant, vous acceptez nos{' '}
         <a href="/terms" style={{ color: ACCENT, fontWeight: 600 }}>Conditions</a>
