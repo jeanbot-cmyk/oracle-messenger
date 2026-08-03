@@ -8,7 +8,7 @@ import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { clearOldTextMessages } from '../lib/db';
 import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 
-const CLIENT_CACHE_VERSION = '81-20260803-pwa-install';
+const CLIENT_CACHE_VERSION = '82-20260803-launch';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 
@@ -56,14 +56,10 @@ function ThemeApplier() {
           // Check for updates every time the page loads
           reg.update().catch(() => {});
 
-          // When a new SW takes over, reload to get fresh assets
+          // Keep the update marker without forcing a visible reload during cold start.
           navigator.serviceWorker.addEventListener('message', e => {
             if (e.data?.type === 'SW_UPDATED') {
-              const reloadKey = `oracle-sw-reloaded-${CLIENT_CACHE_VERSION}`;
-              if (!sessionStorage.getItem(reloadKey)) {
-                sessionStorage.setItem(reloadKey, '1');
-                window.location.reload();
-              }
+              localStorage.setItem('oracle-client-cache-version', CLIENT_CACHE_VERSION);
             }
           });
         })
@@ -255,42 +251,31 @@ function PhoneGate({ children }: { children: React.ReactNode }) {
       });
   }, [status, session]);
 
+  if (!checked && status === 'authenticated') return <>{children}</>;
   if (!checked) return <AppLoadingScreen />;
   if (needsPhone) return <PhoneOnboarding onDone={() => setNeedsPhone(false)} />;
   return <>{children}</>;
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
-
   return (
     <SessionProvider>
       <ThemeApplier />
-      {mounted ? (
-        <>
-          <PwaInstallTracker />
-          <PhoneGate>{children}</PhoneGate>
-          <InstallBanner />
-          <Toaster
-            position="top-center"
-            toastOptions={{
-              style: {
-                background: 'var(--bg-surface)',
-                color: 'var(--text-primary)',
-                border: '1px solid var(--border)',
-                borderRadius: 12,
-              },
-              duration: 3000,
-            }}
-          />
-        </>
-      ) : (
-        <div style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg-app)' }}>
-          <div style={{ width:32, height:32, border:'3px solid var(--accent)', borderTopColor:'transparent', borderRadius:'50%', animation:'spin .8s linear infinite' }} />
-          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-        </div>
-      )}
+      <PwaInstallTracker />
+      <PhoneGate>{children}</PhoneGate>
+      <InstallBanner />
+      <Toaster
+        position="top-center"
+        toastOptions={{
+          style: {
+            background: 'var(--bg-surface)',
+            color: 'var(--text-primary)',
+            border: '1px solid var(--border)',
+            borderRadius: 12,
+          },
+          duration: 3000,
+        }}
+      />
     </SessionProvider>
   );
 }

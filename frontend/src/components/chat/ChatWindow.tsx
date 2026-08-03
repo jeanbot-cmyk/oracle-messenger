@@ -227,7 +227,6 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const typingTimer = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
-  const firstMessageRef = useRef<HTMLDivElement | null>(null);
 
   const conv = conversations.find(c => c.id === activeConvId);
   const rawConvMessages = activeConvId
@@ -349,14 +348,6 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         }
       }
     });
-  }, [convMessages.length, activeConvId]);
-
-  useLayoutEffect(() => {
-    const el = messagesViewportRef.current;
-    const first = firstMessageRef.current;
-    if (!el || !first || convMessages.length === 0) return;
-    const available = Math.max(0, el.clientHeight - first.offsetHeight - 18);
-    el.style.setProperty('--om-top-spacer', `${Math.min(available, Math.floor(el.clientHeight * 0.22))}px`);
   }, [convMessages.length, activeConvId]);
 
   useEffect(() => {
@@ -980,7 +971,6 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               key={msg.id}
               ref={el => {
                 messageRefs.current[msg.id] = el;
-                if (index === 0) firstMessageRef.current = el;
               }}
               style={msg.id === activeSearchMessage ? { borderRadius:12, boxShadow:'0 0 0 2px rgba(15,118,110,0.28)', background:'rgba(15,118,110,0.08)', transition:'box-shadow .2s ease, background .2s ease' } : undefined}
             >

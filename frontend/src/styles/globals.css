@@ -272,8 +272,9 @@ textarea:focus {
 }
 
 .om-messages-top-spacer {
-  flex: 1 1 var(--om-top-spacer, 8px);
-  min-height: var(--om-top-spacer, 8px);
+  flex: 0 0 6px;
+  min-height: 6px;
+  height: 6px;
 }
 
 .om-message-row {
@@ -381,7 +382,9 @@ textarea:focus {
   }
 
   .om-messages-top-spacer {
-    min-height: 6px;
+    flex-basis: 4px;
+    min-height: 4px;
+    height: 4px;
   }
 
   .om-message-row-in {
