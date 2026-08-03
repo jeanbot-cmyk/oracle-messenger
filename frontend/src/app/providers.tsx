@@ -8,7 +8,7 @@ import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { clearOldTextMessages } from '../lib/db';
 import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 
-const CLIENT_CACHE_VERSION = '76-20260803-reset-page';
+const CLIENT_CACHE_VERSION = '77-20260803-install-direct';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 
@@ -128,6 +128,7 @@ function isStandaloneMode() {
 function InstallBanner() {
   const [visible, setVisible] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [message, setMessage] = useState('');
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -172,7 +173,7 @@ function InstallBanner() {
       }
       return;
     }
-    window.location.href = '/install';
+    setMessage('Chrome ne propose pas encore l’installation native. Ouvre le menu ⋮ puis choisis Installer l’application, ou utilise la page de réparation Chrome.');
   }
 
   if (!visible) return null;
@@ -193,6 +194,12 @@ function InstallBanner() {
         <button onClick={() => setVisible(false)} aria-label="Fermer"
           style={{ width:30, height:30, borderRadius:'50%', border:'none', background:'rgba(255,255,255,0.10)', color:'#fff', fontSize:18, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>×</button>
       </div>
+      {message && (
+        <div style={{ maxWidth:720, margin:'7px auto 0', color:'rgba(255,255,255,0.86)', fontSize:11.5, lineHeight:1.35, fontWeight:750 }}>
+          {message}{' '}
+          <a href="/reset-pwa.html?next=/install" style={{ color:'#fff', fontWeight:950 }}>Réparer Chrome</a>
+        </div>
+      )}
     </div>
   );
 }

@@ -44,6 +44,7 @@ export default function HomePage() {
   const promptRef = useRef<any>(null);
   const [installing, setInstalling] = useState(false);
   const [manualInstall, setManualInstall] = useState(false);
+  const [installMessage, setInstallMessage] = useState('');
 
   useEffect(() => {
     setMounted(true);
@@ -88,13 +89,25 @@ export default function HomePage() {
     }
     const prompt = promptRef.current || (window as any).__installPrompt || (window as any).__pwaPrompt;
     setManualInstall(false);
+    setInstallMessage('');
     if (prompt) {
       setInstalling(true);
       prompt.prompt();
-      prompt.userChoice.finally(() => setInstalling(false));
+      prompt.userChoice
+        .then((choice: any) => {
+          if (choice?.outcome !== 'accepted') {
+            setManualInstall(true);
+            setInstallMessage('Installation annulée. Appuie de nouveau sur Installer l’application ou utilise le menu ⋮ de Chrome.');
+          }
+        })
+        .catch(() => {
+          setManualInstall(true);
+          setInstallMessage('Chrome n’a pas pu ouvrir l’invite native. Utilise le menu ⋮ puis Installer l’application.');
+        })
+        .finally(() => setInstalling(false));
     } else {
       setManualInstall(true);
-      router.push('/install');
+      setInstallMessage('Chrome ne propose pas encore l’installation native. Reste sur cette page, attends quelques secondes, puis réessaie. Si Chrome affiche blanc, utilise Réparer Chrome.');
     }
   }
 
@@ -236,8 +249,12 @@ export default function HomePage() {
             {manualInstall && (
               <div style={{ background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 16, padding: 14 }}>
                 <p style={{ fontSize: 13, color: '#102A2A', margin: 0, lineHeight: 1.5, fontWeight: 650 }}>
-                  Si Chrome ne lance pas l’installation automatique, utilise le menu ⋮ puis “Installer l’application”.
+                  {installMessage || 'Si Chrome ne lance pas l’installation automatique, utilise le menu ⋮ puis “Installer l’application”.'}
                 </p>
+                <a href="/reset-pwa.html?next=/install"
+                  style={{ marginTop: 10, width: '100%', border: '1px solid rgba(16,42,42,0.16)', borderRadius: 999, background: '#fff', color: '#102A2A', padding: '10px 12px', fontSize: 13, fontWeight: 900, cursor: 'pointer', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none', boxSizing:'border-box' }}>
+                  Réparer Chrome
+                </a>
               </div>
             )}
 

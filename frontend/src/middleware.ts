@@ -10,6 +10,7 @@ export function middleware(request: NextRequest) {
     pathname.startsWith('/_next') ||
     pathname.startsWith('/icons') ||
     pathname.startsWith('/install') ||
+    pathname.startsWith('/reset-pwa.html') ||
     pathname.startsWith('/login') ||
     pathname === '/manifest.json' ||
     pathname === '/sw.js' ||

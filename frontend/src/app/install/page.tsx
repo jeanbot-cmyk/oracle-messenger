@@ -7,7 +7,7 @@ import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../.
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
 const MANUAL_CONTACTS_KEY = 'oracle-manual-contacts';
-const INSTALL_RESET_KEY = 'oracle-install-reset-v76';
+const INSTALL_RESET_KEY = 'oracle-install-reset-v77';
 
 type Device = 'ios' | 'android' | 'other';
 type Inviter = { id: string; name: string; username: string; avatar?: string; phone?: string };
