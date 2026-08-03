@@ -56,35 +56,61 @@ export function playNotificationSound() {
 
 // ── Sonnerie appel entrant : motif répété ─────────────────────────────────────
 let ringtoneInterval: ReturnType<typeof setInterval> | null = null;
+let vibrationInterval: ReturnType<typeof setInterval> | null = null;
+let ringUntil = 0;
 
 function ringOnce() {
   try {
     const c = resume();
     const now = c.currentTime;
-    // Deux tons alternés style téléphone moderne
-    [[0, 440, 0.22], [0.25, 550, 0.22], [0.5, 440, 0.22], [0.75, 550, 0.22]].forEach(([delay, freq, vol]) => {
+    // Sonnerie plus longue et plus présente, adaptée aux téléphones.
+    [[0, 780, 0.34], [0.22, 980, 0.32], [0.44, 780, 0.34], [0.66, 980, 0.32], [0.98, 660, 0.28], [1.2, 880, 0.30]].forEach(([delay, freq, vol]) => {
       const osc = c.createOscillator();
       const gain = c.createGain();
       osc.connect(gain); gain.connect(c.destination);
-      osc.type = 'triangle';
+      osc.type = 'sine';
       osc.frequency.setValueAtTime(freq as number, now + (delay as number));
       gain.gain.setValueAtTime(0, now + (delay as number));
       gain.gain.linearRampToValueAtTime(vol as number, now + (delay as number) + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + (delay as number) + 0.22);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + (delay as number) + 0.28);
       osc.start(now + (delay as number));
-      osc.stop(now + (delay as number) + 0.25);
+      osc.stop(now + (delay as number) + 0.32);
     });
   } catch {}
 }
 
 export function startRingtone() {
   stopRingtone();
+  ringUntil = Date.now() + 60_000;
   ringOnce();
-  ringtoneInterval = setInterval(ringOnce, 2200);
+  if ('vibrate' in navigator) {
+    try { navigator.vibrate([850, 250, 850, 700]); } catch {}
+  }
+  ringtoneInterval = setInterval(() => {
+    if (Date.now() > ringUntil) {
+      stopRingtone();
+      return;
+    }
+    ringOnce();
+  }, 1850);
+  vibrationInterval = setInterval(() => {
+    if (Date.now() > ringUntil) {
+      stopRingtone();
+      return;
+    }
+    if ('vibrate' in navigator) {
+      try { navigator.vibrate([850, 250, 850, 700]); } catch {}
+    }
+  }, 2600);
 }
 
 export function stopRingtone() {
   if (ringtoneInterval) { clearInterval(ringtoneInterval); ringtoneInterval = null; }
+  if (vibrationInterval) { clearInterval(vibrationInterval); vibrationInterval = null; }
+  ringUntil = 0;
+  if ('vibrate' in navigator) {
+    try { navigator.vibrate(0); } catch {}
+  }
 }
 
 // ── Appel décroché / raccroché ────────────────────────────────────────────────

@@ -42,9 +42,14 @@ function AudioEl({ stream }: { stream: MediaStream | null }) {
     audio.volume = 1;
     audio.defaultPlaybackRate = 1;
     audio.playbackRate = 1;
-    audio.play().catch(() => {});
+    (audio as any).preservesPitch = true;
+    (audio as any).webkitPreservesPitch = true;
+    const play = () => audio.play().catch(() => {});
+    play();
+    const timer = setInterval(play, 1200);
+    return () => clearInterval(timer);
   }, [stream]);
-  return <audio ref={ref} autoPlay style={{ display: 'none' }} />;
+  return <audio ref={ref} autoPlay playsInline style={{ position:'absolute', width:1, height:1, opacity:0, pointerEvents:'none' }} />;
 }
 
 const Btn = ({ onClick, color, children, label }: { onClick:()=>void; color:string; children:React.ReactNode; label:string }) => (

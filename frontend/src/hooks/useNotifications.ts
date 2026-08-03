@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { startRingtone as startPersistentRingtone, stopRingtone as stopPersistentRingtone } from '../lib/sounds';
 
 // Sonnerie via Web Audio API — pas de fichier audio requis
 function createRingOscillators(ctx: AudioContext) {
@@ -131,7 +132,8 @@ export function useNotifications() {
   // ── Sonnerie appel entrant (boucle) ──────────────────────────────────────
   function startRingtone() {
     try {
-      if ('vibrate' in navigator) navigator.vibrate([600, 400, 600, 400, 600]);
+      startPersistentRingtone();
+      if ('vibrate' in navigator) navigator.vibrate([850, 250, 850, 700]);
 
       // Try HTML Audio first (most reliable on mobile)
       try {
@@ -181,6 +183,7 @@ export function useNotifications() {
   }
 
   function stopRingtone() {
+    stopPersistentRingtone();
     if (ringTimer.current) { clearInterval(ringTimer.current); ringTimer.current = null; }
     try { ringOscs.current.forEach(o => o.stop()); } catch {}
     ringOscs.current = [];

@@ -101,8 +101,14 @@ export function useWebRTC(userId: string, token = '') {
     }
 
     pc.ontrack = (e) => {
-      const stream = e.streams[0] ?? new MediaStream([e.track]);
-      setRemoteStreams(prev => { const m = new Map(prev); m.set(targetUserId, stream); return m; });
+      setRemoteStreams(prev => {
+        const m = new Map(prev);
+        const existing = m.get(targetUserId);
+        const stream = existing ?? e.streams[0] ?? new MediaStream();
+        if (!stream.getTracks().some(track => track.id === e.track.id)) stream.addTrack(e.track);
+        m.set(targetUserId, stream);
+        return m;
+      });
     };
 
     pc.onicecandidate = (e) => {
@@ -119,6 +125,16 @@ export function useWebRTC(userId: string, token = '') {
       if (pc.connectionState === 'failed') {
         console.warn('[WebRTC] connection failed, restarting ICE');
         pc.restartIce();
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        callStartRef.current = Date.now();
+        _setState('connected');
+      }
+      if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+        try { pc.restartIce(); } catch {}
       }
     };
 

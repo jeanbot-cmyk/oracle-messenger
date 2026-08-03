@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v41
+// Oracle Messenger — Service Worker v42
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '41-20260803-green-compact';
+const CACHE_VERSION = '42-20260803-persistent-call-ring';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [
@@ -99,7 +99,7 @@ self.addEventListener('push', e => {
       tag: data.tag ?? 'msg',
       renotify: true,
       requireInteraction: data.requireInteraction ?? isCall,
-      vibrate: data.vibrate ?? (isCall ? [700, 250, 700, 250, 700, 250, 700] : [120, 50, 120]),
+      vibrate: data.vibrate ?? (isCall ? [1000, 300, 1000, 300, 1000, 700, 1000, 300, 1000] : [120, 50, 120]),
       actions: isCall ? [{ action: 'open', title: 'Répondre' }] : undefined,
       data,
     })

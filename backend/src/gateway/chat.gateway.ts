@@ -344,7 +344,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             tag: `incoming-call-${data.callId}`,
             type: 'call',
             requireInteraction: true,
-            vibrate: [700, 250, 700, 250, 700, 250, 700],
+            vibrate: [1000, 300, 1000, 300, 1000, 700, 1000, 300, 1000],
           }).catch(() => {});
         }
       }
