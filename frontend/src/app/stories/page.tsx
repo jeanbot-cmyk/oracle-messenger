@@ -44,6 +44,7 @@ export default function StoriesPage() {
   const [newCaption, setNewCaption] = useState('');
   const progressRef = useRef<NodeJS.Timeout | null>(null);
   const pausedRef   = useRef(false);
+  const holdStartedAt = useRef(0);
   const fileRef     = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -133,6 +134,40 @@ export default function StoriesPage() {
       story = { ...story, views: [...story.views, myId] };
     }
     setViewing(story);
+  }
+
+  function currentAuthorStories() {
+    return viewing ? (byAuthor[viewing.authorId] ?? []) : [];
+  }
+
+  function goToStory(direction: 'prev' | 'next') {
+    if (!viewing) return;
+    const authorStories = currentAuthorStories();
+    const idx = authorStories.findIndex(s => s.id === viewing.id);
+    if (idx < 0) return;
+    if (direction === 'prev') {
+      if (idx > 0) setViewing(authorStories[idx - 1]);
+      else setProgress(0);
+      return;
+    }
+    if (idx < authorStories.length - 1) setViewing(authorStories[idx + 1]);
+    else setViewing(null);
+  }
+
+  function pauseStory() {
+    holdStartedAt.current = Date.now();
+    pausedRef.current = true;
+    setPaused(true);
+  }
+
+  function resumeStory() {
+    pausedRef.current = false;
+    setPaused(false);
+  }
+
+  function handleStoryTap(side: 'left' | 'right') {
+    if (Date.now() - holdStartedAt.current > 220) return;
+    goToStory(side === 'left' ? 'prev' : 'next');
   }
 
   async function handleCreate() {
@@ -314,27 +349,31 @@ export default function StoriesPage() {
             <button onClick={() => setViewing(null)} style={{ border:'none', background:'transparent', color:'#fff', fontSize:28, cursor:'pointer', lineHeight:1 }}>×</button>
           </div>
 
-          {/* Contenu — tap to advance, press-and-hold to pause */}
+          {/* Contenu — gauche précédent, droite suivant, maintien pour pause */}
           <div
-            style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', background: viewing.type==='text' ? viewing.bg : '#000', position:'relative', userSelect:'none' }}
-            onTouchStart={() => { pausedRef.current = true; setPaused(true); }}
-            onTouchEnd={() => {
-              pausedRef.current = false; setPaused(false);
-            }}
-            onMouseDown={() => { pausedRef.current = true; setPaused(true); }}
-            onMouseUp={() => { pausedRef.current = false; setPaused(false); }}
-            onClick={() => {
-              if (paused) return; // don't advance on release of hold
-              const authorStories = byAuthor[viewing.authorId] ?? [];
-              const idx = authorStories.findIndex(s => s.id === viewing.id);
-              if (idx < authorStories.length - 1) setViewing(authorStories[idx + 1]);
-              else setViewing(null);
-            }}>
+            style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', background: viewing.type==='text' ? viewing.bg : '#000', position:'relative', userSelect:'none', touchAction:'manipulation' }}
+          >
             {viewing.type === 'image' ? (
               <img src={viewing.content} alt="" style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain' }} />
             ) : (
               <p style={{ fontSize:28, fontWeight:700, color:'#fff', textAlign:'center', padding:32, textShadow:'0 2px 8px rgba(0,0,0,.3)' }}>{viewing.content}</p>
             )}
+            <button
+              aria-label="Story précédente"
+              onPointerDown={pauseStory}
+              onPointerUp={() => { resumeStory(); handleStoryTap('left'); }}
+              onPointerCancel={resumeStory}
+              onPointerLeave={resumeStory}
+              style={{ position:'absolute', left:0, top:90, bottom:86, width:'38%', border:'none', background:'transparent', cursor:'pointer', touchAction:'manipulation' }}
+            />
+            <button
+              aria-label="Story suivante"
+              onPointerDown={pauseStory}
+              onPointerUp={() => { resumeStory(); handleStoryTap('right'); }}
+              onPointerCancel={resumeStory}
+              onPointerLeave={resumeStory}
+              style={{ position:'absolute', right:0, top:90, bottom:86, width:'62%', border:'none', background:'transparent', cursor:'pointer', touchAction:'manipulation' }}
+            />
             {/* Caption overlay */}
             {viewing.caption && !paused && (
               <div style={{ position:'absolute', bottom:0, left:0, right:0, background:'linear-gradient(transparent, rgba(0,0,0,.7))', padding:'32px 20px 16px' }}>

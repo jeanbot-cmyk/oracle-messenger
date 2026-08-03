@@ -264,6 +264,11 @@ textarea:focus {
   width: 100%;
 }
 
+.om-messages-top-spacer {
+  flex: 0 0 var(--om-top-spacer, 8px);
+  max-height: 22%;
+}
+
 .om-message-row {
   width: 100%;
   contain: layout;
@@ -339,6 +344,10 @@ textarea:focus {
 
   .om-messages-viewport {
     padding: 7px 6px 8px !important;
+  }
+
+  .om-messages-top-spacer {
+    max-height: 20%;
   }
 
   .om-message-row-in {

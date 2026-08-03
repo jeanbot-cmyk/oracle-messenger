@@ -121,6 +121,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const typingTimer = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const firstMessageRef = useRef<HTMLDivElement>(null);
 
   const conv = conversations.find(c => c.id === activeConvId);
   const convMessages = activeConvId
@@ -192,6 +193,14 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         }
       }
     });
+  }, [convMessages.length, activeConvId]);
+
+  useLayoutEffect(() => {
+    const el = messagesViewportRef.current;
+    const first = firstMessageRef.current;
+    if (!el || !first || convMessages.length === 0) return;
+    const available = Math.max(0, el.clientHeight - first.offsetHeight - 18);
+    el.style.setProperty('--om-top-spacer', `${Math.min(available, Math.floor(el.clientHeight * 0.22))}px`);
   }, [convMessages.length, activeConvId]);
 
   useEffect(() => {
@@ -459,9 +468,10 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         onScroll={handleMessagesScroll}
         style={{ flex:1, minHeight:0, overflowY:'auto', overflowX:'hidden', padding:'8px 10px 10px', WebkitOverflowScrolling:'touch', background:'var(--bg-app)', position:'relative' } as React.CSSProperties}
       >
-        <div className="om-messages-inner" style={{ minHeight:'100%', display:'flex', flexDirection:'column', justifyContent:'flex-end', gap:2 }}>
+        <div className="om-messages-inner" style={{ display:'flex', flexDirection:'column', gap:2 }}>
+          <div className="om-messages-top-spacer" />
           {convMessages.map((msg, index) => (
-            <div key={msg.id}>
+            <div key={msg.id} ref={index === 0 ? firstMessageRef : undefined}>
               {shouldShowDateSeparator(msg, convMessages[index - 1]) && (
                 <div className="om-date-separator">
                   {formatDateSeparator(msg.createdAt)}
