@@ -88,6 +88,7 @@ export function useSocket() {
       socket.off('connect');
       socket.off('message:new');
       socket.off('message:update');
+      socket.off('conversation:read');
       socket.off('message:delete');
       socket.off('typing:start');
       socket.off('typing:stop');

@@ -81,6 +81,24 @@ export default function StoriesPage() {
     fetchStories();
   }, [mounted, token]);
 
+  // Synchronisation légère A/B : si A publie une story, B la voit sans devoir
+  // fermer puis rouvrir la rubrique. On évite de réveiller inutilement l'écran caché.
+  useEffect(() => {
+    if (!mounted || !token) return;
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'hidden') return;
+      fetchStories();
+    };
+    const interval = window.setInterval(refreshIfVisible, 20_000);
+    window.addEventListener('focus', refreshIfVisible);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshIfVisible);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
+    };
+  }, [mounted, token]);
+
   useEffect(() => {
     if (!mounted) return;
     const newParam = searchParams?.get('new');
