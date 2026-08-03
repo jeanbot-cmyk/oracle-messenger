@@ -456,10 +456,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       for (const targetId of validTargets) {
         this.notif.sendPush(targetId, {
           title: `📞 Appel ${data.type === 'video' ? 'vidéo' : 'audio'} — ${callerName}`,
-          body: 'Appuyez pour répondre',
-          url: `/chat?conv=${encodeURIComponent(data.conversationId)}`,
+          body: 'Ouvrez Oracle Messenger pour répondre.',
+          url: `/chat?conv=${encodeURIComponent(data.conversationId)}&call=${encodeURIComponent(data.callId)}`,
           tag: `incoming-call-${data.callId}`,
           type: 'call',
+          callId: data.callId,
+          conversationId: data.conversationId,
           requireInteraction: true,
           vibrate: [1000, 300, 1000, 300, 1000, 700, 1000, 300, 1000],
         }).catch(() => {});

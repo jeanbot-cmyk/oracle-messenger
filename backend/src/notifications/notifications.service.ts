@@ -28,7 +28,11 @@ export class NotificationsService {
     });
   }
 
-  async sendPush(userId: string, payload: { title: string; body: string; url?: string; image?: string; tag?: string; type?: string; requireInteraction?: boolean; vibrate?: number[] }) {
+  async sendPush(userId: string, payload: {
+    title: string; body: string; url?: string; image?: string; tag?: string;
+    type?: string; callId?: string; conversationId?: string;
+    requireInteraction?: boolean; vibrate?: number[];
+  }) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.pushToken) return;
     const subscriptions = this.parseSubscriptions(user.pushToken);

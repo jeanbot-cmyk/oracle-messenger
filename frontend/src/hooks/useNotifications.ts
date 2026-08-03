@@ -114,19 +114,21 @@ export function useNotifications() {
   // ── Notification système ─────────────────────────────────────────────────
   function notify(title: string, opts?: {
     body?: string; icon?: string; tag?: string;
-    data?: any; requireInteraction?: boolean;
+    data?: any; requireInteraction?: boolean; vibrate?: number[];
   }) {
     if (!supported || permission !== 'granted') return;
     try {
-      const n = new Notification(title, {
-        icon: opts?.icon ?? '/icons/icon-192.png',
-        badge: '/icons/icon-72.png',
+      const notificationOptions = {
+        icon: opts?.icon ?? '/icons/icon-192-v20260803.png',
+        badge: '/icons/icon-72-v20260803.png',
         body: opts?.body,
         tag: opts?.tag,
         data: opts?.data,
         requireInteraction: opts?.requireInteraction ?? false,
+        vibrate: opts?.vibrate,
         silent: false,
-      });
+      } as NotificationOptions & { vibrate?: number[] };
+      const n = new Notification(title, notificationOptions);
       n.onclick = () => {
         window.focus();
         if (opts?.data?.url) window.location.href = opts.data.url;
@@ -150,11 +152,13 @@ export function useNotifications() {
   function notifyIncomingCall(callerName: string, type: 'audio' | 'video', convId?: string) {
     startRingtone();
     if (document.visibilityState !== 'visible') {
+      const url = convId ? `/chat?conv=${encodeURIComponent(convId)}&call=incoming` : '/chat?call=incoming';
       notify(`📞 Appel ${type === 'video' ? 'vidéo' : 'audio'} — ${callerName}`, {
-        body: 'Appuyez pour répondre',
+        body: 'Ouvrez Oracle Messenger pour répondre.',
         tag: `incoming-call-${convId ?? 'chat'}`,
         requireInteraction: true,
-        data: { url: convId ? `/chat?conv=${encodeURIComponent(convId)}` : '/chat' },
+        vibrate: [1000, 300, 1000, 300, 1000, 700, 1000, 300, 1000],
+        data: { url },
       });
     }
   }
@@ -166,6 +170,7 @@ export function useNotifications() {
       body: 'Touchez pour rappeler',
       tag: 'missed-call',
       requireInteraction: false,
+      vibrate: [220, 80, 220],
       data: { url: '/chat' },
     });
   }
