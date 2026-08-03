@@ -341,6 +341,23 @@ textarea:focus {
   max-width: 100%;
 }
 
+.om-selection-toolbar {
+  min-height: 54px;
+}
+
+.om-selection-copy {
+  overflow: hidden;
+}
+
+.om-selection-actions {
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.om-selection-actions::-webkit-scrollbar {
+  display: none;
+}
+
 .om-chat-composer {
   box-shadow: 0 -1px 0 rgba(17,24,28,0.06);
 }
@@ -375,6 +392,30 @@ textarea:focus {
     width: 30px !important;
     height: 30px !important;
     min-height: 30px !important;
+  }
+
+  .om-selection-toolbar {
+    gap: 6px !important;
+    padding: 7px 8px !important;
+    min-height: 52px;
+  }
+
+  .om-selection-copy p:first-child {
+    font-size: 14px !important;
+  }
+
+  .om-selection-copy p:nth-child(2) {
+    display: none;
+  }
+
+  .om-selection-actions {
+    max-width: 68% !important;
+  }
+
+  .om-selection-actions button {
+    width: 35px !important;
+    height: 35px !important;
+    min-height: 35px !important;
   }
 
   .om-messages-viewport {

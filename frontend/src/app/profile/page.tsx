@@ -197,12 +197,12 @@ export default function ProfilePage() {
         {/* Nom + Bio */}
         <div style={{ background:'var(--bg-surface)', borderRadius:16, overflow:'hidden', boxShadow:'var(--shadow)', border:'1px solid var(--border)' }}>
           <div style={{ padding:'12px 16px', borderBottom:'1px solid var(--bg-input)' }}>
-            <p style={{ fontSize:12, fontWeight:700, color:'var(--accent-text)', margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>Nom</p>
+            <p style={{ fontSize:12, fontWeight:800, color:'var(--brand)', margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>Nom</p>
             <input value={name} onChange={e => { setName(e.target.value); setError(''); }} maxLength={50} placeholder="Votre nom"
               style={{ width:'100%', border:'none', outline:'none', fontSize:16, color:'var(--text-primary)', background:'transparent', padding:0 }}/>
           </div>
           <div style={{ padding:'12px 16px' }}>
-            <p style={{ fontSize:12, fontWeight:700, color:'var(--accent-text)', margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>Bio</p>
+            <p style={{ fontSize:12, fontWeight:800, color:'var(--brand)', margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>Bio</p>
             <textarea value={bio} onChange={e => setBio(e.target.value)} maxLength={160} rows={3}
               placeholder="Parlez de vous en quelques mots…"
               style={{ width:'100%', border:'none', outline:'none', fontSize:15, color:'var(--text-primary)', background:'transparent', resize:'none', padding:0, lineHeight:1.5 }}/>
@@ -217,12 +217,12 @@ export default function ProfilePage() {
               <span style={{ fontSize:18 }}>🔗</span>
               <p style={{ fontSize:14, fontWeight:800, color:'var(--text-primary)', margin:0 }}>Votre lien unique</p>
             </div>
-            <div style={{ background:'var(--bg-app)', borderRadius:10, padding:'10px 12px', marginBottom:10, border:'1px solid var(--border)' }}>
-              <p style={{ fontSize:13, color:'var(--accent-text)', margin:0, wordBreak:'break-all', fontWeight:600 }}>{profileLink}</p>
+            <div style={{ background:'#F8FAFC', borderRadius:10, padding:'10px 12px', marginBottom:10, border:'1px solid var(--border)' }}>
+              <p style={{ fontSize:13, color:'var(--text-primary)', margin:0, wordBreak:'break-all', fontWeight:700, lineHeight:1.45 }}>{profileLink}</p>
             </div>
             {/* Explication */}
-            <div style={{ background:'rgba(200,168,90,0.12)', borderRadius:10, padding:'10px 12px', marginBottom:12, border:'1px solid var(--border)' }}>
-              <p style={{ fontSize:12, color:'var(--accent-text)', margin:0, lineHeight:1.6 }}>
+            <div style={{ background:'rgba(16,42,42,0.06)', borderRadius:10, padding:'10px 12px', marginBottom:12, border:'1px solid rgba(16,42,42,0.12)' }}>
+              <p style={{ fontSize:12.5, color:'var(--text-primary)', margin:0, lineHeight:1.62, fontWeight:650 }}>
                 💡 <strong>Ce lien est votre identifiant Oracle Messenger</strong> — comme votre numéro de téléphone sur WhatsApp.<br/>
                 Partagez-le sur <strong>Facebook, Instagram, WhatsApp</strong> ou par SMS pour que vos contacts vous écrivent directement.<br/>
                 Quand quelqu'un clique dessus, il installe l'app et arrive directement dans votre conversation.
@@ -243,7 +243,7 @@ export default function ProfilePage() {
 
         {/* Téléphone */}
         <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:'12px 16px', boxShadow:'var(--shadow)', border:'1px solid var(--border)' }}>
-          <p style={{ fontSize:12, fontWeight:700, color:'var(--accent-text)', margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>📱 Téléphone</p>
+          <p style={{ fontSize:12, fontWeight:800, color:'var(--brand)', margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>📱 Téléphone</p>
           <input
             value={phone}
             onChange={e => { setPhone(e.target.value); setError(''); }}

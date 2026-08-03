@@ -253,6 +253,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const activeSearchMessage = searchMatches[activeSearchIndex]?.id ?? '';
   const selectedMessages = convMessages.filter(msg => selectedMessageIds.includes(msg.id) && !msg.isDeleted);
   const selectionMode = selectedMessageIds.length > 0;
+  const selectedTextMessages = selectedMessages.filter(message => message.type === 'text' && (message.content ?? '').trim());
+  const canEditSelected = selectedMessages.length === 1 && selectedMessages[0]?.senderId === userId && selectedMessages[0]?.type === 'text';
 
   useEffect(() => {
     setReplyTo(null);
@@ -707,6 +709,38 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     showNotice(`${count} message${count > 1 ? 's effacés' : ' effacé'}.`);
   }
 
+  function replyToSelectedMessage() {
+    if (selectedMessages.length !== 1) return;
+    setReplyTo(selectedMessages[0]);
+    setEditMsg(null);
+    setSelectedMessageIds([]);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }
+
+  function editSelectedMessage() {
+    if (!canEditSelected) return;
+    setEditMsg(selectedMessages[0]);
+    setReplyTo(null);
+    setInput(selectedMessages[0].content ?? '');
+    setSelectedMessageIds([]);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      resizeTextarea(textareaRef.current as HTMLTextAreaElement);
+    });
+  }
+
+  async function copySelectedMessages() {
+    if (selectedTextMessages.length === 0) return;
+    const text = selectedTextMessages.map(message => message.content).join('\n\n');
+    try {
+      await navigator.clipboard?.writeText(text);
+      setSelectedMessageIds([]);
+      showNotice(`${selectedTextMessages.length} message${selectedTextMessages.length > 1 ? 's copiés' : ' copié'}.`);
+    } catch {
+      showNotice('Copie impossible sur ce navigateur.');
+    }
+  }
+
   function openForwardSheet(message: Message) {
     if (message.isDeleted) return;
     setForwardMessages([message]);
@@ -866,7 +900,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       </div>
 
       {selectionMode && (
-        <div style={{ flexShrink:0, background:'#FFFFFF', borderBottom:'1px solid rgba(15,23,42,0.08)', padding:'8px 10px', display:'flex', alignItems:'center', gap:8, boxShadow:'0 4px 14px rgba(16,42,42,0.05)', zIndex:25 }}>
+        <div className="om-selection-toolbar" style={{ flexShrink:0, background:'#FFFFFF', borderBottom:'1px solid rgba(15,23,42,0.08)', padding:'8px 10px', display:'flex', alignItems:'center', gap:8, boxShadow:'0 4px 14px rgba(16,42,42,0.05)', zIndex:25 }}>
           <button
             onClick={clearMessageSelection}
             aria-label="Annuler la sélection"
@@ -874,7 +908,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           >
             ×
           </button>
-          <div style={{ flex:1, minWidth:0 }}>
+          <div className="om-selection-copy" style={{ flex:'1 1 auto', minWidth:0 }}>
             <p style={{ margin:0, fontSize:15.5, lineHeight:1.16, fontWeight:900, color:'var(--text-primary)' }}>
               {selectedMessages.length} message{selectedMessages.length > 1 ? 's' : ''} sélectionné{selectedMessages.length > 1 ? 's' : ''}
             </p>
@@ -882,27 +916,64 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               Touchez d’autres messages pour ajouter ou retirer.
             </p>
           </div>
-          <button
-            onClick={deleteSelectedMessages}
-            disabled={selectedMessages.length === 0}
-            title="Effacer"
-            aria-label="Effacer les messages sélectionnés"
-            style={{ width:38, height:38, minHeight:38, borderRadius:'50%', border:'none', background:selectedMessages.length ? 'rgba(220,38,38,0.10)' : 'rgba(16,42,42,0.10)', color:selectedMessages.length ? '#dc2626' : 'var(--text-muted)', cursor:selectedMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
-          >
-            <svg width="19" height="19" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h8l1-14M10 10v7m4-7v7" />
-            </svg>
-          </button>
-          <button
-            onClick={openSelectedForwardSheet}
-            disabled={selectedMessages.length === 0}
-            title="Transférer"
-            style={{ width:38, height:38, minHeight:38, borderRadius:'50%', border:'none', background:selectedMessages.length ? 'var(--header-bg)' : 'rgba(16,42,42,0.14)', color:selectedMessages.length ? '#fff' : 'var(--text-muted)', cursor:selectedMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow:selectedMessages.length ? '0 6px 18px rgba(16,42,42,0.18)' : 'none' }}
-          >
-            <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.3" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m-6-6l6 6-6 6" />
-            </svg>
-          </button>
+          <div className="om-selection-actions" style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:6, overflowX:'auto', flex:'0 1 auto', minWidth:0, maxWidth:'62%', paddingBottom:1 }}>
+            <button
+              onClick={replyToSelectedMessage}
+              disabled={selectedMessages.length !== 1}
+              title="Répondre"
+              aria-label="Répondre au message sélectionné"
+              style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:selectedMessages.length === 1 ? 'var(--bg-input)' : 'rgba(16,42,42,0.08)', color:selectedMessages.length === 1 ? 'var(--text-primary)' : 'var(--text-muted)', cursor:selectedMessages.length === 1 ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto' }}
+            >
+              <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 9V5l-7 7 7 7v-4c5.2 0 8.5 1.7 11 5-1-5.2-4.2-10-11-11z" />
+              </svg>
+            </button>
+            <button
+              onClick={copySelectedMessages}
+              disabled={selectedTextMessages.length === 0}
+              title="Copier"
+              aria-label="Copier les messages sélectionnés"
+              style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:selectedTextMessages.length ? 'var(--bg-input)' : 'rgba(16,42,42,0.08)', color:selectedTextMessages.length ? 'var(--text-primary)' : 'var(--text-muted)', cursor:selectedTextMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto' }}
+            >
+              <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <rect x="9" y="9" width="11" height="11" rx="2" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+              </svg>
+            </button>
+            <button
+              onClick={editSelectedMessage}
+              disabled={!canEditSelected}
+              title="Modifier"
+              aria-label="Modifier le message sélectionné"
+              style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:canEditSelected ? 'var(--bg-input)' : 'rgba(16,42,42,0.08)', color:canEditSelected ? 'var(--text-primary)' : 'var(--text-muted)', cursor:canEditSelected ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto' }}
+            >
+              <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2.1" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 20h9" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z" />
+              </svg>
+            </button>
+            <button
+              onClick={deleteSelectedMessages}
+              disabled={selectedMessages.length === 0}
+              title="Effacer"
+              aria-label="Effacer les messages sélectionnés"
+              style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:selectedMessages.length ? 'rgba(220,38,38,0.10)' : 'rgba(16,42,42,0.10)', color:selectedMessages.length ? '#dc2626' : 'var(--text-muted)', cursor:selectedMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto' }}
+            >
+              <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h8l1-14M10 10v7m4-7v7" />
+              </svg>
+            </button>
+            <button
+              onClick={openSelectedForwardSheet}
+              disabled={selectedMessages.length === 0}
+              title="Transférer"
+              style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:selectedMessages.length ? 'var(--header-bg)' : 'rgba(16,42,42,0.14)', color:selectedMessages.length ? '#fff' : 'var(--text-muted)', cursor:selectedMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', boxShadow:selectedMessages.length ? '0 6px 18px rgba(16,42,42,0.18)' : 'none' }}
+            >
+              <svg width="19" height="19" fill="none" stroke="currentColor" strokeWidth="2.3" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m-6-6l6 6-6 6" />
+              </svg>
+            </button>
+          </div>
         </div>
       )}
 
@@ -1026,7 +1097,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       {!selectionMode && (replyTo || editMsg) && (
         <div style={{ padding:'9px 12px', borderTop:'1px solid var(--border)', background:'var(--bg-surface)', display:'flex', alignItems:'center', gap:10, boxShadow:'0 -6px 18px rgba(16,42,42,0.05)', flexShrink:0 }}>
           <div style={{ flex:1, minWidth:0, borderLeft:'4px solid var(--accent)', padding:'7px 10px', borderRadius:12, background:'var(--bg-input)' }}>
-            <p style={{ fontSize:12, color:'var(--accent-text)', fontWeight:850, margin:0, lineHeight:1.2 }}>
+            <p style={{ fontSize:12, color:'var(--brand)', fontWeight:850, margin:0, lineHeight:1.2 }}>
               {editMsg ? t(lang,'chat.edit.msg') : `${t(lang,'chat.reply.to')} ${replyTo?.sender?.name}`}
             </p>
             <p style={{ fontSize:13, color:'var(--text-secondary)', margin:'2px 0 0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.25 }}>{messagePreview(editMsg ?? replyTo)}</p>
