@@ -100,6 +100,16 @@ async function runInstallDiagnostics(promptAvailable: boolean): Promise<InstallD
   add('Cache API supportée', 'caches' in window ? 'oui' : 'non');
 
   try {
+    const pageHead = await fetch('/install', { method: 'HEAD', cache: 'no-store' });
+    add('Page install HTTP', `${pageHead.status} ${pageHead.headers.get('content-type') || ''}`.trim());
+    add('HSTS', pageHead.headers.get('strict-transport-security') || 'absent');
+    add('CSP', pageHead.headers.get('content-security-policy') ? 'présente' : 'absente');
+    add('nosniff', pageHead.headers.get('x-content-type-options') || 'absent');
+  } catch (err: any) {
+    errors.push(`Lecture headers impossible: ${err?.message || 'erreur inconnue'}`);
+  }
+
+  try {
     const manifestRes = await fetch('/manifest.json', { cache: 'no-store' });
     add('manifest.json HTTP', `${manifestRes.status} ${manifestRes.headers.get('content-type') || ''}`.trim());
     if (!manifestRes.ok) errors.push(`manifest.json inaccessible (${manifestRes.status})`);
