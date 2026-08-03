@@ -9,9 +9,22 @@ const ADMIN_EMAIL  = 'tchingankonggeorges@gmail.com';
 const ADMIN_PHONE  = '+2250504673829';
 const isAdminUser  = (s: any) => s?.user?.email === ADMIN_EMAIL || s?.user?.phone === ADMIN_PHONE;
 
-interface Stats { totalUsers:number; onlineUsers:number; pwaInstalls:number; totalMessages:number; totalConversations:number; }
-interface Metrics { cpu:number; ramPct:number; ramUsed:number; ramTotal:number; uptime:number; }
+interface Stats { totalUsers:number; onlineUsers:number; pwaInstalls:number; totalMessages:number; totalConversations:number; premiumUsers?:number; }
+interface Metrics { cpu:number; ramPct:number; ramUsed:number; ramTotal:number; uptime:number; loadAvg1m?:number; platform?:string; }
 interface CountryStat { country:string; count:number; online:number; }
+
+function formatNumber(value?: number | null) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  return new Intl.NumberFormat('fr-FR').format(value);
+}
+
+function formatUptime(seconds?: number) {
+  if (!seconds) return '—';
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  if (days > 0) return `${days}j ${hours}h`;
+  return `${hours}h ${Math.floor((seconds % 3600) / 60)}min`;
+}
 
 export default function AdminPage() {
   const { data: session, status } = useSession();
@@ -29,6 +42,8 @@ export default function AdminPage() {
   const [mounted, setMounted] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [liveOnline, setLiveOnline] = useState<number | null>(null);
+  const [loadingData, setLoadingData] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const token = session?.user?.backendToken;
   const api = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -41,7 +56,12 @@ export default function AdminPage() {
     if (status !== 'authenticated' || !token) return;
 
     loadData();
-    const interval = setInterval(loadData, 30_000);
+    const interval = setInterval(loadData, 10_000);
+    const refreshOnFocus = () => {
+      if (document.visibilityState !== 'hidden') loadData();
+    };
+    window.addEventListener('focus', refreshOnFocus);
+    document.addEventListener('visibilitychange', refreshOnFocus);
 
     // Socket peut ne pas être prêt immédiatement — on réessaie jusqu'à 3s
     let socket = getSocket(token);
@@ -60,23 +80,37 @@ export default function AdminPage() {
 
     return () => {
       clearInterval(interval);
+      window.removeEventListener('focus', refreshOnFocus);
+      document.removeEventListener('visibilitychange', refreshOnFocus);
       socket?.off('admin_metrics_update');
     };
   }, [status, token]);
 
   async function loadData() {
+    if (!api || !token) return;
+    setLoadingData(true);
+    setLoadError('');
     try {
+      const fetchJson = async (path: string) => {
+        const res = await fetch(`${api}${path}`, { headers:{ Authorization:`Bearer ${token}` }, cache:'no-store' });
+        if (!res.ok) throw new Error(`${path} HTTP ${res.status}`);
+        return res.json();
+      };
       const [s, m, u, c] = await Promise.all([
-        fetch(`${api}/admin/stats`,     { headers:{ Authorization:`Bearer ${token}` } }).then(r=>r.json()),
-        fetch(`${api}/admin/metrics`,   { headers:{ Authorization:`Bearer ${token}` } }).then(r=>r.json()),
-        fetch(`${api}/admin/users`,     { headers:{ Authorization:`Bearer ${token}` } }).then(r=>r.json()),
-        fetch(`${api}/admin/countries`, { headers:{ Authorization:`Bearer ${token}` } }).then(r=>r.json()).catch(()=>[]),
+        fetchJson('/admin/stats'),
+        fetchJson('/admin/metrics'),
+        fetchJson('/admin/users'),
+        fetchJson('/admin/countries').catch(()=>[]),
       ]);
       setStats(s); setMetrics(m);
       setUsers(Array.isArray(u) ? u : []);
       setCountries(Array.isArray(c) ? c : []);
       setLastRefresh(new Date());
-    } catch {}
+    } catch (e: any) {
+      setLoadError(e?.message || 'Impossible de charger les données admin.');
+    } finally {
+      setLoadingData(false);
+    }
   }
 
   async function sendBroadcast() {
@@ -119,45 +153,54 @@ export default function AdminPage() {
     </div>
   );
 
-  const card = (title: string, value: string|number, icon: string, color = 'var(--accent)') => (
-    <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:20, display:'flex', alignItems:'center', gap:16, boxShadow:'0 1px 4px rgba(0,0,0,.08)' }}>
-      <div style={{ width:48, height:48, borderRadius:12, background:color+'22', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24 }}>{icon}</div>
-      <div>
-        <div style={{ fontSize:24, fontWeight:700, color:'var(--text-primary)' }}>{value}</div>
-        <div style={{ fontSize:13, color:'var(--text-muted)' }}>{title}</div>
+  const card = (title: string, value: string|number, icon: string, color = 'var(--brand)', sub?: string) => (
+    <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:18, padding:16, display:'flex', alignItems:'center', gap:14, boxShadow:'var(--shadow-soft)', minHeight:92 }}>
+      <div style={{ width:48, height:48, borderRadius:16, background:color.startsWith('var(') ? 'var(--brand-soft)' : color+'18', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, flexShrink:0, color }}>{icon}</div>
+      <div style={{ minWidth:0 }}>
+        <div style={{ fontSize:24, lineHeight:1.05, fontWeight:950, color:'var(--text-primary)' }}>{loadingData && value === '—' ? '...' : value}</div>
+        <div style={{ fontSize:13, color:'var(--text-secondary)', fontWeight:750, marginTop:4 }}>{title}</div>
+        {sub && <div style={{ fontSize:11.5, color:'var(--text-muted)', fontWeight:650, marginTop:3, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{sub}</div>}
       </div>
     </div>
   );
 
   return (
-    <div style={{ minHeight:'100vh', background:'var(--bg-app)', padding:24 }}>
+    <div style={{ minHeight:'100vh', background:'var(--bg-app)', padding:'max(18px, env(safe-area-inset-top)) 16px 24px' }}>
       <div style={{ maxWidth:900, margin:'0 auto' }}>
         {/* Header */}
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:32 }}>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:18, gap:14 }}>
           <div>
-            <h1 style={{ fontSize:24, fontWeight:700, color:'var(--text-primary)', margin:0 }}>Panel Admin</h1>
-            <p style={{ color:'var(--text-muted)', fontSize:14, margin:'4px 0 0' }}>
-              Oracle Messenger
-              {lastRefresh && (
-                <span style={{ marginLeft:10, fontSize:12, color:'var(--accent)' }}>
-                  ↻ {lastRefresh.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}
-                </span>
-              )}
+            <h1 style={{ fontSize:30, lineHeight:1.05, fontWeight:950, color:'var(--text-primary)', margin:0 }}>Panel Admin</h1>
+            <p style={{ color:'var(--text-secondary)', fontSize:15, margin:'8px 0 0', fontWeight:650 }}>
+              Oracle Messenger · données API réelles
             </p>
           </div>
-          <button onClick={() => router.push('/chat')} style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:10, padding:'8px 16px', cursor:'pointer', color:'var(--text-primary)', fontSize:14 }}>
+          <button onClick={() => router.push('/chat')} style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, padding:'11px 15px', cursor:'pointer', color:'var(--text-primary)', fontSize:14, fontWeight:800, boxShadow:'var(--shadow-soft)', whiteSpace:'nowrap' }}>
             ← Retour au chat
           </button>
         </div>
 
+        <div style={{ background: loadError ? '#FEF2F2' : '#EAF4F1', border:`1px solid ${loadError ? '#FECACA' : 'rgba(16,42,42,0.14)'}`, color: loadError ? '#B42318' : '#102A2A', borderRadius:16, padding:'12px 14px', marginBottom:14, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+          <div style={{ minWidth:0 }}>
+            <p style={{ margin:0, fontSize:13.5, fontWeight:900 }}>{loadError ? 'Erreur de chargement' : 'Tableau de bord temps réel'}</p>
+            <p style={{ margin:'3px 0 0', fontSize:12.5, lineHeight:1.35, fontWeight:650 }}>
+              {loadError || `Rafraîchissement automatique toutes les 10s${lastRefresh ? ` · dernière mise à jour ${lastRefresh.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}` : ''}`}
+            </p>
+          </div>
+          <button onClick={loadData} disabled={loadingData} style={{ border:'none', background:'#fff', color:'var(--brand)', borderRadius:12, padding:'9px 12px', fontSize:13, fontWeight:900, cursor:loadingData ? 'wait' : 'pointer', flexShrink:0 }}>
+            {loadingData ? '...' : 'Actualiser'}
+          </button>
+        </div>
+
         {/* Stats */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:16, marginBottom:24 }}>
-          {card('Utilisateurs', stats?.totalUsers ?? '…', '👥')}
-          {card('En ligne maintenant', liveOnline ?? stats?.onlineUsers ?? '…', '🟢', '#22c55e')}
-          {card('Installations PWA', stats?.pwaInstalls ?? '…', '📲', '#8b5cf6')}
-          {card('Messages', stats?.totalMessages ?? '…', '💬', '#3b82f6')}
-          {card('CPU', metrics ? `${metrics.cpu}%` : '…', '⚡', '#f59e0b')}
-          {card('RAM', metrics ? `${metrics.ramPct}%` : '…', '🧠', '#ef4444')}
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(210px,1fr))', gap:12, marginBottom:18 }}>
+          {card('Utilisateurs', formatNumber(stats?.totalUsers), '👥', 'var(--brand)', `${formatNumber(stats?.premiumUsers ?? 0)} premium`)}
+          {card('En ligne maintenant', formatNumber(liveOnline ?? stats?.onlineUsers), '●', '#22c55e', 'WebSocket + API')}
+          {card('Installations PWA', formatNumber(stats?.pwaInstalls), '📲', '#8b5cf6', 'installations enregistrées')}
+          {card('Messages', formatNumber(stats?.totalMessages), '💬', '#3b82f6', `${formatNumber(stats?.totalConversations)} conversations`)}
+          {card('CPU serveur', metrics ? `${metrics.cpu}%` : '—', '⚡', '#f59e0b', `charge ${metrics?.loadAvg1m ?? '—'}`)}
+          {card('RAM serveur', metrics ? `${metrics.ramPct}%` : '—', '▰', '#ef4444', metrics ? `${formatNumber(metrics.ramUsed)} / ${formatNumber(metrics.ramTotal)} MB` : undefined)}
+          {card('Disponibilité', formatUptime(metrics?.uptime), '↻', '#0ea5e9', metrics?.platform ? `système ${metrics.platform}` : 'uptime serveur')}
         </div>
 
         {/* Notif push */}
