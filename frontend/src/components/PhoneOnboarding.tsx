@@ -26,6 +26,7 @@ const COUNTRIES = [
   { code:'US', name:'États-Unis',    dial:'+1',   flag:'🇺🇸' },
   { code:'GB', name:'Royaume-Uni',   dial:'+44',  flag:'🇬🇧' },
 ];
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 
 export function PhoneOnboarding({ onDone }: { onDone: () => void }) {
   const { data: session } = useSession();
@@ -51,7 +52,7 @@ export function PhoneOnboarding({ onDone }: { onDone: () => void }) {
       : `${country.dial}${digits.replace(/^0+/, '')}`;
     const token = (session?.user as any)?.backendToken;
     if (token) {
-      fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/users/me/phone`, {
+      fetch(`${BACKEND_URL}/users/me/phone`, {
         method:'POST',
         headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
         body: JSON.stringify({ phone: full }),

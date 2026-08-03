@@ -32,9 +32,6 @@ export function buildChromeIntentUrl(url = window.location.href) {
 export function openCurrentAndroidLinkInChrome(scope = 'route') {
   if (!shouldOpenAndroidLinkInChrome()) return false;
   const currentUrl = window.location.href;
-  const key = `oracle-opened-chrome:${scope}:${currentUrl}`;
-  if (sessionStorage.getItem(key)) return false;
-  sessionStorage.setItem(key, '1');
-  window.location.href = buildChromeIntentUrl(currentUrl);
+  window.location.replace(buildChromeIntentUrl(currentUrl));
   return true;
 }

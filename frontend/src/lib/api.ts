@@ -1,4 +1,4 @@
-const BASE = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:3001';
+const BASE = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 
 async function req<T>(path: string, options?: RequestInit, token?: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {

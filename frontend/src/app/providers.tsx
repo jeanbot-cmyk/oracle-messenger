@@ -5,9 +5,10 @@ import { useEffect, useState } from 'react';
 import { useSettings } from '../store/settings';
 import { detectLanguage } from '../lib/i18n';
 import { PhoneOnboarding } from '../components/PhoneOnboarding';
-import { openCurrentAndroidLinkInChrome } from '../lib/androidChrome';
+import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 
-const CLIENT_CACHE_VERSION = '20260803-direct-invite-open';
+const CLIENT_CACHE_VERSION = '20260803-android-chrome-gate';
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 
 function ThemeApplier() {
   const { theme, lang, setLang } = useSettings();
@@ -109,6 +110,45 @@ function isStandaloneMode() {
     !!(window as any).Capacitor?.isNativePlatform?.();
 }
 
+function AndroidChromeGate({ children }: { children: React.ReactNode }) {
+  const [blocked, setBlocked] = useState(false);
+
+  useEffect(() => {
+    if (!shouldOpenAndroidLinkInChrome()) {
+      setBlocked(false);
+      return;
+    }
+    setBlocked(true);
+    const timer = setTimeout(() => openCurrentAndroidLinkInChrome('android-chrome-gate'), 120);
+    return () => clearTimeout(timer);
+  }, []);
+
+  function openChrome() {
+    window.location.href = buildChromeIntentUrl(window.location.href);
+  }
+
+  if (!blocked) return <>{children}</>;
+
+  return (
+    <div style={{ minHeight:'100dvh', background:'#F7F8F6', display:'flex', alignItems:'center', justifyContent:'center', padding:24, boxSizing:'border-box', fontFamily:'system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif' }}>
+      <div style={{ width:'min(420px, 100%)', background:'#fff', border:'1px solid rgba(15,23,42,0.08)', borderRadius:24, padding:24, textAlign:'center', boxShadow:'0 18px 42px rgba(15,23,42,0.12)' }}>
+        <img src="/icons/icon-96-v20260803.png" alt="" style={{ width:64, height:64, borderRadius:18, marginBottom:16 }} />
+        <h1 style={{ margin:'0 0 8px', fontSize:22, lineHeight:1.18, fontWeight:900, color:'#111827' }}>Ouvrir avec Chrome</h1>
+        <p style={{ margin:'0 0 20px', fontSize:15, lineHeight:1.5, fontWeight:650, color:'#374151' }}>
+          Sur Android, Oracle Messenger fonctionne uniquement avec Chrome pour les contacts, l’installation et les conversations.
+        </p>
+        <button onClick={openChrome}
+          style={{ width:'100%', minHeight:50, border:'none', borderRadius:999, background:'#0F766E', color:'#fff', fontSize:16, fontWeight:900, cursor:'pointer', boxShadow:'0 10px 24px rgba(15,118,110,0.24)' }}>
+          Continuer dans Chrome
+        </button>
+        <p style={{ margin:'14px 0 0', fontSize:12, lineHeight:1.45, color:'#6B7280' }}>
+          Si Chrome n’est pas installé, Android ouvrira la page Chrome du Play Store.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function InstallBanner() {
   const [visible, setVisible] = useState(false);
   const [installing, setInstalling] = useState(false);
@@ -195,7 +235,7 @@ function PhoneGate({ children }: { children: React.ReactNode }) {
     } catch {}
 
     // Check backend — if it fails, assume phone is needed (safe default)
-    fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/users/me/has-phone`, {
+    fetch(`${BACKEND_URL}/users/me/has-phone`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
@@ -225,7 +265,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       {mounted ? (
         <>
           <PhoneGate>
-            {children}
+            <AndroidChromeGate>{children}</AndroidChromeGate>
           </PhoneGate>
           <InstallBanner />
           <Toaster
