@@ -13,6 +13,7 @@ interface Props {
   onReply: (m: Message) => void;
   onDelete: (id: string) => void;
   onEdit: (m: Message) => void;
+  onForward: (m: Message) => void;
   onMediaLoad?: () => void;
 }
 
@@ -209,7 +210,7 @@ function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }
   );
 }
 
-export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onMediaLoad }: Props) {
+export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onForward, onMediaLoad }: Props) {
   const [showMenu, setShowMenu]       = useState(false);
   const [imgError, setImgError]       = useState(false);
   const [lightbox, setLightbox]       = useState(false);
@@ -243,7 +244,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onMed
     const vw = window.innerWidth || 360;
     const vh = window.innerHeight || 640;
     const width = Math.min(260, vw - 16);
-    const estimatedHeight = isOwn ? 224 : effectiveTypeEarly === 'text' ? 116 : 116;
+    const estimatedHeight = isOwn ? 272 : effectiveTypeEarly === 'text' ? 164 : 164;
     let left = rect ? (isOwn ? rect.right - width : rect.left) : 8;
     let top = rect ? rect.top - estimatedHeight - 8 : 80;
     if (top < 8 && rect) top = rect.bottom + 8;
@@ -496,6 +497,9 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onMed
             <div style={menuStyle}>
               <button style={menuItemStyle} onClick={() => { onReply(message); setShowMenu(false); }}>
                 ↩️ {t(lang, 'chat.reply')}
+              </button>
+              <button style={menuItemStyle} onClick={() => { onForward(message); setShowMenu(false); }}>
+                ↪️ Transférer
               </button>
               {/* Copier le texte */}
               {effectiveType === 'text' && (

@@ -9,7 +9,7 @@ import { api } from '../../lib/api';
 import { MessageBubble } from './MessageBubble';
 import { MediaLightbox } from '../ui/MediaLightbox';
 import { CameraCapture } from '../ui/CameraCapture';
-import type { Message } from '../../types';
+import type { Conversation, Message } from '../../types';
 
 // ── Emoji picker léger (sans dépendance externe) ─────────────────────────────
 const EMOJI_CATEGORIES: { label: string; emojis: string[] }[] = [
@@ -117,6 +117,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const [showMessageSearch, setShowMessageSearch] = useState(false);
   const [messageSearch, setMessageSearch] = useState('');
   const [activeSearchIndex, setActiveSearchIndex] = useState(0);
+  const [forwardMessage, setForwardMessage] = useState<Message | null>(null);
+  const [forwardTargets, setForwardTargets] = useState<string[]>([]);
+  const [forwarding, setForwarding] = useState(false);
   // Audio recording
   const [recording, setRecording]   = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
@@ -463,6 +466,67 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
 
   const name = conv?.type === 'group' ? conv.name : other?.name ?? 'Inconnu';
   const avatar = conv?.type === 'group' ? conv.avatar : other?.avatar;
+  const forwardConversations = conversations
+    .filter(item => item.id !== activeConvId)
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+  function conversationLabel(item: Conversation) {
+    if (item.type === 'group') return item.name || 'Groupe sans nom';
+    const participant = item.participants.find(p => p.id !== userId) ?? item.participants[0];
+    return participant?.name || item.name || 'Contact';
+  }
+
+  function conversationAvatar(item: Conversation) {
+    if (item.type === 'group') return item.avatar;
+    const participant = item.participants.find(p => p.id !== userId) ?? item.participants[0];
+    return participant?.avatar;
+  }
+
+  function showNotice(text: string, duration = 2600) {
+    setCallNotice(text);
+    setTimeout(() => setCallNotice(''), duration);
+  }
+
+  function openForwardSheet(message: Message) {
+    if (message.isDeleted) return;
+    setForwardMessage(message);
+    setForwardTargets([]);
+  }
+
+  function closeForwardSheet() {
+    if (forwarding) return;
+    setForwardMessage(null);
+    setForwardTargets([]);
+  }
+
+  function toggleForwardTarget(conversationId: string) {
+    if (!forwardTargets.includes(conversationId) && forwardTargets.length >= 50) {
+      showNotice('Maximum 50 contacts pour un transfert.');
+      return;
+    }
+    setForwardTargets(current => {
+      if (current.includes(conversationId)) {
+        return current.filter(id => id !== conversationId);
+      }
+      return [...current, conversationId];
+    });
+  }
+
+  function forwardSelectedMessage() {
+    if (!forwardMessage || forwarding || forwardTargets.length === 0) return;
+    const targets = forwardTargets.slice(0, 50);
+    setForwarding(true);
+    try {
+      targets.forEach(conversationId => {
+        sendMessage(conversationId, forwardMessage.content, forwardMessage.type);
+      });
+      showNotice(`Message transféré à ${targets.length} contact${targets.length > 1 ? 's' : ''}.`);
+      setForwardMessage(null);
+      setForwardTargets([]);
+    } finally {
+      setForwarding(false);
+    }
+  }
 
   if (!activeConvId || !conv) return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'var(--bg-elevated)', color:'var(--text-muted)', gap:16 }}>
@@ -623,6 +687,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                 onReply={setReplyTo}
                 onDelete={handleDelete}
                 onEdit={setEditMsg}
+                onForward={openForwardSheet}
                 onMediaLoad={() => {
                   if (isNearBottomRef.current) requestAnimationFrame(() => scrollMessagesToBottom('auto'));
                 }}
@@ -805,6 +870,101 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         )}
         <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
       </div>
+
+      {/* Transfert de message */}
+      {forwardMessage && (
+        <div
+          style={{ position:'fixed', inset:0, zIndex:520, background:'rgba(0,0,0,0.48)', display:'flex', alignItems:'flex-end' }}
+          onClick={e => { if (e.target === e.currentTarget) closeForwardSheet(); }}
+        >
+          <div
+            style={{ width:'100%', maxHeight:'min(82dvh, 720px)', background:'var(--bg-surface)', borderRadius:'22px 22px 0 0', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 -14px 42px rgba(0,0,0,0.24)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Transférer le message"
+          >
+            <div style={{ padding:'14px 16px 10px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
+              <button
+                onClick={closeForwardSheet}
+                disabled={forwarding}
+                aria-label="Fermer"
+                style={{ width:38, height:38, minHeight:38, borderRadius:'50%', border:'none', background:'var(--bg-input)', color:'var(--text-primary)', cursor: forwarding ? 'default' : 'pointer', fontSize:22, lineHeight:1, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
+              >
+                ×
+              </button>
+              <div style={{ flex:1, minWidth:0 }}>
+                <p style={{ margin:0, color:'var(--text-primary)', fontSize:18, fontWeight:900, lineHeight:1.12 }}>Transférer à</p>
+                <p style={{ margin:'3px 0 0', color:'var(--text-muted)', fontSize:12.5, fontWeight:750 }}>{forwardTargets.length}/50 contacts sélectionnés</p>
+              </div>
+              <button
+                onClick={forwardSelectedMessage}
+                disabled={forwardTargets.length === 0 || forwarding}
+                style={{ border:'none', borderRadius:999, background: forwardTargets.length === 0 || forwarding ? 'rgba(16,42,42,0.14)' : 'var(--header-bg)', color: forwardTargets.length === 0 || forwarding ? 'var(--text-muted)' : '#fff', padding:'10px 16px', fontSize:14, fontWeight:900, cursor: forwardTargets.length === 0 || forwarding ? 'default' : 'pointer', flexShrink:0 }}
+              >
+                {forwarding ? 'Envoi…' : 'Envoyer'}
+              </button>
+            </div>
+
+            <div style={{ margin:'12px 16px 8px', padding:'10px 12px', borderRadius:14, background:'#EAF4F1', border:'1px solid rgba(16,42,42,0.12)', color:'var(--text-primary)', flexShrink:0 }}>
+              <p style={{ margin:'0 0 3px', fontSize:12, color:'var(--text-muted)', fontWeight:850 }}>Message sélectionné</p>
+              <p style={{ margin:0, fontSize:14, lineHeight:1.35, fontWeight:750, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                {messagePreview(forwardMessage)}
+              </p>
+            </div>
+
+            <div style={{ overflowY:'auto', padding:'4px 10px 12px', WebkitOverflowScrolling:'touch', flex:1, minHeight:0 }}>
+              {forwardConversations.length === 0 ? (
+                <div style={{ padding:'26px 18px 34px', textAlign:'center', color:'var(--text-muted)' }}>
+                  <p style={{ margin:0, fontSize:15, lineHeight:1.45, fontWeight:750 }}>
+                    Aucune autre conversation disponible pour transférer ce message.
+                  </p>
+                </div>
+              ) : (
+                forwardConversations.map(item => {
+                  const selected = forwardTargets.includes(item.id);
+                  const label = conversationLabel(item);
+                  const avatarSrc = conversationAvatar(item);
+                  const preview = item.lastMessage ? messagePreview(item.lastMessage) : item.type === 'group' ? 'Groupe' : 'Contact Oracle Messenger';
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => toggleForwardTarget(item.id)}
+                      style={{ width:'100%', border:'none', background:selected ? 'rgba(15,118,110,0.10)' : 'transparent', borderRadius:16, padding:'9px 8px', display:'flex', alignItems:'center', gap:11, cursor:'pointer', textAlign:'left', transition:'background .18s ease' }}
+                    >
+                      <div style={{ width:46, height:46, borderRadius:'50%', background:'var(--bg-input)', overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, border:'1px solid var(--border)' }}>
+                        {avatarSrc ? (
+                          <img src={avatarSrc} alt={label} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                        ) : (
+                          <span style={{ color:'var(--header-bg)', fontSize:18, fontWeight:900 }}>{label[0]?.toUpperCase() ?? '?'}</span>
+                        )}
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <p style={{ margin:0, color:'var(--text-primary)', fontSize:15.5, fontWeight:850, lineHeight:1.2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {label}
+                        </p>
+                        <p style={{ margin:'3px 0 0', color:'var(--text-muted)', fontSize:13, lineHeight:1.25, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {preview}
+                        </p>
+                      </div>
+                      <span
+                        aria-hidden="true"
+                        style={{ width:26, height:26, borderRadius:'50%', border:selected ? 'none' : '2px solid var(--border)', background:selected ? 'var(--header-bg)' : '#fff', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
+                      >
+                        {selected && (
+                          <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal profil complet */}
       {profileModal && (
