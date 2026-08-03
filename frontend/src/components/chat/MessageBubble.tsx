@@ -222,6 +222,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
   const [copied, setCopied]           = useState(false);
   const [menuPos, setMenuPos]         = useState<{ top: number; left: number; width: number } | null>(null);
   const longPressTimer                = useRef<NodeJS.Timeout | null>(null);
+  const longPressFired                = useRef(false);
   const lastTapRef                    = useRef(0);
   const wrapRef                       = useRef<HTMLDivElement | null>(null);
 
@@ -245,28 +246,17 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
     lastTapRef.current = now;
   }
 
-  // Long-press → menu contextuel
+  // Long-press → sélection directe, comme WhatsApp
   function openMenu() {
-    if (selectionMode) {
-      onSelect(message);
-      return;
-    }
-    const rect = wrapRef.current?.getBoundingClientRect();
-    const vw = window.innerWidth || 360;
-    const vh = window.innerHeight || 640;
-    const width = Math.min(260, vw - 16);
-    const estimatedHeight = isOwn ? 272 : effectiveTypeEarly === 'text' ? 164 : 164;
-    let left = rect ? (isOwn ? rect.right - width : rect.left) : 8;
-    let top = rect ? rect.top - estimatedHeight - 8 : 80;
-    if (top < 8 && rect) top = rect.bottom + 8;
-    left = Math.max(8, Math.min(left, vw - width - 8));
-    top = Math.max(8, Math.min(top, vh - estimatedHeight - 8));
-    setMenuPos({ top, left, width });
-    setShowMenu(true);
+    longPressFired.current = true;
+    setShowMenu(false);
+    onSelect(message);
+    if ('vibrate' in navigator) navigator.vibrate(30);
   }
 
   function handlePressStart() {
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressFired.current = false;
     longPressTimer.current = setTimeout(openMenu, 500);
   }
   function handlePressEnd() {
@@ -320,6 +310,12 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
 
   function onTouchEnd() {
     handlePressEnd();
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      setSwiping(false);
+      setSwipeX(0);
+      return;
+    }
     if (selectionMode) {
       setSwiping(false);
       setSwipeX(0);
@@ -447,10 +443,24 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
           className={`om-message-bubble ${isOwn ? 'bubble-out' : 'bubble-in'}`}
           style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? 3 : '6px 8px 4px 9px', overflow: 'hidden' }}
           onTouchStart={handlePressStart}
-          onTouchEnd={() => { handlePressEnd(); handleTap(); }}
+          onTouchEnd={() => {
+            handlePressEnd();
+            if (longPressFired.current) {
+              longPressFired.current = false;
+              return;
+            }
+            handleTap();
+          }}
           onTouchMove={handlePressEnd}
           onMouseDown={handlePressStart}
-          onMouseUp={() => { handlePressEnd(); handleTap(); }}
+          onMouseUp={() => {
+            handlePressEnd();
+            if (longPressFired.current) {
+              longPressFired.current = false;
+              return;
+            }
+            handleTap();
+          }}
           onMouseLeave={handlePressEnd}
           onDoubleClick={() => onReply(message)}
         >

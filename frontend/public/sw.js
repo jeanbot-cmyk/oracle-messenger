@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v66
+// Oracle Messenger — Service Worker v67
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '66-20260803-pwa-install-cleanup';
+const CACHE_VERSION = '67-20260803-whatsapp-forward-flow';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [

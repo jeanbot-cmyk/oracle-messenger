@@ -9,7 +9,7 @@ import { api } from '../../lib/api';
 import { MessageBubble } from './MessageBubble';
 import { MediaLightbox } from '../ui/MediaLightbox';
 import { CameraCapture } from '../ui/CameraCapture';
-import type { Conversation, Message } from '../../types';
+import type { Conversation, Message, User } from '../../types';
 
 // ── Emoji picker léger (sans dépendance externe) ─────────────────────────────
 const EMOJI_CATEGORIES: { label: string; emojis: string[] }[] = [
@@ -41,6 +41,70 @@ function messagePreview(message?: Message | null) {
   if (message.type === 'audio' || src.startsWith('data:audio')) return 'Audio';
   if (message.type === 'file' || message.type === 'document' || src.startsWith('data:')) return 'Fichier';
   return message.content;
+}
+
+interface LocalForwardContact { name?: string; phones?: string[]; emails?: string[]; avatar?: string | null }
+
+type ForwardTarget = {
+  key: string;
+  kind: 'conversation' | 'user';
+  label: string;
+  avatar?: string;
+  subtitle: string;
+  conversationId?: string;
+  userId?: string;
+};
+
+const CONTACT_CACHE_KEYS = ['oracle-contacts', 'oracle-manual-contacts'];
+const PROBABLE_DIAL_CODES = [
+  '225', '237', '221', '223', '226', '224', '228', '229', '227',
+  '243', '242', '241', '233', '234', '212', '213', '216',
+  '33', '32', '41', '1', '44',
+];
+
+function readStoredContactPhones() {
+  const phones = new Set<string>();
+  for (const key of CONTACT_CACHE_KEYS) {
+    try {
+      const contacts: LocalForwardContact[] = JSON.parse(localStorage.getItem(key) ?? '[]');
+      contacts.forEach(contact => (contact.phones ?? []).forEach(phone => {
+        if (phone?.trim()) phones.add(phone.trim());
+      }));
+    } catch {}
+  }
+  return [...phones];
+}
+
+async function sha256(value: string) {
+  const data = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function phoneHashesForForward(phones: string[]) {
+  if (typeof crypto === 'undefined' || !crypto.subtle) return [];
+  const variants = new Set<string>();
+  for (const phone of phones) {
+    const hasExplicitCountryCode = phone.trim().startsWith('+') || phone.trim().startsWith('00');
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 8) continue;
+    const localWithoutLeadingZero = digits.replace(/^0+/, '');
+    variants.add(`+${digits}`);
+    variants.add(digits);
+    variants.add(digits.slice(-8));
+    if (digits.length >= 9) variants.add(digits.slice(-9));
+    if (!hasExplicitCountryCode) {
+      for (const dial of PROBABLE_DIAL_CODES) {
+        variants.add(`+${dial}${digits}`);
+        variants.add(`${dial}${digits}`);
+        if (localWithoutLeadingZero.length >= 8) {
+          variants.add(`+${dial}${localWithoutLeadingZero}`);
+          variants.add(`${dial}${localWithoutLeadingZero}`);
+        }
+      }
+    }
+  }
+  return Promise.all([...variants].map(value => sha256(value)));
 }
 
 function EmojiPicker({ onSelect, onClose }: { onSelect: (e: string) => void; onClose: () => void }) {
@@ -101,7 +165,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const userId = session?.user?.id ?? '';
   const { lang } = useSettings();
 
-  const { activeConvId, conversations, messages, typingUsers, typingNames: typingNamesStore, onlineUsers, setMessages, markRead, loadLocalMessages } = useChatStore();
+  const { activeConvId, conversations, messages, typingUsers, typingNames: typingNamesStore, onlineUsers, setConversations, setMessages, markRead, loadLocalMessages } = useChatStore();
   const { joinConversation, sendTyping, sendMessage, deleteMessage: deleteSocketMessage, editMessage: editSocketMessage, markRead: emitRead } = useSocket();
 
   const [input, setInput]         = useState('');
@@ -119,6 +183,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const [activeSearchIndex, setActiveSearchIndex] = useState(0);
   const [forwardMessages, setForwardMessages] = useState<Message[]>([]);
   const [forwardTargets, setForwardTargets] = useState<string[]>([]);
+  const [forwardUsers, setForwardUsers] = useState<User[]>([]);
+  const [forwardSearch, setForwardSearch] = useState('');
   const [forwarding, setForwarding] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   // Audio recording
@@ -176,6 +242,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     setSelectedMessageIds([]);
     setForwardMessages([]);
     setForwardTargets([]);
+    setForwardSearch('');
     if (!activeConvId || !token) return;
     initialScrollPending.current = true;
     isNearBottomRef.current = true;
@@ -194,6 +261,31 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     if (!activeSearchMessage) return;
     messageRefs.current[activeSearchMessage]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [activeSearchMessage]);
+
+  useEffect(() => {
+    if (forwardMessages.length === 0 || !token) return;
+    let cancelled = false;
+    async function loadForwardUsers() {
+      const byId = new Map<string, User>();
+      try {
+        const phones = readStoredContactPhones();
+        const hashes = await phoneHashesForForward(phones);
+        if (hashes.length) {
+          const matched = await api.users.matchByPhoneHashes(hashes, token).catch(() => []);
+          matched.forEach((user: User) => {
+            if (user.id && user.id !== userId) byId.set(user.id, user);
+          });
+        }
+        const searched = await api.users.search('', token).catch(() => []);
+        searched.forEach((user: User) => {
+          if (user.id && user.id !== userId) byId.set(user.id, user);
+        });
+      } catch {}
+      if (!cancelled) setForwardUsers([...byId.values()]);
+    }
+    loadForwardUsers();
+    return () => { cancelled = true; };
+  }, [forwardMessages.length, token, userId]);
 
   function isNearBottom(el: HTMLDivElement) {
     return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
@@ -475,6 +567,39 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const forwardConversations = conversations
     .filter(item => item.id !== activeConvId)
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  const existingForwardUserIds = new Set(
+    conversations
+      .filter(item => item.type === 'direct')
+      .map(item => item.participants.find(p => p.id !== userId)?.id)
+      .filter(Boolean) as string[]
+  );
+  const forwardTargetList: ForwardTarget[] = [
+    ...forwardConversations.map(item => ({
+      key: `conversation:${item.id}`,
+      kind: 'conversation' as const,
+      label: conversationLabel(item),
+      avatar: conversationAvatar(item),
+      subtitle: item.lastMessage ? messagePreview(item.lastMessage) : item.type === 'group' ? 'Groupe Oracle Messenger' : 'Conversation Oracle Messenger',
+      conversationId: item.id,
+    })),
+    ...forwardUsers
+      .filter(user => !existingForwardUserIds.has(user.id))
+      .map(user => ({
+        key: `user:${user.id}`,
+        kind: 'user' as const,
+        label: user.name || user.username || 'Contact Oracle',
+        avatar: user.avatar,
+        subtitle: user.phone ? `Contact Oracle · ${user.phone}` : user.username ? `@${user.username}` : 'Contact Oracle Messenger',
+        userId: user.id,
+      })),
+  ];
+  const forwardSearchNeedle = forwardSearch.trim().toLowerCase();
+  const filteredForwardTargets = forwardSearchNeedle
+    ? forwardTargetList.filter(target =>
+        target.label.toLowerCase().includes(forwardSearchNeedle) ||
+        target.subtitle.toLowerCase().includes(forwardSearchNeedle)
+      )
+    : forwardTargetList;
 
   function conversationLabel(item: Conversation) {
     if (item.type === 'group') return item.name || 'Groupe sans nom';
@@ -512,48 +637,76 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     if (message.isDeleted) return;
     setForwardMessages([message]);
     setForwardTargets([]);
+    setForwardSearch('');
   }
 
   function openSelectedForwardSheet() {
     if (selectedMessages.length === 0) return;
     setForwardMessages(selectedMessages);
     setForwardTargets([]);
+    setForwardSearch('');
   }
 
   function closeForwardSheet() {
     if (forwarding) return;
     setForwardMessages([]);
     setForwardTargets([]);
+    setForwardSearch('');
   }
 
-  function toggleForwardTarget(conversationId: string) {
-    if (!forwardTargets.includes(conversationId) && forwardTargets.length >= 50) {
+  function toggleForwardTarget(targetKey: string) {
+    if (!forwardTargets.includes(targetKey) && forwardTargets.length >= 50) {
       showNotice('Maximum 50 contacts pour un transfert.');
       return;
     }
     setForwardTargets(current => {
-      if (current.includes(conversationId)) {
-        return current.filter(id => id !== conversationId);
+      if (current.includes(targetKey)) {
+        return current.filter(id => id !== targetKey);
       }
-      return [...current, conversationId];
+      return [...current, targetKey];
     });
   }
 
-  function forwardSelectedMessages() {
+  async function forwardSelectedMessages() {
     if (forwardMessages.length === 0 || forwarding || forwardTargets.length === 0) return;
     const targets = forwardTargets.slice(0, 50);
     setForwarding(true);
     try {
-      targets.forEach(conversationId => {
+      for (const targetKey of targets) {
+        const target = forwardTargetList.find(item => item.key === targetKey);
+        if (!target) continue;
+        let conversationId = target.conversationId;
+        if (!conversationId && target.userId && token) {
+          const created = await api.conversations.create(target.userId, token);
+          conversationId = created?.id;
+          if (conversationId) {
+            const normalized = {
+              ...created,
+              participants: Array.isArray(created.participants)
+                ? created.participants
+                : forwardUsers.find(user => user.id === target.userId)
+                  ? [forwardUsers.find(user => user.id === target.userId) as User]
+                  : [],
+              unreadCount: created.unreadCount ?? 0,
+              lastMessage: created.lastMessage ?? null,
+            };
+            const existing = useChatStore.getState().conversations;
+            if (!existing.find(item => item.id === conversationId)) {
+              setConversations([normalized, ...existing]);
+            }
+          }
+        }
+        if (!conversationId) continue;
         forwardMessages.forEach(message => {
           sendMessage(conversationId, message.content, message.type);
         });
-      });
+      }
       const messageLabel = forwardMessages.length > 1 ? `${forwardMessages.length} messages transférés` : 'Message transféré';
       showNotice(`${messageLabel} à ${targets.length} contact${targets.length > 1 ? 's' : ''}.`);
       setForwardMessages([]);
       setForwardTargets([]);
       setSelectedMessageIds([]);
+      setForwardSearch('');
     } finally {
       setForwarding(false);
     }
@@ -980,39 +1133,57 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               </p>
             </div>
 
+            <div style={{ margin:'0 16px 8px', flexShrink:0, display:'flex', alignItems:'center', gap:8, background:'var(--bg-input)', border:'1px solid var(--border)', borderRadius:999, padding:'9px 13px' }}>
+              <svg width="16" height="16" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                value={forwardSearch}
+                onChange={event => setForwardSearch(event.target.value)}
+                placeholder="Rechercher un contact ou une conversation"
+                style={{ flex:1, minWidth:0, border:'none', outline:'none', background:'transparent', color:'var(--text-primary)', fontSize:14 }}
+              />
+              {forwardSearch && (
+                <button
+                  onClick={() => setForwardSearch('')}
+                  aria-label="Effacer la recherche"
+                  style={{ border:'none', background:'transparent', color:'var(--text-muted)', cursor:'pointer', fontSize:16, padding:0, lineHeight:1 }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
             <div style={{ overflowY:'auto', padding:'4px 10px 12px', WebkitOverflowScrolling:'touch', flex:1, minHeight:0 }}>
-              {forwardConversations.length === 0 ? (
+              {filteredForwardTargets.length === 0 ? (
                 <div style={{ padding:'26px 18px 34px', textAlign:'center', color:'var(--text-muted)' }}>
                   <p style={{ margin:0, fontSize:15, lineHeight:1.45, fontWeight:750 }}>
-                    Aucune autre conversation disponible pour transférer ce message.
+                    Aucun contact Oracle Messenger trouvé pour ce transfert.
                   </p>
                 </div>
               ) : (
-                forwardConversations.map(item => {
-                  const selected = forwardTargets.includes(item.id);
-                  const label = conversationLabel(item);
-                  const avatarSrc = conversationAvatar(item);
-                  const preview = item.lastMessage ? messagePreview(item.lastMessage) : item.type === 'group' ? 'Groupe' : 'Contact Oracle Messenger';
+                filteredForwardTargets.map(target => {
+                  const selected = forwardTargets.includes(target.key);
                   return (
                     <button
-                      key={item.id}
+                      key={target.key}
                       type="button"
-                      onClick={() => toggleForwardTarget(item.id)}
+                      onClick={() => toggleForwardTarget(target.key)}
                       style={{ width:'100%', border:'none', background:selected ? 'rgba(15,118,110,0.10)' : 'transparent', borderRadius:16, padding:'9px 8px', display:'flex', alignItems:'center', gap:11, cursor:'pointer', textAlign:'left', transition:'background .18s ease' }}
                     >
                       <div style={{ width:46, height:46, borderRadius:'50%', background:'var(--bg-input)', overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, border:'1px solid var(--border)' }}>
-                        {avatarSrc ? (
-                          <img src={avatarSrc} alt={label} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                        {target.avatar ? (
+                          <img src={target.avatar} alt={target.label} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
                         ) : (
-                          <span style={{ color:'var(--header-bg)', fontSize:18, fontWeight:900 }}>{label[0]?.toUpperCase() ?? '?'}</span>
+                          <span style={{ color:'var(--header-bg)', fontSize:18, fontWeight:900 }}>{target.label[0]?.toUpperCase() ?? '?'}</span>
                         )}
                       </div>
                       <div style={{ flex:1, minWidth:0 }}>
                         <p style={{ margin:0, color:'var(--text-primary)', fontSize:15.5, fontWeight:850, lineHeight:1.2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                          {label}
+                          {target.label}
                         </p>
                         <p style={{ margin:'3px 0 0', color:'var(--text-muted)', fontSize:13, lineHeight:1.25, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                          {preview}
+                          {target.subtitle}
                         </p>
                       </div>
                       <span
