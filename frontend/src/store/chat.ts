@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Conversation, Message, User } from '../types';
-import { saveMessage, saveConversation, getMessages, getConversations, deleteConversation as deleteLocalConversation } from '../lib/db';
+import { saveMessage, saveConversation, getMessages, deleteMessage as deleteLocalMessage, deleteConversation as deleteLocalConversation } from '../lib/db';
 
 interface ChatStore {
   conversations:      Conversation[];
@@ -90,10 +90,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   deleteMessage: (convId, msgId) => {
+    if (msgId.startsWith('temp-')) deleteLocalMessage(msgId).catch(() => {});
     set(s => ({
       messages: {
         ...s.messages,
-        [convId]: (s.messages[convId] ?? []).map(m => {
+        [convId]: (s.messages[convId] ?? []).filter(m => !(m.id === msgId && msgId.startsWith('temp-'))).map(m => {
           if (m.id !== msgId) return m;
           const next = { ...m, isDeleted: true, content: 'Ce message a été supprimé' };
           saveMessage(next).catch(() => {});
@@ -105,7 +106,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   setMessages: (convId, msgs) => {
     msgs.forEach(m => saveMessage(m));
-    set(s => ({ messages: { ...s.messages, [convId]: msgs } }));
+    set(s => {
+      const existing = s.messages[convId] ?? [];
+      const byId = new Map<string, Message>();
+      for (const msg of existing) byId.set(msg.id, msg);
+      for (const msg of msgs) byId.set(msg.id, msg);
+      const merged = Array.from(byId.values())
+        .filter(msg => msg.conversationId === convId)
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      return { messages: { ...s.messages, [convId]: merged } };
+    });
   },
 
   loadLocalMessages: async (convId) => {

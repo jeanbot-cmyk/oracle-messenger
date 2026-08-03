@@ -320,7 +320,27 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         participants: new Set([callerId, ...validTargets]),
       });
 
+      const firstTargetId = validTargets[0];
+      const firstTarget = firstTargetId ? await this.users.findById(firstTargetId).catch(() => null) : null;
+      this.callsSvc.logCall({
+        callId: data.callId,
+        userId: callerId,
+        peerId: firstTargetId ?? '',
+        peerName: firstTarget?.name ?? 'Inconnu',
+        type: data.type,
+        direction: 'outgoing',
+      }).catch(() => {});
+
       for (const targetId of validTargets) {
+        this.callsSvc.logCall({
+          callId: data.callId,
+          userId: targetId,
+          peerId: callerId,
+          peerName: callerName,
+          type: data.type,
+          direction: 'missed',
+        }).catch(() => {});
+
         const socketIds = this.socketState.getSocketIds(targetId);
         if (socketIds.length) {
           for (const sid of socketIds) {

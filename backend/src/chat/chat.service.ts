@@ -136,15 +136,16 @@ export class ChatService {
     });
     if (!participant) throw new ForbiddenException();
 
-    return this.prisma.message.findMany({
+    const messages = await this.prisma.message.findMany({
       where: {
         conversationId,
         ...(before ? { createdAt: { lt: new Date(before) } } : {}),
       },
       include: { sender: { select: { id: true, name: true, username: true, avatar: true } } },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
       take: 50,
     });
+    return messages.reverse();
   }
 
   async createMessage(conversationId: string, senderId: string, content: string, type = 'text', replyToId?: string) {

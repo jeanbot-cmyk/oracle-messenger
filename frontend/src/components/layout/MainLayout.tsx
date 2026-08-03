@@ -261,24 +261,32 @@ function CallsTab({ onStartCall }: { onStartCall?: (convId: string, userIds: str
     })
       .then(r => r.ok ? r.json() : [])
       .then((data: CallLogEntry[]) => setLog(Array.isArray(data) ? data : []))
-      .catch(() => setLog([]))
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, [mounted, token]);
 
   async function clearAll() {
     if (!confirm('Effacer tout l\'historique des appels ?')) return;
-    await fetch(`${BASE}/calls/history`, {
+    const res = await fetch(`${BASE}/calls/history`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => {});
+    if (!res || !res.ok) {
+      alert('Impossible d’effacer l’historique maintenant. Vérifiez votre connexion.');
+      return;
+    }
     setLog([]);
   }
 
   async function deleteEntry(id: string) {
-    await fetch(`${BASE}/calls/history/${id}`, {
+    const res = await fetch(`${BASE}/calls/history/${id}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => {});
+    if (!res || !res.ok) {
+      alert('Impossible de supprimer cet appel maintenant.');
+      return;
+    }
     setLog(prev => prev.filter(e => e.id !== id));
   }
 

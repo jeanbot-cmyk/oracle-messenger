@@ -16,15 +16,28 @@ export class CallsService {
   constructor(private prisma: PrismaService) {}
 
   async logCall(dto: LogCallDto) {
+    const existing = await this.prisma.callLog.findFirst({
+      where: { callId: dto.callId, userId: dto.userId },
+      orderBy: { startedAt: 'desc' },
+    });
+    const data = {
+      peerId:    dto.peerId,
+      peerName:  dto.peerName,
+      type:      dto.type,
+      direction: dto.direction,
+      duration:  dto.duration ?? null,
+    };
+    if (existing) {
+      return this.prisma.callLog.update({
+        where: { id: existing.id },
+        data,
+      });
+    }
     return this.prisma.callLog.create({
       data: {
-        callId:    dto.callId,
-        userId:    dto.userId,
-        peerId:    dto.peerId,
-        peerName:  dto.peerName,
-        type:      dto.type,
-        direction: dto.direction,
-        duration:  dto.duration ?? null,
+        callId: dto.callId,
+        userId: dto.userId,
+        ...data,
       },
     });
   }
