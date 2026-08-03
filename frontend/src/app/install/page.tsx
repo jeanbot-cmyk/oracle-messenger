@@ -7,10 +7,16 @@ import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../.
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
 const MANUAL_CONTACTS_KEY = 'oracle-manual-contacts';
-const INSTALL_RESET_KEY = 'oracle-install-reset-v79';
+const INSTALL_VERSION = '80-20260803-stability';
+const INSTALL_RESET_KEY = `oracle-install-reset-${INSTALL_VERSION}`;
 
 type Device = 'ios' | 'android' | 'other';
 type Inviter = { id: string; name: string; username: string; avatar?: string; phone?: string };
+type InstallDiagnostic = {
+  ok: boolean;
+  lines: string[];
+  errors: string[];
+};
 function detectDevice(): Device {
   const ua = navigator.userAgent.toLowerCase();
   if (/iphone|ipad|ipod/.test(ua)) return 'ios';
@@ -64,6 +70,96 @@ async function resetInstallCacheState() {
     const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
     await reg.update().catch(() => {});
   }
+}
+
+function readPwaLog() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('oracle-pwa-install-log') || '[]');
+    return Array.isArray(parsed) ? parsed.slice(-12) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function runInstallDiagnostics(promptAvailable: boolean): Promise<InstallDiagnostic> {
+  const lines: string[] = [];
+  const errors: string[] = [];
+  const add = (label: string, value: string | boolean | number) => lines.push(`${label}: ${String(value)}`);
+  const ua = navigator.userAgent;
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
+  const isAndroid = /android/i.test(ua);
+  const isChrome = /chrome\//i.test(ua) && !/samsungbrowser|edg\/|opr\/|opera|firefox|wv/i.test(ua);
+
+  add('Version PWA', INSTALL_VERSION);
+  add('Navigateur', ua);
+  add('Mode installé', standalone ? 'oui' : 'non');
+  add('Android', isAndroid ? 'oui' : 'non');
+  add('Chrome compatible', isAndroid ? (isChrome ? 'oui' : 'non') : 'non requis');
+  add('beforeinstallprompt reçu', promptAvailable ? 'oui' : 'non');
+  add('Service Worker supporté', 'serviceWorker' in navigator ? 'oui' : 'non');
+  add('Cache API supportée', 'caches' in window ? 'oui' : 'non');
+
+  try {
+    const manifestRes = await fetch('/manifest.json', { cache: 'no-store' });
+    add('manifest.json HTTP', `${manifestRes.status} ${manifestRes.headers.get('content-type') || ''}`.trim());
+    if (!manifestRes.ok) errors.push(`manifest.json inaccessible (${manifestRes.status})`);
+    const manifest = await manifestRes.json();
+    add('Manifest name', manifest.name || '');
+    add('Manifest start_url', manifest.start_url || '');
+    add('Manifest scope', manifest.scope || '');
+    add('Manifest display', manifest.display || '');
+    add('Manifest id', manifest.id || '');
+    if (!manifest.name) errors.push('Manifest sans name');
+    if (!manifest.start_url) errors.push('Manifest sans start_url');
+    if (!manifest.scope) errors.push('Manifest sans scope');
+    if (!manifest.icons?.length) errors.push('Manifest sans icônes');
+    const requiredIcons = ['/icons/icon-192-v20260803.png', '/icons/icon-512-v20260803.png'];
+    for (const icon of requiredIcons) {
+      const res = await fetch(icon, { method: 'HEAD', cache: 'no-store' });
+      add(`Icône ${icon}`, `${res.status} ${res.headers.get('content-type') || ''}`.trim());
+      if (!res.ok) errors.push(`Icône manquante: ${icon}`);
+    }
+  } catch (err: any) {
+    errors.push(`Manifest invalide: ${err?.message || 'erreur inconnue'}`);
+  }
+
+  try {
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.getRegistration('/');
+      add('SW enregistré', reg ? 'oui' : 'non');
+      add('SW controller', navigator.serviceWorker.controller ? 'oui' : 'non');
+      if (reg) {
+        add('SW scope', reg.scope);
+        add('SW active', reg.active?.state || 'non');
+        add('SW installing', reg.installing?.state || 'non');
+        add('SW waiting', reg.waiting?.state || 'non');
+      }
+    }
+  } catch (err: any) {
+    errors.push(`Diagnostic SW impossible: ${err?.message || 'erreur inconnue'}`);
+  }
+
+  try {
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      add('Caches navigateur', keys.join(', ') || 'aucun');
+    }
+  } catch (err: any) {
+    errors.push(`Lecture cache impossible: ${err?.message || 'erreur inconnue'}`);
+  }
+
+  try {
+    const estimate = await navigator.storage?.estimate?.();
+    if (estimate?.quota) {
+      add('Stockage utilisé', `${Math.round((estimate.usage || 0) / 1024 / 1024)} Mo / ${Math.round(estimate.quota / 1024 / 1024)} Mo`);
+    }
+  } catch {}
+
+  readPwaLog().forEach((entry: any) => {
+    if (entry?.event) lines.push(`Log ${entry.event}: ${entry.time || ''}`);
+  });
+
+  return { ok: errors.length === 0, lines, errors };
 }
 
 function escapeVcard(value = '') {
@@ -227,12 +323,22 @@ export default function InstallPage() {
   const [manualInstall, setManualInstall] = useState(false);
   const [inviter, setInviter] = useState<Inviter | null>(null);
   const [contactSaved, setContactSaved] = useState(false);
+  const [diagnostic, setDiagnostic] = useState<InstallDiagnostic | null>(null);
   const promptRef = useRef<any>(null);
+
+  async function refreshDiagnostic(promptAvailable = !!(promptRef.current || (window as any).__installPrompt || (window as any).__pwaPrompt)) {
+    const result = await runInstallDiagnostics(promptAvailable);
+    setDiagnostic(result);
+    return result;
+  }
 
   useEffect(() => {
     setMounted(true);
     setDevice(detectDevice());
+    const params = new URLSearchParams(window.location.search);
+    const explicitReset = params.has('reset') && params.get('reset') !== 'done';
     if (
+      explicitReset &&
       !window.matchMedia('(display-mode: standalone)').matches &&
       (navigator as any).standalone !== true &&
       sessionStorage.getItem(INSTALL_RESET_KEY) !== '1'
@@ -268,6 +374,7 @@ export default function InstallPage() {
       (window as any).__pwaPrompt = e;
       setInstallMessage('');
       setManualInstall(false);
+      refreshDiagnostic(true).catch(() => {});
     };
     window.addEventListener('beforeinstallprompt', handler);
     const onInstalled = () => {
@@ -282,7 +389,10 @@ export default function InstallPage() {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
         .then(reg => reg.update().catch(() => {}))
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => refreshDiagnostic().catch(() => {}));
+    } else {
+      refreshDiagnostic().catch(() => {});
     }
     return () => {
       window.removeEventListener('beforeinstallprompt', handler);
@@ -291,6 +401,7 @@ export default function InstallPage() {
   }, []);
 
   async function handleAndroidInstall() {
+    await refreshDiagnostic();
     if (shouldOpenAndroidLinkInChrome()) {
       setInstallMessage('Ouverture dans Chrome pour lancer une installation sûre...');
       window.location.assign(buildChromeInstallIntentUrl());
@@ -335,6 +446,7 @@ export default function InstallPage() {
         reg.update().catch(() => {});
       } catch {}
     }
+    await refreshDiagnostic(false);
     setManualInstall(true);
     setInstallMessage("Si la fenêtre d'installation ne s'ouvre pas automatiquement, Chrome ne l'autorise pas maintenant. Appuie sur ⋮ en haut à droite, puis sur Installer l'application ou Ajouter à l'écran d'accueil.");
   }
@@ -569,10 +681,12 @@ export default function InstallPage() {
             .then(() => {
               setManualInstall(true);
               setInstallMessage("Ancien cache supprimé. Appuie maintenant sur Installer Oracle Messenger.");
+              refreshDiagnostic().catch(() => {});
             })
             .catch(() => {
               setManualInstall(true);
               setInstallMessage("Nettoyage partiel effectué. Ferme Chrome puis rouvre cette page.");
+              refreshDiagnostic().catch(() => {});
             });
         }}
         style={{
@@ -603,6 +717,41 @@ export default function InstallPage() {
       >
         Page blanche ? Réparer Chrome
       </a>
+
+      <details style={{ width:'100%', maxWidth:380, border:'1px solid var(--border)', borderRadius:18, padding:14, marginBottom:10, background:'#F8FAFC', color:'var(--text-primary)' }}>
+        <summary style={{ cursor:'pointer', fontSize:13, fontWeight:900 }}>
+          Diagnostic technique installation {diagnostic?.ok ? '✓' : diagnostic ? '⚠' : ''}
+        </summary>
+        <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:10 }}>
+          {diagnostic?.errors?.length ? (
+            <div style={{ background:'#FEF2F2', color:'#991B1B', borderRadius:12, padding:10, fontSize:12, lineHeight:1.45, fontWeight:750 }}>
+              {diagnostic.errors.map((err, index) => <div key={index}>{err}</div>)}
+            </div>
+          ) : (
+            <p style={{ margin:0, color:'var(--text-secondary)', fontSize:12, lineHeight:1.45 }}>
+              Aucun blocage manifeste détecté. Si l’invite ne s’ouvre pas, le navigateur peut exiger Chrome, un geste utilisateur, ou un nettoyage du cache.
+            </p>
+          )}
+          <pre style={{ whiteSpace:'pre-wrap', wordBreak:'break-word', margin:0, maxHeight:220, overflow:'auto', background:'#fff', border:'1px solid var(--border)', borderRadius:12, padding:10, fontSize:11, lineHeight:1.45, color:'#0F172A' }}>
+            {(diagnostic?.lines || ['Diagnostic en préparation...']).join('\n')}
+          </pre>
+          <button
+            onClick={() => {
+              const text = [
+                'Diagnostic Oracle Messenger PWA',
+                ...(diagnostic?.errors?.length ? ['Erreurs:', ...diagnostic.errors] : []),
+                'Détails:',
+                ...(diagnostic?.lines || []),
+              ].join('\n');
+              navigator.clipboard?.writeText(text).catch(() => {});
+              setInstallMessage('Diagnostic copié. Envoie ce texte pour comparer le téléphone qui échoue avec celui qui fonctionne.');
+            }}
+            style={{ border:'none', borderRadius:999, background:'var(--header-bg)', color:'#fff', padding:'10px 12px', fontSize:12, fontWeight:900, cursor:'pointer' }}
+          >
+            Copier le diagnostic
+          </button>
+        </div>
+      </details>
 
       {/* Fallback — never block access */}
       <button
