@@ -59,10 +59,14 @@ const Btn = ({ onClick, color, children, label }: { onClick:()=>void; color:stri
 );
 
 export function CallOverlay({ callState, callInfo, localStream, remoteStreams, isMuted, isCamOff, callerName, onAnswer, onEnd, onToggleMute, onToggleCamera, onSwitchCamera }: Props) {
-  // Sonneries selon l'état de l'appel
+  // Sonneries selon l'état de l'appel.
+  // Important : seul le destinataire doit sonner/vibrer. L'appelant ne reçoit
+  // qu'un retour discret, sinon son téléphone se comporte comme un appel entrant.
   useEffect(() => {
-    if (callState === 'incoming' || callState === 'calling') {
+    if (callState === 'incoming') {
       startRingtone();
+    } else if (callState === 'calling') {
+      stopRingtone();
     } else if (callState === 'connected') {
       stopRingtone();
       playCallConnected();
