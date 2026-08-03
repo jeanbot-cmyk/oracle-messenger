@@ -197,7 +197,6 @@ const IOS_STEPS = [
 export default function InstallPage() {
   const [device,     setDevice]     = useState<Device>('android');
   const [installing, setInstalling] = useState(false);
-  const [installReady, setInstallReady] = useState(false);
   const [installMessage, setInstallMessage] = useState('');
   const [installed,  setInstalled]  = useState(false);
   const [mounted,    setMounted]    = useState(false);
@@ -229,7 +228,6 @@ export default function InstallPage() {
     // Capture prompt (may already be set by layout.tsx inline script)
     if ((window as any).__installPrompt) {
       promptRef.current = (window as any).__installPrompt;
-      setInstallReady(true);
     }
 
     const handler = (e: any) => {
@@ -237,14 +235,12 @@ export default function InstallPage() {
       promptRef.current = e;
       (window as any).__installPrompt = e;
       (window as any).__pwaPrompt = e;
-      setInstallReady(true);
       setInstallMessage('');
       setManualInstall(false);
     };
     window.addEventListener('beforeinstallprompt', handler);
     const onInstalled = () => {
       setInstalled(true);
-      setInstallReady(false);
       promptRef.current = null;
       (window as any).__installPrompt = null;
       (window as any).__pwaPrompt = null;
@@ -262,27 +258,6 @@ export default function InstallPage() {
       window.removeEventListener('appinstalled', onInstalled);
     };
   }, []);
-
-  async function prepareInstallRetry() {
-    setInstallMessage("Préparation de l'installation sécurisée...");
-    if ('serviceWorker' in navigator) {
-      try {
-        const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
-        await reg.update().catch(() => {});
-        await navigator.serviceWorker.ready;
-      } catch {}
-    }
-
-    const prompt = promptRef.current || (window as any).__installPrompt || (window as any).__pwaPrompt;
-    if (prompt?.prompt) {
-      setInstallReady(true);
-      setInstallMessage("Installation prête. Appuie encore sur Installer l'application.");
-      return;
-    }
-
-    setManualInstall(true);
-    setInstallMessage("Chrome ne donne pas encore la fenêtre automatique. Appuie sur le menu ⋮ en haut à droite de Chrome, puis choisis Installer l'application ou Ajouter à l'écran d'accueil.");
-  }
 
   async function handleAndroidInstall() {
     if (shouldOpenAndroidLinkInChrome()) {
@@ -303,7 +278,6 @@ export default function InstallPage() {
         promptRef.current = null;
         (window as any).__installPrompt = null;
         (window as any).__pwaPrompt = null;
-        setInstallReady(false);
         if (choice.outcome === 'accepted') {
           setInstalled(true);
           sessionStorage.removeItem('oracle-install-reload-attempted');
@@ -316,7 +290,6 @@ export default function InstallPage() {
         promptRef.current = null;
         (window as any).__installPrompt = null;
         (window as any).__pwaPrompt = null;
-        setInstallReady(false);
         setManualInstall(true);
         setInstallMessage("Chrome n'a pas pu ouvrir la fenêtre d'installation. Réessaie depuis Chrome.");
       } finally {
@@ -325,12 +298,14 @@ export default function InstallPage() {
       return;
     }
 
-    setInstalling(true);
-    try {
-      await prepareInstallRetry();
-    } finally {
-      setInstalling(false);
+    if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
+        reg.update().catch(() => {});
+      } catch {}
     }
+    setManualInstall(true);
+    setInstallMessage("Si la fenêtre d'installation ne s'ouvre pas automatiquement, Chrome ne l'autorise pas maintenant. Appuie sur ⋮ en haut à droite, puis sur Installer l'application ou Ajouter à l'écran d'accueil.");
   }
 
   if (!mounted) return (
@@ -411,8 +386,11 @@ export default function InstallPage() {
   }
 
   // ── Android / Other — native prompt ──
+  const needsChrome = device === 'android' && shouldOpenAndroidLinkInChrome();
+  const chromeInstallHref = buildChromeInstallIntentUrl();
+
   return (
-    <div style={{ minHeight: '100dvh', background: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 24px 48px', boxSizing: 'border-box', fontFamily: 'system-ui,-apple-system,sans-serif' }}>
+    <div style={{ height: '100dvh', overflowY: 'auto', background: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 24px 48px', boxSizing: 'border-box', fontFamily: 'system-ui,-apple-system,sans-serif', WebkitOverflowScrolling: 'touch' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}`}</style>
 
       {/* Illustration */}
@@ -440,15 +418,15 @@ export default function InstallPage() {
       <p style={{ fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.6, margin: '0 0 6px', maxWidth: 300 }}>
         Messagerie rapide et sécurisée.
       </p>
-      {shouldOpenAndroidLinkInChrome() && (
+      {needsChrome && (
         <div style={{ width: '100%', maxWidth: 380, background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 18, padding: 14, margin: '8px 0 14px', color: '#102A2A' }}>
           <p style={{ margin: '0 0 10px', fontSize: 13, lineHeight: 1.45, fontWeight: 800 }}>
             Ouvre ce lien dans Chrome pour installer sans alerte Samsung Internet.
           </p>
-          <button onClick={() => { window.location.assign(buildChromeInstallIntentUrl()); }}
-            style={{ width: '100%', border: 'none', borderRadius: 999, background: 'var(--header-bg)', color: '#fff', padding: '11px 12px', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>
+          <a href={chromeInstallHref}
+            style={{ width: '100%', border: 'none', borderRadius: 999, background: 'var(--header-bg)', color: '#fff', padding: '11px 12px', fontSize: 13, fontWeight: 900, cursor: 'pointer', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none', boxSizing:'border-box' }}>
             Ouvrir avec Chrome
-          </button>
+          </a>
         </div>
       )}
       {inviter && (
@@ -490,10 +468,32 @@ export default function InstallPage() {
       </p>
 
       {/* Install button */}
-      <button
-        onClick={handleAndroidInstall}
-        disabled={installing}
-        style={{
+      {needsChrome ? (
+        <a
+          href={chromeInstallHref}
+          style={{
+            width: '100%', maxWidth: 380,
+            background: ACCENT,
+            color: '#fff', border: 'none', borderRadius: 28,
+            padding: '18px 24px', fontSize: 17, fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
+            boxShadow: '0 10px 24px rgba(16,42,42,0.18)',
+            marginBottom: 14,
+            textDecoration:'none',
+            boxSizing:'border-box',
+          }}
+        >
+          <svg width="22" height="22" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+          </svg>
+          Ouvrir dans Chrome
+        </a>
+      ) : (
+        <button
+          onClick={handleAndroidInstall}
+          disabled={installing}
+          style={{
           width: '100%', maxWidth: 380,
           background: installing ? 'var(--text-muted)' : ACCENT,
           color: '#fff', border: 'none', borderRadius: 28,
@@ -502,22 +502,23 @@ export default function InstallPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
           boxShadow: '0 10px 24px rgba(16,42,42,0.18)',
           marginBottom: 14,
-        }}
-      >
-        {installing ? (
-          <>
-            <div style={{ width: 20, height: 20, border: '3px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}/>
-            Installation en cours…
-          </>
-        ) : (
-          <>
-            <svg width="22" height="22" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-            </svg>
-            {installReady ? "Installer l'application" : "Préparer l'installation"}
-          </>
-        )}
-      </button>
+          }}
+        >
+          {installing ? (
+            <>
+              <div style={{ width: 20, height: 20, border: '3px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}/>
+              Installation en cours…
+            </>
+          ) : (
+            <>
+              <svg width="22" height="22" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+              </svg>
+              Installer Oracle Messenger
+            </>
+          )}
+        </button>
+      )}
 
       {(installMessage || manualInstall) && (
         <div style={{ width: '100%', maxWidth: 380, background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 18, padding: 16, marginBottom: 14, color: '#102A2A' }}>

@@ -147,8 +147,11 @@ export default function HomePage() {
   }
 
   // ── Page principale avec détection OS ─────────────────────────────────────
+  const needsChrome = os === 'android' && shouldOpenAndroidLinkInChrome();
+  const chromeInstallHref = buildChromeInstallIntentUrl();
+
   return (
-    <div style={{ minHeight: '100dvh', background: '#fff', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui,-apple-system,sans-serif' }}>
+    <div style={{ height: '100dvh', overflowY: 'auto', background: '#fff', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui,-apple-system,sans-serif', WebkitOverflowScrolling: 'touch' }}>
       <style>{`@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}} @keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
       {/* Hero */}
@@ -174,7 +177,7 @@ export default function HomePage() {
       </div>
 
       {/* Contenu selon OS */}
-      <div style={{ flex: 1, padding: '28px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ flex: '1 0 auto', padding: '28px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
 
         {/* ── ANDROID ── */}
         {os === 'android' && (
@@ -187,32 +190,48 @@ export default function HomePage() {
               </p>
             </div>
 
-            {shouldOpenAndroidLinkInChrome() && (
+            {needsChrome && (
               <div style={{ background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 16, padding: 16 }}>
                 <p style={{ fontSize: 14, color: '#102A2A', margin: '0 0 10px', lineHeight: 1.5, fontWeight: 750 }}>
                   Pour éviter les alertes Samsung Internet, ouvre Oracle Messenger avec Chrome.
                 </p>
-                <button onClick={() => { window.location.assign(buildChromeInstallIntentUrl()); }}
-                  style={{ width: '100%', border: 'none', borderRadius: 14, background: 'var(--header-bg)', color: '#fff', padding: '12px 14px', fontSize: 14, fontWeight: 900, cursor: 'pointer' }}>
+                <a href={chromeInstallHref}
+                  style={{ width: '100%', border: 'none', borderRadius: 14, background: 'var(--header-bg)', color: '#fff', padding: '12px 14px', fontSize: 14, fontWeight: 900, cursor: 'pointer', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none', boxSizing:'border-box' }}>
                   Ouvrir dans Chrome
-                </button>
+                </a>
               </div>
             )}
 
             {/* Option 1 : PWA — installation sûre */}
-            <button onClick={handleAndroidPWA} disabled={installing}
+            {needsChrome ? (
+              <a href={chromeInstallHref}
+                style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '18px 20px', background: ACCENT, borderRadius: 20, border: 'none', textDecoration: 'none', color: '#fff', cursor: 'pointer', textAlign: 'left' }}>
+                <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg width="26" height="26" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                  </svg>
+                </div>
+                <div>
+                  <p style={{ fontSize: 16, fontWeight: 800, margin: '0 0 2px' }}>Ouvrir dans Chrome</p>
+                  <p style={{ fontSize: 12, margin: 0, opacity: 0.85 }}>Méthode recommandée · Installation sécurisée</p>
+                </div>
+                <svg style={{ marginLeft: 'auto' }} width="20" height="20" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+              </a>
+            ) : (
+              <button onClick={handleAndroidPWA} disabled={installing}
               style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '18px 20px', background: ACCENT, borderRadius: 20, border: 'none', textDecoration: 'none', color: '#fff', cursor: installing ? 'wait' : 'pointer', textAlign: 'left' }}>
-              <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <svg width="26" height="26" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-              </div>
-              <div>
-                <p style={{ fontSize: 16, fontWeight: 800, margin: '0 0 2px' }}>{installing ? 'Installation...' : 'Installer l’application'}</p>
-                <p style={{ fontSize: 12, margin: 0, opacity: 0.85 }}>Méthode recommandée · Installation sécurisée</p>
-              </div>
-              <svg style={{ marginLeft: 'auto' }} width="20" height="20" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-            </button>
+                <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg width="26" height="26" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <p style={{ fontSize: 16, fontWeight: 800, margin: '0 0 2px' }}>{installing ? 'Installation...' : 'Installer l’application'}</p>
+                  <p style={{ fontSize: 12, margin: 0, opacity: 0.85 }}>Méthode recommandée · Installation sécurisée</p>
+                </div>
+                <svg style={{ marginLeft: 'auto' }} width="20" height="20" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+              </button>
+            )}
 
             {manualInstall && (
               <div style={{ background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 16, padding: 14 }}>
