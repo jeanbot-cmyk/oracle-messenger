@@ -62,6 +62,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.socketState.setUserSocket(payload.sub, client.id);
       await this.users.setOnline(payload.sub, true);
       this.server.emit('user:online', { userId: payload.sub });
+      this.emitPendingCallsToClient(payload.sub, client);
     } catch {
       client.disconnect();
     }
@@ -105,6 +106,21 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const participantIds = await this.chat.getParticipantIds(conversationId);
     for (const uid of participantIds) {
       this.socketState.emitToUser(uid, 'message:new', msg);
+    }
+  }
+
+  private emitPendingCallsToClient(userId: string, client: Socket) {
+    for (const [callId, call] of this.activeCalls.entries()) {
+      if (!call.participants.has(userId) || call.callerId === userId) continue;
+      client.join(`call:${callId}`);
+      client.emit('call:incoming', {
+        callId,
+        conversationId: call.conversationId,
+        callerId: call.callerId,
+        callerName: call.callerName,
+        type: call.type,
+        participants: [...call.participants].filter(id => id !== call.callerId),
+      });
     }
   }
 
@@ -168,7 +184,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           this.notif.sendPush(pid, {
             title: senderName,
             body: preview,
-            url: '/chat',
+            url: `/chat?conv=${encodeURIComponent(data.conversationId)}`,
+            tag: `msg-${data.conversationId}`,
+            type: 'message',
           }).catch(() => {});
         }
       }
@@ -322,7 +340,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           this.notif.sendPush(targetId, {
             title: `📞 Appel ${data.type === 'video' ? 'vidéo' : 'audio'} — ${callerName}`,
             body: 'Appuyez pour répondre',
-            url: '/chat',
+            url: `/chat?conv=${encodeURIComponent(data.conversationId)}`,
+            tag: `incoming-call-${data.callId}`,
+            type: 'call',
+            requireInteraction: true,
+            vibrate: [700, 250, 700, 250, 700, 250, 700],
           }).catch(() => {});
         }
       }

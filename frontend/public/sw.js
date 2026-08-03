@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v37
+// Oracle Messenger — Service Worker v38
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '37-20260803-oracle-plus-consultation-theme';
+const CACHE_VERSION = '38-20260803-call-invite-push';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [
@@ -90,14 +90,17 @@ self.addEventListener('fetch', e => {
 // ── Push notifications ────────────────────────────────────────────────────────
 self.addEventListener('push', e => {
   const data = e.data?.json() ?? {};
+  const isCall = data.type === 'call';
   e.waitUntil(
     self.registration.showNotification(data.title ?? 'Oracle Messenger', {
       body: data.body ?? '',
-      icon: '/icons/icon-192.png',
-      badge: '/icons/icon-72.png',
+      icon: '/icons/icon-192-v20260803.png',
+      badge: '/icons/icon-72-v20260803.png',
       tag: data.tag ?? 'msg',
-      requireInteraction: data.requireInteraction ?? false,
-      vibrate: [100, 50, 100],
+      renotify: true,
+      requireInteraction: data.requireInteraction ?? isCall,
+      vibrate: data.vibrate ?? (isCall ? [700, 250, 700, 250, 700, 250, 700] : [120, 50, 120]),
+      actions: isCall ? [{ action: 'open', title: 'Répondre' }] : undefined,
       data,
     })
   );

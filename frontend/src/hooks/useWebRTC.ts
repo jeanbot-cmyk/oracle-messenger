@@ -264,7 +264,7 @@ export function useWebRTC(userId: string, token = '') {
         console.log('[WebRTC] incoming call from', data.callerName);
         _setInfo(data);
         _setState('incoming');
-        notifyIncomingCall(data.callerName ?? 'Quelqu\'un', data.type);
+        notifyIncomingCall(data.callerName ?? 'Quelqu\'un', data.type, data.conversationId);
       });
 
       socket.on('call:answered', (data: { callId: string; userId: string; accepted: boolean }) => {

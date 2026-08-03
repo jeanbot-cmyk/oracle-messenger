@@ -238,18 +238,18 @@ export function useNotifications() {
     notify(senderName, {
       body: content.length > 100 ? content.slice(0, 100) + '…' : content,
       tag: `msg-${convId ?? 'chat'}`,
-      data: { url: '/chat' },
+      data: { url: convId ? `/chat?conv=${encodeURIComponent(convId)}` : '/chat' },
     });
   }
 
-  function notifyIncomingCall(callerName: string, type: 'audio' | 'video') {
+  function notifyIncomingCall(callerName: string, type: 'audio' | 'video', convId?: string) {
     startRingtone();
     if (document.visibilityState !== 'visible') {
       notify(`📞 Appel ${type === 'video' ? 'vidéo' : 'audio'} — ${callerName}`, {
         body: 'Appuyez pour répondre',
-        tag: 'incoming-call',
+        tag: `incoming-call-${convId ?? 'chat'}`,
         requireInteraction: true,
-        data: { url: '/chat' },
+        data: { url: convId ? `/chat?conv=${encodeURIComponent(convId)}` : '/chat' },
       });
     }
   }
