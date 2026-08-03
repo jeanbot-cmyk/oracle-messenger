@@ -140,10 +140,10 @@ export default function ContactsPage() {
 
   useEffect(() => {
     setMounted(true);
-    if (openCurrentAndroidLinkInChrome()) return;
+    const params = new URLSearchParams(window.location.search);
+    const inviteFrom = extractInviteUsername(params.get('from') || '');
+    if (inviteFrom && openCurrentAndroidLinkInChrome()) return;
     if (status === 'unauthenticated') {
-      const params = new URLSearchParams(window.location.search);
-      const inviteFrom = extractInviteUsername(params.get('from') || '');
       if (inviteFrom) {
         const next = `/contacts?from=${encodeURIComponent(inviteFrom)}`;
         sessionStorage.setItem('oracle-after-login', next);

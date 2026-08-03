@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v17
+// Oracle Messenger — Service Worker v18
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '17-20260803-android-chrome-invite';
+const CACHE_VERSION = '18-20260803-android-chrome-invite-guard';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [
