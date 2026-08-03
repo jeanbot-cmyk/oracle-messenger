@@ -3,11 +3,13 @@ export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../../lib/androidChrome';
+import { useSettings } from '../../store/settings';
+import { t } from '../../lib/i18n';
 
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
 const MANUAL_CONTACTS_KEY = 'oracle-manual-contacts';
-const INSTALL_VERSION = '85-20260803-chat-profile';
+const INSTALL_VERSION = '86-20260803-i18n';
 const INSTALL_RESET_KEY = `oracle-install-reset-${INSTALL_VERSION}`;
 
 type Device = 'ios' | 'android' | 'other';
@@ -324,6 +326,7 @@ const IOS_STEPS = [
 ];
 
 export default function InstallPage() {
+  const { lang } = useSettings();
   const [device,     setDevice]     = useState<Device>('android');
   const [installing, setInstalling] = useState(false);
   const [installMessage, setInstallMessage] = useState('');
@@ -639,7 +642,7 @@ export default function InstallPage() {
           <svg width="22" height="22" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
           </svg>
-          Ouvrir dans Chrome
+          {t(lang, 'install.openChrome')}
         </a>
       ) : (
         <button
@@ -659,14 +662,14 @@ export default function InstallPage() {
           {installing ? (
             <>
               <div style={{ width: 20, height: 20, border: '3px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}/>
-              Installation en cours…
+              {t(lang, 'install.inProgress')}
             </>
           ) : (
             <>
               <svg width="22" height="22" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
               </svg>
-              Installer Oracle Messenger
+              {t(lang, 'pwa.install')}
             </>
           )}
         </button>
@@ -675,26 +678,26 @@ export default function InstallPage() {
       {(installMessage || manualInstall) && (
         <div style={{ width: '100%', maxWidth: 380, background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 18, padding: 16, marginBottom: 14, color: '#102A2A' }}>
           <p style={{ fontSize: 14, fontWeight: 800, margin: '0 0 8px' }}>
-            Installation sécurisée uniquement depuis le navigateur
+            {t(lang, 'install.secureBrowserOnly')}
           </p>
           <p style={{ fontSize: 13, lineHeight: 1.55, margin: 0 }}>
-            {installMessage || 'Si le bouton automatique ne s’affiche pas, ouvre cette page dans Chrome, appuie sur le menu ⋮ puis choisis “Installer l’application” ou “Ajouter à l’écran d’accueil”.'}
+            {installMessage || t(lang, 'install.manualHelp')}
           </p>
         </div>
       )}
 
       <button
         onClick={() => {
-          setInstallMessage("Nettoyage de l'ancienne installation...");
+          setInstallMessage(t(lang, 'install.cleaning'));
           resetInstallCacheState()
             .then(() => {
               setManualInstall(true);
-              setInstallMessage("Ancien cache supprimé. Appuie maintenant sur Installer Oracle Messenger.");
+              setInstallMessage(t(lang, 'install.cacheCleaned'));
               refreshDiagnostic().catch(() => {});
             })
             .catch(() => {
               setManualInstall(true);
-              setInstallMessage("Nettoyage partiel effectué. Ferme Chrome puis rouvre cette page.");
+              setInstallMessage(t(lang, 'install.partialClean'));
               refreshDiagnostic().catch(() => {});
             });
         }}
@@ -707,7 +710,7 @@ export default function InstallPage() {
           marginBottom: 10,
         }}
       >
-        Réinitialiser l'installation
+        {t(lang, 'install.reset')}
       </button>
 
       <a

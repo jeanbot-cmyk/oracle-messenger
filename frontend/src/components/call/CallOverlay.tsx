@@ -2,6 +2,8 @@
 import { useEffect, useRef } from 'react';
 import type { CallState, CallInfo } from '../../hooks/useWebRTC';
 import { startRingtone, stopRingtone, startOutgoingCallTone, stopOutgoingCallTone, playCallConnected } from '../../lib/sounds';
+import { useSettings } from '../../store/settings';
+import { t } from '../../lib/i18n';
 
 interface Props {
   callState: CallState;
@@ -59,6 +61,7 @@ const Btn = ({ onClick, color, children, label }: { onClick:()=>void; color:stri
 );
 
 export function CallOverlay({ callState, callInfo, localStream, remoteStreams, isMuted, isCamOff, callerName, onAnswer, onEnd, onToggleMute, onToggleCamera, onSwitchCamera }: Props) {
+  const { lang } = useSettings();
   // Sonneries selon l'état de l'appel.
   // Important : seul le destinataire doit sonner/vibrer. L'appelant ne reçoit
   // qu'un retour discret, sinon son téléphone se comporte comme un appel entrant.
@@ -124,20 +127,20 @@ export function CallOverlay({ callState, callInfo, localStream, remoteStreams, i
         <div style={{ width:80, height:80, borderRadius:'50%', background:'rgba(255,255,255,.15)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px', fontSize:36 }}>
           {isVideo ? '📹' : '📞'}
         </div>
-        <h2 style={{ color:'#fff', fontSize:22, fontWeight:700, margin:'0 0 8px' }}>{callerName ?? 'Appel'}</h2>
+        <h2 style={{ color:'#fff', fontSize:22, fontWeight:700, margin:'0 0 8px' }}>{callerName ?? t(lang, 'call.call')}</h2>
         <p style={{ color:'rgba(255,255,255,.7)', fontSize:15, margin:0 }}>
-          {callState === 'calling'  ? 'Appel en cours…' :
-           callState === 'incoming' ? `Appel ${isVideo ? 'vidéo' : 'audio'} entrant` :
-           callState === 'connected' ? '🟢 Connecté' : ''}
+          {callState === 'calling'  ? t(lang, 'call.calling') :
+           callState === 'incoming' ? t(lang, isVideo ? 'call.incomingVideo' : 'call.incomingAudio') :
+           callState === 'connected' ? `🟢 ${t(lang, 'call.connected')}` : ''}
         </p>
         {(callState === 'calling' || callState === 'incoming') && (
           <p style={{ color:'rgba(255,255,255,.58)', fontSize:12, lineHeight:1.4, margin:'10px auto 0', maxWidth:280 }}>
-            Garde l’application ouverte pour une sonnerie et une connexion plus fiables.
+            {t(lang, 'call.keepOpen')}
           </p>
         )}
         {callInfo && callInfo.participants.length > 1 && (
           <p style={{ color:'rgba(255,255,255,.5)', fontSize:13, marginTop:4 }}>
-            {callInfo.participants.length} participants
+            {callInfo.participants.length} {t(lang, 'call.participants')}
           </p>
         )}
       </div>
@@ -146,27 +149,27 @@ export function CallOverlay({ callState, callInfo, localStream, remoteStreams, i
       <div style={{ zIndex:10, display:'flex', gap:20, alignItems:'center' }}>
         {callState === 'incoming' ? (
           <>
-            <Btn onClick={() => onAnswer(false)} color="#ef4444" label="Refuser">📵</Btn>
-            <Btn onClick={() => onAnswer(true)} color="#22c55e" label="Répondre">📞</Btn>
+            <Btn onClick={() => onAnswer(false)} color="#ef4444" label={t(lang, 'call.reject')}>📵</Btn>
+            <Btn onClick={() => onAnswer(true)} color="#22c55e" label={t(lang, 'call.answer')}>📞</Btn>
           </>
         ) : (
           <>
-            <Btn onClick={onToggleMute} color={isMuted ? '#ef4444' : 'rgba(255,255,255,.2)'} label={isMuted ? 'Activer micro' : 'Couper micro'}>
+            <Btn onClick={onToggleMute} color={isMuted ? '#ef4444' : 'rgba(255,255,255,.2)'} label={isMuted ? t(lang, 'call.unmute') : t(lang, 'call.mute')}>
               {isMuted ? '🔇' : '🎤'}
             </Btn>
             {isVideo && (
               <>
-                <Btn onClick={onToggleCamera} color={isCamOff ? '#ef4444' : 'rgba(255,255,255,.2)'} label={isCamOff ? 'Activer caméra' : 'Couper caméra'}>
+                <Btn onClick={onToggleCamera} color={isCamOff ? '#ef4444' : 'rgba(255,255,255,.2)'} label={isCamOff ? t(lang, 'call.cameraOn') : t(lang, 'call.cameraOff')}>
                   {isCamOff ? '📷' : '📹'}
                 </Btn>
                 {onSwitchCamera && (
-                  <Btn onClick={onSwitchCamera} color="rgba(255,255,255,.2)" label="Retourner caméra">
+                  <Btn onClick={onSwitchCamera} color="rgba(255,255,255,.2)" label={t(lang, 'call.switchCamera')}>
                     🔄
                   </Btn>
                 )}
               </>
             )}
-            <Btn onClick={onEnd} color="#ef4444" label="Raccrocher">📵</Btn>
+            <Btn onClick={onEnd} color="#ef4444" label={t(lang, 'call.hangup')}>📵</Btn>
           </>
         )}
       </div>

@@ -4,10 +4,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { api } from '../../lib/api';
+import { useSettings } from '../../store/settings';
+import { t } from '../../lib/i18n';
 
 export default function ProfilePage() {
   const { data: session, status, update } = useSession();
   const router = useRouter();
+  const { lang } = useSettings();
   const token = session?.user?.backendToken ?? '';
   const username = (session?.user as any)?.username ?? '';
 
@@ -80,12 +83,12 @@ export default function ProfilePage() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      setError('Choisissez une image valide.');
+      setError(t(lang, 'profile.invalidImage'));
       e.target.value = '';
       return;
     }
     if (file.size > 18 * 1024 * 1024) {
-      setError('Image trop lourde. Choisissez une photo de moins de 18 Mo.');
+      setError(t(lang, 'profile.imageTooLarge'));
       e.target.value = '';
       return;
     }
@@ -95,13 +98,13 @@ export default function ProfilePage() {
       setAvatar(b64);
       setError('');
     } catch {
-      setError('Impossible de préparer cette photo. Essayez une autre image.');
+      setError(t(lang, 'profile.imagePrepareError'));
     }
     e.target.value = '';
   }
 
   async function handleSave() {
-    if (!name.trim()) { setError('Le nom est requis'); return; }
+    if (!name.trim()) { setError(t(lang, 'profile.nameRequired')); return; }
     setSaving(true); setError('');
     try {
       const payload: Record<string, string> = { name: name.trim(), bio };
@@ -135,11 +138,11 @@ export default function ProfilePage() {
     } catch (err: any) {
       const message = String(err?.message ?? '');
       if (message.includes('409') || message.toLowerCase().includes('déjà associé')) {
-        setError('Ce numéro est déjà utilisé par un autre compte Oracle Messenger.');
+        setError(t(lang, 'profile.phoneUsed'));
       } else if (message.includes('400') || message.toLowerCase().includes('invalide')) {
-        setError('Numéro de téléphone invalide. Entrez un numéro complet avec indicatif.');
+        setError(t(lang, 'profile.phoneInvalid'));
       } else {
-        setError('Impossible de sauvegarder le profil. Vérifiez votre connexion puis réessayez.');
+        setError(t(lang, 'profile.saveError'));
       }
     } finally {
       setSaving(false);
@@ -161,11 +164,11 @@ export default function ProfilePage() {
       <div style={{ background:'var(--header-bg)', padding:'14px 16px', display:'flex', alignItems:'center', gap:12, position:'sticky', top:0, zIndex:20 }}>
         <button onClick={() => router.back()}
           style={{ width:36, height:36, borderRadius:'50%', border:'none', background:'rgba(255,255,255,0.2)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:18 }}>←</button>
-        <h1 style={{ fontSize:18, fontWeight:900, color:'#fff', margin:0, flex:1 }}>Mon profil</h1>
-        {saved && <span style={{ color:'#fff', fontSize:13, fontWeight:600 }}>✓ Enregistré</span>}
+        <h1 style={{ fontSize:18, fontWeight:900, color:'#fff', margin:0, flex:1 }}>{t(lang, 'profile.title')}</h1>
+        {saved && <span style={{ color:'#fff', fontSize:13, fontWeight:600 }}>✓ {t(lang, 'common.saved')}</span>}
         <button onClick={handleSave} disabled={saving}
           style={{ border:'none', borderRadius:999, background:'var(--accent)', color:'var(--accent-text)', padding:'8px 12px', fontSize:13, fontWeight:900, cursor:saving ? 'not-allowed' : 'pointer', opacity:saving ? 0.8 : 1, whiteSpace:'nowrap' }}>
-          {saving ? '...' : 'Enregistrer'}
+          {saving ? '...' : t(lang, 'common.save')}
         </button>
       </div>
 
@@ -186,7 +189,7 @@ export default function ProfilePage() {
           </div>
           <input ref={fileRef} type="file" accept="image/*" onChange={handleAvatarChange} style={{ display:'none' }}/>
         </label>
-        <p style={{ color:'rgba(255,255,255,0.85)', fontSize:13 }}>Appuyez pour changer la photo</p>
+        <p style={{ color:'rgba(255,255,255,0.85)', fontSize:13 }}>{t(lang, 'profile.tapPhoto')}</p>
       </div>
 
       <div style={{ padding:16, display:'flex', flexDirection:'column', gap:12, marginTop:-16 }}>
@@ -197,14 +200,14 @@ export default function ProfilePage() {
         {/* Nom + Bio */}
         <div style={{ background:'var(--bg-surface)', borderRadius:16, overflow:'hidden', boxShadow:'var(--shadow)', border:'1px solid var(--border)' }}>
           <div style={{ padding:'12px 16px', borderBottom:'1px solid var(--bg-input)' }}>
-            <p style={{ fontSize:12, fontWeight:800, color:'var(--brand)', margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>Nom</p>
-            <input value={name} onChange={e => { setName(e.target.value); setError(''); }} maxLength={50} placeholder="Votre nom"
+            <p style={{ fontSize:12, fontWeight:800, color:'var(--brand)', margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>{t(lang, 'profile.name')}</p>
+            <input value={name} onChange={e => { setName(e.target.value); setError(''); }} maxLength={50} placeholder={t(lang, 'profile.yourName')}
               style={{ width:'100%', border:'none', outline:'none', fontSize:16, color:'var(--text-primary)', background:'transparent', padding:0 }}/>
           </div>
           <div style={{ padding:'12px 16px' }}>
-            <p style={{ fontSize:12, fontWeight:800, color:'var(--brand)', margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>Bio</p>
+            <p style={{ fontSize:12, fontWeight:800, color:'var(--brand)', margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>{t(lang, 'profile.bio')}</p>
             <textarea value={bio} onChange={e => setBio(e.target.value)} maxLength={160} rows={3}
-              placeholder="Parlez de vous en quelques mots…"
+              placeholder={t(lang, 'profile.bioPlaceholder')}
               style={{ width:'100%', border:'none', outline:'none', fontSize:15, color:'var(--text-primary)', background:'transparent', resize:'none', padding:0, lineHeight:1.5 }}/>
             <p style={{ fontSize:11, color:'var(--text-muted)', textAlign:'right', margin:'4px 0 0' }}>{bio.length}/160</p>
           </div>
@@ -215,7 +218,7 @@ export default function ProfilePage() {
           <div style={{ padding:'14px 16px' }}>
             <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
               <span style={{ fontSize:18 }}>🔗</span>
-              <p style={{ fontSize:14, fontWeight:800, color:'var(--text-primary)', margin:0 }}>Votre lien unique</p>
+              <p style={{ fontSize:14, fontWeight:800, color:'var(--text-primary)', margin:0 }}>{t(lang, 'profile.uniqueLink')}</p>
             </div>
             <div style={{ background:'#F8FAFC', borderRadius:10, padding:'10px 12px', marginBottom:10, border:'1px solid var(--border)' }}>
               <p style={{ fontSize:13, color:'var(--text-primary)', margin:0, wordBreak:'break-all', fontWeight:700, lineHeight:1.45 }}>{profileLink}</p>
@@ -223,19 +226,19 @@ export default function ProfilePage() {
             {/* Explication */}
             <div style={{ background:'rgba(16,42,42,0.06)', borderRadius:10, padding:'10px 12px', marginBottom:12, border:'1px solid rgba(16,42,42,0.12)' }}>
               <p style={{ fontSize:12.5, color:'var(--text-primary)', margin:0, lineHeight:1.62, fontWeight:650 }}>
-                💡 <strong>Ce lien est votre identifiant Oracle Messenger</strong> — comme votre numéro de téléphone sur WhatsApp.<br/>
-                Partagez-le sur <strong>Facebook, Instagram, WhatsApp</strong> ou par SMS pour que vos contacts vous écrivent directement.<br/>
-                Quand quelqu'un clique dessus, il installe l'app et arrive directement dans votre conversation.
+                💡 <strong>{t(lang, 'profile.linkHelp1')}</strong><br/>
+                {t(lang, 'profile.linkHelp2')}<br/>
+                {t(lang, 'profile.linkHelp3')}
               </p>
             </div>
             <div style={{ display:'flex', gap:8 }}>
-              <button onClick={() => navigator.clipboard?.writeText(profileLink).then(() => alert('Lien copié !'))}
+              <button onClick={() => navigator.clipboard?.writeText(profileLink).then(() => alert(t(lang, 'profile.linkCopied')))}
                 style={{ flex:1, background:'var(--bg-app)', border:'1px solid var(--border)', borderRadius:10, padding:'10px', cursor:'pointer', fontSize:13, color:'var(--text-primary)', fontWeight:700 }}>
-                📋 Copier
+                📋 {t(lang, 'common.copy')}
               </button>
-              <button onClick={() => navigator.share?.({ title:'Oracle Messenger', text:`Écris-moi sur Oracle Messenger : ${profileLink}`, url: profileLink }).catch(()=>{})}
+              <button onClick={() => navigator.share?.({ title:'Oracle Messenger', text:t(lang, 'profile.shareText').replace('{link}', profileLink), url: profileLink }).catch(()=>{})}
                 style={{ flex:1, background:'var(--accent)', border:'none', borderRadius:10, padding:'10px', cursor:'pointer', fontSize:13, color:'var(--accent-text)', fontWeight:800 }}>
-                📤 Partager
+                📤 {t(lang, 'common.share')}
               </button>
             </div>
           </div>
@@ -243,7 +246,7 @@ export default function ProfilePage() {
 
         {/* Téléphone */}
         <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:'12px 16px', boxShadow:'var(--shadow)', border:'1px solid var(--border)' }}>
-          <p style={{ fontSize:12, fontWeight:800, color:'var(--brand)', margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>📱 Téléphone</p>
+          <p style={{ fontSize:12, fontWeight:800, color:'var(--brand)', margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>📱 {t(lang, 'profile.phone')}</p>
           <input
             value={phone}
             onChange={e => { setPhone(e.target.value); setError(''); }}
@@ -251,12 +254,12 @@ export default function ProfilePage() {
             placeholder="+33 6 12 34 56 78"
             style={{ width:'100%', border:'none', outline:'none', fontSize:15, color:'var(--text-primary)', background:'transparent', padding:0 }}
           />
-          <p style={{ fontSize:11, color:'var(--text-muted)', margin:'6px 0 0' }}>Permet à vos contacts de vous retrouver par numéro. Un numéro ne peut appartenir qu'à un seul compte.</p>
+          <p style={{ fontSize:11, color:'var(--text-muted)', margin:'6px 0 0' }}>{t(lang, 'profile.phoneHelp')}</p>
         </div>
 
         {/* Email */}
         <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:'12px 16px', boxShadow:'var(--shadow)', border:'1px solid var(--border)' }}>
-          <p style={{ fontSize:12, fontWeight:700, color:'var(--text-muted)', margin:'0 0 4px', textTransform:'uppercase', letterSpacing:0.5 }}>Email</p>
+          <p style={{ fontSize:12, fontWeight:700, color:'var(--text-muted)', margin:'0 0 4px', textTransform:'uppercase', letterSpacing:0.5 }}>{t(lang, 'profile.email')}</p>
           <p style={{ fontSize:15, color:'var(--text-primary)', margin:0 }}>{session?.user?.email ?? '—'}</p>
         </div>
 
@@ -267,8 +270,8 @@ export default function ProfilePage() {
         <button onClick={handleSave} disabled={saving}
           style={{ width:'100%', background:'var(--accent)', color:'var(--accent-text)', border:'none', borderRadius:16, padding:16, fontSize:16, fontWeight:900, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.8 : 1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow:'var(--shadow)' }}>
           {saving
-            ? <><div style={{ width:20, height:20, border:'2.5px solid rgba(16,42,42,0.25)', borderTopColor:'var(--accent-text)', borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/> Enregistrement...</>
-            : saved ? '✓ Profil enregistré !' : 'Enregistrer le profil'
+            ? <><div style={{ width:20, height:20, border:'2.5px solid rgba(16,42,42,0.25)', borderTopColor:'var(--accent-text)', borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/> {t(lang, 'common.saving')}</>
+            : saved ? `✓ ${t(lang, 'profile.saved')}` : t(lang, 'common.save')
           }
         </button>
       </div>

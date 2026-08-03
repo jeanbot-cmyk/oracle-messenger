@@ -33,14 +33,19 @@ function attachmentUrl(content?: string) {
 }
 
 function messagePreview(message?: Message | null) {
+  const lang = useSettings.getState().lang;
   if (!message) return '';
-  if (message.isDeleted) return 'Message supprimé';
+  if (message.isDeleted) return t(lang, 'chat.deleted');
   const src = attachmentUrl(message.content);
-  if (message.type === 'image' || src.startsWith('data:image')) return 'Photo';
-  if (message.type === 'video' || src.startsWith('data:video')) return 'Vidéo';
-  if (message.type === 'audio' || src.startsWith('data:audio')) return 'Audio';
-  if (message.type === 'file' || message.type === 'document' || src.startsWith('data:')) return 'Fichier';
+  if (message.type === 'image' || src.startsWith('data:image')) return t(lang, 'common.photo');
+  if (message.type === 'video' || src.startsWith('data:video')) return t(lang, 'common.video');
+  if (message.type === 'audio' || src.startsWith('data:audio')) return t(lang, 'common.audio');
+  if (message.type === 'file' || message.type === 'document' || src.startsWith('data:')) return t(lang, 'common.file');
   return message.content;
+}
+
+function withCount(template: string, count: number) {
+  return template.replace('{count}', String(count)).replaceAll('{plural}', count > 1 ? 's' : '');
 }
 
 interface LocalForwardContact { name?: string; phones?: string[]; emails?: string[]; avatar?: string | null }
@@ -143,7 +148,7 @@ function EmojiPicker({ onSelect, onClose }: { onSelect: (e: string) => void; onC
           style={{ flex:1, minWidth:0, border:'1px solid var(--border)', borderRadius:20, padding:'8px 14px', fontSize:14, outline:'none', boxSizing:'border-box' }}/>
         <button
           onClick={onClose}
-          aria-label="Fermer les emojis"
+          aria-label={t(useSettings.getState().lang, 'common.close')}
           style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'1px solid var(--border)', background:'#F8FAFC', color:'var(--text-primary)', fontSize:20, lineHeight:1, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
         >
           ×
@@ -368,9 +373,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const startDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
     const dayDiff = Math.round((startToday - startDate) / 86400000);
-    if (dayDiff === 0) return "Aujourd'hui";
-    if (dayDiff === 1) return 'Hier';
-    return date.toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+    if (dayDiff === 0) return t(lang, 'common.today');
+    if (dayDiff === 1) return t(lang, 'common.yesterday');
+    return date.toLocaleDateString(lang === 'fr' ? 'fr-FR' : undefined, { weekday: 'long', day: '2-digit', month: 'long', year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
   }
 
   function shouldShowDateSeparator(current: Message, previous?: Message) {
@@ -510,7 +515,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       const b64 = reader.result as string;
       const type = isImage ? 'image' : isVideo ? 'video' : isAudio ? 'audio' : 'file';
       setMediaUploading(true);
-      setCallNotice('Envoi du média...');
+      setCallNotice(t(lang, 'common.sending'));
       try {
         const content = await uploadMediaForMessage(b64, type, {
           name: file.name,
@@ -597,7 +602,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   async function sendVoiceDraft() {
     if (!activeConvId || !voiceDraft) return;
     setMediaUploading(true);
-    setCallNotice('Envoi du vocal...');
+    setCallNotice(t(lang, 'common.sending'));
     try {
       const content = await uploadMediaForMessage(voiceDraft.dataUrl, 'audio', {
         name: `vocal-${Date.now()}.webm`,
@@ -617,7 +622,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     setVoiceDraft(null);
   }
 
-  const name = conv?.type === 'group' ? conv.name : other?.name ?? 'Inconnu';
+  const name = conv?.type === 'group' ? conv.name : other?.name ?? t(lang, 'common.unknown');
   const avatar = conv?.type === 'group' ? conv.avatar : other?.avatar;
   const forwardConversations = conversations
     .filter(item => item.id !== activeConvId)
@@ -634,7 +639,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       kind: 'conversation' as const,
       label: conversationLabel(item),
       avatar: conversationAvatar(item),
-      subtitle: item.lastMessage ? messagePreview(item.lastMessage) : item.type === 'group' ? 'Groupe Oracle Messenger' : 'Conversation Oracle Messenger',
+      subtitle: item.lastMessage ? messagePreview(item.lastMessage) : item.type === 'group' ? t(lang, 'chat.groupOracle') : t(lang, 'chat.conversationOracle'),
       conversationId: item.id,
     })),
     ...forwardUsers
@@ -642,9 +647,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       .map(user => ({
         key: `user:${user.id}`,
         kind: 'user' as const,
-        label: user.name || user.username || 'Contact Oracle',
+        label: user.name || user.username || t(lang, 'chat.contactOracle'),
         avatar: user.avatar,
-        subtitle: user.phone ? `Contact Oracle · ${user.phone}` : user.username ? `@${user.username}` : 'Contact Oracle Messenger',
+        subtitle: user.phone ? `${t(lang, 'chat.contactOracle')} · ${user.phone}` : user.username ? `@${user.username}` : t(lang, 'chat.contactOracle'),
         userId: user.id,
       })),
   ];
@@ -657,9 +662,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     : forwardTargetList;
 
   function conversationLabel(item: Conversation) {
-    if (item.type === 'group') return item.name || 'Groupe sans nom';
+    if (item.type === 'group') return item.name || t(lang, 'chat.unnamedGroup');
     const participant = item.participants.find(p => p.id !== userId) ?? item.participants[0];
-    return participant?.name || item.name || 'Contact';
+    return participant?.name || item.name || t(lang, 'common.contact');
   }
 
   function conversationAvatar(item: Conversation) {
@@ -691,7 +696,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   function deleteSelectedMessages() {
     if (!activeConvId || selectedMessages.length === 0) return;
     const count = selectedMessages.length;
-    const ok = window.confirm(`Effacer ${count} message${count > 1 ? 's' : ''} sélectionné${count > 1 ? 's' : ''} ?`);
+    const ok = window.confirm(`${withCount(t(lang, 'chat.selectCount'), count)} ?`);
     if (!ok) return;
     const ids = selectedMessages.map(message => message.id);
     const nextHidden = new Set(hiddenMessageIds);
@@ -706,7 +711,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     setSelectedMessageIds([]);
     setReplyTo(null);
     setEditMsg(null);
-    showNotice(`${count} message${count > 1 ? 's effacés' : ' effacé'}.`);
+    showNotice(withCount(t(lang, 'chat.messagesDeleted'), count));
   }
 
   function replyToSelectedMessage() {
@@ -735,9 +740,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     try {
       await navigator.clipboard?.writeText(text);
       setSelectedMessageIds([]);
-      showNotice(`${selectedTextMessages.length} message${selectedTextMessages.length > 1 ? 's copiés' : ' copié'}.`);
+      showNotice(withCount(t(lang, 'chat.messagesCopied'), selectedTextMessages.length));
     } catch {
-      showNotice('Copie impossible sur ce navigateur.');
+      showNotice(t(lang, 'chat.copyImpossible'));
     }
   }
 
@@ -809,7 +814,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           sendMessage(conversationId, message.content, message.type);
         });
       }
-      const messageLabel = forwardMessages.length > 1 ? `${forwardMessages.length} messages transférés` : 'Message transféré';
+      const messageLabel = forwardMessages.length > 1 ? withCount(t(lang, 'chat.forwardedMany'), forwardMessages.length) : t(lang, 'chat.forwarded');
       showNotice(`${messageLabel} à ${targets.length} contact${targets.length > 1 ? 's' : ''}.`);
       setForwardMessages([]);
       setForwardTargets([]);
@@ -872,7 +877,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             <button
               onClick={() => startConversationCall('audio')}
               className="om-chat-action"
-              style={{ width:30, height:30, minHeight:30, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title="Appel audio">
+              style={{ width:30, height:30, minHeight:30, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title={t(lang, 'chat.audioCall')}>
               <svg width="17" height="17" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/>
               </svg>
@@ -880,7 +885,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             <button
               onClick={() => startConversationCall('video')}
               className="om-chat-action"
-              style={{ width:30, height:30, minHeight:30, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title="Appel vidéo">
+              style={{ width:30, height:30, minHeight:30, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title={t(lang, 'chat.videoCall')}>
               <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.89L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
               </svg>
@@ -891,7 +896,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           onClick={() => setShowMessageSearch(v => !v)}
           className="om-chat-action"
           style={{ width:30, height:30, minHeight:30, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background: showMessageSearch ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }}
-          title="Rechercher dans la conversation"
+          title={t(lang, 'chat.searchInConversation')}
         >
           <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -910,18 +915,18 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           </button>
           <div className="om-selection-copy" style={{ flex:'1 1 auto', minWidth:0 }}>
             <p style={{ margin:0, fontSize:15.5, lineHeight:1.16, fontWeight:900, color:'var(--text-primary)' }}>
-              {selectedMessages.length} message{selectedMessages.length > 1 ? 's' : ''} sélectionné{selectedMessages.length > 1 ? 's' : ''}
+              {withCount(t(lang, 'chat.selectCount'), selectedMessages.length)}
             </p>
             <p style={{ margin:'2px 0 0', fontSize:12.2, lineHeight:1.2, fontWeight:700, color:'var(--text-muted)' }}>
-              Touchez d’autres messages pour ajouter ou retirer.
+              {t(lang, 'chat.selectionHint')}
             </p>
           </div>
           <div className="om-selection-actions" style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:6, overflowX:'auto', flex:'0 1 auto', minWidth:0, maxWidth:'62%', paddingBottom:1 }}>
             <button
               onClick={replyToSelectedMessage}
               disabled={selectedMessages.length !== 1}
-              title="Répondre"
-              aria-label="Répondre au message sélectionné"
+              title={t(lang, 'chat.reply')}
+              aria-label={t(lang, 'chat.reply')}
               style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:selectedMessages.length === 1 ? 'var(--bg-input)' : 'rgba(16,42,42,0.08)', color:selectedMessages.length === 1 ? 'var(--text-primary)' : 'var(--text-muted)', cursor:selectedMessages.length === 1 ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto' }}
             >
               <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
@@ -931,8 +936,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             <button
               onClick={copySelectedMessages}
               disabled={selectedTextMessages.length === 0}
-              title="Copier"
-              aria-label="Copier les messages sélectionnés"
+              title={t(lang, 'chat.copy')}
+              aria-label={t(lang, 'chat.copy')}
               style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:selectedTextMessages.length ? 'var(--bg-input)' : 'rgba(16,42,42,0.08)', color:selectedTextMessages.length ? 'var(--text-primary)' : 'var(--text-muted)', cursor:selectedTextMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto' }}
             >
               <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -943,8 +948,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             <button
               onClick={editSelectedMessage}
               disabled={!canEditSelected}
-              title="Modifier"
-              aria-label="Modifier le message sélectionné"
+              title={t(lang, 'chat.edit')}
+              aria-label={t(lang, 'chat.edit')}
               style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:canEditSelected ? 'var(--bg-input)' : 'rgba(16,42,42,0.08)', color:canEditSelected ? 'var(--text-primary)' : 'var(--text-muted)', cursor:canEditSelected ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto' }}
             >
               <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2.1" viewBox="0 0 24 24">
@@ -955,8 +960,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             <button
               onClick={deleteSelectedMessages}
               disabled={selectedMessages.length === 0}
-              title="Effacer"
-              aria-label="Effacer les messages sélectionnés"
+              title={t(lang, 'chat.erase')}
+              aria-label={t(lang, 'chat.erase')}
               style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:selectedMessages.length ? 'rgba(220,38,38,0.10)' : 'rgba(16,42,42,0.10)', color:selectedMessages.length ? '#dc2626' : 'var(--text-muted)', cursor:selectedMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto' }}
             >
               <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
@@ -966,7 +971,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             <button
               onClick={openSelectedForwardSheet}
               disabled={selectedMessages.length === 0}
-              title="Transférer"
+              title={t(lang, 'chat.forward')}
               style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:selectedMessages.length ? 'var(--header-bg)' : 'rgba(16,42,42,0.14)', color:selectedMessages.length ? '#fff' : 'var(--text-muted)', cursor:selectedMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', boxShadow:selectedMessages.length ? '0 6px 18px rgba(16,42,42,0.18)' : 'none' }}
             >
               <svg width="19" height="19" fill="none" stroke="currentColor" strokeWidth="2.3" viewBox="0 0 24 24">
@@ -987,7 +992,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               value={messageSearch}
               onChange={e => setMessageSearch(e.target.value)}
               autoFocus
-              placeholder="Rechercher un message"
+              placeholder={t(lang, 'chat.searchMessage')}
               style={{ flex:1, minWidth:0, border:'none', outline:'none', background:'transparent', fontSize:14, color:'var(--text-primary)' }}
             />
             {messageSearch && (
@@ -1000,7 +1005,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             onClick={() => setActiveSearchIndex(i => searchMatches.length ? (i - 1 + searchMatches.length) % searchMatches.length : 0)}
             disabled={!searchMatches.length}
             style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'1px solid var(--border)', background:'#fff', color:'var(--text-primary)', opacity: searchMatches.length ? 1 : 0.4, cursor: searchMatches.length ? 'pointer' : 'default' }}
-            title="Résultat précédent"
+            title={t(lang, 'chat.previousResult')}
           >
             ↑
           </button>
@@ -1008,14 +1013,14 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             onClick={() => setActiveSearchIndex(i => searchMatches.length ? (i + 1) % searchMatches.length : 0)}
             disabled={!searchMatches.length}
             style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'1px solid var(--border)', background:'#fff', color:'var(--text-primary)', opacity: searchMatches.length ? 1 : 0.4, cursor: searchMatches.length ? 'pointer' : 'default' }}
-            title="Résultat suivant"
+            title={t(lang, 'chat.nextResult')}
           >
             ↓
           </button>
           <button
             onClick={() => { setShowMessageSearch(false); setMessageSearch(''); }}
             style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'none', background:'transparent', color:'var(--text-muted)', cursor:'pointer', fontSize:18 }}
-            title="Fermer"
+            title={t(lang, 'common.close')}
           >
             ×
           </button>
@@ -1089,7 +1094,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           onClick={() => scrollMessagesToBottom('smooth')}
           style={{ position:'absolute', right:16, bottom:92, zIndex:40, border:'none', borderRadius:999, background:'var(--header-bg)', color:'#fff', padding:'10px 14px', fontSize:13, fontWeight:800, boxShadow:'0 8px 24px rgba(0,0,0,.22)', cursor:'pointer' }}
         >
-          Nouveaux messages
+          {t(lang, 'chat.newMessages')}
         </button>
       )}
 
@@ -1134,7 +1139,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               <span style={{ fontSize:15, color:'var(--text-primary)', fontWeight:600 }}>
                 {String(Math.floor(recSeconds/60)).padStart(2,'0')}:{String(recSeconds%60).padStart(2,'0')}
               </span>
-              <span style={{ fontSize:13, color:'var(--text-muted)' }}>Enregistrement…</span>
+              <span style={{ fontSize:13, color:'var(--text-muted)' }}>{t(lang, 'chat.recording')}</span>
             </div>
             <button onClick={stopRecording}
               style={{ width:42, height:42, borderRadius:'50%', border:'none', background:'var(--accent)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -1180,15 +1185,15 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                   <div style={{ position:'absolute', bottom:50, left:0, zIndex:50, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:16, boxShadow:'0 4px 24px rgba(0,0,0,.15)', overflow:'hidden', minWidth:180 }}>
                     <button onClick={() => { setShowAttachMenu(false); setShowCamera(true); }}
                       style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:14, color:'var(--text-primary)' }}>
-                      <span style={{ fontSize:20 }}>📷</span> Caméra
+                      <span style={{ fontSize:20 }}>📷</span> {t(lang, 'chat.camera')}
                     </button>
                     <button onClick={() => { setShowAttachMenu(false); fileInputRef.current?.setAttribute('accept','image/*,video/*'); fileInputRef.current?.click(); }}
                       style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:14, color:'var(--text-primary)' }}>
-                      <span style={{ fontSize:20 }}>🖼️</span> Photo / Vidéo
+                      <span style={{ fontSize:20 }}>🖼️</span> {t(lang, 'chat.photoVideo')}
                     </button>
                     <button onClick={() => { setShowAttachMenu(false); fileInputRef.current?.setAttribute('accept','.pdf,.doc,.docx,.xls,.xlsx,*/*'); fileInputRef.current?.click(); }}
                       style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:14, color:'var(--text-primary)' }}>
-                      <span style={{ fontSize:20 }}>📄</span> Document
+                      <span style={{ fontSize:20 }}>📄</span> {t(lang, 'common.document')}
                     </button>
                   </div>
                 </>
@@ -1255,33 +1260,33 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             style={{ width:'100%', maxHeight:'min(82dvh, 720px)', background:'var(--bg-surface)', borderRadius:'22px 22px 0 0', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 -14px 42px rgba(0,0,0,0.24)' }}
             role="dialog"
             aria-modal="true"
-            aria-label="Transférer les messages"
+            aria-label={t(lang, 'chat.forwardMessages')}
           >
             <div style={{ padding:'14px 16px 10px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
               <button
                 onClick={closeForwardSheet}
                 disabled={forwarding}
-                aria-label="Fermer"
+                aria-label={t(lang, 'common.close')}
                 style={{ width:38, height:38, minHeight:38, borderRadius:'50%', border:'none', background:'var(--bg-input)', color:'var(--text-primary)', cursor: forwarding ? 'default' : 'pointer', fontSize:22, lineHeight:1, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
               >
                 ×
               </button>
               <div style={{ flex:1, minWidth:0 }}>
-                <p style={{ margin:0, color:'var(--text-primary)', fontSize:18, fontWeight:900, lineHeight:1.12 }}>Transférer à</p>
-                <p style={{ margin:'3px 0 0', color:'var(--text-muted)', fontSize:12.5, fontWeight:750 }}>{forwardTargets.length}/50 contacts sélectionnés</p>
+                <p style={{ margin:0, color:'var(--text-primary)', fontSize:18, fontWeight:900, lineHeight:1.12 }}>{t(lang, 'chat.forward')}</p>
+                <p style={{ margin:'3px 0 0', color:'var(--text-muted)', fontSize:12.5, fontWeight:750 }}>{t(lang, 'chat.selectedContacts').replace('{count}', String(forwardTargets.length))}</p>
               </div>
               <button
                 onClick={forwardSelectedMessages}
                 disabled={forwardTargets.length === 0 || forwarding}
                 style={{ border:'none', borderRadius:999, background: forwardTargets.length === 0 || forwarding ? 'rgba(16,42,42,0.14)' : 'var(--header-bg)', color: forwardTargets.length === 0 || forwarding ? 'var(--text-muted)' : '#fff', padding:'10px 16px', fontSize:14, fontWeight:900, cursor: forwardTargets.length === 0 || forwarding ? 'default' : 'pointer', flexShrink:0 }}
               >
-                {forwarding ? 'Envoi…' : 'Envoyer'}
+                {forwarding ? t(lang, 'common.sending') : t(lang, 'common.send')}
               </button>
             </div>
 
             <div style={{ margin:'12px 16px 8px', padding:'10px 12px', borderRadius:14, background:'#EAF4F1', border:'1px solid rgba(16,42,42,0.12)', color:'var(--text-primary)', flexShrink:0 }}>
               <p style={{ margin:'0 0 3px', fontSize:12, color:'var(--text-muted)', fontWeight:850 }}>
-                {forwardMessages.length} message{forwardMessages.length > 1 ? 's' : ''} à transférer
+                {withCount(t(lang, 'chat.forwardCount'), forwardMessages.length)}
               </p>
               <p style={{ margin:0, fontSize:14, lineHeight:1.35, fontWeight:750, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
                 {forwardMessages.length === 1
@@ -1297,7 +1302,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               <input
                 value={forwardSearch}
                 onChange={event => setForwardSearch(event.target.value)}
-                placeholder="Rechercher un contact ou une conversation"
+                placeholder={t(lang, 'chat.searchContact')}
                 style={{ flex:1, minWidth:0, border:'none', outline:'none', background:'transparent', color:'var(--text-primary)', fontSize:14 }}
               />
               {forwardSearch && (
@@ -1315,7 +1320,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               {filteredForwardTargets.length === 0 ? (
                 <div style={{ padding:'26px 18px 34px', textAlign:'center', color:'var(--text-muted)' }}>
                   <p style={{ margin:0, fontSize:15, lineHeight:1.45, fontWeight:750 }}>
-                    Aucun contact Oracle Messenger trouvé pour ce transfert.
+                    {t(lang, 'chat.noMessageSelected')}
                   </p>
                 </div>
               ) : (
@@ -1375,7 +1380,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               </button>
               <button
                 onClick={() => avatar && setAvatarLightbox(true)}
-                title={avatar ? 'Agrandir la photo' : undefined}
+                title={avatar ? t(lang, 'chat.enlargePhoto') : undefined}
                 style={{ position:'absolute', bottom:-44, width:88, height:88, borderRadius:'50%', overflow:'hidden', border:'4px solid var(--bg-surface)', background:'var(--accent)', padding:0, cursor: avatar ? 'zoom-in' : 'default' }}
               >
                 {avatar
@@ -1392,7 +1397,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               {other?.username && <p style={{ fontSize:13, color:'var(--text-muted)', margin:'0 0 4px' }}>@{other.username}</p>}
               <div style={{ display:'inline-flex', alignItems:'center', gap:6, background: isOnline ? 'rgba(52,211,153,0.12)' : 'rgba(100,116,139,0.10)', borderRadius:20, padding:'4px 14px', marginBottom:20 }}>
                 <div style={{ width:8, height:8, borderRadius:'50%', background: isOnline ? '#25D366' : 'var(--text-muted)' }}/>
-                <span style={{ fontSize:13, color: isOnline ? '#16A34A' : 'var(--text-muted)', fontWeight:700 }}>{isOnline ? 'En ligne' : 'Hors ligne'}</span>
+                <span style={{ fontSize:13, color: isOnline ? '#16A34A' : 'var(--text-muted)', fontWeight:700 }}>{isOnline ? t(lang, 'chat.online') : t(lang, 'chat.offline')}</span>
               </div>
               {other?.phone && (
                 <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 0', borderTop:'1px solid var(--border)' }}>
@@ -1430,7 +1435,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             setShowCamera(false);
             if (!activeConvId) return;
             setMediaUploading(true);
-            setCallNotice('Envoi du média...');
+            setCallNotice(t(lang, 'common.sending'));
             try {
               const content = await uploadMediaForMessage(dataUrl, type, {
                 name: `${type}-${Date.now()}.${type === 'image' ? 'jpg' : 'webm'}`,

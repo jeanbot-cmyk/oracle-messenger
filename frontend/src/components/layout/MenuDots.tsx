@@ -31,9 +31,9 @@ export function MenuDots() {
   function shareApp() {
     setOpen(false);
     if (navigator.share) {
-      navigator.share({ title:'Oracle Messenger', text:'Rejoins-moi sur Oracle Messenger !', url:'https://messenger.oracle-plus.online' }).catch(()=>{});
+      navigator.share({ title:'Oracle Messenger', text:t(lang, 'menu.share.sub'), url:'https://messenger.oracle-plus.online' }).catch(()=>{});
     } else {
-      navigator.clipboard.writeText('https://messenger.oracle-plus.online').then(()=>alert('Lien copié !'));
+      navigator.clipboard.writeText('https://messenger.oracle-plus.online').then(()=>alert(t(lang, 'profile.linkCopied')));
     }
   }
 
@@ -41,7 +41,7 @@ export function MenuDots() {
     <div ref={ref} style={{ position:'relative' }}>
       <button
         onClick={() => setOpen(v => !v)}
-        aria-label="Ouvrir le menu"
+        aria-label={t(lang, 'chat.menu.open')}
         style={{ width:52, height:52, minHeight:52, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1.5px solid rgba(255,255,255,0.22)', background:'rgba(255,255,255,0.14)', cursor:'pointer', color:'#FFFFFF', boxShadow:'inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 20px rgba(0,0,0,0.16)' }}
       >
         <svg width="30" height="30" fill="currentColor" viewBox="0 0 24 24">

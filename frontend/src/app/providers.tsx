@@ -3,12 +3,12 @@ import { SessionProvider, useSession } from 'next-auth/react';
 import { Toaster } from 'react-hot-toast';
 import { useEffect, useState } from 'react';
 import { useSettings } from '../store/settings';
-import { detectLanguage } from '../lib/i18n';
+import { detectLanguage, t } from '../lib/i18n';
 import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { clearOldTextMessages } from '../lib/db';
 import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 
-const CLIENT_CACHE_VERSION = '85-20260803-chat-profile';
+const CLIENT_CACHE_VERSION = '86-20260803-i18n';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 
@@ -122,6 +122,7 @@ function isStandaloneMode() {
 }
 
 function InstallBanner() {
+  const { lang } = useSettings();
   const [visible, setVisible] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [message, setMessage] = useState('');
@@ -169,7 +170,7 @@ function InstallBanner() {
       }
       return;
     }
-    setMessage('Chrome ne propose pas encore l’installation native. Ouvre le menu ⋮ puis choisis Installer l’application, ou utilise la page de réparation Chrome.');
+    setMessage(t(lang, 'install.nativeUnavailable'));
   }
 
   if (!visible) return null;
@@ -180,20 +181,20 @@ function InstallBanner() {
           <img src="/icons/icon-72-v20260803.png" alt="" style={{ width:26, height:26, borderRadius:7 }} />
         </div>
         <div style={{ flex:1, minWidth:0 }}>
-          <p style={{ margin:0, fontSize:13, fontWeight:900, lineHeight:1.25 }}>Installer Oracle Messenger</p>
-          <p style={{ margin:0, fontSize:11, color:'rgba(255,255,255,0.72)', lineHeight:1.25 }}>Ouvrir sans barre d'adresse et recevoir les appels.</p>
+          <p style={{ margin:0, fontSize:13, fontWeight:900, lineHeight:1.25 }}>{t(lang, 'install.bannerTitle')}</p>
+          <p style={{ margin:0, fontSize:11, color:'rgba(255,255,255,0.72)', lineHeight:1.25 }}>{t(lang, 'install.bannerSubtitle')}</p>
         </div>
         <button onClick={install} disabled={installing}
           style={{ border:'none', borderRadius:999, background:'var(--accent)', color:'var(--accent-text)', padding:'8px 12px', fontSize:12, fontWeight:900, cursor:'pointer', whiteSpace:'nowrap' }}>
-          {installing ? 'Installation…' : 'Installer'}
+          {installing ? t(lang, 'install.installing') : t(lang, 'pwa.install.btn')}
         </button>
-        <button onClick={() => setVisible(false)} aria-label="Fermer"
+        <button onClick={() => setVisible(false)} aria-label={t(lang, 'common.close')}
           style={{ width:30, height:30, borderRadius:'50%', border:'none', background:'rgba(255,255,255,0.10)', color:'#fff', fontSize:18, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>×</button>
       </div>
       {message && (
         <div style={{ maxWidth:720, margin:'7px auto 0', color:'rgba(255,255,255,0.86)', fontSize:11.5, lineHeight:1.35, fontWeight:750 }}>
           {message}{' '}
-          <a href="/reset-pwa.html?next=/install" style={{ color:'#fff', fontWeight:950 }}>Réparer Chrome</a>
+          <a href="/reset-pwa.html?next=/install" style={{ color:'#fff', fontWeight:950 }}>{t(lang, 'install.chromeRepair')}</a>
         </div>
       )}
     </div>
@@ -201,13 +202,14 @@ function InstallBanner() {
 }
 
 function AppLoadingScreen({ text = 'Ouverture d’Oracle Messenger...' }: { text?: string }) {
+  const { lang } = useSettings();
   return (
     <div style={{ height:'100dvh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:14, background:'var(--bg-app)', color:'var(--text-primary)', fontFamily:'system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif', padding:24, textAlign:'center' }}>
       <div style={{ width:52, height:52, borderRadius:16, background:'var(--header-bg)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 10px 28px rgba(16,42,42,0.18)' }}>
         <img src="/icons/icon-72-v20260803.png" alt="" style={{ width:36, height:36, borderRadius:10 }} />
       </div>
       <div style={{ width:34, height:34, border:'3px solid var(--border)', borderTopColor:'var(--brand)', borderRadius:'50%', animation:'spin .8s linear infinite' }} />
-      <p style={{ margin:0, fontSize:14, lineHeight:1.45, fontWeight:800 }}>{text}</p>
+      <p style={{ margin:0, fontSize:14, lineHeight:1.45, fontWeight:800 }}>{text === 'Ouverture d’Oracle Messenger...' ? t(lang, 'app.opening') : text}</p>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );

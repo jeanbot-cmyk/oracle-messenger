@@ -69,14 +69,15 @@ function detectType(content: string, declaredType: string): 'image' | 'video' | 
 }
 
 function messagePreview(message?: Message | null) {
+  const lang = useSettings.getState().lang;
   if (!message) return '';
-  if (message.isDeleted) return 'Message supprimé';
+  if (message.isDeleted) return t(lang, 'chat.deleted');
   const src = attachmentUrl(message.content);
   const effective = detectType(message.content, message.type ?? 'text');
-  if (effective === 'image') return 'Photo';
-  if (effective === 'video') return 'Vidéo';
-  if (effective === 'audio') return 'Audio';
-  if (effective === 'file') return 'Fichier';
+  if (effective === 'image') return t(lang, 'common.photo');
+  if (effective === 'video') return t(lang, 'common.video');
+  if (effective === 'audio') return t(lang, 'common.audio');
+  if (effective === 'file') return t(lang, 'common.file');
   return src.length > 90 ? `${src.slice(0, 90)}…` : src;
 }
 
@@ -86,13 +87,13 @@ function parseFilePayload(content: string) {
     if (parsed && typeof parsed === 'object' && typeof parsed.url === 'string') {
       return {
         url: parsed.url as string,
-        name: typeof parsed.name === 'string' ? parsed.name : 'Fichier joint',
+        name: typeof parsed.name === 'string' ? parsed.name : t(useSettings.getState().lang, 'chat.attachedFile'),
         size: typeof parsed.size === 'number' ? parsed.size : undefined,
         mime: typeof parsed.mime === 'string' ? parsed.mime : '',
       };
     }
   } catch {}
-  return { url: attachmentUrl(content), name: 'Fichier joint', size: undefined as number | undefined, mime: '' };
+  return { url: attachmentUrl(content), name: t(useSettings.getState().lang, 'chat.attachedFile'), size: undefined as number | undefined, mime: '' };
 }
 
 function formatBytes(size?: number) {
@@ -204,13 +205,13 @@ function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }
           </div>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
             <span style={{ fontSize:12, color:'var(--text-secondary)', fontWeight:600 }}>{fmt(current)}</span>
-            <span style={{ fontSize:12, color:'var(--text-muted)' }}>{duration ? fmt(duration) : 'Message vocal'}</span>
+            <span style={{ fontSize:12, color:'var(--text-muted)' }}>{duration ? fmt(duration) : t(useSettings.getState().lang, 'chat.voiceMessage')}</span>
           </div>
         </div>
       </div>
       {error && (
         <div style={{ marginTop:8, padding:'8px 10px', borderRadius:10, background:'rgba(220,38,38,0.08)', color:'#991b1b', fontSize:12, lineHeight:1.4 }}>
-          Lecture impossible sur ce téléphone. <a href={normalizedSrc} download="message-vocal" style={{ color:'#991b1b', fontWeight:800 }}>Télécharger l'audio</a>
+          {t(useSettings.getState().lang, 'chat.mediaUnavailable')} <a href={normalizedSrc} download="message-vocal" style={{ color:'#991b1b', fontWeight:800 }}>{t(useSettings.getState().lang, 'common.audio')}</a>
         </div>
       )}
       {timeRow}
@@ -443,7 +444,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
       {selectionMode && selected && (
         <button
           type="button"
-          aria-label={selected ? 'Message sélectionné' : 'Sélectionner ce message'}
+          aria-label={selected ? t(lang, 'chat.messageSelected') : t(lang, 'chat.selectThisMessage')}
           onClick={e => { e.stopPropagation(); onSelect(message); }}
           style={{
             position:'absolute',
@@ -507,7 +508,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
           {missingLocalMedia && (
             <div style={{ padding: '10px 12px', minWidth: 220 }}>
               <p style={{ fontSize: 13, lineHeight: 1.35, color: 'var(--text-muted)', margin: 0 }}>
-                Média non disponible sur ce téléphone.
+                {t(lang, 'chat.mediaUnavailable')}
               </p>
               <TimeRow />
             </div>
@@ -534,7 +535,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
           )}
           {effectiveType === 'image' && !missingLocalMedia && imgError && (
             <div style={{ padding: '10px 14px' }}>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>🖼️ Image non disponible</p>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>🖼️ {t(lang, 'chat.imageUnavailable')}</p>
               <TimeRow />
             </div>
           )}
@@ -586,7 +587,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
                 <div style={{ minWidth: 0 }}>
                   <p style={{ fontSize: 13, fontWeight: 800, margin: 0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:210 }}>{file.name}</p>
                   <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
-                    {[file.mime || 'Document', formatBytes(file.size)].filter(Boolean).join(' · ')}
+                    {[file.mime || t(lang, 'common.document'), formatBytes(file.size)].filter(Boolean).join(' · ')}
                   </p>
                 </div>
               </a>
@@ -615,21 +616,21 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
                 ↩️ {t(lang, 'chat.reply')}
               </button>
               <button style={menuItemStyle} onClick={() => { onForward(message); setShowMenu(false); }}>
-                ↪️ Transférer
+                ↪️ {t(lang, 'chat.forward')}
               </button>
               <button style={menuItemStyle} onClick={() => { onSelect(message); setShowMenu(false); }}>
-                ☑️ Sélectionner
+                ☑️ {t(lang, 'chat.selectMessage')}
               </button>
               {/* Copier le texte */}
               {effectiveType === 'text' && (
                 <button style={menuItemStyle} onClick={copyText}>
-                  {copied ? '✅ Copié !' : '📋 Copier'}
+                  {copied ? `✅ ${t(lang, 'common.copied')}` : `📋 ${t(lang, 'common.copy')}`}
                 </button>
               )}
               {/* Ouvrir en plein écran pour image/vidéo */}
               {(effectiveType === 'image' || effectiveType === 'video') && (
                 <button style={menuItemStyle} onClick={() => { setLightbox(true); setShowMenu(false); }}>
-                  🔍 Voir en plein écran
+                  🔍 {t(lang, 'chat.viewFullscreen')}
                 </button>
               )}
               {isOwn && (

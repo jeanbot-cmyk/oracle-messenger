@@ -26,14 +26,15 @@ function attachmentUrl(content?: string) {
 }
 
 function messagePreview(message: any) {
+  const lang = useSettings.getState().lang;
   if (!message) return '';
-  if (message.isDeleted) return 'Message supprimé';
+  if (message.isDeleted) return t(lang, 'chat.deleted');
   const src = attachmentUrl(message.content);
   const type = message.type;
-  if (type === 'image' || src.startsWith('data:image')) return 'Photo';
-  if (type === 'video' || src.startsWith('data:video')) return 'Vidéo';
-  if (type === 'audio' || type === 'voice' || src.startsWith('data:audio')) return 'Audio';
-  if (type === 'file' || type === 'document' || src.startsWith('data:') || (src.length > 500 && /^[A-Za-z0-9+/=\r\n]+$/.test(src))) return 'Fichier';
+  if (type === 'image' || src.startsWith('data:image')) return t(lang, 'common.photo');
+  if (type === 'video' || src.startsWith('data:video')) return t(lang, 'common.video');
+  if (type === 'audio' || type === 'voice' || src.startsWith('data:audio')) return t(lang, 'common.audio');
+  if (type === 'file' || type === 'document' || src.startsWith('data:') || (src.length > 500 && /^[A-Za-z0-9+/=\r\n]+$/.test(src))) return t(lang, 'common.file');
   return message.content ?? '';
 }
 
@@ -60,14 +61,14 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
           <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 7.5h11M6.5 11.5h7M4 4.8A2.8 2.8 0 016.8 2h10.4A2.8 2.8 0 0120 4.8v7.4a2.8 2.8 0 01-2.8 2.8H10l-5.6 4.4V4.8z"/>
         </svg>
       </div>
-      <p style={{ fontSize:22, lineHeight:1.18, fontWeight:850, color:'var(--text-primary)', margin:'4px 0 0' }}>Aucune discussion</p>
+      <p style={{ fontSize:22, lineHeight:1.18, fontWeight:850, color:'var(--text-primary)', margin:'4px 0 0' }}>{t(lang, 'chat.noDiscussion')}</p>
       <p style={{ fontSize:15, lineHeight:1.5, maxWidth:310, margin:0, color:'var(--text-secondary)', fontWeight:450 }}>
-        Importez vos contacts pour démarrer une conversation ou envoyer une invitation.
+        {t(lang, 'chat.importToStart')}
       </p>
       <button onClick={() => router.push('/contacts')}
         className="om-primary-button"
         style={{ marginTop:8, minWidth:220 }}>
-        Importer mes contacts
+        {t(lang, 'chat.importContacts')}
       </button>
     </div>
   );
@@ -79,7 +80,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
         const other    = conv.participants?.[0];
         const isOnline = other && onlineUsers.has(other.id);
         const isActive = conv.id === activeConvId;
-        const name     = conv.type === 'group' ? conv.name : other?.name ?? 'Inconnu';
+        const name     = conv.type === 'group' ? conv.name : other?.name ?? t(lang, 'common.unknown');
         const avatar   = conv.type === 'group' ? conv.avatar : other?.avatar;
         const lastMsg  = conv.lastMessage;
         const timeStr  = lastMsg ? format(new Date(lastMsg.createdAt), 'HH:mm') : '';
@@ -99,13 +100,13 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
               {/* Avatar */}
               <div
                 role={avatar ? 'button' : undefined}
-                aria-label={avatar ? `Agrandir la photo de ${name}` : undefined}
-                title={avatar ? `Agrandir la photo de ${name}` : undefined}
+                aria-label={avatar ? `${t(lang, 'chat.enlargePhoto')} ${name}` : undefined}
+                title={avatar ? `${t(lang, 'chat.enlargePhoto')} ${name}` : undefined}
                 onClick={(event) => {
                   if (!avatar) return;
                   event.preventDefault();
                   event.stopPropagation();
-                  setPhotoPreview({ src: avatar, name: name ?? 'Profil' });
+                  setPhotoPreview({ src: avatar, name: name ?? t(lang, 'profile.title') });
                 }}
                 style={{ position:'relative', flexShrink:0, cursor: avatar ? 'zoom-in' : 'inherit' }}
               >
@@ -129,7 +130,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                   <p style={{ fontSize:14, lineHeight:1.35, color:'var(--text-secondary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, margin:0, fontWeight:450 }}>
                     {lastMsg?.isDeleted
-                      ? <em style={{ color:'var(--text-muted)' }}>Message supprimé</em>
+                      ? <em style={{ color:'var(--text-muted)' }}>{t(lang, 'chat.deleted')}</em>
                       : messagePreview(lastMsg)}
                   </p>
                   {conv.unreadCount > 0 && (
@@ -142,7 +143,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
 
               <span
                 role="button"
-                aria-label={`Options ${name}`}
+                aria-label={`${t(lang, 'chat.options')} ${name}`}
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -158,7 +159,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
             {openMenuId === conv.id && (
               <>
                 <button
-                  aria-label="Fermer le menu"
+                  aria-label={t(lang, 'common.close')}
                   onClick={() => setOpenMenuId(null)}
                   style={{ position:'fixed', inset:0, zIndex:50, border:'none', background:'transparent', minHeight:0, cursor:'default' }}
                 />
@@ -173,7 +174,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
                     <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/>
                     </svg>
-                    Supprimer la discussion
+	                    {t(lang, 'chat.deleteDiscussion')}
                   </button>
                 </div>
               </>

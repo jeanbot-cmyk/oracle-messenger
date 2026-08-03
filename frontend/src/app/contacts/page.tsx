@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation';
 import { api } from '../../lib/api';
 import { useChatStore } from '../../store/chat';
 import { buildChromeIntentUrl, shouldOpenAndroidLinkInChrome } from '../../lib/androidChrome';
+import { useSettings } from '../../store/settings';
+import { t } from '../../lib/i18n';
 
 interface LocalContact { name: string; phones: string[]; emails: string[]; avatar?: string | null }
 interface AppUser { id: string; name: string; username: string; avatar?: string; phone?: string }
@@ -156,6 +158,7 @@ async function getSupportedContactProps() {
 }
 
 export default function ContactsPage() {
+  const { lang } = useSettings();
   const { data: session, status } = useSession();
   const router     = useRouter();
   const token      = session?.user?.backendToken ?? '';
@@ -662,7 +665,7 @@ export default function ContactsPage() {
               </p>
               <button onClick={importAndMatch}
                 style={{ background: '#ffc107', color: '#212529', border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                Réessayer
+                {t(lang, 'contacts.retry')}
               </button>
             </div>
             <button onClick={() => setPermDenied(false)}
@@ -679,11 +682,11 @@ export default function ContactsPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
               </svg>
             </div>
-              <p style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px' }}>Importer vos contacts</p>
+              <p style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px' }}>{t(lang, 'contacts.importTitle')}</p>
               <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0, fontWeight: 650 }}>
                 {hasNative
-                  ? 'Appuyer sur importer vos contacts votre téléphone vas ouvrir son écran de sélection des contacts. Cochez les contacts à importer, puis appuyez sur OK. Ensuite Oracle Messenger vas detecter ceux qui sont deja inscrit sur oracle.'
-                  : 'Ajoutez un contact avec son numéro pour vérifier s’il utilise déjà Oracle Messenger, ou ouvrez son lien d’invitation.'}
+                  ? t(lang, 'contacts.importNativeHelp')
+                  : t(lang, 'contacts.manualHelp')}
               </p>
             </div>
             {hasNative && (
@@ -692,12 +695,12 @@ export default function ContactsPage() {
                 <svg width="18" height="18" fill="none" stroke="var(--accent-text)" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
                 </svg>
-                Importer mes contacts
+                {t(lang, 'chat.importContacts')}
               </button>
             )}
             <button onClick={() => setShowAdd(true)}
               style={{ background: SURFACE, color: ACCENT_TEXT, border: `1.5px solid ${BORDER}`, borderRadius: 18, padding: '13px 18px', cursor: 'pointer', fontWeight: 800, fontSize: 14 }}>
-              + Ajouter manuellement
+              + {t(lang, 'contacts.addManual')}
             </button>
           </div>
         )}
@@ -706,7 +709,7 @@ export default function ContactsPage() {
         {loading && (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
             <div style={{ width: 36, height: 36, border: '3px solid var(--border)', borderTopColor: ACCENT, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}/>
-            <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>Chargement des contacts…</p>
+            <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>{t(lang, 'contacts.loading')}</p>
           </div>
         )}
 
