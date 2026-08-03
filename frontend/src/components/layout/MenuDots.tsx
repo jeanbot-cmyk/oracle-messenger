@@ -52,7 +52,7 @@ export function MenuDots() {
       {open && (
         <div style={menuStyle}>
           <button style={itemStyle} onClick={() => { window.location.assign('https://oracle-plus.online/consultation'); setOpen(false); }}>
-            <span>🔮</span><div><div style={{ fontWeight:500 }}>{t(lang,'menu.spirituality')}</div><div style={{ fontSize:11, color:'var(--text-muted)' }}>Consultation spirituelle</div></div>
+            <span>🔮</span><div><div style={{ fontWeight:500 }}>{t(lang,'menu.spirituality')}</div><div style={{ fontSize:11, color:'var(--text-muted)' }}>{t(lang,'menu.spirituality.sub')}</div></div>
           </button>
           <div style={divStyle}/>
           <button style={itemStyle} onClick={() => { setOpen(false); setShowMedia(true); }}>
@@ -90,7 +90,7 @@ export function MenuDots() {
           </button>
           <div style={divStyle}/>
           <button style={itemStyle} onClick={() => { setOpen(false); router.push('/profile'); }}>
-            <span>👤</span><span style={{ fontWeight:500 }}>Mon profil</span>
+            <span>👤</span><span style={{ fontWeight:500 }}>{t(lang,'menu.profile')}</span>
           </button>
           {isAdmin && (
             <>
@@ -98,8 +98,8 @@ export function MenuDots() {
               <button style={itemStyle} onClick={() => { setOpen(false); router.push('/admin'); }}>
                 <span>🛡️</span>
                 <div>
-                  <div style={{ fontWeight:500 }}>Panel Admin</div>
-                  <div style={{ fontSize:11, color:'var(--text-muted)' }}>Statistiques & diffusion</div>
+                  <div style={{ fontWeight:500 }}>{t(lang,'menu.admin')}</div>
+                  <div style={{ fontSize:11, color:'var(--text-muted)' }}>{t(lang,'menu.admin.sub')}</div>
                 </div>
               </button>
             </>

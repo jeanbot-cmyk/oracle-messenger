@@ -7,6 +7,8 @@ import { ChatWindow } from '../chat/ChatWindow';
 import { MenuDots } from './MenuDots';
 import { useChatStore } from '../../store/chat';
 import { api } from '../../lib/api';
+import { useSettings } from '../../store/settings';
+import { t } from '../../lib/i18n';
 
 type Tab = 'discussions' | 'appels' | 'actus' | 'outils';
 
@@ -24,6 +26,7 @@ export function MainLayout({ onStartCall }: Props) {
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const photoPickerRef = useRef<HTMLInputElement>(null);
+  const { lang } = useSettings();
   const token = session?.user?.backendToken ?? '';
   const { activeConvId, setActiveConv, removeConversation } = useChatStore();
 
@@ -64,28 +67,28 @@ export function MainLayout({ onStartCall }: Props) {
 
   const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
     {
-      id: 'discussions', label: 'Discussions',
+      id: 'discussions', label: t(lang, 'nav.discussions'),
       icon: <svg width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 4.5v10.8a2.2 2.2 0 01-2.2 2.2H7.2L3.5 21V4.5a2.2 2.2 0 012.2-2.2h12.1A2.2 2.2 0 0120 4.5z"/></svg>,
     },
     {
-      id: 'appels', label: 'Appels',
+      id: 'appels', label: t(lang, 'nav.calls'),
       icon: <svg width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7.1 4.8l1.6 3.6c.2.5.1 1-.3 1.4l-1 1c1.1 2.2 2.8 3.9 5 5l1-1c.4-.4 1-.5 1.4-.3l3.6 1.6c.5.2.8.7.8 1.2v2a1.4 1.4 0 01-1.5 1.4C9.6 20.4 3.6 14.4 3.3 6.3A1.4 1.4 0 014.7 4.8h2.4z"/></svg>,
     },
     {
-      id: 'actus', label: 'Actus',
+      id: 'actus', label: t(lang, 'nav.updates'),
       icon: <svg width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5a4 4 0 110 8 4 4 0 010-8zM4.5 20c.9-3.7 3.4-5.5 7.5-5.5s6.6 1.8 7.5 5.5"/></svg>,
     },
     {
-      id: 'outils', label: 'Outils',
+      id: 'outils', label: t(lang, 'nav.tools'),
       icon: <svg width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 7h14M5 12h14M5 17h14"/></svg>,
     },
   ];
 
   const FILTERS = [
-    { id: 'all',    label: 'Toutes' },
-    { id: 'unread', label: 'Non lues' },
-    { id: 'fav',    label: 'Favoris' },
-    { id: 'groups', label: 'Groupes' },
+    { id: 'all',    label: t(lang, 'filters.all') },
+    { id: 'unread', label: t(lang, 'filters.unread') },
+    { id: 'fav',    label: t(lang, 'filters.favorites') },
+    { id: 'groups', label: t(lang, 'filters.groups') },
   ];
 
   function handleFileToStory(e: React.ChangeEvent<HTMLInputElement>) {
@@ -163,7 +166,7 @@ export function MainLayout({ onStartCall }: Props) {
             <svg width="18" height="18" fill="none" stroke="var(--text-muted)" strokeWidth="1.9" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
             </svg>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher…"
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t(lang, 'chat.search')}
               style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 15, color: 'var(--text-primary)', fontWeight: 500, lineHeight: 1.35 }} />
           </div>
         </div>
@@ -205,7 +208,7 @@ export function MainLayout({ onStartCall }: Props) {
           <button
             onClick={() => router.push('/contacts')}
             style={{ position: 'absolute', bottom: 78, right: 18, width: 54, height: 54, minHeight: 54, borderRadius: '18px', background: 'var(--brand)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 12px 26px rgba(16,42,42,0.20)', zIndex: 10 }}
-            title="Nouveau message"
+            title={t(lang, 'chat.messages')}
           >
             <svg width="23" height="23" fill="none" stroke="var(--accent-text)" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14"/>
@@ -419,16 +422,17 @@ function CallsTab({ onStartCall }: { onStartCall?: (convId: string, userIds: str
 
 function ActusTab() {
   const router = useRouter();
+  const { lang } = useSettings();
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--text-muted)', padding: 24, background: 'var(--bg-app)' }}>
       <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(16,42,42,0.08)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>
         <svg width="36" height="36" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/></svg>
       </div>
-      <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Stories & Actus</p>
-      <p style={{ fontSize: 13, textAlign: 'center', lineHeight: 1.5 }}>Partagez des moments avec vos contacts</p>
+      <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>{t(lang, 'stories.title')}</p>
+      <p style={{ fontSize: 13, textAlign: 'center', lineHeight: 1.5 }}>{t(lang, 'stories.subtitle')}</p>
       <button onClick={() => router.push('/stories')}
         style={{ background: 'var(--header-bg)', color: '#fff', border: 'none', borderRadius: 20, padding: '10px 24px', cursor: 'pointer', fontWeight: 800, fontSize: 14, marginTop: 8 }}>
-        Voir les stories
+        {t(lang, 'stories.open')}
       </button>
     </div>
   );
@@ -450,34 +454,35 @@ type ToolItem = { iconKey: string; label: string; sub: string; action: () => voi
 
 function OutilsTab({ onPickPhoto }: { onPickPhoto: () => void }) {
   const router = useRouter();
+  const { lang } = useSettings();
 
   const sections: { title: string; items: ToolItem[] }[] = [
     {
-      title: 'Studio Créatif',
+      title: t(lang, 'tools.creative'),
       items: [
-        { iconKey: 'photo',   label: 'Retouche Photo',   sub: 'Choisissez une photo depuis votre galerie.', action: onPickPhoto },
-        { iconKey: 'meeting', label: 'Ma Galerie',       sub: 'Voir et gérer vos photos retouchées.',                      action: () => router.push('/gallery') },
-        { iconKey: 'meeting', label: 'Réunion Vidéo',    sub: 'Démarrez ou rejoignez une réunion instantanément.',         action: () => router.push('/tools') },
+        { iconKey: 'photo',   label: t(lang, 'tools.photoEdit'), sub: t(lang, 'tools.photoEdit.sub'), action: onPickPhoto },
+        { iconKey: 'meeting', label: t(lang, 'tools.gallery'),   sub: t(lang, 'tools.gallery.sub'),   action: () => router.push('/gallery') },
+        { iconKey: 'meeting', label: t(lang, 'tools.meeting'),   sub: t(lang, 'tools.meeting.sub'),   action: () => router.push('/tools') },
       ],
     },
     {
-      title: 'Espace Entreprise',
+      title: t(lang, 'tools.businessSection'),
       items: [
-        { iconKey: 'crm',      label: 'Mon Entreprise',  sub: 'Gérez vos clients, vos ventes et votre activité.',          action: () => router.push('/business') },
-        { iconKey: 'contacts', label: 'Contacts',        sub: 'Importez et invitez vos contacts.',                         action: () => router.push('/contacts') },
+        { iconKey: 'crm',      label: t(lang, 'tools.myBusiness'), sub: t(lang, 'tools.myBusiness.sub'), action: () => router.push('/business') },
+        { iconKey: 'contacts', label: t(lang, 'tools.contacts'),   sub: t(lang, 'tools.contacts.sub'),   action: () => router.push('/contacts') },
       ],
     },
     {
-      title: 'Vie Privée & Organisation',
+      title: t(lang, 'tools.privacySection'),
       items: [
-        { iconKey: 'notes',  label: 'Mon Journal',       sub: 'Écrivez vos pensées et gardez vos notes en sécurité.',      action: () => router.push('/tools?tab=notes') },
-        { iconKey: 'events', label: 'Rappels & Événements', sub: 'Enregistrez vos dates importantes avec alertes auto.',   action: () => router.push('/tools?tab=events') },
+        { iconKey: 'notes',  label: t(lang, 'tools.journal'),   sub: t(lang, 'tools.journal.sub'),   action: () => router.push('/tools?tab=notes') },
+        { iconKey: 'events', label: t(lang, 'tools.reminders'), sub: t(lang, 'tools.reminders.sub'), action: () => router.push('/tools?tab=events') },
       ],
     },
     {
-      title: 'Préférences',
+      title: t(lang, 'tools.preferences'),
       items: [
-        { iconKey: 'settings', label: 'Paramètres',      sub: 'Thème, langue et notifications.',                           action: () => router.push('/profile') },
+        { iconKey: 'settings', label: t(lang, 'tools.settings'), sub: t(lang, 'tools.settings.sub'), action: () => router.push('/profile') },
       ],
     },
   ];

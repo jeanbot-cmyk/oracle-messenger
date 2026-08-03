@@ -5,6 +5,7 @@ import { type LangCode, detectLanguage } from '../lib/i18n';
 interface SettingsStore {
   theme: 'light' | 'dark';
   lang: LangCode;
+  langManual: boolean;
   setTheme: (t: 'light' | 'dark') => void;
   setLang: (l: LangCode) => void;
   toggleTheme: () => void;
@@ -15,8 +16,9 @@ export const useSettings = create<SettingsStore>()(
     (set, get) => ({
       theme: 'light',
       lang: 'fr', // sera détecté au montage
+      langManual: false,
       setTheme: (theme) => set({ theme }),
-      setLang: (lang) => set({ lang }),
+      setLang: (lang) => set({ lang, langManual: true }),
       toggleTheme: () => set({ theme: get().theme === 'light' ? 'dark' : 'light' }),
     }),
     { name: 'oracle-settings' }

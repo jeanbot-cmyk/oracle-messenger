@@ -8,12 +8,12 @@ import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { clearOldTextMessages } from '../lib/db';
 import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 
-const CLIENT_CACHE_VERSION = '83-20260803-pwa';
+const CLIENT_CACHE_VERSION = '84-20260803-lang';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 
 function ThemeApplier() {
-  const { theme, lang, setLang } = useSettings();
+  const { theme, lang, setLang, langManual } = useSettings();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -22,12 +22,12 @@ function ThemeApplier() {
   useEffect(() => {
     const stored = localStorage.getItem('oracle-settings');
     const parsed = stored ? JSON.parse(stored) : null;
-    if (!parsed?.state?.lang || parsed.state.lang === 'fr') {
+    if (!langManual && !parsed?.state?.lang) {
       setLang(detectLanguage());
     }
     document.documentElement.dir  = lang === 'ar' ? 'rtl' : 'ltr';
     document.documentElement.lang = lang;
-  }, [lang, setLang]);
+  }, [lang, langManual, setLang]);
 
   useEffect(() => {
     // Cookie PWA si mode standalone
