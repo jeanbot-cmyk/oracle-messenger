@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../../../lib/androidChrome';
 
 interface Props { params: { username: string }; }
 
@@ -26,6 +27,7 @@ export default function UserLandingPage({ params }: Props) {
 
   useEffect(() => {
     if (status === 'loading') return;
+    if (openCurrentAndroidLinkInChrome()) return;
     if (!username) {
       router.replace('/login');
       return;
@@ -51,6 +53,12 @@ export default function UserLandingPage({ params }: Props) {
         <p style={{ fontSize:15, color:'var(--text-secondary)', margin:'0 0 24px' }}>
           <strong>@{username}</strong> vous invite à discuter
         </p>
+        {typeof window !== 'undefined' && shouldOpenAndroidLinkInChrome() && (
+          <a href={buildChromeIntentUrl()}
+            style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', margin:'0 0 18px', padding:'12px 18px', borderRadius:999, background:'var(--brand)', color:'#fff', fontSize:14, fontWeight:900, textDecoration:'none' }}>
+            Ouvrir dans Chrome
+          </a>
+        )}
         <div style={{ width:32, height:32, border:'3px solid var(--border)', borderTopColor:'var(--brand)', borderRadius:'50%', animation:'spin 0.8s linear infinite', margin:'0 auto' }}/>
         <p style={{ fontSize:12, color:'var(--text-muted)', marginTop:16 }}>Chargement…</p>
       </div>
