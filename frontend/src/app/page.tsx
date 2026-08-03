@@ -52,6 +52,10 @@ export default function HomePage() {
         .then(r => r.update()).catch(() => {});
     }
 
+    if ((window as any).__installPrompt) {
+      promptRef.current = (window as any).__installPrompt;
+    }
+
     const handler = (e: any) => { e.preventDefault(); promptRef.current = e; };
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
@@ -76,7 +80,7 @@ export default function HomePage() {
   }
 
   function handleAndroidPWA() {
-    const prompt = promptRef.current;
+    const prompt = promptRef.current || (window as any).__installPrompt || (window as any).__pwaPrompt;
     setManualInstall(false);
     if (prompt) {
       setInstalling(true);

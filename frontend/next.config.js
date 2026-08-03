@@ -5,6 +5,7 @@ const nextConfig = {
   // Désactiver le prerendering statique — app dynamique avec auth
   experimental: {},
   images: {
+    unoptimized: true,
     domains: ['lh3.googleusercontent.com', 'avatars.githubusercontent.com'],
   },
   async headers() {
@@ -12,9 +13,28 @@ const nextConfig = {
       {
         source: '/sw.js',
         headers: [
-          { key: 'Cache-Control', value: 'no-cache' },
+          { key: 'Cache-Control', value: 'no-cache, no-store, max-age=0, must-revalidate' },
           { key: 'Content-Type', value: 'application/javascript; charset=utf-8' },
           { key: 'Service-Worker-Allowed', value: '/' },
+        ],
+      },
+      {
+        source: '/manifest.json',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, max-age=0, must-revalidate' },
+          { key: 'Content-Type', value: 'application/manifest+json; charset=utf-8' },
+        ],
+      },
+      {
+        source: '/icons/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, max-age=0, must-revalidate' },
+        ],
+      },
+      {
+        source: '/oracle-messenger.apk',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, max-age=0, must-revalidate' },
         ],
       },
     ];
