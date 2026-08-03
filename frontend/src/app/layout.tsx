@@ -8,7 +8,14 @@ export const metadata: Metadata = {
   description: 'Application de messagerie instantanée — chat, appels audio/vidéo, stories et suivi d\'entreprise.',
   manifest: '/manifest.json',
   appleWebApp: { capable: true, statusBarStyle: 'default', title: 'Oracle Messenger' },
-  icons: { icon: '/icons/icon.svg?v=20260803-crisp-icon', apple: '/icons/icon-192-v20260803.png' },
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: '192x192' },
+      { url: '/icons/icon.svg?v=20260803-crisp-icon', type: 'image/svg+xml' },
+      { url: '/icons/icon-192-v20260803.png', sizes: '192x192', type: 'image/png' },
+    ],
+    apple: [{ url: '/apple-touch-icon.png', sizes: '192x192', type: 'image/png' }],
+  },
   robots: { index: true, follow: true },
   openGraph: {
     title: 'Oracle Messenger',
