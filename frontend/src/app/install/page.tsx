@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
-import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../../lib/androidChrome';
+import { buildChromeIntentUrl, shouldOpenAndroidLinkInChrome } from '../../lib/androidChrome';
 
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
@@ -211,7 +211,6 @@ export default function InstallPage() {
     setMounted(true);
     setDevice(detectDevice());
     const inviteUsername = rememberInviteFromUrl();
-    if (openCurrentAndroidLinkInChrome()) return;
     if (inviteUsername) {
       api.users.byUsername(inviteUsername)
         .then(user => setInviter(user?.id ? user : null))

@@ -6,7 +6,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { api } from '../../lib/api';
 import { useChatStore } from '../../store/chat';
-import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../../lib/androidChrome';
+import { buildChromeIntentUrl, shouldOpenAndroidLinkInChrome } from '../../lib/androidChrome';
 
 interface LocalContact { name: string; phones: string[]; emails: string[]; avatar?: string | null }
 interface AppUser { id: string; name: string; username: string; avatar?: string; phone?: string }
@@ -187,7 +187,6 @@ export default function ContactsPage() {
     setMounted(true);
     const params = new URLSearchParams(window.location.search);
     const inviteFrom = extractInviteUsername(params.get('from') || '');
-    if (inviteFrom && openCurrentAndroidLinkInChrome()) return;
     if (status === 'unauthenticated') {
       if (inviteFrom) {
         const next = `/contacts?from=${encodeURIComponent(inviteFrom)}`;

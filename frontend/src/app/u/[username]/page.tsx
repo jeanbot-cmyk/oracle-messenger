@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../../../lib/androidChrome';
+import { buildChromeIntentUrl, shouldOpenAndroidLinkInChrome } from '../../../lib/androidChrome';
 
 interface Props { params: { username: string }; }
 
@@ -40,7 +40,6 @@ export default function UserLandingPage({ params }: Props) {
   useEffect(() => {
     const effectiveStatus = status === 'loading' && sessionTimedOut ? 'unauthenticated' : status;
     if (effectiveStatus === 'loading') return;
-    if (openCurrentAndroidLinkInChrome()) return;
     if (!username) {
       router.replace('/login');
       return;

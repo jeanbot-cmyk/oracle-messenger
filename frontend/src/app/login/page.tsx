@@ -4,7 +4,6 @@ export const dynamic = 'force-dynamic';
 import { useSession, signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { openCurrentAndroidLinkInChrome } from '../../lib/androidChrome';
 
 const ACCENT = 'var(--accent)';
 const DEEP = 'var(--header-bg)';
@@ -26,7 +25,6 @@ function LoginContent() {
 
   useEffect(() => {
     const from = new URLSearchParams(window.location.search).get('from');
-    if (from && openCurrentAndroidLinkInChrome()) return;
     if (from) {
       const next = `/contacts?from=${encodeURIComponent(from)}`;
       sessionStorage.setItem('oracle-after-login', next);

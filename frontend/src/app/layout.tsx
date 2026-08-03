@@ -46,30 +46,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        {/* Android: redirect non-Chrome browsers to Chrome before React loads. */}
-        <script dangerouslySetInnerHTML={{ __html: `
-          (function() {
-            try {
-              var ua = navigator.userAgent.toLowerCase();
-              var isAndroid = ua.indexOf('android') !== -1;
-              var isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
-              var isChrome = ua.indexOf('chrome/') !== -1 &&
-                ua.indexOf('wv') === -1 &&
-                ua.indexOf('samsungbrowser') === -1 &&
-                ua.indexOf('edg/') === -1 &&
-                ua.indexOf('opr/') === -1 &&
-                ua.indexOf('opera') === -1 &&
-                ua.indexOf('firefox') === -1 &&
-                ua.indexOf('fxios') === -1;
-              if (!isAndroid || isStandalone || isChrome) return;
-              var current = new URL(window.location.href);
-              var path = current.pathname + current.search + current.hash;
-              var fallback = encodeURIComponent('https://play.google.com/store/apps/details?id=com.android.chrome');
-              var intent = 'intent://' + current.host + path + '#Intent;scheme=https;package=com.android.chrome;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.browser_fallback_url=' + fallback + ';end';
-              window.location.replace(intent);
-            } catch (e) {}
-          })();
-        `}} />
         {/* Capture beforeinstallprompt as early as possible, before React hydrates */}
         <script dangerouslySetInnerHTML={{ __html: `
           window.addEventListener('beforeinstallprompt', function(e) {
