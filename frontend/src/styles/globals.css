@@ -266,7 +266,7 @@ textarea:focus {
 
 .om-message-row {
   width: 100%;
-  contain: layout paint;
+  contain: layout;
 }
 
 .om-message-row-in {
@@ -281,7 +281,7 @@ textarea:focus {
   font-feature-settings: "kern";
   overflow-wrap: anywhere;
   word-break: break-word;
-  min-width: 62px;
+  min-width: 82px;
 }
 
 .om-date-separator {
@@ -351,7 +351,7 @@ textarea:focus {
 
   .om-message-bubble {
     max-width: 100%;
-    min-width: 58px;
+    min-width: 78px;
     border-radius: 14px 14px 5px 14px;
   }
 

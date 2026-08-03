@@ -361,7 +361,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onMed
       <div style={{
         position: 'relative',
         maxWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(74vw, 390px)' : 'min(76vw, 560px)',
-        minWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(54vw, 240px)' : undefined,
+        minWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(54vw, 240px)' : effectiveType === 'text' ? 82 : undefined,
         transform: swipeX ? `translateX(${swipeX}px)` : undefined,
         transition: swiping ? 'none' : 'transform 0.2s ease',
       }}>
@@ -388,7 +388,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onMed
           {effectiveType === 'image' && !imgError && (
             <div>
               <img src={mediaSrc} alt="image" onError={() => setImgError(true)}
-                style={{ width: '100%', maxHeight: 520, borderRadius: 8, display: 'block', cursor: 'zoom-in', objectFit: 'contain', background: '#111' }}
+                style={{ width: '100%', maxHeight: 'min(52vh, 520px)', borderRadius: 8, display: 'block', cursor: 'zoom-in', objectFit: 'contain', background: '#111' }}
                 onLoad={onMediaLoad}
                 onClick={() => setLightbox(true)} />
               <div style={{ padding: '3px 6px 1px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
@@ -409,7 +409,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onMed
             <div>
               <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setLightbox(true)}>
                 <video src={mediaSrc} playsInline muted onLoadedMetadata={onMediaLoad}
-                  style={{ width: '100%', maxHeight: 520, borderRadius: 8, display: 'block', pointerEvents: 'none', objectFit:'contain', background:'#111' }} />
+                  style={{ width: '100%', maxHeight: 'min(52vh, 520px)', borderRadius: 8, display: 'block', pointerEvents: 'none', objectFit:'contain', background:'#111' }} />
                 {/* Bouton play overlay */}
                 <div style={{
                   position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
