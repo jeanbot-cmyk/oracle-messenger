@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android APK and AAB
 
 on:
   workflow_dispatch:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   android-apk:
-    name: Build Capacitor APK
+    name: Build Capacitor Android
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -25,6 +25,9 @@ jobs:
     env:
       NEXT_PUBLIC_BACKEND_URL: https://api-messenger.oracle-plus.online
       CAPACITOR_ANDROID_STUDIO_PATH: /usr/bin/true
+      ORACLE_MESSENGER_VERSION_CODE: ${{ github.run_number }}
+      ORACLE_MESSENGER_VERSION_NAME: 1.0.${{ github.run_number }}
+      ORACLE_MESSENGER_KEYSTORE_BASE64: ${{ secrets.ORACLE_MESSENGER_KEYSTORE_BASE64 }}
 
     steps:
       - name: Checkout repository
@@ -77,12 +80,50 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x android/gradlew
 
+      - name: Decode Android upload keystore
+        if: ${{ env.ORACLE_MESSENGER_KEYSTORE_BASE64 != '' }}
+        env:
+          ORACLE_MESSENGER_KEYSTORE_PASSWORD: ${{ secrets.ORACLE_MESSENGER_KEYSTORE_PASSWORD }}
+          ORACLE_MESSENGER_KEY_ALIAS: ${{ secrets.ORACLE_MESSENGER_KEY_ALIAS }}
+          ORACLE_MESSENGER_KEY_PASSWORD: ${{ secrets.ORACLE_MESSENGER_KEY_PASSWORD }}
+        run: |
+          test -n "$ORACLE_MESSENGER_KEYSTORE_PASSWORD" || { echo "Missing ORACLE_MESSENGER_KEYSTORE_PASSWORD"; exit 1; }
+          test -n "$ORACLE_MESSENGER_KEY_ALIAS" || { echo "Missing ORACLE_MESSENGER_KEY_ALIAS"; exit 1; }
+          test -n "$ORACLE_MESSENGER_KEY_PASSWORD" || { echo "Missing ORACLE_MESSENGER_KEY_PASSWORD"; exit 1; }
+          printf '%s' "$ORACLE_MESSENGER_KEYSTORE_BASE64" | base64 --decode > android/app/oracle-messenger-upload.jks
+
       - name: Build debug APK
         run: ./gradlew assembleDebug
         working-directory: frontend/android
 
       - name: Build release APK unsigned
+        if: ${{ env.ORACLE_MESSENGER_KEYSTORE_BASE64 == '' }}
         run: ./gradlew assembleRelease
+        working-directory: frontend/android
+
+      - name: Build signed release APK
+        if: ${{ env.ORACLE_MESSENGER_KEYSTORE_BASE64 != '' }}
+        env:
+          ORACLE_MESSENGER_KEYSTORE_FILE: ${{ github.workspace }}/frontend/android/app/oracle-messenger-upload.jks
+          ORACLE_MESSENGER_KEYSTORE_PASSWORD: ${{ secrets.ORACLE_MESSENGER_KEYSTORE_PASSWORD }}
+          ORACLE_MESSENGER_KEY_ALIAS: ${{ secrets.ORACLE_MESSENGER_KEY_ALIAS }}
+          ORACLE_MESSENGER_KEY_PASSWORD: ${{ secrets.ORACLE_MESSENGER_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
+        working-directory: frontend/android
+
+      - name: Build unsigned Play Store AAB
+        if: ${{ env.ORACLE_MESSENGER_KEYSTORE_BASE64 == '' }}
+        run: ./gradlew bundleRelease
+        working-directory: frontend/android
+
+      - name: Build signed Play Store AAB
+        if: ${{ env.ORACLE_MESSENGER_KEYSTORE_BASE64 != '' }}
+        env:
+          ORACLE_MESSENGER_KEYSTORE_FILE: ${{ github.workspace }}/frontend/android/app/oracle-messenger-upload.jks
+          ORACLE_MESSENGER_KEYSTORE_PASSWORD: ${{ secrets.ORACLE_MESSENGER_KEYSTORE_PASSWORD }}
+          ORACLE_MESSENGER_KEY_ALIAS: ${{ secrets.ORACLE_MESSENGER_KEY_ALIAS }}
+          ORACLE_MESSENGER_KEY_PASSWORD: ${{ secrets.ORACLE_MESSENGER_KEY_PASSWORD }}
+        run: ./gradlew bundleRelease
         working-directory: frontend/android
 
       - name: Upload debug APK
@@ -96,7 +137,15 @@ jobs:
       - name: Upload unsigned release APK
         uses: actions/upload-artifact@v4
         with:
-          name: oracle-messenger-release-unsigned-apk
+          name: oracle-messenger-release-apk
           path: frontend/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload Play Store AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-messenger-playstore-aab
+          path: frontend/android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
           retention-days: 14
