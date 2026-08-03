@@ -25,6 +25,14 @@ const DEFAULT_ICE: RTCIceServer[] = [
     credential: 'openrelayproject',
   },
 ];
+const CALL_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: { ideal: 1 },
+  sampleRate: { ideal: 48000 },
+  sampleSize: { ideal: 16 },
+};
 
 async function getIceServers(token: string): Promise<RTCIceServer[]> {
   try {
@@ -45,6 +53,7 @@ export function useWebRTC(userId: string, token = '') {
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
   const [isMuted, setIsMuted]   = useState(false);
   const [isCamOff, setIsCamOff] = useState(false);
+  const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
 
   // Refs — toujours à jour, accessibles dans les closures socket sans re-render
   const callStateRef   = useRef<CallState>('idle');
@@ -66,7 +75,11 @@ export function useWebRTC(userId: string, token = '') {
 
   function createPC(targetUserId: string): RTCPeerConnection {
     pcs.current.get(targetUserId)?.close();
-    const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
+    const pc = new RTCPeerConnection({
+      iceServers: iceServersRef.current,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
+    });
 
     // Ajouter les tracks locaux — le stream est garanti présent ici car
     // answerCall() attend getMediaStream() avant d'appeler createPC via webrtc:offer
@@ -105,10 +118,20 @@ export function useWebRTC(userId: string, token = '') {
     return pc;
   }
 
-  const endCall = useCallback((logOutgoing = false) => {
+  async function sendOfferTo(targetUserId: string) {
+    const socket = getExistingSocket();
+    const info = callInfoRef.current;
+    if (!socket || !info?.callId) return;
+    const pc = createPC(targetUserId);
+    const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: info.type === 'video' });
+    await pc.setLocalDescription(offer);
+    socket.emit('webrtc:offer', { callId: info.callId, targetUserId, sdp: offer });
+  }
+
+  const endCall = useCallback((notifyServer = true) => {
     const info = callInfoRef.current;
     stopRingtone();
-    if (info?.callId) getExistingSocket()?.emit('call:end', { callId: info.callId });
+    if (notifyServer && info?.callId) getExistingSocket()?.emit('call:end', { callId: info.callId });
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     localStreamRef.current = null;
     pcs.current.forEach(pc => pc.close());
@@ -125,7 +148,10 @@ export function useWebRTC(userId: string, token = '') {
     const callId = `call_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     try {
       iceServersRef.current = await getIceServers(token);
-      const stream = await getMediaStream({ audio: true, video: type === 'video' });
+      const stream = await getMediaStream({
+        audio: CALL_AUDIO_CONSTRAINTS,
+        video: type === 'video' ? { facingMode: cameraFacing } : false,
+      });
       localStreamRef.current = stream;
       setLocalStream(stream);
       const info: CallInfo = { callId, conversationId, callerId: userId, type, participants: targetUserIds };
@@ -133,14 +159,8 @@ export function useWebRTC(userId: string, token = '') {
       _setState('calling');
       const socket = getExistingSocket();
       socket?.emit('call:start', { callId, conversationId, type, targetUserIds });
-      for (const tid of targetUserIds) {
-        const pc = createPC(tid);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket?.emit('webrtc:offer', { callId, targetUserId: tid, sdp: offer });
-      }
     } catch (err) { console.error('[WebRTC] startCall:', err); endCall(); }
-  }, [userId, token, endCall]);
+  }, [userId, token, endCall, cameraFacing]);
 
   const answerCall = useCallback(async (accepted: boolean) => {
     const info = callInfoRef.current;
@@ -158,7 +178,10 @@ export function useWebRTC(userId: string, token = '') {
       // Obtenir le stream LOCAL avant d'avertir le caller.
       // Ainsi quand le caller envoie webrtc:offer, localStreamRef est déjà prêt
       // et createPC() peut ajouter les tracks immédiatement.
-      const stream = await getMediaStream({ audio: true, video: info.type === 'video' });
+      const stream = await getMediaStream({
+        audio: CALL_AUDIO_CONSTRAINTS,
+        video: info.type === 'video' ? { facingMode: cameraFacing } : false,
+      });
       localStreamRef.current = stream;
       setLocalStream(stream);
       // Seulement maintenant on notifie le caller → il va envoyer l'offer
@@ -169,12 +192,48 @@ export function useWebRTC(userId: string, token = '') {
       console.error('[WebRTC] answerCall — impossible d\'obtenir le stream:', err);
       // Refuser proprement si le micro/caméra est inaccessible
       socket?.emit('call:answer', { callId: info.callId, accepted: false });
-      endCall();
+      endCall(false);
     }
-  }, [token, endCall]);
+  }, [token, endCall, cameraFacing]);
 
   const toggleMute   = useCallback(() => { localStreamRef.current?.getAudioTracks().forEach(t => { t.enabled = !t.enabled; }); setIsMuted(v => !v); }, []);
   const toggleCamera = useCallback(() => { localStreamRef.current?.getVideoTracks().forEach(t => { t.enabled = !t.enabled; }); setIsCamOff(v => !v); }, []);
+  const switchCamera = useCallback(async () => {
+    const info = callInfoRef.current;
+    if (!info || info.type !== 'video') return;
+    const currentStream = localStreamRef.current;
+    if (!currentStream) return;
+
+    const nextFacing = cameraFacing === 'user' ? 'environment' : 'user';
+    try {
+      const nextStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: nextFacing } },
+        audio: false,
+      });
+      const nextVideoTrack = nextStream.getVideoTracks()[0];
+      if (!nextVideoTrack) {
+        nextStream.getTracks().forEach(t => t.stop());
+        return;
+      }
+
+      const oldVideoTracks = currentStream.getVideoTracks();
+      oldVideoTracks.forEach(track => currentStream.removeTrack(track));
+      oldVideoTracks.forEach(track => track.stop());
+      currentStream.addTrack(nextVideoTrack);
+
+      pcs.current.forEach(pc => {
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+        sender?.replaceTrack(nextVideoTrack).catch(() => {});
+      });
+
+      setLocalStream(new MediaStream(currentStream.getTracks()));
+      localStreamRef.current = currentStream;
+      setCameraFacing(nextFacing);
+      setIsCamOff(false);
+    } catch (err) {
+      console.error('[WebRTC] switchCamera:', err);
+    }
+  }, [cameraFacing]);
 
   // ── Attacher les listeners socket — polling jusqu'à ce que le socket existe ──
   useEffect(() => {
@@ -203,10 +262,13 @@ export function useWebRTC(userId: string, token = '') {
       socket.on('call:answered', (data: { callId: string; userId: string; accepted: boolean }) => {
         if (data.accepted) {
           stopRingtone();
+          if (callStateRef.current === 'calling') {
+            sendOfferTo(data.userId).catch(err => console.error('[WebRTC] offer after answer:', err));
+          }
           // Fallback si onconnectionstatechange ne se déclenche pas
           setTimeout(() => { if (callStateRef.current === 'calling') _setState('connected'); }, 4000);
         } else {
-          endCall();
+          endCall(false);
         }
       });
 
@@ -216,7 +278,7 @@ export function useWebRTC(userId: string, token = '') {
         if (state === 'incoming' && info) {
           notifyMissedCall(info.callerName ?? 'Quelqu\'un');
         }
-        endCall();
+        endCall(false);
       });
 
       socket.on('webrtc:offer', async (data: { callId: string; fromUserId: string; sdp: RTCSessionDescriptionInit }) => {
@@ -271,5 +333,5 @@ export function useWebRTC(userId: string, token = '') {
     };
   }, []); // [] — une seule fois, tout passe par les refs
 
-  return { callState, callInfo, localStream, remoteStreams, isMuted, isCamOff, startCall, answerCall, endCall, toggleMute, toggleCamera };
+  return { callState, callInfo, localStream, remoteStreams, isMuted, isCamOff, startCall, answerCall, endCall, toggleMute, toggleCamera, switchCamera };
 }

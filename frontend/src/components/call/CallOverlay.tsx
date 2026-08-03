@@ -15,6 +15,7 @@ interface Props {
   onEnd: () => void;
   onToggleMute: () => void;
   onToggleCamera: () => void;
+  onSwitchCamera?: () => void;
 }
 
 function VideoEl({ stream, muted = false, style }: { stream: MediaStream | null; muted?: boolean; style?: React.CSSProperties }) {
@@ -25,13 +26,28 @@ function VideoEl({ stream, muted = false, style }: { stream: MediaStream | null;
   return <video ref={ref} autoPlay playsInline muted={muted} style={{ width:'100%', height:'100%', objectFit:'cover', background:'#000', ...style }} />;
 }
 
+function AudioEl({ stream }: { stream: MediaStream | null }) {
+  const ref = useRef<HTMLAudioElement>(null);
+  useEffect(() => {
+    const audio = ref.current;
+    if (!audio || !stream) return;
+    if (audio.srcObject !== stream) audio.srcObject = stream;
+    audio.muted = false;
+    audio.volume = 1;
+    audio.defaultPlaybackRate = 1;
+    audio.playbackRate = 1;
+    audio.play().catch(() => {});
+  }, [stream]);
+  return <audio ref={ref} autoPlay style={{ display: 'none' }} />;
+}
+
 const Btn = ({ onClick, color, children, label }: { onClick:()=>void; color:string; children:React.ReactNode; label:string }) => (
   <button onClick={onClick} title={label} style={{ width:60, height:60, borderRadius:'50%', background:color, border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, boxShadow:'0 2px 8px rgba(0,0,0,.3)', flexShrink:0 }}>
     {children}
   </button>
 );
 
-export function CallOverlay({ callState, callInfo, localStream, remoteStreams, isMuted, isCamOff, callerName, onAnswer, onEnd, onToggleMute, onToggleCamera }: Props) {
+export function CallOverlay({ callState, callInfo, localStream, remoteStreams, isMuted, isCamOff, callerName, onAnswer, onEnd, onToggleMute, onToggleCamera, onSwitchCamera }: Props) {
   // Sonneries selon l'état de l'appel
   useEffect(() => {
     if (callState === 'incoming' || callState === 'calling') {
@@ -59,6 +75,12 @@ export function CallOverlay({ callState, callInfo, localStream, remoteStreams, i
 
   return (
     <div style={overlay}>
+      {/* Audio distant : indispensable pour les appels audio purs.
+          Les appels vidéo jouent le son via les éléments vidéo distants. */}
+      {!isVideo && remoteList.map(([uid, stream]) => (
+        <AudioEl key={`audio-${uid}`} stream={stream} />
+      ))}
+
       {/* Vidéos distantes */}
       {isVideo && remoteList.length > 0 && (
         <div style={{ position:'absolute', inset:0, display:'grid', gridTemplateColumns: remoteList.length > 1 ? '1fr 1fr' : '1fr', gap:2 }}>
@@ -106,9 +128,16 @@ export function CallOverlay({ callState, callInfo, localStream, remoteStreams, i
               {isMuted ? '🔇' : '🎤'}
             </Btn>
             {isVideo && (
-              <Btn onClick={onToggleCamera} color={isCamOff ? '#ef4444' : 'rgba(255,255,255,.2)'} label={isCamOff ? 'Activer caméra' : 'Couper caméra'}>
-                {isCamOff ? '📷' : '📹'}
-              </Btn>
+              <>
+                <Btn onClick={onToggleCamera} color={isCamOff ? '#ef4444' : 'rgba(255,255,255,.2)'} label={isCamOff ? 'Activer caméra' : 'Couper caméra'}>
+                  {isCamOff ? '📷' : '📹'}
+                </Btn>
+                {onSwitchCamera && (
+                  <Btn onClick={onSwitchCamera} color="rgba(255,255,255,.2)" label="Retourner caméra">
+                    🔄
+                  </Btn>
+                )}
+              </>
             )}
             <Btn onClick={onEnd} color="#ef4444" label="Raccrocher">📵</Btn>
           </>
