@@ -7,7 +7,7 @@ import { detectLanguage } from '../lib/i18n';
 import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { clearOldTextMessages } from '../lib/db';
 
-const CLIENT_CACHE_VERSION = '68-20260803-root-chat-entry';
+const CLIENT_CACHE_VERSION = '69-20260803-force-cache';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 

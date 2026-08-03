@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v68
+// Oracle Messenger — Service Worker v69
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '68-20260803-root-chat-entry';
+const CACHE_VERSION = '69-20260803-force-cache';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [
@@ -28,7 +28,12 @@ self.addEventListener('activate', e => {
       ),
       // Prendre le contrôle de tous les clients immédiatement
       self.clients.claim(),
-    ])
+    ]).then(() =>
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+        .then(clients => {
+          clients.forEach(client => client.postMessage({ type: 'SW_UPDATED', version: CACHE_VERSION }));
+        })
+    )
   );
 });
 
