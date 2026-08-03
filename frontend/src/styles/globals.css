@@ -278,21 +278,38 @@ textarea:focus {
 .om-message-row {
   width: 100%;
   contain: layout;
+  transition: background-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .om-message-row-in {
-  padding-right: 42px !important;
+  padding-right: 18px !important;
 }
 
 .om-message-row-own {
-  padding-left: 42px !important;
+  padding-left: 18px !important;
+}
+
+.om-message-row-selecting {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.om-message-row-selecting:active {
+  background: rgba(15, 118, 110, 0.07) !important;
+}
+
+.om-message-row-selected {
+  background: rgba(15, 118, 110, 0.10) !important;
+  box-shadow: inset 3px 0 0 rgba(16, 42, 42, 0.26);
 }
 
 .om-message-bubble {
   font-feature-settings: "kern";
   overflow-wrap: anywhere;
   word-break: break-word;
-  min-width: 82px;
+  min-width: 72px;
+  max-width: 100%;
 }
 
 .om-date-separator {
@@ -354,7 +371,7 @@ textarea:focus {
   }
 
   .om-messages-viewport {
-    padding: 7px 6px 8px !important;
+    padding: 8px 7px 8px !important;
   }
 
   .om-messages-top-spacer {
@@ -362,11 +379,11 @@ textarea:focus {
   }
 
   .om-message-row-in {
-    padding-right: 22px !important;
+    padding-right: 8px !important;
   }
 
   .om-message-row-own {
-    padding-left: 22px !important;
+    padding-left: 8px !important;
   }
 
   .om-message-bubble {
@@ -380,8 +397,8 @@ textarea:focus {
   }
 
   .om-message-text {
-    font-size: 14.5px !important;
-    line-height: 1.52 !important;
+    font-size: 15px !important;
+    line-height: 1.46 !important;
     font-weight: 500 !important;
   }
 

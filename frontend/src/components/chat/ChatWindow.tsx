@@ -792,11 +792,11 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       </div>
 
       {selectionMode && (
-        <div style={{ flexShrink:0, background:'#FFFFFF', borderBottom:'1px solid var(--border)', padding:'8px 10px', display:'flex', alignItems:'center', gap:10, boxShadow:'0 4px 14px rgba(16,42,42,0.06)', zIndex:25 }}>
+        <div style={{ flexShrink:0, background:'#FFFFFF', borderBottom:'1px solid var(--border)', padding:'7px 10px', display:'flex', alignItems:'center', gap:10, boxShadow:'0 4px 14px rgba(16,42,42,0.06)', zIndex:25 }}>
           <button
             onClick={clearMessageSelection}
             aria-label="Annuler la sélection"
-            style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:'var(--bg-input)', color:'var(--text-primary)', cursor:'pointer', fontSize:20, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
+            style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'none', background:'var(--bg-input)', color:'var(--text-primary)', cursor:'pointer', fontSize:20, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
           >
             ×
           </button>
@@ -804,15 +804,15 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             <p style={{ margin:0, fontSize:15, lineHeight:1.18, fontWeight:900, color:'var(--text-primary)' }}>
               {selectedMessages.length} message{selectedMessages.length > 1 ? 's' : ''} sélectionné{selectedMessages.length > 1 ? 's' : ''}
             </p>
-            <p style={{ margin:'2px 0 0', fontSize:12, lineHeight:1.2, fontWeight:700, color:'var(--text-muted)' }}>
-              Choisissez image, vidéo, lien ou texte, puis transférez.
+            <p style={{ margin:'1px 0 0', fontSize:12, lineHeight:1.2, fontWeight:700, color:'var(--text-muted)' }}>
+              Touchez d’autres messages pour ajouter ou retirer.
             </p>
           </div>
           <button
             onClick={openSelectedForwardSheet}
             disabled={selectedMessages.length === 0}
             title="Transférer"
-            style={{ width:40, height:40, minHeight:40, borderRadius:'50%', border:'none', background:selectedMessages.length ? 'var(--header-bg)' : 'rgba(16,42,42,0.14)', color:selectedMessages.length ? '#fff' : 'var(--text-muted)', cursor:selectedMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow:selectedMessages.length ? '0 6px 18px rgba(16,42,42,0.18)' : 'none' }}
+            style={{ width:38, height:38, minHeight:38, borderRadius:'50%', border:'none', background:selectedMessages.length ? 'var(--header-bg)' : 'rgba(16,42,42,0.14)', color:selectedMessages.length ? '#fff' : 'var(--text-muted)', cursor:selectedMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, boxShadow:selectedMessages.length ? '0 6px 18px rgba(16,42,42,0.18)' : 'none' }}
           >
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.3" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m-6-6l6 6-6 6" />

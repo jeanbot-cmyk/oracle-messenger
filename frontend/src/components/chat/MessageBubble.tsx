@@ -223,6 +223,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
   const [menuPos, setMenuPos]         = useState<{ top: number; left: number; width: number } | null>(null);
   const longPressTimer                = useRef<NodeJS.Timeout | null>(null);
   const longPressFired                = useRef(false);
+  const suppressNextClick             = useRef(false);
   const lastTapRef                    = useRef(0);
   const wrapRef                       = useRef<HTMLDivElement | null>(null);
 
@@ -312,6 +313,8 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
     handlePressEnd();
     if (longPressFired.current) {
       longPressFired.current = false;
+      suppressNextClick.current = true;
+      setTimeout(() => { suppressNextClick.current = false; }, 320);
       setSwiping(false);
       setSwipeX(0);
       return;
@@ -327,6 +330,23 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
     }
     // Retour animé
     setSwipeX(0);
+  }
+
+  function onPointerPressEnd() {
+    handlePressEnd();
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      suppressNextClick.current = true;
+      setTimeout(() => { suppressNextClick.current = false; }, 320);
+    }
+  }
+
+  function handleRowClick() {
+    if (suppressNextClick.current) {
+      suppressNextClick.current = false;
+      return;
+    }
+    handleTap();
   }
 
   // Messages supprimés : ne rien afficher du tout
@@ -364,47 +384,45 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
 
   return (
     <div
-      className={`om-message-row ${isOwn ? 'om-message-row-own' : 'om-message-row-in'}`}
-      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative', padding: '2px 0', background: selected ? 'rgba(15,118,110,0.10)' : 'transparent', borderRadius: 12 }}
+      className={`om-message-row ${isOwn ? 'om-message-row-own' : 'om-message-row-in'} ${selectionMode ? 'om-message-row-selecting' : ''} ${selected ? 'om-message-row-selected' : ''}`}
+      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative', padding: '2px 0', background: selected ? 'rgba(15,118,110,0.10)' : 'transparent', borderRadius: 14 }}
       ref={wrapRef}
       onContextMenu={e => { e.preventDefault(); openMenu(); }}
+      onClick={handleRowClick}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
       onMouseDown={handlePressStart}
-      onMouseUp={handlePressEnd}
+      onMouseUp={onPointerPressEnd}
       onMouseLeave={handlePressEnd}
     >
-      {selectionMode && (
+      {selectionMode && selected && (
         <button
           type="button"
           aria-label={selected ? 'Message sélectionné' : 'Sélectionner ce message'}
           onClick={e => { e.stopPropagation(); onSelect(message); }}
           style={{
             position:'absolute',
-            left: isOwn ? 'auto' : 2,
-            right: isOwn ? 2 : 'auto',
-            top:'50%',
-            transform:'translateY(-50%)',
-            width:24,
-            height:24,
+            left: isOwn ? 'auto' : 8,
+            right: isOwn ? 8 : 'auto',
+            top:8,
+            width:22,
+            height:22,
             borderRadius:'50%',
-            border:selected ? 'none' : '2px solid var(--border)',
-            background:selected ? 'var(--header-bg)' : '#fff',
+            border:'2px solid #fff',
+            background:'var(--header-bg)',
             color:'#fff',
             display:'flex',
             alignItems:'center',
             justifyContent:'center',
             zIndex:2,
             cursor:'pointer',
-            boxShadow:'0 2px 8px rgba(0,0,0,0.12)',
+            boxShadow:'0 3px 10px rgba(16,42,42,0.22)',
           }}
         >
-          {selected && (
-            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          )}
+          <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
         </button>
       )}
       {/* Icône répondre qui apparaît au swipe */}
@@ -424,10 +442,8 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
 
       <div style={{
         position: 'relative',
-        maxWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(74vw, 390px)' : 'min(76vw, 560px)',
-        minWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(54vw, 240px)' : effectiveType === 'text' ? 82 : undefined,
-        marginLeft: selectionMode && !isOwn ? 30 : undefined,
-        marginRight: selectionMode && isOwn ? 30 : undefined,
+        maxWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(78vw, 410px)' : 'min(82vw, 580px)',
+        minWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(54vw, 240px)' : effectiveType === 'text' ? 72 : undefined,
         transform: swipeX ? `translateX(${swipeX}px)` : undefined,
         transition: swiping ? 'none' : 'transform 0.2s ease',
       }}>
@@ -441,27 +457,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
 
         <div
           className={`om-message-bubble ${isOwn ? 'bubble-out' : 'bubble-in'}`}
-          style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? 3 : '6px 8px 4px 9px', overflow: 'hidden' }}
-          onTouchStart={handlePressStart}
-          onTouchEnd={() => {
-            handlePressEnd();
-            if (longPressFired.current) {
-              longPressFired.current = false;
-              return;
-            }
-            handleTap();
-          }}
-          onTouchMove={handlePressEnd}
-          onMouseDown={handlePressStart}
-          onMouseUp={() => {
-            handlePressEnd();
-            if (longPressFired.current) {
-              longPressFired.current = false;
-              return;
-            }
-            handleTap();
-          }}
-          onMouseLeave={handlePressEnd}
+          style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? 3 : '7px 10px 5px 10px', overflow: 'hidden' }}
           onDoubleClick={() => onReply(message)}
         >
           {missingLocalMedia && (
