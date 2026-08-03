@@ -25,10 +25,11 @@ const LONG_PRESS_CANCEL_PX = 18;
 const SWIPE_REPLY_TRIGGER_PX = 66;
 const SYNTHETIC_MOUSE_SUPPRESS_MS = 750;
 
-function StatusIcon({ status }: { status: Message['status'] }) {
-  if (status === 'sending')   return <span style={{ fontSize: 10, opacity: .5 }}>⏳</span>;
-  if (status === 'sent')      return <span style={{ fontSize: 12, opacity: .6, color: 'var(--text-muted)' }}>✓</span>;
-  if (status === 'delivered') return <span style={{ fontSize: 12, opacity: .7, color: 'var(--text-muted)' }}>✓✓</span>;
+function StatusIcon({ status, tone = 'default' }: { status: Message['status']; tone?: 'default' | 'light' }) {
+  const muted = tone === 'light' ? 'rgba(255,255,255,.78)' : 'var(--text-muted)';
+  if (status === 'sending')   return <span style={{ fontSize: 10, opacity: .72, color: muted }}>⏳</span>;
+  if (status === 'sent')      return <span style={{ fontSize: 12, opacity: .82, color: muted }}>✓</span>;
+  if (status === 'delivered') return <span style={{ fontSize: 12, opacity: .9, color: muted }}>✓✓</span>;
   if (status === 'read')      return <span style={{ fontSize: 12, color: '#53bdeb', fontWeight: 700 }}>✓✓</span>;
   return null;
 }
@@ -433,6 +434,13 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
     </div>
   );
 
+  const MediaTimeOverlay = () => (
+    <div className="om-media-time-overlay">
+      <span>{timeStr}</span>
+      {isOwn && <StatusIcon status={message.status} tone="light" />}
+    </div>
+  );
+
   // longPressTimer est géré via useRef ci-dessus
 
   return (
@@ -500,8 +508,8 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
 
       <div style={{
         position: 'relative',
-        maxWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(76vw, 410px)' : 'min(76vw, 560px)',
-        minWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(52vw, 230px)' : effectiveType === 'text' ? 48 : undefined,
+        maxWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(74vw, 360px)' : 'min(76vw, 560px)',
+        minWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(54vw, 232px)' : effectiveType === 'text' ? 48 : undefined,
         transform: swipeX ? `translateX(${swipeX}px)` : undefined,
         transition: swiping ? 'none' : 'transform 0.2s ease',
       }}>
@@ -515,7 +523,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
 
         <div
           className={`om-message-bubble ${isOwn ? 'bubble-out' : 'bubble-in'}`}
-          style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? 3 : '6px 9px 4px 9px', overflow: 'hidden' }}
+          style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? 2 : '6px 9px 4px 9px', overflow: 'hidden' }}
           onDoubleClick={() => onReply(message)}
         >
           {missingLocalMedia && (
@@ -529,9 +537,10 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
 
           {/* IMAGE */}
           {effectiveType === 'image' && !missingLocalMedia && !imgError && (
-            <div>
+            <div className="om-media-card">
               <img src={mediaSrc} alt="image" onError={() => setImgError(true)}
-                style={{ width: '100%', maxHeight: 'min(52vh, 520px)', borderRadius: 8, display: 'block', cursor: 'zoom-in', objectFit: 'contain', background: '#111' }}
+                className="om-media-content"
+                style={{ cursor: 'zoom-in' }}
                 onLoad={onMediaLoad}
                 onClick={event => {
                   if (selectionMode) {
@@ -540,10 +549,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
                   }
                   setLightbox(true);
                 }} />
-              <div style={{ padding: '3px 6px 1px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
-                <span style={{ fontSize: 11.5, color: isOwn ? 'rgba(0,0,0,.48)' : 'var(--text-muted)' }}>{timeStr}</span>
-                {isOwn && <StatusIcon status={message.status} />}
-              </div>
+              <MediaTimeOverlay />
             </div>
           )}
           {effectiveType === 'image' && !missingLocalMedia && imgError && (
@@ -555,8 +561,8 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
 
           {/* VIDEO */}
           {effectiveType === 'video' && !missingLocalMedia && (
-            <div>
-              <div style={{ position: 'relative', cursor: 'pointer' }} onClick={event => {
+            <div className="om-media-card">
+              <div style={{ position: 'relative', cursor: 'pointer', width: '100%', height: '100%' }} onClick={event => {
                 if (selectionMode) {
                   event.preventDefault();
                   return;
@@ -564,21 +570,19 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
                 setLightbox(true);
               }}>
                 <video src={mediaSrc} playsInline muted onLoadedMetadata={onMediaLoad}
-                  style={{ width: '100%', maxHeight: 'min(52vh, 520px)', borderRadius: 8, display: 'block', pointerEvents: 'none', objectFit:'contain', background:'#111' }} />
+                  className="om-media-content"
+                  style={{ pointerEvents: 'none' }} />
                 {/* Bouton play overlay */}
                 <div style={{
                   position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
                   borderRadius: 10,
                 }}>
-                  <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <svg width="22" height="22" fill="white" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                  <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(0,0,0,0.42)', backdropFilter:'blur(2px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg width="22" height="22" fill="white" viewBox="0 0 24 24" style={{ marginLeft:2 }}><path d="M8 5v14l11-7z"/></svg>
                   </div>
                 </div>
               </div>
-              <div style={{ padding: '3px 6px 1px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
-                <span style={{ fontSize: 11.5, color: isOwn ? 'rgba(0,0,0,.48)' : 'var(--text-muted)' }}>{timeStr}</span>
-                {isOwn && <StatusIcon status={message.status} />}
-              </div>
+              <MediaTimeOverlay />
             </div>
           )}
 
@@ -613,7 +617,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
           {/* TEXT */}
           {effectiveType === 'text' && (
             <>
-              <p className="om-message-text" style={{ fontSize: 15, lineHeight: 1.36, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere', margin: 0, letterSpacing: 0 }}>
+              <p className="om-message-text" style={{ fontSize: 15, lineHeight: 1.34, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere', margin: 0, letterSpacing: 0 }}>
                 {linkifyText(message.content)}
               </p>
               <TimeRow />
