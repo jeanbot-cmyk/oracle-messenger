@@ -340,7 +340,12 @@ export default function InstallPage() {
     }
   }
 
-  if (!mounted) return null;
+  if (!mounted) return (
+    <div style={{ minHeight:'100dvh', display:'flex', alignItems:'center', justifyContent:'center', background:'#fff' }}>
+      <div style={{ width:32, height:32, border:'3px solid var(--border)', borderTopColor:ACCENT, borderRadius:'50%', animation:'spin .8s linear infinite' }} />
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
 
   // ── Success ──
   if (installed) return (

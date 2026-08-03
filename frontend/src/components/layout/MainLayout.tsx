@@ -21,7 +21,7 @@ export function MainLayout({ onStartCall }: Props) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'unread' | 'fav' | 'groups'>('all');
   const [showChat, setShowChat] = useState(false); // mobile: show conversation panel
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState<boolean | null>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const photoPickerRef = useRef<HTMLInputElement>(null);
   const token = session?.user?.backendToken ?? '';
@@ -116,8 +116,17 @@ export function MainLayout({ onStartCall }: Props) {
   }
 
   // On mobile: show either list OR chat, never both
-  const showList = !isMobile || !showChat;
-  const showChatPanel = !isMobile || showChat;
+  const showList = isMobile === false || !showChat;
+  const showChatPanel = isMobile === false || showChat;
+
+  if (isMobile === null) {
+    return (
+      <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg-app)' }}>
+        <div style={{ width:28, height:28, border:'3px solid var(--border)', borderTopColor:'var(--accent)', borderRadius:'50%', animation:'spin .8s linear infinite' }}/>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', height: '100%', minHeight: 0 }}>
@@ -309,7 +318,12 @@ function CallsTab({ onStartCall }: { onStartCall?: (convId: string, userIds: str
     }
   }
 
-  if (!mounted) return null;
+  if (!mounted) return (
+    <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg-app)' }}>
+      <div style={{ width:28, height:28, border:'3px solid var(--border)', borderTopColor:'var(--accent)', borderRadius:'50%', animation:'spin .8s linear infinite' }}/>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
 
   const ACCENT = 'var(--accent)';
 

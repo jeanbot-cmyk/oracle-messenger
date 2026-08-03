@@ -11,7 +11,7 @@ import { useNotifications } from '../../hooks/useNotifications';
 import { api } from '../../lib/api';
 
 export function ChatLayout() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
   const token  = session?.user?.backendToken ?? '';
@@ -73,6 +73,15 @@ export function ChatLayout() {
   const callerName = callInfo?.callerName
     ?? (callerConv?.type === 'group' ? callerConv.name : callerConv?.participants?.[0]?.name)
     ?? 'Inconnu';
+
+  if (status === 'loading') {
+    return (
+      <div className="chat-app-shell" style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'var(--om-viewport-height, 100dvh)', minHeight:0, overflow:'hidden', background:'var(--bg-app)' }}>
+        <div style={{ width:32, height:32, border:'3px solid var(--border)', borderTopColor:'var(--brand)', borderRadius:'50%', animation:'spin .8s linear infinite' }} />
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    );
+  }
 
   return (
     <div className="chat-app-shell" style={{ display:'flex', flexDirection:'column', height:'var(--om-viewport-height, 100dvh)', minHeight:0, overflow:'hidden', background:'var(--bg-app)' }}>

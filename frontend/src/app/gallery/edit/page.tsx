@@ -61,7 +61,12 @@ export default function PhotoEditPage() {
     img.src = stored;
   }, []);
 
-  if (!mounted || !src) return null;
+  if (!mounted || !src) return (
+    <div style={{ height:'100dvh', display:'flex', alignItems:'center', justifyContent:'center', background:'#111' }}>
+      <div style={{ width:32, height:32, border:'3px solid rgba(255,255,255,.22)', borderTopColor:ACCENT, borderRadius:'50%', animation:'spin .8s linear infinite' }} />
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
 
   const filterCss = buildFilter(adj, FILTERS[filter].css);
   const transformCss = buildTransform(adj);

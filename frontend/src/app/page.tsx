@@ -98,7 +98,12 @@ export default function HomePage() {
     }
   }
 
-  if (!mounted) return null;
+  if (!mounted) return (
+    <div style={{ minHeight:'100dvh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg-app)' }}>
+      <div style={{ width:32, height:32, border:'3px solid var(--border)', borderTopColor:'var(--brand)', borderRadius:'50%', animation:'spin .8s linear infinite' }} />
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
 
   // ── iOS : guide PWA ────────────────────────────────────────────────────────
   if (showIos) {

@@ -8,7 +8,7 @@ import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 import { clearOldTextMessages } from '../lib/db';
 
-const CLIENT_CACHE_VERSION = '61-20260803-install-flow-retry';
+const CLIENT_CACHE_VERSION = '62-20260803-stable-navigation';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 
@@ -252,8 +252,9 @@ function PhoneGate({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (status === 'loading') {
-      const timer = setTimeout(() => setChecked(true), 3500);
-      return () => clearTimeout(timer);
+      setChecked(false);
+      setNeedsPhone(false);
+      return;
     }
     setChecked(false);
     if (status !== 'authenticated') { setChecked(true); return; }

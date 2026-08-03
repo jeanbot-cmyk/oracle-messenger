@@ -87,6 +87,7 @@ html, body {
   -webkit-font-smoothing: antialiased;
   text-rendering: geometricPrecision;
   overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .chat-app-shell {
@@ -138,18 +139,23 @@ button, [role="button"] {
   min-height: 40px;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  user-select: none;
+  transform: translateZ(0);
   transition:
     background-color var(--duration-fast) ease,
     color var(--duration-fast) ease,
     border-color var(--duration-fast) ease,
     box-shadow var(--duration-fast) ease,
-    transform var(--duration-fast) ease,
     opacity var(--duration-fast) ease;
 }
 
-button:active,
+button:active:not(:disabled),
 [role="button"]:active {
-  transform: scale(.98);
+  opacity: .84;
+}
+
+button:disabled {
+  pointer-events: none;
 }
 
 input,

@@ -131,7 +131,7 @@ function NotesTab() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); setNotes(loadNotes()); }, []);
-  if (!mounted) return null;
+  if (!mounted) return <Spinner />;
 
   function openNew() { setEditing({ id: '', title: '', body: '', updatedAt: 0 }); setTitle(''); setBody(''); }
   function openEdit(n: Note) { setEditing(n); setTitle(n.title); setBody(n.body); }
@@ -243,7 +243,7 @@ function EventsTab() {
     }
   }, []);
 
-  if (!mounted) return null;
+  if (!mounted) return <Spinner />;
 
   function addEvent() {
     if (!title.trim() || !date) return;
