@@ -38,21 +38,65 @@ function messagePreview(message: any) {
   return message.content ?? '';
 }
 
+function readFavoriteConversationIds() {
+  if (typeof window === 'undefined') return new Set<string>();
+  try {
+    const raw = JSON.parse(localStorage.getItem('oracle-favorite-conversations') ?? '[]');
+    return new Set<string>(Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string') : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
 export function ConversationList({ search = '', filter = 'all', onSelect, onDelete }: Props) {
   const { conversations, activeConvId, setActiveConv, onlineUsers } = useChatStore();
   const { lang } = useSettings();
   const router = useRouter();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [photoPreview, setPhotoPreview] = useState<{ src: string; name: string } | null>(null);
+  const favoriteIds = readFavoriteConversationIds();
 
   const filtered = conversations.filter(c => {
     const name = c.type === 'group' ? c.name : c.participants?.[0]?.name;
     if (search && !name?.toLowerCase().includes(search.toLowerCase())) return false;
     if (filter === 'unread' && (c.unreadCount ?? 0) === 0) return false;
     if (filter === 'groups' && c.type !== 'group') return false;
-    // 'fav' not yet implemented server-side — treat as 'all'
+    if (filter === 'fav' && !((c as any).isFavorite || (c as any).favorite || favoriteIds.has(c.id))) return false;
     return true;
   });
+
+  const emptyCopy = (() => {
+    if (search.trim()) return {
+      title: 'Aucun résultat',
+      subtitle: 'Aucune conversation ne correspond à cette recherche.',
+      button: 'Effacer la recherche',
+      action: undefined,
+    };
+    if (filter === 'unread') return {
+      title: 'Aucune non lue',
+      subtitle: 'Les nouveaux messages apparaîtront ici dès leur réception.',
+      button: t(lang, 'chat.importContacts'),
+      action: () => router.push('/contacts'),
+    };
+    if (filter === 'fav') return {
+      title: 'Aucun favori',
+      subtitle: 'Marquez vos conversations importantes comme favorites pour les retrouver ici.',
+      button: t(lang, 'chat.importContacts'),
+      action: () => router.push('/contacts'),
+    };
+    if (filter === 'groups') return {
+      title: 'Aucun groupe',
+      subtitle: 'Créez ou ouvrez un groupe pour le retrouver dans cette rubrique.',
+      button: t(lang, 'chat.importContacts'),
+      action: () => router.push('/contacts'),
+    };
+    return {
+      title: t(lang, 'chat.noDiscussion'),
+      subtitle: t(lang, 'chat.importToStart'),
+      button: t(lang, 'chat.importContacts'),
+      action: () => router.push('/contacts'),
+    };
+  })();
 
   if (filtered.length === 0) return (
     <div className="om-fade-in" style={{ height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:12, padding:'32px 28px 104px', textAlign:'center' }}>
@@ -61,14 +105,14 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
           <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 7.5h11M6.5 11.5h7M4 4.8A2.8 2.8 0 016.8 2h10.4A2.8 2.8 0 0120 4.8v7.4a2.8 2.8 0 01-2.8 2.8H10l-5.6 4.4V4.8z"/>
         </svg>
       </div>
-      <p style={{ fontSize:22, lineHeight:1.18, fontWeight:850, color:'var(--text-primary)', margin:'4px 0 0' }}>{t(lang, 'chat.noDiscussion')}</p>
+      <p style={{ fontSize:22, lineHeight:1.18, fontWeight:850, color:'var(--text-primary)', margin:'4px 0 0' }}>{emptyCopy.title}</p>
       <p style={{ fontSize:15, lineHeight:1.5, maxWidth:310, margin:0, color:'var(--text-secondary)', fontWeight:450 }}>
-        {t(lang, 'chat.importToStart')}
+        {emptyCopy.subtitle}
       </p>
-      <button onClick={() => router.push('/contacts')}
+      <button onClick={emptyCopy.action ?? (() => {})}
         className="om-primary-button"
-        style={{ marginTop:8, minWidth:220 }}>
-        {t(lang, 'chat.importContacts')}
+        style={{ marginTop:8, minWidth:220, display: emptyCopy.action ? 'inline-flex' : 'none' }}>
+        {emptyCopy.button}
       </button>
     </div>
   );

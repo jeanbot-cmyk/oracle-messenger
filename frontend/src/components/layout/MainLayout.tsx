@@ -16,6 +16,16 @@ interface Props {
   onStartCall?: (convId: string, userIds: string[], type: 'audio' | 'video') => void;
 }
 
+function readFavoriteConversationIds() {
+  if (typeof window === 'undefined') return new Set<string>();
+  try {
+    const raw = JSON.parse(localStorage.getItem('oracle-favorite-conversations') ?? '[]');
+    return new Set<string>(Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string') : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
 export function MainLayout({ onStartCall }: Props) {
   const { data: session } = useSession();
   const router = useRouter();
@@ -28,7 +38,7 @@ export function MainLayout({ onStartCall }: Props) {
   const photoPickerRef = useRef<HTMLInputElement>(null);
   const { lang } = useSettings();
   const token = session?.user?.backendToken ?? '';
-  const { activeConvId, setActiveConv, removeConversation } = useChatStore();
+  const { conversations, activeConvId, setActiveConv, removeConversation } = useChatStore();
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -84,11 +94,18 @@ export function MainLayout({ onStartCall }: Props) {
     },
   ];
 
+  const favoriteIds = readFavoriteConversationIds();
+  const filterStats = {
+    all: conversations.length,
+    unread: conversations.filter(c => (c.unreadCount ?? 0) > 0).length,
+    fav: conversations.filter(c => (c as any).isFavorite || (c as any).favorite || favoriteIds.has(c.id)).length,
+    groups: conversations.filter(c => c.type === 'group').length,
+  };
   const FILTERS = [
-    { id: 'all',    label: t(lang, 'filters.all') },
-    { id: 'unread', label: t(lang, 'filters.unread') },
-    { id: 'fav',    label: t(lang, 'filters.favorites') },
-    { id: 'groups', label: t(lang, 'filters.groups') },
+    { id: 'all',    label: t(lang, 'filters.all'),      count: filterStats.all },
+    { id: 'unread', label: t(lang, 'filters.unread'),   count: filterStats.unread },
+    { id: 'fav',    label: t(lang, 'filters.favorites'),count: filterStats.fav },
+    { id: 'groups', label: t(lang, 'filters.groups'),   count: filterStats.groups },
   ];
 
   function handleFileToStory(e: React.ChangeEvent<HTMLInputElement>) {
@@ -173,11 +190,12 @@ export function MainLayout({ onStartCall }: Props) {
 
         {/* Filtres pills — seulement Discussions */}
         {tab === 'discussions' && (
-          <div style={{ display: 'flex', gap: 8, padding: '0 16px 12px', overflowX: 'auto', flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: 8, padding: '0 16px 12px', overflowX: 'auto', flexShrink: 0, scrollbarWidth:'none', WebkitOverflowScrolling:'touch' }}>
             {FILTERS.map(f => (
               <button key={f.id} onClick={() => setFilter(f.id as any)}
-              style={{ flexShrink: 0, minHeight: 36, padding: '8px 15px', borderRadius: 999, border: filter === f.id ? '1px solid transparent' : '1px solid var(--border)', background: filter === f.id ? 'var(--brand-soft)' : '#FFFFFF', color: filter === f.id ? 'var(--brand)' : 'var(--text-secondary)', fontSize: 14, lineHeight: 1.15, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: filter === f.id ? '0 6px 16px rgba(16,42,42,0.08)' : 'none' }}>
-                {f.label}
+              style={{ flexShrink: 0, minHeight: 38, padding: '8px 14px', borderRadius: 999, border: filter === f.id ? '1px solid transparent' : '1px solid var(--border)', background: filter === f.id ? 'var(--brand-soft)' : '#FFFFFF', color: filter === f.id ? 'var(--brand)' : 'var(--text-secondary)', fontSize: 14, lineHeight: 1.15, fontWeight: 820, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: filter === f.id ? '0 6px 16px rgba(16,42,42,0.08)' : 'none', display:'flex', alignItems:'center', gap:7 }}>
+                <span>{f.label}</span>
+                <span style={{ minWidth:18, height:18, borderRadius:9, padding:'0 5px', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:900, background:filter === f.id ? 'var(--brand)' : 'var(--bg-input)', color:filter === f.id ? '#fff' : 'var(--text-muted)' }}>{f.count}</span>
               </button>
             ))}
             <button
@@ -443,6 +461,7 @@ const TOOL_ICONS: Record<string, React.ReactNode> = {
   photo: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/></svg>,
   video: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10l6-3v10l-6-3V10z"/></svg>,
   meeting: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.89L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>,
+  web: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3c2.2 2.4 3.3 5.4 3.3 9S14.2 18.6 12 21M12 3C9.8 5.4 8.7 8.4 8.7 12S9.8 18.6 12 21"/></svg>,
   notes: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M11 4H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2v-5"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
   events: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>,
   crm: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8a2 2 0 00-2 2v2h12V5a2 2 0 00-2-2z"/><path d="M8 12h8M8 16h5"/></svg>,
@@ -462,6 +481,7 @@ function OutilsTab({ onPickPhoto }: { onPickPhoto: () => void }) {
       items: [
         { iconKey: 'photo',   label: t(lang, 'tools.photoEdit'), sub: t(lang, 'tools.photoEdit.sub'), action: onPickPhoto },
         { iconKey: 'meeting', label: t(lang, 'tools.gallery'),   sub: t(lang, 'tools.gallery.sub'),   action: () => router.push('/gallery') },
+        { iconKey: 'web',     label: 'Oracle Web',                sub: 'Créer mon site web, appli ou boutique.', action: () => window.location.assign('https://web.oracle-plus.online?source=messenger-tools') },
         { iconKey: 'meeting', label: t(lang, 'tools.meeting'),   sub: t(lang, 'tools.meeting.sub'),   action: () => router.push('/tools') },
       ],
     },

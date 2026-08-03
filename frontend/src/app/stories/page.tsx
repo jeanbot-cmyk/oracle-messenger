@@ -23,6 +23,17 @@ interface Story {
 const BG_COLORS = ['var(--brand)','#25D366','var(--header-bg)','#34B7F1','#ECE5DD','#FF6B6B','#4ECDC4','#45B7D1','#96CEB4','#FFEAA7'];
 const API = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
 
+function timeAgo(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const diff = Date.now() - date.getTime();
+  const minutes = Math.max(1, Math.floor(diff / 60000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h`;
+  return date.toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit' });
+}
+
 export default function StoriesPage() {
   const { data: session, status } = useSession();
   const token = (session?.user as any)?.backendToken ?? '';
@@ -237,10 +248,23 @@ export default function StoriesPage() {
     acc[s.authorId].push(s);
     return acc;
   }, {});
+  Object.values(byAuthor).forEach(list => {
+    list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  });
 
   const myId = session?.user?.id ?? '';
   const myStories = byAuthor[myId] ?? [];
   const othersAuthors = Object.keys(byAuthor).filter(id => id !== myId);
+  const authorRows = othersAuthors.map(authorId => {
+    const authorStories = byAuthor[authorId];
+    const latest = authorStories[authorStories.length - 1];
+    const firstUnread = authorStories.find(s => !s.views.includes(myId)) ?? latest;
+    const hasUnread = authorStories.some(s => !s.views.includes(myId));
+    return { authorId, authorStories, latest, firstUnread, hasUnread };
+  }).sort((a, b) => new Date(b.latest.createdAt).getTime() - new Date(a.latest.createdAt).getTime());
+  const recentRows = authorRows.filter(row => row.hasUnread);
+  const viewedRows = authorRows.filter(row => !row.hasUnread);
+  const activeStoriesCount = stories.length;
 
   if (!mounted || status === 'loading') return (
     <div style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg-app)' }}>
@@ -250,83 +274,89 @@ export default function StoriesPage() {
   );
 
   return (
-    <div style={{ minHeight:'100dvh', background:'var(--bg-app)' }}>
+    <div style={{ minHeight:'100dvh', background:'var(--bg-app)', display:'flex', flexDirection:'column' }}>
       {/* Header */}
-      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'calc(14px + env(safe-area-inset-top, 0px)) 16px 14px', background:'var(--header-bg)', borderBottom:'1px solid rgba(200,168,90,0.22)', position:'sticky', top:0, zIndex:10 }}>
-        <button onClick={() => router.back()} style={{ width:36, height:36, borderRadius:'50%', border:'none', background:'var(--bg-surface)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--text-primary)', fontSize:18 }}>←</button>
-        <h1 style={{ fontSize:18, fontWeight:900, color:'#FFFFFF', margin:0, flex:1 }}>Stories</h1>
+      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'calc(14px + env(safe-area-inset-top, 0px)) 16px 14px', background:'var(--header-bg)', borderBottom:'1px solid rgba(255,255,255,0.10)', position:'sticky', top:0, zIndex:10, boxShadow:'0 1px 0 rgba(16,42,42,0.05)' }}>
+        <button onClick={() => router.back()} style={{ width:42, height:42, minHeight:42, borderRadius:'50%', border:'1px solid rgba(255,255,255,0.16)', background:'rgba(255,255,255,0.12)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#FFFFFF', fontSize:20 }}>←</button>
+        <div style={{ flex:1, minWidth:0 }}>
+          <h1 style={{ fontSize:22, lineHeight:1.1, fontWeight:900, color:'#FFFFFF', margin:0 }}>Stories</h1>
+          <p style={{ margin:'4px 0 0', color:'rgba(255,255,255,0.72)', fontSize:12.5, fontWeight:650 }}>{activeStoriesCount ? `${activeStoriesCount} mise${activeStoriesCount > 1 ? 's' : ''} à jour active${activeStoriesCount > 1 ? 's' : ''}` : 'Publiez une photo ou un texte pendant 24h'}</p>
+        </div>
         <button onClick={() => setCreating(true)}
-          style={{ background:'var(--accent)', color:'var(--accent-text)', border:'none', borderRadius:20, padding:'8px 16px', cursor:'pointer', fontWeight:900, fontSize:14 }}>
+          style={{ background:'#FFFFFF', color:'var(--brand)', border:'none', borderRadius:22, padding:'10px 16px', cursor:'pointer', fontWeight:900, fontSize:14, boxShadow:'0 8px 20px rgba(0,0,0,0.14)' }}>
           + Créer
         </button>
       </div>
 
-      <div style={{ padding:16 }}>
+      <div style={{ flex:1, overflowY:'auto', padding:'14px 0 24px' }}>
         {/* Ma story */}
-        <div style={{ marginBottom:24 }}>
-          <p style={{ fontSize:13, fontWeight:600, color:'var(--text-muted)', marginBottom:12, textTransform:'uppercase', letterSpacing:.5 }}>Ma story</p>
-          <div style={{ display:'flex', gap:12, overflowX:'auto', paddingBottom:8 }}>
-            {/* Bouton ajouter */}
-            <button onClick={() => setCreating(true)} style={{ flexShrink:0, display:'flex', flexDirection:'column', alignItems:'center', gap:6, background:'transparent', border:'none', cursor:'pointer' }}>
-              <div style={{ width:64, height:64, borderRadius:'50%', background:'var(--bg-surface)', border:'2px dashed var(--border)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28, color:'var(--accent)' }}>+</div>
-              <span style={{ fontSize:11, color:'var(--text-muted)' }}>Ajouter</span>
-            </button>
-            {myStories.map(s => (
-              <button key={s.id} onClick={() => openStory(s)} style={{ flexShrink:0, display:'flex', flexDirection:'column', alignItems:'center', gap:6, background:'transparent', border:'none', cursor:'pointer' }}>
-                <div style={{ width:64, height:64, borderRadius:'50%', overflow:'hidden', border:'3px solid var(--accent)', background: s.type==='text' ? s.bg : '#000' }}>
-                  {s.type === 'image' ? (
-                    <img src={s.content} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-                  ) : (
-                    <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', background:s.bg }}>
-                      <span style={{ fontSize:10, color:'#fff', fontWeight:700, textAlign:'center', padding:4, overflow:'hidden' }}>{s.content.slice(0,20)}</span>
-                    </div>
-                  )}
-                </div>
-                <span style={{ fontSize:11, color:'var(--text-muted)' }}>Moi</span>
-              </button>
-            ))}
-          </div>
+        <div style={{ padding:'0 16px 12px' }}>
+          <p style={{ fontSize:12, fontWeight:900, color:'var(--text-muted)', margin:'0 0 10px', textTransform:'uppercase', letterSpacing:.8 }}>Ma story</p>
+          <button onClick={() => myStories.length ? openStory(myStories[myStories.length - 1]) : setCreating(true)}
+            style={{ width:'100%', display:'flex', alignItems:'center', gap:14, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:18, padding:12, cursor:'pointer', textAlign:'left', boxShadow:'var(--shadow-soft)' }}>
+            <div style={{ position:'relative', width:62, height:62, flexShrink:0 }}>
+              <div style={{ width:62, height:62, borderRadius:'50%', overflow:'hidden', border:myStories.length ? '3px solid var(--brand)' : '2px dashed var(--border)', background:myStories.length ? (myStories[myStories.length - 1].type === 'text' ? myStories[myStories.length - 1].bg : '#000') : 'var(--bg-input)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {myStories.length && myStories[myStories.length - 1].type === 'image' ? (
+                  <img src={myStories[myStories.length - 1].content} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                ) : myStories.length ? (
+                  <span style={{ fontSize:10, color:'#fff', fontWeight:900, textAlign:'center', padding:5 }}>{myStories[myStories.length - 1].content.slice(0,24)}</span>
+                ) : (
+                  <span style={{ fontSize:28, color:'var(--brand)', fontWeight:500 }}>+</span>
+                )}
+              </div>
+              <span onClick={(e) => { e.stopPropagation(); setCreating(true); }} role="button" aria-label="Ajouter une story"
+                style={{ position:'absolute', right:-2, bottom:-2, width:24, height:24, minHeight:24, borderRadius:'50%', border:'2px solid var(--bg-surface)', background:'var(--brand)', color:'#fff', fontSize:18, lineHeight:1, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>+</span>
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <p style={{ margin:0, color:'var(--text-primary)', fontSize:16, fontWeight:900 }}>Ajouter à ma story</p>
+              <p style={{ margin:'4px 0 0', color:'var(--text-secondary)', fontSize:13, lineHeight:1.35, fontWeight:650 }}>
+                {myStories.length ? `${myStories.length} story active · ${timeAgo(myStories[myStories.length - 1].createdAt)}` : 'Photo, texte ou annonce visible pendant 24h.'}
+              </p>
+            </div>
+          </button>
         </div>
 
         {/* Stories des autres */}
-        {othersAuthors.length > 0 && (
-          <div>
-            <p style={{ fontSize:13, fontWeight:600, color:'var(--text-muted)', marginBottom:12, textTransform:'uppercase', letterSpacing:.5 }}>Récentes</p>
-            <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
-              {othersAuthors.map(authorId => {
-                const authorStories = byAuthor[authorId];
-                const first = authorStories[0];
-                const hasUnread = authorStories.some(s => !s.views.includes(myId));
-                return (
-                  <button key={authorId} onClick={() => openStory(first)}
-                    style={{ display:'flex', alignItems:'center', gap:14, padding:'10px 4px', background:'transparent', border:'none', cursor:'pointer', textAlign:'left' }}>
-                    <div style={{ width:56, height:56, borderRadius:'50%', overflow:'hidden', border:`3px solid ${hasUnread ? 'var(--accent)' : 'var(--border)'}`, background:'#000', flexShrink:0 }}>
-                      {first.type === 'image' ? (
-                        <img src={first.content} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+        {[
+          { title:'Récentes', rows: recentRows },
+          { title:'Déjà vues', rows: viewedRows },
+        ].map(section => section.rows.length > 0 && (
+          <div key={section.title} style={{ marginTop:8 }}>
+            <p style={{ fontSize:12, fontWeight:900, color:'var(--text-muted)', padding:'10px 16px 8px', margin:0, textTransform:'uppercase', letterSpacing:.8 }}>{section.title}</p>
+            <div style={{ background:'var(--bg-surface)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)' }}>
+              {section.rows.map(({ authorId, authorStories, latest, firstUnread, hasUnread }, index) => (
+                <button key={authorId} onClick={() => openStory(firstUnread)}
+                  style={{ display:'flex', alignItems:'center', gap:14, padding:'12px 16px', width:'100%', background:'transparent', border:'none', borderBottom:index < section.rows.length - 1 ? '1px solid var(--border)' : 'none', cursor:'pointer', textAlign:'left' }}>
+                  <div style={{ width:58, height:58, borderRadius:'50%', padding:3, background:hasUnread ? 'linear-gradient(135deg, var(--brand), #25D366)' : 'var(--border)', flexShrink:0 }}>
+                    <div style={{ width:'100%', height:'100%', borderRadius:'50%', overflow:'hidden', background:latest.type === 'text' ? latest.bg : '#000', border:'2px solid var(--bg-surface)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      {latest.type === 'image' ? (
+                        <img src={latest.content} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
                       ) : (
-                        <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', background:first.bg }}>
-                          <span style={{ fontSize:9, color:'#fff', fontWeight:700, textAlign:'center', padding:4 }}>{first.content.slice(0,15)}</span>
-                        </div>
+                        <span style={{ fontSize:9.5, color:'#fff', fontWeight:900, textAlign:'center', padding:5 }}>{latest.content.slice(0,18)}</span>
                       )}
                     </div>
-                    <div>
-                      <p style={{ margin:0, fontWeight:600, fontSize:15, color:'var(--text-primary)' }}>{first.authorName}</p>
-                      <p style={{ margin:0, fontSize:12, color:'var(--text-muted)' }}>
-                        {authorStories.length} story{authorStories.length > 1 ? 's' : ''} · {hasUnread ? 'Non vue' : 'Vue'}
-                      </p>
-                    </div>
-                  </button>
-                );
-              })}
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <p style={{ margin:0, fontWeight:900, fontSize:16, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{latest.authorName}</p>
+                    <p style={{ margin:'4px 0 0', fontSize:13, color:'var(--text-secondary)', fontWeight:650 }}>
+                      {authorStories.length} story{authorStories.length > 1 ? 's' : ''} · {hasUnread ? 'Non vue' : 'Vue'} · {timeAgo(latest.createdAt)}
+                    </p>
+                  </div>
+                  <span style={{ width:8, height:8, borderRadius:'50%', background:hasUnread ? 'var(--brand)' : 'transparent', flexShrink:0 }} />
+                </button>
+              ))}
             </div>
           </div>
-        )}
+        ))}
 
         {stories.length === 0 && (
-          <div style={{ textAlign:'center', padding:'60px 20px', color:'var(--text-muted)' }}>
-            <div style={{ fontSize:64, marginBottom:16 }}>📸</div>
-            <p style={{ fontSize:16, fontWeight:600, color:'var(--text-primary)', marginBottom:8 }}>Aucune story</p>
-            <p style={{ fontSize:14 }}>Créez votre première story — elle disparaît après 24h.</p>
+          <div style={{ textAlign:'center', padding:'70px 26px 110px', color:'var(--text-muted)' }}>
+            <div style={{ width:92, height:92, borderRadius:30, margin:'0 auto 18px', background:'linear-gradient(145deg, var(--brand-soft), #FFFFFF)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'var(--shadow-soft)', color:'var(--brand)' }}>
+              <svg width="46" height="46" fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="4"/><circle cx="12" cy="12" r="3.5"/><path d="M17 7h.01"/></svg>
+            </div>
+            <p style={{ fontSize:24, lineHeight:1.15, fontWeight:950, color:'var(--text-primary)', margin:'0 0 8px' }}>Aucune story</p>
+            <p style={{ fontSize:15.5, lineHeight:1.45, maxWidth:330, margin:'0 auto 18px', color:'var(--text-secondary)', fontWeight:600 }}>Créez votre première story. Elle reste visible 24h, comme sur WhatsApp Business.</p>
+            <button onClick={() => setCreating(true)} style={{ border:'none', background:'var(--brand)', color:'#fff', borderRadius:999, padding:'13px 24px', fontSize:15, fontWeight:900, cursor:'pointer', boxShadow:'0 12px 28px rgba(16,42,42,0.18)' }}>Créer une story</button>
           </div>
         )}
       </div>

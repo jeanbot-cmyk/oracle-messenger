@@ -24,8 +24,8 @@ export function MenuDots() {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  const menuStyle: React.CSSProperties = { position:'absolute', right:0, top:58, zIndex:50, width:238, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:16, boxShadow:'var(--shadow-soft)', overflow:'hidden' };
-  const itemStyle: React.CSSProperties = { width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', textAlign:'left' as const, color:'var(--text-primary)', fontSize:14.5, lineHeight:1.25 };
+  const menuStyle: React.CSSProperties = { position:'absolute', right:0, top:62, zIndex:50, width:'min(312px, calc(100vw - 28px))', background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:18, boxShadow:'0 18px 44px rgba(16,42,42,0.20)', overflow:'hidden' };
+  const itemStyle: React.CSSProperties = { width:'100%', display:'flex', alignItems:'center', gap:13, padding:'14px 16px', border:'none', background:'transparent', cursor:'pointer', textAlign:'left' as const, color:'var(--text-primary)', fontSize:15, lineHeight:1.25 };
   const divStyle: React.CSSProperties = { height:1, background:'var(--border)', margin:'2px 0' };
 
   function shareApp() {
@@ -53,6 +53,9 @@ export function MenuDots() {
         <div style={menuStyle}>
           <button style={itemStyle} onClick={() => { window.location.assign('https://oracle-plus.online/consultation'); setOpen(false); }}>
             <span>🔮</span><div><div style={{ fontWeight:500 }}>{t(lang,'menu.spirituality')}</div><div style={{ fontSize:11, color:'var(--text-muted)' }}>{t(lang,'menu.spirituality.sub')}</div></div>
+          </button>
+          <button style={itemStyle} onClick={() => { window.location.assign('https://web.oracle-plus.online?source=messenger'); setOpen(false); }}>
+            <span>🌐</span><div><div style={{ fontWeight:700 }}>Web</div><div style={{ fontSize:11.5, color:'var(--text-muted)', lineHeight:1.35 }}>Créer mon site web, appli ou boutique</div></div>
           </button>
           <div style={divStyle}/>
           <button style={itemStyle} onClick={() => { setOpen(false); setShowMedia(true); }}>
