@@ -179,6 +179,8 @@ export default function ContactsPage() {
   const [permDenied, setPermDenied] = useState(false);
   const [notice, setNotice] = useState('');
   const [pendingInvite, setPendingInvite] = useState('');
+  const [inviteUser, setInviteUser] = useState<AppUser | null>(null);
+  const [inviteOpening, setInviteOpening] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -299,7 +301,6 @@ export default function ContactsPage() {
     const normalizedUsername = extractInviteUsername(username);
     if (!normalizedUsername) {
       setNotice('Le lien d’invitation est incomplet. Demandez à la personne de renvoyer son lien depuis son profil.');
-      importAndMatch();
       return;
     }
     setPendingInvite(normalizedUsername);
@@ -307,22 +308,27 @@ export default function ContactsPage() {
       setNotice('Votre session n’est pas encore prête. Appuyez sur “Reconnecter” pour continuer.');
       return;
     }
+    setInviteOpening(true);
+    setPermDenied(false);
+    setNotice('Connexion à votre contact Oracle Messenger...');
     let user: AppUser | null = null;
     try {
       user = await api.users.byUsername(normalizedUsername);
+      setInviteUser(user);
     } catch {
       setNotice('Connexion impossible pour vérifier ce lien. Réessayez avec une bonne connexion.');
-      importAndMatch();
+      setInviteOpening(false);
       return;
     }
 
     if (!user?.id) {
       setNotice('Ce lien Oracle Messenger est ancien ou incorrect. Demandez à la personne de renvoyer son lien depuis son profil.');
-      importAndMatch();
+      setInviteOpening(false);
       return;
     }
 
     if (user.id === session?.user?.id) {
+      setInviteOpening(false);
       router.replace('/chat');
       return;
     }
@@ -330,6 +336,17 @@ export default function ContactsPage() {
     try {
       const conv = await api.conversations.create(user.id, token);
       if (!conv?.id) throw new Error('Conversation non créée');
+      const normalized = {
+        ...conv,
+        participants: Array.isArray(conv.participants) ? conv.participants : [user],
+        unreadCount: conv.unreadCount ?? 0,
+        lastMessage: conv.lastMessage ?? null,
+      };
+      const existing = useChatStore.getState().conversations;
+      if (!existing.find(x => x.id === conv.id)) {
+        setConversations([normalized, ...existing]);
+      }
+      setActiveConv(conv.id);
       sessionStorage.removeItem('oracle-after-login');
       localStorage.removeItem('oracle-after-login');
       setPendingInvite('');
@@ -338,8 +355,9 @@ export default function ContactsPage() {
       return;
     } catch {
       setNotice('Le contact est trouvé, mais la conversation ne peut pas encore s’ouvrir. Vérifiez votre connexion puis réessayez.');
+    } finally {
+      setInviteOpening(false);
     }
-    importAndMatch();
   }
 
   const importAndMatch = useCallback(async () => {
@@ -555,6 +573,15 @@ export default function ContactsPage() {
 
       {(!token || notice || pendingInvite) && (
         <div style={{ flexShrink: 0, margin: '10px 14px 0', background: pendingInvite ? '#ecfdf5' : '#fff8e1', border: `1px solid ${pendingInvite ? '#a7f3d0' : '#f3d58b'}`, borderRadius: 14, padding: '12px 14px', color: pendingInvite ? '#065f46' : '#5f4a13' }}>
+          {inviteUser && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <Avatar name={inviteUser.name} avatar={inviteUser.avatar} size={42} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: 1.25, fontWeight: 900, color: '#064e3b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inviteUser.name}</p>
+                <p style={{ margin: '2px 0 0', fontSize: 12, lineHeight: 1.25, fontWeight: 700, color: '#047857', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{inviteUser.username}</p>
+              </div>
+            </div>
+          )}
           {pendingInvite && (
             <p style={{ margin: '0 0 8px', fontSize: 13, lineHeight: 1.45, fontWeight: 800 }}>
               Invitation reçue : @{pendingInvite}
@@ -569,9 +596,9 @@ export default function ContactsPage() {
               Reconnecter
             </button>
           ) : pendingInvite ? (
-            <button onClick={() => openConvByUsername(pendingInvite)}
-              style={{ border: 'none', borderRadius: 999, background: 'var(--brand)', color: '#fff', padding: '9px 14px', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>
-              Ouvrir la conversation
+            <button onClick={() => openConvByUsername(pendingInvite)} disabled={inviteOpening}
+              style={{ border: 'none', borderRadius: 999, background: 'var(--brand)', color: '#fff', padding: '9px 14px', fontSize: 13, fontWeight: 900, cursor: inviteOpening ? 'wait' : 'pointer', opacity: inviteOpening ? 0.72 : 1 }}>
+              {inviteOpening ? 'Ouverture...' : 'Ouvrir la conversation'}
             </button>
           ) : null}
         </div>
