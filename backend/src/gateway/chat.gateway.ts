@@ -31,12 +31,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // userId → socketId (en mémoire — suffisant pour 1 instance)
   // userSockets moved to SocketStateService
 
-  // callId → { callerId, callerName, conversationId, type, startedAt, participants: Set<userId> }
+  private readonly callNoAnswerTimeoutMs = 75_000;
+
+  // callId → { callerId, callerName, conversationId, type, startedAt, answered, participants: Set<userId> }
   private activeCalls = new Map<string, {
     callerId: string; callerName: string; conversationId: string;
-    type: 'audio' | 'video'; startedAt: number;
+    type: 'audio' | 'video'; startedAt: number; answered: boolean;
     participants: Set<string>;
   }>();
+  private callTimeouts = new Map<string, NodeJS.Timeout>();
   private offlineTimers = new Map<string, NodeJS.Timeout>();
   private cleanupTimer?: NodeJS.Timeout;
 
@@ -141,6 +144,45 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         participants: [...call.participants].filter(id => id !== call.callerId),
       });
     }
+  }
+
+  private clearCallTimeout(callId: string) {
+    const timer = this.callTimeouts.get(callId);
+    if (timer) clearTimeout(timer);
+    this.callTimeouts.delete(callId);
+  }
+
+  private scheduleNoAnswerTimeout(callId: string) {
+    this.clearCallTimeout(callId);
+    const timer = setTimeout(async () => {
+      const call = this.activeCalls.get(callId);
+      if (!call || call.answered) return;
+
+      for (const uid of call.participants) {
+        const socketIds = this.socketState.getSocketIds(uid);
+        for (const sid of socketIds) {
+          this.server.to(sid).emit('call:ended', {
+            callId,
+            userId: call.callerId,
+            reason: 'no-answer',
+          });
+          const participantSocket = this.server.sockets.sockets.get(sid);
+          participantSocket?.leave(`call:${callId}`);
+        }
+      }
+
+      await this.publishCallTrace(
+        call.conversationId,
+        call.callerId,
+        call.type,
+        'missed',
+      ).catch(() => {});
+
+      this.activeCalls.delete(callId);
+      this.callTimeouts.delete(callId);
+    }, this.callNoAnswerTimeoutMs);
+    timer.unref?.();
+    this.callTimeouts.set(callId, timer);
   }
 
   // ── Conversations ─────────────────────────────────────────────────────────
@@ -361,8 +403,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         conversationId: data.conversationId,
         type: data.type,
         startedAt: Date.now(),
+        answered: false,
         participants: new Set([callerId, ...validTargets]),
       });
+      this.scheduleNoAnswerTimeout(data.callId);
 
       const firstTargetId = validTargets[0];
       const firstTarget = firstTargetId ? await this.users.findById(firstTargetId).catch(() => null) : null;
@@ -429,6 +473,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
 
     const call = this.activeCalls.get(data.callId);
+    if (call && data.accepted) {
+      call.answered = true;
+      this.clearCallTimeout(data.callId);
+    }
     if (!data.accepted && call) {
       // Appel refusé → log "missed" pour le caller, "incoming" refusé pour le récepteur
       const responder = await this.users.findById(responderId).catch(() => null);
@@ -442,6 +490,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         peerName: call.callerName, type: call.type, direction: 'missed',
       }).catch(() => {});
       this.publishCallTrace(call.conversationId, responderId, call.type, 'refused').catch(() => {});
+      this.clearCallTimeout(data.callId);
       this.activeCalls.delete(data.callId);
     }
   }
@@ -453,6 +502,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const enderId = client.data.userId;
     const call = this.activeCalls.get(data.callId);
+    this.clearCallTimeout(data.callId);
     if (!call) {
       this.server.to(`call:${data.callId}`).emit('call:ended', {
         callId: data.callId,

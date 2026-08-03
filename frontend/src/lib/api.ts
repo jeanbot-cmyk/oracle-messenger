@@ -14,6 +14,14 @@ async function req<T>(path: string, options?: RequestInit, token?: string): Prom
 }
 
 export const api = {
+  media: {
+    upload: (token: string, data: { dataUrl: string; name?: string; mime?: string; kind?: string }) =>
+      req<{ url: string; path: string; mime: string; size: number; name: string; kind: string }>(
+        '/media/upload',
+        { method: 'POST', body: JSON.stringify(data) },
+        token,
+      ),
+  },
   conversations: {
     list: (token: string) => req<any[]>('/conversations', {}, token),
     get:  (id: string, token: string) => req<any>(`/conversations/${id}`, {}, token),

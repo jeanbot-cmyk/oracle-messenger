@@ -34,6 +34,13 @@ services:
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       FRONTEND_URL: ${FRONTEND_URL}
+      BACKEND_URL: ${BACKEND_URL}
+      PUBLIC_MEDIA_BASE_URL: ${PUBLIC_MEDIA_BASE_URL:-}
+      MEDIA_UPLOAD_DIR: /app/uploads
+      MEDIA_UPLOAD_MAX_BYTES: ${MEDIA_UPLOAD_MAX_BYTES:-18874368}
+      TURN_URLS: ${TURN_URLS:-}
+      TURN_USERNAME: ${TURN_USERNAME:-}
+      TURN_CREDENTIAL: ${TURN_CREDENTIAL:-}
       PORT: 3001
     depends_on:
       postgres:
@@ -42,6 +49,8 @@ services:
         condition: service_started
     ports:
       - "3001:3001"
+    volumes:
+      - media_uploads:/app/uploads
 
   frontend:
     build: ./frontend
@@ -61,3 +70,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  media_uploads:

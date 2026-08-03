@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { join } from 'path';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -9,6 +10,13 @@ async function bootstrap() {
   });
   app.use(require('express').json({ limit: process.env.JSON_LIMIT ?? '25mb' }));
   app.use(require('express').urlencoded({ limit: process.env.JSON_LIMIT ?? '25mb', extended: true }));
+  app.use('/uploads', require('express').static(
+    process.env.MEDIA_UPLOAD_DIR || join(process.cwd(), 'uploads'),
+    {
+      maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0,
+      immutable: process.env.NODE_ENV === 'production',
+    },
+  ));
 
   const allowedOrigins = (process.env.CORS_ORIGINS ?? 'https://messenger.oracle-plus.online')
     .split(',')

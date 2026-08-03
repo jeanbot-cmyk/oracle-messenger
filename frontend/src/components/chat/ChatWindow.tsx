@@ -191,6 +191,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const [replyTo, setReplyTo]     = useState<Message | null>(null);
   const [editMsg, setEditMsg]     = useState<Message | null>(null);
   const [sending, setSending]     = useState(false);
+  const [mediaUploading, setMediaUploading] = useState(false);
   const [profileModal, setProfileModal]     = useState(false);
   const [avatarLightbox, setAvatarLightbox] = useState(false);
   const [showCamera, setShowCamera]         = useState(false);
@@ -461,6 +462,25 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     setSending(false);
   }
 
+  async function uploadMediaForMessage(dataUrl: string, type: 'image' | 'video' | 'audio' | 'file', meta?: { name?: string; size?: number; mime?: string }) {
+    if (!token) throw new Error('Session expirée');
+    const uploaded = await api.media.upload(token, {
+      dataUrl,
+      name: meta?.name,
+      mime: meta?.mime,
+      kind: type,
+    });
+    if (type === 'file') {
+      return JSON.stringify({
+        url: uploaded.url,
+        name: meta?.name || uploaded.name,
+        size: meta?.size ?? uploaded.size,
+        mime: meta?.mime || uploaded.mime,
+      });
+    }
+    return uploaded.url;
+  }
+
   function startConversationCall(type: 'audio' | 'video') {
     if (!conv || !onStartCall) return;
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -497,13 +517,24 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     const isVideo = file.type.startsWith('video/');
     const isAudio = file.type.startsWith('audio/');
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const b64 = reader.result as string;
       const type = isImage ? 'image' : isVideo ? 'video' : isAudio ? 'audio' : 'file';
-      const content = type === 'file'
-        ? JSON.stringify({ url: b64, name: file.name, size: file.size, mime: file.type || 'application/octet-stream' })
-        : b64;
-      sendMessage(activeConvId, content, type);
+      setMediaUploading(true);
+      setCallNotice('Envoi du média...');
+      try {
+        const content = await uploadMediaForMessage(b64, type, {
+          name: file.name,
+          size: file.size,
+          mime: file.type || 'application/octet-stream',
+        });
+        sendMessage(activeConvId, content, type);
+      } catch {
+        alert('Impossible d’envoyer ce média. Vérifiez la connexion puis réessayez.');
+      } finally {
+        setMediaUploading(false);
+        setCallNotice('');
+      }
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -574,10 +605,23 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     recSecondsRef.current = 0;
   }
 
-  function sendVoiceDraft() {
+  async function sendVoiceDraft() {
     if (!activeConvId || !voiceDraft) return;
-    sendMessage(activeConvId, voiceDraft.dataUrl, 'audio');
-    setVoiceDraft(null);
+    setMediaUploading(true);
+    setCallNotice('Envoi du vocal...');
+    try {
+      const content = await uploadMediaForMessage(voiceDraft.dataUrl, 'audio', {
+        name: `vocal-${Date.now()}.webm`,
+        mime: voiceDraft.dataUrl.match(/^data:([^;,]+)/)?.[1] || 'audio/webm',
+      });
+      sendMessage(activeConvId, content, 'audio');
+      setVoiceDraft(null);
+    } catch {
+      alert('Impossible d’envoyer le vocal. Vérifiez la connexion puis réessayez.');
+    } finally {
+      setMediaUploading(false);
+      setCallNotice('');
+    }
   }
 
   function discardVoiceDraft() {
@@ -1054,8 +1098,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                 {String(Math.floor(voiceDraft.seconds / 60)).padStart(2,'0')}:{String(voiceDraft.seconds % 60).padStart(2,'0')}
               </span>
             </div>
-            <button onClick={sendVoiceDraft}
-              style={{ width:42, height:42, borderRadius:'50%', border:'none', background:'var(--header-bg)', color:'#fff', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+            <button onClick={sendVoiceDraft} disabled={mediaUploading}
+              style={{ width:42, height:42, borderRadius:'50%', border:'none', background:'var(--header-bg)', color:'#fff', cursor:mediaUploading ? 'default' : 'pointer', opacity: mediaUploading ? 0.65 : 1, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
               <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
               </svg>
@@ -1066,9 +1110,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             {/* Attachement : fichier + caméra */}
             <input ref={fileInputRef} type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={handleFileChange} style={{ display:'none' }}/>
             <div style={{ position:'relative', flexShrink:0 }}>
-              <button onClick={() => { setShowEmoji(false); setShowAttachMenu(v => !v); }}
+              <button onClick={() => { if (mediaUploading) return; setShowEmoji(false); setShowAttachMenu(v => !v); }}
                 className="om-composer-icon-btn"
-                style={{ width:42, height:42, minHeight:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--bg-surface)', cursor:'pointer', color:'var(--text-secondary)', flexShrink:0 }}>
+                style={{ width:42, height:42, minHeight:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--bg-surface)', cursor:mediaUploading ? 'default' : 'pointer', opacity: mediaUploading ? 0.6 : 1, color:'var(--text-secondary)', flexShrink:0 }}>
                 <svg width="21" height="21" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
                 </svg>
@@ -1129,9 +1173,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                 </svg>
               </button>
             ) : (
-              <button onTouchStart={startRecording} onMouseDown={startRecording}
+              <button onTouchStart={mediaUploading ? undefined : startRecording} onMouseDown={mediaUploading ? undefined : startRecording}
                 className="om-composer-send"
-                style={{ width:42, height:42, minHeight:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--header-bg)', cursor:'pointer', color:'#FFFFFF', flexShrink:0 }}>
+                style={{ width:42, height:42, minHeight:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'none', background:'var(--header-bg)', cursor:mediaUploading ? 'default' : 'pointer', opacity: mediaUploading ? 0.65 : 1, color:'#FFFFFF', flexShrink:0 }}>
                 <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                   <rect x="9" y="2" width="6" height="12" rx="3"/>
                   <path strokeLinecap="round" d="M5 10a7 7 0 0014 0M12 19v3M8 22h8"/>
@@ -1325,9 +1369,23 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       {showCamera && (
         <CameraCapture
           mode="both"
-          onCapture={(dataUrl, type) => {
+          onCapture={async (dataUrl, type) => {
             setShowCamera(false);
-            if (activeConvId) sendMessage(activeConvId, dataUrl, type);
+            if (!activeConvId) return;
+            setMediaUploading(true);
+            setCallNotice('Envoi du média...');
+            try {
+              const content = await uploadMediaForMessage(dataUrl, type, {
+                name: `${type}-${Date.now()}.${type === 'image' ? 'jpg' : 'webm'}`,
+                mime: dataUrl.match(/^data:([^;,]+)/)?.[1],
+              });
+              sendMessage(activeConvId, content, type);
+            } catch {
+              alert('Impossible d’envoyer ce média. Vérifiez la connexion puis réessayez.');
+            } finally {
+              setMediaUploading(false);
+              setCallNotice('');
+            }
           }}
           onClose={() => setShowCamera(false)}
         />

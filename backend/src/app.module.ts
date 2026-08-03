@@ -9,6 +9,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
 import { StoriesModule } from './stories/stories.module';
 import { CallsModule } from './calls/calls.module';
+import { MediaModule } from './media/media.module';
 import { JwtGuard } from './auth/jwt.guard';
 
 @Controller()
@@ -19,10 +20,23 @@ class HealthController {
   @Get('calls/ice-servers')
   @UseGuards(JwtGuard)
   getIceServers() {
+    const turnUrls = (process.env.TURN_URLS ?? '')
+      .split(',')
+      .map(url => url.trim())
+      .filter(Boolean);
     const iceServers: any[] = [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      {
+    ];
+
+    if (turnUrls.length && process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL) {
+      iceServers.push({
+        urls: turnUrls,
+        username: process.env.TURN_USERNAME,
+        credential: process.env.TURN_CREDENTIAL,
+      });
+    } else {
+      iceServers.push({
         urls: [
           'turn:openrelay.metered.ca:80',
           'turn:openrelay.metered.ca:443',
@@ -30,8 +44,8 @@ class HealthController {
         ],
         username: 'openrelayproject',
         credential: 'openrelayproject',
-      },
-    ];
+      });
+    }
 
     return { iceServers };
   }
@@ -49,6 +63,7 @@ class HealthController {
     AdminModule,
     StoriesModule,
     CallsModule,
+    MediaModule,
   ],
   controllers: [HealthController],
 })
