@@ -20,6 +20,11 @@ const HEADER_BG    = 'var(--header-bg)';
 const SURFACE      = 'var(--bg-surface)';
 const APP_BG       = 'var(--bg-app)';
 const BORDER       = 'var(--border)';
+const PROBABLE_DIAL_CODES = [
+  '225', '237', '221', '223', '226', '224', '228', '229', '227',
+  '243', '242', '241', '233', '234', '212', '213', '216',
+  '33', '32', '41', '1', '44',
+];
 
 function decodeSafe(value: string) {
   try {
@@ -68,11 +73,24 @@ async function sha256(value: string) {
 async function phoneHashes(phones: string[]) {
   const variants = new Set<string>();
   for (const phone of phones) {
+    const hasExplicitCountryCode = phone.trim().startsWith('+') || phone.trim().startsWith('00');
     const digits = phone.replace(/\D/g, '');
     if (digits.length < 8) continue;
+    const localWithoutLeadingZero = digits.replace(/^0+/, '');
     variants.add(`+${digits}`);
     variants.add(digits);
     variants.add(digits.slice(-8));
+    if (digits.length >= 9) variants.add(digits.slice(-9));
+    if (!hasExplicitCountryCode) {
+      for (const dial of PROBABLE_DIAL_CODES) {
+        variants.add(`+${dial}${digits}`);
+        variants.add(`${dial}${digits}`);
+        if (localWithoutLeadingZero.length >= 8) {
+          variants.add(`+${dial}${localWithoutLeadingZero}`);
+          variants.add(`${dial}${localWithoutLeadingZero}`);
+        }
+      }
+    }
   }
   return Promise.all([...variants].map(value => sha256(value)));
 }
@@ -109,13 +127,19 @@ function phonesMatch(a = '', b = '') {
   const da = a.replace(/\D/g, '');
   const db = b.replace(/\D/g, '');
   if (da.length < 6 || db.length < 6) return false;
+  const localA = da.replace(/^0+/, '');
   return da === db ||
     da.endsWith(db) ||
     db.endsWith(da) ||
     (da.length >= 8 && db.endsWith(da.slice(-8))) ||
     (db.length >= 8 && da.endsWith(db.slice(-8))) ||
     (da.length >= 9 && db.endsWith(da.slice(-9))) ||
-    (db.length >= 9 && da.endsWith(db.slice(-9)));
+    (db.length >= 9 && da.endsWith(db.slice(-9))) ||
+    PROBABLE_DIAL_CODES.some(dial =>
+      db === `${dial}${da}` ||
+      db === `${dial}${localA}` ||
+      db.endsWith(`${dial}${localA}`)
+    );
 }
 
 async function getSupportedContactProps() {
