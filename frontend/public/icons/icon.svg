@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Oracle Messenger">
+  <rect width="512" height="512" rx="96" fill="#102A2A"/>
+  <circle cx="256" cy="256" r="178" fill="#123B36"/>
+  <path fill="#D9B75B" fill-rule="evenodd" d="M256 41a215 215 0 1 1 0 430 215 215 0 0 1 0-430Zm0 15a200 200 0 1 0 0 400 200 200 0 0 0 0-400Z"/>
+  <path fill="#0A201F" fill-rule="evenodd" d="M256 58a198 198 0 1 1 0 396 198 198 0 0 1 0-396Zm0 4a194 194 0 1 0 0 388 194 194 0 0 0 0-388Z"/>
+  <path fill="#FFFDF6" d="M160 158h192a38 38 0 0 1 38 38v80a38 38 0 0 1-38 38h-88L153 382l44-68h-37a38 38 0 0 1-38-38v-80a38 38 0 0 1 38-38Z"/>
+  <circle cx="216" cy="236" r="17" fill="#102A2A"/>
+  <circle cx="256" cy="236" r="17" fill="#102A2A"/>
+  <circle cx="296" cy="236" r="17" fill="#102A2A"/>
+  <rect x="200" y="359" width="112" height="14" rx="2" fill="#D9B75B"/>
+</svg>

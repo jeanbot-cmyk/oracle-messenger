@@ -3,7 +3,7 @@
   "short_name": "Oracle Messenger",
   "description": "Messagerie privée, rapide et sécurisée",
   "id": "https://messenger.oracle-plus.online/",
-  "start_url": "/login?source=pwa&v=20260803-install-direct-77",
+  "start_url": "/login?source=pwa&v=20260803-crisp-icon-78",
   "scope": "/",
   "display": "standalone",
   "background_color": "#F7FAF8",
@@ -12,6 +12,7 @@
   "lang": "fr",
   "prefer_related_applications": false,
   "icons": [
+    { "src": "/icons/icon.svg?v=20260803-crisp-icon", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "/icons/icon-72-v20260803.png",  "sizes": "72x72",   "type": "image/png" },
     { "src": "/icons/icon-96-v20260803.png",  "sizes": "96x96",   "type": "image/png" },
     { "src": "/icons/icon-128-v20260803.png", "sizes": "128x128", "type": "image/png" },
@@ -19,7 +20,8 @@
     { "src": "/icons/icon-152-v20260803.png", "sizes": "152x152", "type": "image/png" },
     { "src": "/icons/icon-192-v20260803.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
     { "src": "/icons/icon-384-v20260803.png", "sizes": "384x384", "type": "image/png" },
-    { "src": "/icons/icon-512-v20260803.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "/icons/icon-512-v20260803.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-1024-v20260803.png", "sizes": "1024x1024", "type": "image/png", "purpose": "any maskable" }
   ],
   "shortcuts": [
     { "name": "Messages", "url": "/chat", "icons": [{ "src": "/icons/icon-96-v20260803.png", "sizes": "96x96" }] }
