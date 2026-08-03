@@ -8,7 +8,7 @@ import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 import { clearOldTextMessages } from '../lib/db';
 
-const CLIENT_CACHE_VERSION = '52-20260803-media-local-text-cleanup';
+const CLIENT_CACHE_VERSION = '53-20260803-incoming-call-ringtone';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 

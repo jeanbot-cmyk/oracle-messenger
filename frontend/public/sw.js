@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v52
+// Oracle Messenger — Service Worker v53
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '52-20260803-media-local-text-cleanup';
+const CACHE_VERSION = '53-20260803-incoming-call-ringtone';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [

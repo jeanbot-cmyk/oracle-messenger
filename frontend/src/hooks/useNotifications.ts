@@ -1,37 +1,16 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
-import { startRingtone as startPersistentRingtone, stopRingtone as stopPersistentRingtone } from '../lib/sounds';
-
-// Sonnerie via Web Audio API — pas de fichier audio requis
-function createRingOscillators(ctx: AudioContext) {
-  const osc1 = ctx.createOscillator();
-  const osc2 = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc1.type = 'sine'; osc1.frequency.value = 880;
-  osc2.type = 'sine'; osc2.frequency.value = 1100;
-  gain.gain.value = 0.25;
-  osc1.connect(gain); osc2.connect(gain);
-  gain.connect(ctx.destination);
-  return [osc1, osc2];
-}
-
-function playBip(ctx: AudioContext, freq = 1000, duration = 0.25, vol = 0.35) {
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.type = 'sine'; osc.frequency.value = freq;
-  gain.gain.setValueAtTime(vol, ctx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
-  osc.connect(gain); gain.connect(ctx.destination);
-  osc.start(); osc.stop(ctx.currentTime + duration);
-}
+import { useEffect, useState } from 'react';
+import {
+  playMessageSound as playCentralMessageSound,
+  playMissedCallSound as playCentralMissedCallSound,
+  startRingtone as startCentralRingtone,
+  stopRingtone as stopCentralRingtone,
+  unlockAudio,
+} from '../lib/sounds';
 
 export function useNotifications() {
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [supported, setSupported] = useState(false);
-  const ctxRef = useRef<AudioContext | null>(null);
-  const ringOscs = useRef<OscillatorNode[]>([]);
-  const ringTimer = useRef<NodeJS.Timeout | null>(null);
-  const ringAudio = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -40,12 +19,7 @@ export function useNotifications() {
 
     // Unlock AudioContext on first user gesture (required by mobile browsers)
     const unlock = () => {
-      try {
-        if (!ctxRef.current) {
-          ctxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-        }
-        if (ctxRef.current.state === 'suspended') ctxRef.current.resume();
-      } catch {}
+      try { unlockAudio(); } catch {}
       // Remove after first interaction
       window.removeEventListener('touchstart', unlock);
       window.removeEventListener('touchend', unlock);
@@ -63,14 +37,6 @@ export function useNotifications() {
       window.removeEventListener('keydown', unlock);
     };
   }, []);
-
-  function ctx(): AudioContext {
-    if (!ctxRef.current) {
-      ctxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    if (ctxRef.current.state === 'suspended') ctxRef.current.resume();
-    return ctxRef.current;
-  }
 
   async function requestPermission(): Promise<boolean> {
     if (!supported) return false;
@@ -129,84 +95,21 @@ export function useNotifications() {
     return arr.buffer;
   }
 
-  // ── Sonnerie appel entrant (boucle) ──────────────────────────────────────
   function startRingtone() {
-    try {
-      startPersistentRingtone();
-      if ('vibrate' in navigator) navigator.vibrate([850, 250, 850, 700]);
-
-      // Try HTML Audio first (most reliable on mobile)
-      try {
-        if (!ringAudio.current) {
-          // Use a data URI for a simple beep tone — no external file needed
-          ringAudio.current = new Audio(
-            'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAA' +
-            'EAAQAAgD4AAACAPAABACAAZGF0YUoGAACBhYqFbF1fdJiVkHBZW2mSj4ZqU1Vl' +
-            'iIV8ZE5QYH+CeGZQUmB8f3VlT1FffX52ZlBSXnt+dWZQUl57fnVmUFJee352Zl' +
-            'BSXnt+dWZQUl57fnVmUFJee352ZlBSXnt+dWZQUl57fnVmUFJee352ZlBSXnt+' +
-            'dWZQUl57fnVmUFJee352ZlBSXnt+dWZQUl57fnVmUFJee352ZlBSXnt+dWZQUl' +
-            '57fnVmUFJee352ZlBSXnt+dWZQUl57fnVmUFJee352ZlBSXnt+dWZQUl57fnVm' +
-            'UFJee352ZlBSXnt+dWZQUl57fnVmUFJee352ZlBSXnt+dWZQUl57fnVmUFJee3' +
-            '52ZlBSXnt+dWZQUl57fnVmUFJee352ZlBSXnt+dWZQUl57fnVmUFJee352ZlBS' +
-            'Xnt+dWZQUl57fnVmUFJee352ZlBSXnt+dWZQUl57fnVmUFJee352ZlBSXnt+dQ=='
-          );
-          ringAudio.current.loop = true;
-          ringAudio.current.volume = 0.8;
-        }
-        ringAudio.current.currentTime = 0;
-        ringAudio.current.play().catch(() => {
-          // Fallback to Web Audio oscillator
-          startOscillatorRing();
-        });
-        return;
-      } catch {}
-
-      startOscillatorRing();
-    } catch {}
-  }
-
-  function startOscillatorRing() {
-    const ring = () => {
-      try {
-        const c = ctx();
-        const oscs = createRingOscillators(c);
-        ringOscs.current = oscs;
-        oscs.forEach(o => o.start());
-        setTimeout(() => { try { oscs.forEach(o => o.stop()); } catch {} }, 1400);
-      } catch {}
-    };
-    ring();
-    ringTimer.current = setInterval(() => {
-      ring();
-      if ('vibrate' in navigator) navigator.vibrate([600, 400, 600]);
-    }, 2600);
+    startCentralRingtone();
   }
 
   function stopRingtone() {
-    stopPersistentRingtone();
-    if (ringTimer.current) { clearInterval(ringTimer.current); ringTimer.current = null; }
-    try { ringOscs.current.forEach(o => o.stop()); } catch {}
-    ringOscs.current = [];
-    try { ringAudio.current?.pause(); if (ringAudio.current) ringAudio.current.currentTime = 0; } catch {}
-    if ('vibrate' in navigator) navigator.vibrate(0);
+    stopCentralRingtone();
   }
 
   // ── Sons courts ──────────────────────────────────────────────────────────
   function playMessageSound() {
-    try {
-      playBip(ctx(), 1000, 0.2, 0.3);
-      if ('vibrate' in navigator) navigator.vibrate(80);
-    } catch {}
+    playCentralMessageSound();
   }
 
   function playMissedCallSound() {
-    try {
-      const c = ctx();
-      playBip(c, 880, 0.15, 0.3);
-      setTimeout(() => playBip(c, 660, 0.15, 0.25), 200);
-      setTimeout(() => playBip(c, 440, 0.3, 0.2), 400);
-      if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
-    } catch {}
+    playCentralMissedCallSound();
   }
 
   // ── Notification système ─────────────────────────────────────────────────
