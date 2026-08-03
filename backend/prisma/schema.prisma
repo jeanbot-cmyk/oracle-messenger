@@ -30,6 +30,17 @@ model User {
   stories          Story[]
   storyViews       StoryView[]
   callLogs         CallLog[]
+  pwaInstall       PwaInstall?
+}
+
+model PwaInstall {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  installedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  userAgent   String?  @db.Text
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // Historique des appels persisté en base

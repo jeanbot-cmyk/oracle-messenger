@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, ForbiddenException, Headers } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AdminService } from './admin.service';
@@ -44,8 +44,8 @@ export class AdminController {
   }
 
   @Post('pwa-install')
-  async trackInstall(@CurrentUser() user: any) {
-    return this.admin.trackPwaInstall(user?.id);
+  async trackInstall(@CurrentUser() user: any, @Headers('user-agent') userAgent?: string) {
+    return this.admin.trackPwaInstall(user?.id, userAgent);
   }
 
   @Post('broadcast')

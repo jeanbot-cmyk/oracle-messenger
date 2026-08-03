@@ -6,7 +6,7 @@ import * as os from 'os';
 
 @Injectable()
 export class AdminService {
-  private pwaInstalls = new Set<string>(); // userId → installé
+  private lastCpuSnapshot: { idle: number; total: number } | null = null;
 
   constructor(
     private prisma: PrismaService,
@@ -15,48 +15,71 @@ export class AdminService {
   ) {}
 
   async getStats() {
-    const [totalUsers, premiumUsers, totalMessages, totalConversations, onlineUsers] = await Promise.all([
+    const [totalUsers, premiumUsers, totalMessages, totalConversations, pwaInstalls] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.user.count({ where: { isPremium: true } }),
       this.prisma.message.count({ where: { isDeleted: false } }),
       this.prisma.conversation.count(),
-      this.prisma.user.count({ where: { status: 'online' } }),
+      this.prisma.pwaInstall.count(),
     ]);
+    const onlineUsers = this.socketState.getOnlineUserIds().length;
     return {
       totalUsers,
       premiumUsers,
       totalMessages,
       totalConversations,
       onlineUsers,
-      pwaInstalls: this.pwaInstalls.size,
+      pwaInstalls,
     };
   }
 
   getMetrics() {
+    const cpu = this.getInstantCpuUsage();
+    const load = os.loadavg()[0] ?? 0;
     const cpus = os.cpus();
     const totalMem = os.totalmem();
     const freeMem  = os.freemem();
     const usedMem  = totalMem - freeMem;
-    const cpuUsage = cpus.reduce((acc, cpu) => {
-      const total = Object.values(cpu.times).reduce((a, b) => a + b, 0);
-      return acc + ((total - cpu.times.idle) / total) * 100;
-    }, 0) / cpus.length;
     return {
-      cpu: Math.round(cpuUsage),
+      cpu,
       ramUsed: Math.round(usedMem / 1024 / 1024),
       ramTotal: Math.round(totalMem / 1024 / 1024),
       ramPct: Math.round((usedMem / totalMem) * 100),
       uptime: Math.round(os.uptime()),
       platform: os.platform(),
+      loadAvg1m: Number(load.toFixed(2)),
     };
   }
 
+  private getCpuSnapshot() {
+    return os.cpus().reduce((acc, cpu) => {
+      const total = Object.values(cpu.times).reduce((sum, value) => sum + value, 0);
+      return { idle: acc.idle + cpu.times.idle, total: acc.total + total };
+    }, { idle: 0, total: 0 });
+  }
+
+  private getInstantCpuUsage() {
+    const current = this.getCpuSnapshot();
+    const previous = this.lastCpuSnapshot;
+    this.lastCpuSnapshot = current;
+    if (!previous) return 0;
+    const idleDelta = current.idle - previous.idle;
+    const totalDelta = current.total - previous.total;
+    if (totalDelta <= 0) return 0;
+    return Math.max(0, Math.min(100, Math.round((1 - idleDelta / totalDelta) * 100)));
+  }
+
   async getRecentUsers(limit = 50) {
-    return this.prisma.user.findMany({
+    const liveIds = new Set(this.socketState.getOnlineUserIds());
+    const users = await this.prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
       take: limit,
       select: { id:true, name:true, email:true, isPremium:true, status:true, createdAt:true, pushToken:true },
     });
+    return users.map(user => ({
+      ...user,
+      status: liveIds.has(user.id) ? 'online' : 'offline',
+    }));
   }
 
   async sendPushToAll(payload: { title: string; body: string; url?: string }) {
@@ -64,9 +87,14 @@ export class AdminService {
     return { success: true, message: 'Notification envoyée à tous les utilisateurs' };
   }
 
-  trackPwaInstall(userId?: string) {
-    if (userId) this.pwaInstalls.add(userId);
-    return { tracked: true, total: this.pwaInstalls.size };
+  async trackPwaInstall(userId?: string, userAgent?: string) {
+    if (!userId) return { tracked: false, total: await this.prisma.pwaInstall.count() };
+    await this.prisma.pwaInstall.upsert({
+      where: { userId },
+      update: { userAgent },
+      create: { userId, userAgent },
+    });
+    return { tracked: true, total: await this.prisma.pwaInstall.count() };
   }
 
   async broadcastSalesMessage(adminId: string, content: string, mediaUrl?: string) {
@@ -129,7 +157,7 @@ export class AdminService {
   // ── Statistiques par pays (basé sur l'indicatif du numéro de téléphone) ────
   async getCountryStats() {
     const users = await this.prisma.user.findMany({
-      select: { phone: true, status: true },
+      select: { id: true, phone: true, status: true },
       where: { phone: { not: null } },
     });
 
@@ -161,7 +189,7 @@ export class AdminService {
       const country = match ? DIAL_MAP[match] : 'Autre';
       const existing = countryMap.get(country) ?? { count: 0, online: 0 };
       existing.count++;
-      if (user.status === 'online') existing.online++;
+      if (this.socketState.hasUserSockets(user.id)) existing.online++;
       countryMap.set(country, existing);
     }
 

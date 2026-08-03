@@ -7,8 +7,9 @@ import { detectLanguage } from '../lib/i18n';
 import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 
-const CLIENT_CACHE_VERSION = '48-20260803-chat-stories-layout';
+const CLIENT_CACHE_VERSION = '49-20260803-accurate-admin-stats';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
+const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 
 function ThemeApplier() {
   const { theme, lang, setLang } = useSettings();
@@ -77,7 +78,10 @@ function ThemeApplier() {
 
       // Track PWA installs
       window.addEventListener('appinstalled', () => {
-        fetch('/api/admin/pwa-install', { method: 'POST' }).catch(() => {});
+        localStorage.setItem(PWA_INSTALL_PENDING_KEY, '1');
+        fetch('/api/admin/pwa-install', { method: 'POST' })
+          .then(res => { if (res.ok) localStorage.removeItem(PWA_INSTALL_PENDING_KEY); })
+          .catch(() => {});
       });
     }
 
@@ -97,6 +101,20 @@ function ThemeApplier() {
     // Contacts are imported only from /contacts after an explicit user tap.
     // Browsers display a native contact picker that cannot be styled by the app.
   }, []);
+
+  return null;
+}
+
+function PwaInstallTracker() {
+  const { status } = useSession();
+
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    if (localStorage.getItem(PWA_INSTALL_PENDING_KEY) !== '1') return;
+    fetch('/api/admin/pwa-install', { method: 'POST' })
+      .then(res => { if (res.ok) localStorage.removeItem(PWA_INSTALL_PENDING_KEY); })
+      .catch(() => {});
+  }, [status]);
 
   return null;
 }
@@ -261,6 +279,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <ThemeApplier />
       {mounted ? (
         <>
+          <PwaInstallTracker />
           <PhoneGate>
             <AndroidChromeGate>{children}</AndroidChromeGate>
           </PhoneGate>
