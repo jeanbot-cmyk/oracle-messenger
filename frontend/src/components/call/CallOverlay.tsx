@@ -114,6 +114,11 @@ export function CallOverlay({ callState, callInfo, localStream, remoteStreams, i
            callState === 'incoming' ? `Appel ${isVideo ? 'vidéo' : 'audio'} entrant` :
            callState === 'connected' ? '🟢 Connecté' : ''}
         </p>
+        {(callState === 'calling' || callState === 'incoming') && (
+          <p style={{ color:'rgba(255,255,255,.58)', fontSize:12, lineHeight:1.4, margin:'10px auto 0', maxWidth:280 }}>
+            Garde l’application ouverte pour une sonnerie et une connexion plus fiables.
+          </p>
+        )}
         {callInfo && callInfo.participants.length > 1 && (
           <p style={{ color:'rgba(255,255,255,.5)', fontSize:13, marginTop:4 }}>
             {callInfo.participants.length} participants

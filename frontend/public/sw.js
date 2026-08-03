@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v38
+// Oracle Messenger — Service Worker v39
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '38-20260803-call-invite-push';
+const CACHE_VERSION = '39-20260803-pwa-native-like';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [

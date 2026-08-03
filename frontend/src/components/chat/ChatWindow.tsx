@@ -103,6 +103,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const [showCamera, setShowCamera]         = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
+  const [callNotice, setCallNotice] = useState('');
   // Audio recording
   const [recording, setRecording]   = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
@@ -243,6 +244,24 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       setReplyTo(null);
     }
     setSending(false);
+  }
+
+  function startConversationCall(type: 'audio' | 'video') {
+    if (!conv || !onStartCall) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      alert('Ce navigateur ne permet pas les appels. Utilisez Chrome Android ou Safari iPhone à jour.');
+      return;
+    }
+    const ids = conv.type === 'group'
+      ? allParticipants.map((p: any) => p.id)
+      : other ? [other.id] : [];
+    if (!ids.length) {
+      alert('Aucun destinataire disponible pour cet appel.');
+      return;
+    }
+    setCallNotice('Garde l’application ouverte pendant l’appel. En veille, le téléphone peut seulement afficher une notification.');
+    setTimeout(() => setCallNotice(''), 6500);
+    onStartCall(conv.id, ids, type);
   }
 
   async function handleDelete(msgId: string) {
@@ -404,12 +423,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         {onStartCall && conv && (
           <>
             <button
-              onClick={() => {
-                const ids = conv.type === 'group'
-                  ? allParticipants.map((p: any) => p.id)
-                  : other ? [other.id] : [];
-                if (ids.length) onStartCall(conv.id, ids, 'audio');
-              }}
+              onClick={() => startConversationCall('audio')}
               className="om-chat-action"
               style={{ width:34, height:34, minHeight:34, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title="Appel audio">
               <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
@@ -417,12 +431,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               </svg>
             </button>
             <button
-              onClick={() => {
-                const ids = conv.type === 'group'
-                  ? allParticipants.map((p: any) => p.id)
-                  : other ? [other.id] : [];
-                if (ids.length) onStartCall(conv.id, ids, 'video');
-              }}
+              onClick={() => startConversationCall('video')}
               className="om-chat-action"
               style={{ width:34, height:34, minHeight:34, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title="Appel vidéo">
               <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -437,6 +446,12 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           </svg>
         </button>
       </div>
+
+      {callNotice && (
+        <div style={{ flexShrink:0, background:'#fff8e1', borderBottom:'1px solid #f3d58b', color:'#5f4a13', padding:'9px 14px', fontSize:12, lineHeight:1.4, fontWeight:750 }}>
+          {callNotice}
+        </div>
+      )}
 
       {/* Messages */}
       <div
@@ -673,12 +688,12 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               <div style={{ display:'flex', gap:16, justifyContent:'center', marginTop:16 }}>
                 {onStartCall && other && (
                   <>
-                    <button onClick={() => { setProfileModal(false); onStartCall(conv!.id, [other.id], 'audio'); }}
+                    <button onClick={() => { setProfileModal(false); startConversationCall('audio'); }}
                       style={{ flex:1, background:'var(--accent)', color:'var(--header-bg)', border:'none', borderRadius:14, padding:'14px 0', fontSize:15, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
                       <svg width="18" height="18" fill="var(--header-bg)" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
                       Appel
                     </button>
-                    <button onClick={() => { setProfileModal(false); onStartCall(conv!.id, [other.id], 'video'); }}
+                    <button onClick={() => { setProfileModal(false); startConversationCall('video'); }}
                       style={{ flex:1, background:'rgba(200,168,90,0.12)', color:'var(--text-primary)', border:'1px solid var(--border)', borderRadius:14, padding:'14px 0', fontSize:15, fontWeight:800, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
                       <svg width="18" height="18" fill="none" stroke="var(--text-primary)" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.89L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>
                       Vidéo

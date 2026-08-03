@@ -6,7 +6,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { api } from '../../lib/api';
 import { useChatStore } from '../../store/chat';
-import { openCurrentAndroidLinkInChrome } from '../../lib/androidChrome';
+import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../../lib/androidChrome';
 
 interface LocalContact { name: string; phones: string[]; emails: string[]; avatar?: string | null }
 interface AppUser { id: string; name: string; username: string; avatar?: string; phone?: string }
@@ -181,6 +181,7 @@ export default function ContactsPage() {
   const [pendingInvite, setPendingInvite] = useState('');
   const [inviteUser, setInviteUser] = useState<AppUser | null>(null);
   const [inviteOpening, setInviteOpening] = useState(false);
+  const [actionNotice, setActionNotice] = useState('');
 
   useEffect(() => {
     setMounted(true);
@@ -296,6 +297,7 @@ export default function ContactsPage() {
     }
     setLoading(true);
     setNotice('');
+    setActionNotice('Recherche des comptes Oracle Messenger...');
     try {
       const users: AppUser[] = await api.users.search('', token).catch(() => []);
       const enriched: EnrichedContact[] = users.map(u => ({
@@ -311,6 +313,7 @@ export default function ContactsPage() {
       setNotice('Impossible de charger les contacts Oracle. Vérifiez votre connexion puis réessayez.');
     } finally {
       setLoading(false);
+      setActionNotice('');
     }
   }
 
@@ -328,18 +331,21 @@ export default function ContactsPage() {
     setInviteOpening(true);
     setPermDenied(false);
     setNotice('Connexion à votre contact Oracle Messenger...');
+    setActionNotice('Ouverture de la discussion...');
     let user: AppUser | null = null;
     try {
       user = await api.users.byUsername(normalizedUsername);
       setInviteUser(user);
     } catch {
       setNotice('Connexion impossible pour vérifier ce lien. Réessayez avec une bonne connexion.');
+      setActionNotice('');
       setInviteOpening(false);
       return;
     }
 
     if (!user?.id) {
       setNotice('Ce lien Oracle Messenger est ancien ou incorrect. Demandez à la personne de renvoyer son lien depuis son profil.');
+      setActionNotice('');
       setInviteOpening(false);
       return;
     }
@@ -372,6 +378,7 @@ export default function ContactsPage() {
       return;
     } catch {
       setNotice('Le contact est trouvé, mais la conversation ne peut pas encore s’ouvrir. Vérifiez votre connexion puis réessayez.');
+      setActionNotice('');
     } finally {
       setInviteOpening(false);
     }
@@ -385,6 +392,7 @@ export default function ContactsPage() {
     setLoading(true);
     setPermDenied(false);
     setNotice('');
+    setActionNotice(canUseContactPicker() ? 'Ouverture du sélecteur de contacts...' : 'Ce navigateur ne donne pas accès aux contacts.');
     let locals: LocalContact[] = [];
     try {
       if (canUseContactPicker()) {
@@ -401,6 +409,7 @@ export default function ContactsPage() {
         locals = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]');
         if (locals.length === 0) {
           setNotice('Ce navigateur ne permet pas l’import automatique des contacts. Utilisez Chrome Android ou ajoutez un contact manuellement.');
+          setActionNotice('');
         }
       }
     } catch (err: any) {
@@ -419,6 +428,7 @@ export default function ContactsPage() {
     setImported(true);
     if (all.length > 0) {
       await matchWithBackend(all);
+      setActionNotice('');
     } else {
       // Aucun contact local → afficher les utilisateurs Oracle connus et garder une action manuelle visible.
       await loadAllOracleUsers();
@@ -456,6 +466,7 @@ export default function ContactsPage() {
   async function handleTap(c: EnrichedContact) {
     if (c.appUser) {
       setCreating(true);
+      setActionNotice(`Ouverture de la conversation avec ${c.local.name}...`);
       try {
         const conv = await api.conversations.create(c.appUser.id, token);
         if (!conv?.id) throw new Error('no conv id');
@@ -474,12 +485,13 @@ export default function ContactsPage() {
           setConversations([normalized, ...existing]);
         }
         setActiveConv(conv.id);
-        router.push('/chat');
+        router.push(`/chat?conv=${conv.id}`);
       } catch (err) {
         console.error('handleTap error', err);
         alert('Impossible d\'ouvrir la conversation. Vérifiez votre connexion.');
       } finally {
         setCreating(false);
+        setActionNotice('');
       }
     } else {
       openInviteSheet(c.local);
@@ -508,9 +520,15 @@ export default function ContactsPage() {
     const phoneLine = senderPhone ? `\nMon contact : ${senderPhone}` : '';
     const msg = `Salut ${contact.name} !\n${myName} t'invite à rejoindre Oracle Messenger.${phoneLine}\n\nInstalle l'app :\n${link}`;
     if (navigator.share) {
-      navigator.share({ title: 'Oracle Messenger', text: msg }).catch(() => {});
+      navigator.share({ title: 'Oracle Messenger', text: msg }).then(() => {
+        setActionNotice('Invitation envoyée.');
+        setTimeout(() => setActionNotice(''), 2500);
+      }).catch(() => {});
     } else {
-      navigator.clipboard?.writeText(msg).then(() => alert('Invitation copiée !'));
+      navigator.clipboard?.writeText(msg).then(() => {
+        setActionNotice('Invitation copiée. Collez-la dans WhatsApp, SMS ou un réseau social.');
+        setTimeout(() => setActionNotice(''), 3500);
+      });
     }
   }
 
@@ -526,6 +544,8 @@ export default function ContactsPage() {
     const manual: LocalContact[] = JSON.parse(localStorage.getItem(MANUAL_KEY) ?? '[]');
     manual.push(c);
     localStorage.setItem(MANUAL_KEY, JSON.stringify(manual));
+    setActionNotice('Contact ajouté. Oracle Messenger vérifie s’il est déjà inscrit.');
+    setTimeout(() => setActionNotice(''), 3000);
     setNewName(''); setNewPhone(''); setShowAdd(false);
     importAndMatch();
   }
@@ -618,6 +638,20 @@ export default function ContactsPage() {
               {inviteOpening ? 'Ouverture...' : 'Ouvrir la conversation'}
             </button>
           ) : null}
+        </div>
+      )}
+
+      {(actionNotice || shouldOpenAndroidLinkInChrome()) && (
+        <div style={{ flexShrink: 0, margin: '10px 14px 0', background: shouldOpenAndroidLinkInChrome() ? '#fff8e1' : '#ecfdf5', border: `1px solid ${shouldOpenAndroidLinkInChrome() ? '#f3d58b' : '#a7f3d0'}`, borderRadius: 14, padding: '11px 13px', color: shouldOpenAndroidLinkInChrome() ? '#5f4a13' : '#065f46', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <p style={{ flex: 1, margin: 0, fontSize: 13, lineHeight: 1.4, fontWeight: 750 }}>
+            {shouldOpenAndroidLinkInChrome() ? 'Pour importer les contacts correctement, ouvre cette page dans Chrome Android.' : actionNotice}
+          </p>
+          {shouldOpenAndroidLinkInChrome() && (
+            <button onClick={() => { window.location.href = buildChromeIntentUrl(); }}
+              style={{ border: 'none', borderRadius: 999, background: 'var(--header-bg)', color: '#fff', padding: '8px 11px', fontSize: 12, fontWeight: 900, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              Chrome
+            </button>
+          )}
         </div>
       )}
 

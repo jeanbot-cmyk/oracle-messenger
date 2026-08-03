@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
-import { openCurrentAndroidLinkInChrome } from '../../lib/androidChrome';
+import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../../lib/androidChrome';
 
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
@@ -202,6 +202,7 @@ export default function InstallPage() {
   const [iosStep,    setIosStep]    = useState(0);
   const [manualInstall, setManualInstall] = useState(false);
   const [inviter, setInviter] = useState<Inviter | null>(null);
+  const [contactSaved, setContactSaved] = useState(false);
   const promptRef = useRef<any>(null);
 
   useEffect(() => {
@@ -246,6 +247,10 @@ export default function InstallPage() {
   }, []);
 
   function handleAndroidInstall() {
+    if (shouldOpenAndroidLinkInChrome()) {
+      window.location.href = buildChromeIntentUrl();
+      return;
+    }
     const prompt = promptRef.current || (window as any).__installPrompt;
     setManualInstall(false);
 
@@ -397,6 +402,17 @@ export default function InstallPage() {
       <p style={{ fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.6, margin: '0 0 6px', maxWidth: 300 }}>
         Messagerie rapide et sécurisée.
       </p>
+      {shouldOpenAndroidLinkInChrome() && (
+        <div style={{ width: '100%', maxWidth: 380, background: '#fff8e1', border: '1px solid #f3d58b', borderRadius: 18, padding: 14, margin: '8px 0 14px', color: '#5f4a13' }}>
+          <p style={{ margin: '0 0 10px', fontSize: 13, lineHeight: 1.45, fontWeight: 800 }}>
+            Ouvre ce lien dans Chrome pour installer sans alerte Samsung Internet.
+          </p>
+          <button onClick={() => { window.location.href = buildChromeIntentUrl(); }}
+            style={{ width: '100%', border: 'none', borderRadius: 999, background: 'var(--header-bg)', color: '#fff', padding: '11px 12px', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>
+            Ouvrir avec Chrome
+          </button>
+        </div>
+      )}
       {inviter && (
         <div style={{ width: '100%', maxWidth: 380, background: '#f8fbfa', border: '1px solid var(--border)', borderRadius: 22, padding: 14, margin: '8px 0 18px', boxShadow: '0 8px 22px rgba(16,42,42,0.06)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
@@ -407,11 +423,16 @@ export default function InstallPage() {
             </div>
           </div>
           <p style={{ margin: '0 0 12px', fontSize: 13, lineHeight: 1.45, color: 'var(--text-secondary)' }}>
-            Cette personne t’a invité. Enregistre son contact en un clic ou continue directement vers la discussion Oracle Messenger.
+            Cette personne t’a invité. Enregistre son contact, puis continue vers la discussion Oracle Messenger.
           </p>
+          {contactSaved && (
+            <p style={{ margin: '0 0 10px', fontSize: 12, lineHeight: 1.4, fontWeight: 800, color: '#047857' }}>
+              Contact préparé. Si ton téléphone demande confirmation, appuie sur Enregistrer.
+            </p>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: normalizeInternationalPhone(inviter.phone || '') ? '1fr 1fr' : '1fr', gap: 8 }}>
             {normalizeInternationalPhone(inviter.phone || '') && (
-              <button onClick={() => saveContact(inviter)}
+              <button onClick={() => { rememberOracleContact(inviter); saveContact(inviter); setContactSaved(true); }}
                 style={{ border: 'none', borderRadius: 999, background: 'var(--header-bg)', color: '#fff', padding: '11px 12px', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>
                 Enregistrer contact
               </button>
@@ -482,7 +503,7 @@ export default function InstallPage() {
           cursor: 'pointer',
         }}
       >
-        Accéder sans installer
+        {inviter ? 'Continuer vers la discussion' : 'Accéder sans installer'}
       </button>
     </div>
   );

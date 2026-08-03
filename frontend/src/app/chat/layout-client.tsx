@@ -63,7 +63,7 @@ export function ChatLayout() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if ('Notification' in window && Notification.permission === 'default') {
+    if ('Notification' in window && Notification.permission !== 'granted') {
       const t = setTimeout(() => setShowNotifBanner(true), 3000);
       return () => clearTimeout(t);
     }
@@ -78,14 +78,20 @@ export function ChatLayout() {
     <div className="chat-app-shell" style={{ display:'flex', flexDirection:'column', height:'var(--om-viewport-height, 100dvh)', minHeight:0, overflow:'hidden', background:'var(--bg-app)' }}>
 
       {/* Bannière notifs */}
-      {showNotifBanner && permission === 'default' && (
+      {showNotifBanner && permission !== 'granted' && (
         <div style={{ background:'var(--header-bg)', color:'#fff', padding:'calc(10px + env(safe-area-inset-top, 0px)) 16px 10px', display:'flex', alignItems:'center', gap:10, flexShrink:0, fontSize:13, borderBottom:'1px solid rgba(200,168,90,0.22)' }}>
           <span style={{ fontSize:16 }}>🔔</span>
-          <span style={{ flex:1 }}>Activez les notifications pour ne rien manquer</span>
-          <button onClick={async () => { setShowNotifBanner(false); await requestPermission(); }}
+          <span style={{ flex:1 }}>
+            {permission === 'denied'
+              ? 'Notifications bloquées. Active-les dans les réglages du navigateur pour recevoir messages et appels.'
+              : 'Active les notifications pour recevoir messages et appels même si l’app est en arrière-plan.'}
+          </span>
+          {permission !== 'denied' && (
+          <button onClick={async () => { const ok = await requestPermission(); if (ok) setShowNotifBanner(false); }}
             style={{ background:'var(--accent)', color:'var(--header-bg)', border:'none', borderRadius:8, padding:'5px 12px', cursor:'pointer', fontWeight:800, fontSize:12 }}>
             Activer
           </button>
+          )}
           <button onClick={() => setShowNotifBanner(false)}
             style={{ background:'transparent', border:'none', color:'rgba(255,255,255,0.8)', cursor:'pointer', fontSize:20, lineHeight:1 }}>×</button>
         </div>

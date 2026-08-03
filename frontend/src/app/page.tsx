@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
+import { buildChromeIntentUrl, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
@@ -81,6 +82,10 @@ export default function HomePage() {
   }
 
   function handleAndroidPWA() {
+    if (shouldOpenAndroidLinkInChrome()) {
+      window.location.href = buildChromeIntentUrl();
+      return;
+    }
     const prompt = promptRef.current || (window as any).__installPrompt || (window as any).__pwaPrompt;
     setManualInstall(false);
     if (prompt) {
@@ -177,6 +182,18 @@ export default function HomePage() {
               </p>
             </div>
 
+            {shouldOpenAndroidLinkInChrome() && (
+              <div style={{ background: '#fff8e1', border: '1px solid #f3d58b', borderRadius: 16, padding: 16 }}>
+                <p style={{ fontSize: 14, color: '#5f4a13', margin: '0 0 10px', lineHeight: 1.5, fontWeight: 750 }}>
+                  Pour éviter les alertes Samsung Internet, ouvre Oracle Messenger avec Chrome.
+                </p>
+                <button onClick={() => { window.location.href = buildChromeIntentUrl(); }}
+                  style={{ width: '100%', border: 'none', borderRadius: 14, background: 'var(--header-bg)', color: '#fff', padding: '12px 14px', fontSize: 14, fontWeight: 900, cursor: 'pointer' }}>
+                  Ouvrir dans Chrome
+                </button>
+              </div>
+            )}
+
             {/* Option 1 : PWA — installation sûre */}
             <button onClick={handleAndroidPWA} disabled={installing}
               style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '18px 20px', background: ACCENT, borderRadius: 20, border: 'none', textDecoration: 'none', color: '#fff', cursor: installing ? 'wait' : 'pointer', textAlign: 'left' }}>
@@ -204,10 +221,11 @@ export default function HomePage() {
             <div style={{ background: '#f8fffe', border: '1px solid #e8f5f3', borderRadius: 16, padding: 16 }}>
               <p style={{ fontSize: 13, fontWeight: 700, color: ACCENT, margin: '0 0 10px' }}>📋 Installation recommandée</p>
               {[
-                '1. Clique sur "Installer l’application"',
-                '2. Confirme l’ajout proposé par Chrome',
-                '3. Oracle Messenger apparaît sur ton écran d’accueil',
-                '4. Ouvre l’icône pour revenir directement dans l’app',
+                '1. Utilise Chrome Android',
+                '2. Clique sur "Installer l’application"',
+                '3. Confirme l’ajout proposé par Chrome',
+                '4. Active les notifications après connexion',
+                '5. Oracle Messenger apparaît sur ton écran d’accueil',
               ].map((s, i) => (
                 <p key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 4px' }}>{s}</p>
               ))}
