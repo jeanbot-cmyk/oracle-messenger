@@ -234,7 +234,7 @@ export default function OnboardingPage() {
 
         {/* Bouton */}
         <button onClick={handleSave} disabled={saving||!name.trim()||phone.replace(/\D/g,'').length<6}
-          style={{ background:name.trim()&&phone.replace(/\D/g,'').length>=6?ACCENT:'var(--border)', color:name.trim()&&phone.replace(/\D/g,'').length>=6?'#fff':'var(--text-muted)', border:'none', borderRadius:28, padding:'17px 24px', fontSize:16, fontWeight:700, cursor:name.trim()&&phone.replace(/\D/g,'').length>=6&&!saving?'pointer':'default', display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow:name.trim()&&phone.replace(/\D/g,'').length>=6?'0 10px 24px rgba(201,168,76,0.18)':'none' }}>
+          style={{ background:name.trim()&&phone.replace(/\D/g,'').length>=6?ACCENT:'var(--border)', color:name.trim()&&phone.replace(/\D/g,'').length>=6?'#fff':'var(--text-muted)', border:'none', borderRadius:28, padding:'17px 24px', fontSize:16, fontWeight:700, cursor:name.trim()&&phone.replace(/\D/g,'').length>=6&&!saving?'pointer':'default', display:'flex', alignItems:'center', justifyContent:'center', gap:10, boxShadow:name.trim()&&phone.replace(/\D/g,'').length>=6?'0 10px 24px rgba(16,42,42,0.16)':'none' }}>
           {saving
             ? <div style={{ width:20, height:20, border:'3px solid rgba(255,255,255,0.4)', borderTopColor:'#fff', borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/>
             : 'Commencer à discuter →'

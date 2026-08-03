@@ -386,7 +386,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   return (
     <div className="om-chat-window" style={{ flex:1, display:'flex', flexDirection:'column', height:'100%', minHeight:0, background:'var(--bg-elevated)', overflow:'hidden', position:'relative' }}>
       {/* Header */}
-      <div className="om-chat-header" style={{ display:'flex', alignItems:'center', gap:9, padding:'calc(4px + env(safe-area-inset-top, 0px)) 10px 4px', minHeight:'calc(52px + env(safe-area-inset-top, 0px))', background:'var(--header-bg)', borderBottom:'1px solid rgba(0,0,0,0.08)', flexShrink:0, position:'sticky', top:0, zIndex:30 }}>
+      <div className="om-chat-header" style={{ display:'flex', alignItems:'center', gap:8, padding:'calc(2px + env(safe-area-inset-top, 0px)) 8px 3px', minHeight:'calc(44px + env(safe-area-inset-top, 0px))', background:'var(--header-bg)', borderBottom:'1px solid rgba(0,0,0,0.08)', flexShrink:0, position:'sticky', top:0, zIndex:30 }}>
         {/* Back button — mobile only */}
         {onBack && (
           <button onClick={onBack}
@@ -401,7 +401,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           onClick={() => setProfileModal(true)}
           onDoubleClick={e => { e.stopPropagation(); if (avatar) setAvatarLightbox(true); }}
           style={{ position:'relative', border:'none', background:'transparent', padding:0, cursor:'pointer', flexShrink:0 }}>
-          <div className="om-chat-avatar" style={{ width:38, height:38, borderRadius:'50%', background:'#F8FAFC', border:'1.5px solid rgba(255,255,255,0.72)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', flexShrink:0 }}>
+          <div className="om-chat-avatar" style={{ width:34, height:34, borderRadius:'50%', background:'#F8FAFC', border:'1.5px solid rgba(255,255,255,0.72)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', flexShrink:0 }}>
             {avatar ? <img src={avatar} alt={name??''} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} /> : (
               <span style={{ fontWeight:800, color:'var(--header-bg)', fontSize:18 }}>{(name??'?')[0].toUpperCase()}</span>
             )}
@@ -410,8 +410,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         </button>
         <button onClick={() => setProfileModal(true)}
           style={{ flex:1, border:'none', background:'transparent', cursor:'pointer', textAlign:'left', padding:0, minWidth:0 }}>
-          <p className="om-chat-title" style={{ fontWeight:800, fontSize:16, lineHeight:1.08, color:'#FFFFFF', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', letterSpacing:0 }}>{name}</p>
-          <p className="om-chat-subtitle" style={{ fontSize:12, lineHeight:1.15, color: typingNames.length > 0 ? 'var(--accent)' : isOnline ? '#34D399' : 'rgba(255,255,255,0.62)', margin:'3px 0 0', fontWeight:600 }}>
+          <p className="om-chat-title" style={{ fontWeight:800, fontSize:15, lineHeight:1.05, color:'#FFFFFF', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', letterSpacing:0 }}>{name}</p>
+          <p className="om-chat-subtitle" style={{ fontSize:11, lineHeight:1.1, color: typingNames.length > 0 ? '#DDEFEA' : isOnline ? '#34D399' : 'rgba(255,255,255,0.62)', margin:'2px 0 0', fontWeight:600 }}>
             {typingNames.length > 0
               ? typingNames.length === 1
                 ? `${typingNames[0]} est en train d'écrire…`
@@ -425,7 +425,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             <button
               onClick={() => startConversationCall('audio')}
               className="om-chat-action"
-              style={{ width:32, height:32, minHeight:32, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title="Appel audio">
+              style={{ width:30, height:30, minHeight:30, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title="Appel audio">
               <svg width="17" height="17" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/>
               </svg>
@@ -433,14 +433,14 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             <button
               onClick={() => startConversationCall('video')}
               className="om-chat-action"
-              style={{ width:32, height:32, minHeight:32, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title="Appel vidéo">
+              style={{ width:30, height:30, minHeight:30, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title="Appel vidéo">
               <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.89L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
               </svg>
             </button>
           </>
         )}
-        <button className="om-chat-action" style={{ width:32, height:32, minHeight:32, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }}>
+        <button className="om-chat-action" style={{ width:30, height:30, minHeight:30, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }}>
           <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
@@ -448,7 +448,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       </div>
 
       {callNotice && (
-        <div style={{ flexShrink:0, background:'#fff8e1', borderBottom:'1px solid #f3d58b', color:'#5f4a13', padding:'9px 14px', fontSize:12, lineHeight:1.4, fontWeight:750 }}>
+        <div style={{ flexShrink:0, background:'#EAF4F1', borderBottom:'1px solid rgba(16,42,42,0.12)', color:'#102A2A', padding:'9px 14px', fontSize:12, lineHeight:1.4, fontWeight:750 }}>
           {callNotice}
         </div>
       )}

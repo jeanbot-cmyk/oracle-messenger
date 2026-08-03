@@ -572,7 +572,7 @@ export default function ContactsPage() {
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} *{-webkit-tap-highlight-color:transparent}`}</style>
 
       {/* Header */}
-      <div style={{ padding: 'calc(14px + env(safe-area-inset-top, 0px)) 16px 12px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--header-bg)', borderBottom: '1px solid rgba(214,178,94,0.22)' }}>
+      <div style={{ padding: 'calc(14px + env(safe-area-inset-top, 0px)) 16px 12px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--header-bg)', borderBottom: '1px solid rgba(255,255,255,0.10)' }}>
         <button onClick={() => router.back()}
           className="om-icon-button"
           style={{ flexShrink: 0, background:'rgba(255,255,255,0.10)', borderColor:'rgba(255,255,255,0.16)', color:'#FFFFFF' }}>
@@ -597,7 +597,7 @@ export default function ContactsPage() {
             </button>
           )}
           <button onClick={hasNative ? importAndMatch : loadAllOracleUsers} disabled={loading}
-            style={{ minHeight: 42, borderRadius: 999, border: 'none', background: 'var(--brand)', color: 'var(--accent-text)', cursor: loading ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '0 14px', fontSize: 14, fontWeight: 800, whiteSpace: 'nowrap', boxShadow:'0 8px 18px rgba(201,168,76,0.16)' }}>
+            style={{ minHeight: 42, borderRadius: 999, border: 'none', background: 'var(--brand)', color: 'var(--accent-text)', cursor: loading ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '0 14px', fontSize: 14, fontWeight: 800, whiteSpace: 'nowrap', boxShadow:'0 8px 18px rgba(16,42,42,0.14)' }}>
             <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2.3" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
               <circle cx="8.5" cy="7" r="4"/>
@@ -609,7 +609,7 @@ export default function ContactsPage() {
       </div>
 
       {(!token || notice || pendingInvite) && (
-        <div style={{ flexShrink: 0, margin: '10px 14px 0', background: pendingInvite ? '#ecfdf5' : '#fff8e1', border: `1px solid ${pendingInvite ? '#a7f3d0' : '#f3d58b'}`, borderRadius: 14, padding: '12px 14px', color: pendingInvite ? '#065f46' : '#5f4a13' }}>
+        <div style={{ flexShrink: 0, margin: '10px 14px 0', background: pendingInvite ? '#ecfdf5' : '#EAF4F1', border: `1px solid ${pendingInvite ? '#a7f3d0' : 'rgba(16,42,42,0.14)'}`, borderRadius: 14, padding: '12px 14px', color: pendingInvite ? '#065f46' : '#102A2A' }}>
           {inviteUser && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <Avatar name={inviteUser.name} avatar={inviteUser.avatar} size={42} />
@@ -642,7 +642,7 @@ export default function ContactsPage() {
       )}
 
       {(actionNotice || shouldOpenAndroidLinkInChrome()) && (
-        <div style={{ flexShrink: 0, margin: '10px 14px 0', background: shouldOpenAndroidLinkInChrome() ? '#fff8e1' : '#ecfdf5', border: `1px solid ${shouldOpenAndroidLinkInChrome() ? '#f3d58b' : '#a7f3d0'}`, borderRadius: 14, padding: '11px 13px', color: shouldOpenAndroidLinkInChrome() ? '#5f4a13' : '#065f46', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ flexShrink: 0, margin: '10px 14px 0', background: shouldOpenAndroidLinkInChrome() ? '#EAF4F1' : '#ecfdf5', border: `1px solid ${shouldOpenAndroidLinkInChrome() ? 'rgba(16,42,42,0.14)' : '#a7f3d0'}`, borderRadius: 14, padding: '11px 13px', color: shouldOpenAndroidLinkInChrome() ? '#102A2A' : '#065f46', display: 'flex', alignItems: 'center', gap: 10 }}>
           <p style={{ flex: 1, margin: 0, fontSize: 13, lineHeight: 1.4, fontWeight: 750 }}>
             {shouldOpenAndroidLinkInChrome() ? 'Pour importer les contacts correctement, ouvre cette page dans Chrome Android.' : actionNotice}
           </p>

@@ -122,7 +122,7 @@ export default function HomePage() {
           <div style={{ height: '100%', background: ACCENT, borderRadius: 2, width: `${((iosStep + 1) / steps.length) * 100}%`, transition: 'width 0.3s' }} />
         </div>
         <div key={iosStep} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, animation: 'fadeIn 0.25s ease', gap: 24, textAlign: 'center' }}>
-          <div style={{ width: 90, height: 90, borderRadius: '50%', background: 'rgba(201,168,76,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48 }}>{step.icon}</div>
+          <div style={{ width: 90, height: 90, borderRadius: '50%', background: 'rgba(16,42,42,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48 }}>{step.icon}</div>
           <div>
             <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 12px' }}>{step.title}</h2>
             <p style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{step.desc}</p>
@@ -183,8 +183,8 @@ export default function HomePage() {
             </div>
 
             {shouldOpenAndroidLinkInChrome() && (
-              <div style={{ background: '#fff8e1', border: '1px solid #f3d58b', borderRadius: 16, padding: 16 }}>
-                <p style={{ fontSize: 14, color: '#5f4a13', margin: '0 0 10px', lineHeight: 1.5, fontWeight: 750 }}>
+              <div style={{ background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 16, padding: 16 }}>
+                <p style={{ fontSize: 14, color: '#102A2A', margin: '0 0 10px', lineHeight: 1.5, fontWeight: 750 }}>
                   Pour éviter les alertes Samsung Internet, ouvre Oracle Messenger avec Chrome.
                 </p>
                 <button onClick={() => { window.location.href = buildChromeIntentUrl(); }}
@@ -210,8 +210,8 @@ export default function HomePage() {
             </button>
 
             {manualInstall && (
-              <div style={{ background: '#fff8e1', border: '1px solid #f3d58b', borderRadius: 16, padding: 14 }}>
-                <p style={{ fontSize: 13, color: '#5f4a13', margin: 0, lineHeight: 1.5, fontWeight: 650 }}>
+              <div style={{ background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 16, padding: 14 }}>
+                <p style={{ fontSize: 13, color: '#102A2A', margin: 0, lineHeight: 1.5, fontWeight: 650 }}>
                   Aucun APK n’est utilisé. Si Chrome ne lance pas l’installation automatique, utilise le menu ⋮ puis “Installer l’application”.
                 </p>
               </div>

@@ -13,12 +13,12 @@
   --text-primary:    #151A23;
   --text-secondary:  #475569;
   --text-muted:      #64748B;
-  --accent:          #D6B25E;
-  --accent-hover:    #C9A84C;
-  --accent-soft:     rgba(214,178,94,0.10);
-  --accent-text:     #102A2A;
-  --brand:           #D6B25E;
-  --brand-soft:      rgba(214,178,94,0.10);
+  --accent:          #102A2A;
+  --accent-hover:    #0B1F1F;
+  --accent-soft:     rgba(16,42,42,0.09);
+  --accent-text:     #FFFFFF;
+  --brand:           #102A2A;
+  --brand-soft:      rgba(16,42,42,0.10);
   --border:          rgba(16,42,42,0.10);
   --border-strong:   rgba(16,42,42,0.18);
   --bubble-out:      #E4F7DF;
@@ -26,7 +26,7 @@
   --bubble-in:       #FFFFFF;
   --bubble-in-text:  #151A23;
   --header-bg:       #102A2A;
-  --unread-bg:       #D6B25E;
+  --unread-bg:       #102A2A;
   --online-dot:      #25D366;
   --shadow:          0 1px 2px rgba(16,42,42,.08);
   --shadow-soft:     0 10px 30px rgba(16,42,42,.10);
@@ -56,20 +56,20 @@
   --text-primary:    #FDF8EE;
   --text-secondary:  rgba(248,250,252,0.78);
   --text-muted:      rgba(248,250,252,0.58);
-  --accent:          #D6B25E;
-  --accent-hover:    #C9A84C;
-  --accent-soft:     rgba(214,178,94,0.18);
+  --accent:          #DDEFEA;
+  --accent-hover:    #CBE2DC;
+  --accent-soft:     rgba(221,239,234,0.14);
   --accent-text:     #102A2A;
-  --brand:           #D6B25E;
-  --brand-soft:      rgba(214,178,94,0.16);
-  --border:          rgba(214,178,94,0.22);
-  --border-strong:   rgba(214,178,94,0.34);
+  --brand:           #DDEFEA;
+  --brand-soft:      rgba(221,239,234,0.14);
+  --border:          rgba(221,239,234,0.22);
+  --border-strong:   rgba(221,239,234,0.34);
   --bubble-out:      #E4F7DF;
   --bubble-out-text: #151A23;
   --bubble-in:       #FFFFFF;
   --bubble-in-text:  #151A23;
   --header-bg:       #102A2A;
-  --unread-bg:       #D6B25E;
+  --unread-bg:       #DDEFEA;
   --shadow:          0 1px 3px rgba(0,0,0,.4);
   --shadow-soft:     0 10px 30px rgba(0,0,0,.24);
 }
@@ -208,8 +208,8 @@ textarea:focus {
 }
 
 .om-primary-button:hover {
-  background: #C9A84C;
-  box-shadow: 0 12px 26px rgba(201,168,76,.22);
+  background: var(--accent-hover);
+  box-shadow: 0 12px 26px rgba(16,42,42,.18);
 }
 
 .om-secondary-button {
@@ -313,13 +313,13 @@ textarea:focus {
 @media (max-width: 768px) and (pointer: coarse) {
   .om-chat-header {
     gap: 8px !important;
-    padding: calc(3px + env(safe-area-inset-top, 0px)) 8px 4px !important;
-    min-height: calc(50px + env(safe-area-inset-top, 0px)) !important;
+    padding: calc(2px + env(safe-area-inset-top, 0px)) 8px 3px !important;
+    min-height: calc(44px + env(safe-area-inset-top, 0px)) !important;
   }
 
   .om-chat-avatar {
-    width: 36px !important;
-    height: 36px !important;
+    width: 34px !important;
+    height: 34px !important;
   }
 
   .om-chat-title {
@@ -332,9 +332,9 @@ textarea:focus {
   }
 
   .om-chat-action {
-    width: 31px !important;
-    height: 31px !important;
-    min-height: 31px !important;
+    width: 30px !important;
+    height: 30px !important;
+    min-height: 30px !important;
   }
 
   .om-messages-viewport {

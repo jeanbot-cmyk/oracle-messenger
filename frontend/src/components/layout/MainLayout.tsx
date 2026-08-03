@@ -164,7 +164,7 @@ export function MainLayout({ onStartCall }: Props) {
           <div style={{ display: 'flex', gap: 8, padding: '0 16px 12px', overflowX: 'auto', flexShrink: 0 }}>
             {FILTERS.map(f => (
               <button key={f.id} onClick={() => setFilter(f.id as any)}
-              style={{ flexShrink: 0, minHeight: 36, padding: '8px 15px', borderRadius: 999, border: filter === f.id ? '1px solid transparent' : '1px solid var(--border)', background: filter === f.id ? 'var(--brand-soft)' : '#FFFFFF', color: filter === f.id ? 'var(--brand)' : 'var(--text-secondary)', fontSize: 14, lineHeight: 1.15, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: filter === f.id ? '0 6px 16px rgba(201,168,76,0.08)' : 'none' }}>
+              style={{ flexShrink: 0, minHeight: 36, padding: '8px 15px', borderRadius: 999, border: filter === f.id ? '1px solid transparent' : '1px solid var(--border)', background: filter === f.id ? 'var(--brand-soft)' : '#FFFFFF', color: filter === f.id ? 'var(--brand)' : 'var(--text-secondary)', fontSize: 14, lineHeight: 1.15, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: filter === f.id ? '0 6px 16px rgba(16,42,42,0.08)' : 'none' }}>
                 {f.label}
               </button>
             ))}
@@ -195,7 +195,7 @@ export function MainLayout({ onStartCall }: Props) {
         {tab === 'discussions' && (
           <button
             onClick={() => router.push('/contacts')}
-            style={{ position: 'absolute', bottom: 78, right: 18, width: 54, height: 54, minHeight: 54, borderRadius: '18px', background: 'var(--brand)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 12px 26px rgba(201,168,76,0.24)', zIndex: 10 }}
+            style={{ position: 'absolute', bottom: 78, right: 18, width: 54, height: 54, minHeight: 54, borderRadius: '18px', background: 'var(--brand)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 12px 26px rgba(16,42,42,0.20)', zIndex: 10 }}
             title="Nouveau message"
           >
             <svg width="23" height="23" fill="none" stroke="var(--accent-text)" strokeWidth="2" viewBox="0 0 24 24">

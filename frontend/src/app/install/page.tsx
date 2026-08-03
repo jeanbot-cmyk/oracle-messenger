@@ -403,7 +403,7 @@ export default function InstallPage() {
         Messagerie rapide et sécurisée.
       </p>
       {shouldOpenAndroidLinkInChrome() && (
-        <div style={{ width: '100%', maxWidth: 380, background: '#fff8e1', border: '1px solid #f3d58b', borderRadius: 18, padding: 14, margin: '8px 0 14px', color: '#5f4a13' }}>
+        <div style={{ width: '100%', maxWidth: 380, background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 18, padding: 14, margin: '8px 0 14px', color: '#102A2A' }}>
           <p style={{ margin: '0 0 10px', fontSize: 13, lineHeight: 1.45, fontWeight: 800 }}>
             Ouvre ce lien dans Chrome pour installer sans alerte Samsung Internet.
           </p>
@@ -462,7 +462,7 @@ export default function InstallPage() {
           padding: '18px 24px', fontSize: 17, fontWeight: 700,
           cursor: installing ? 'not-allowed' : 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
-          boxShadow: '0 10px 24px rgba(201,168,76,0.20)',
+          boxShadow: '0 10px 24px rgba(16,42,42,0.18)',
           marginBottom: 14,
         }}
       >
@@ -482,7 +482,7 @@ export default function InstallPage() {
       </button>
 
       {manualInstall && (
-        <div style={{ width: '100%', maxWidth: 380, background: '#fff8e1', border: '1px solid #f3d58b', borderRadius: 18, padding: 16, marginBottom: 14, color: '#5f4a13' }}>
+        <div style={{ width: '100%', maxWidth: 380, background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 18, padding: 16, marginBottom: 14, color: '#102A2A' }}>
           <p style={{ fontSize: 14, fontWeight: 800, margin: '0 0 8px' }}>
             Installation sécurisée uniquement depuis le navigateur
           </p>
