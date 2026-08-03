@@ -20,12 +20,42 @@ const SURFACE      = 'var(--bg-surface)';
 const APP_BG       = 'var(--bg-app)';
 const BORDER       = 'var(--border)';
 
-function normalizeUsername(value: string) {
+function decodeSafe(value: string) {
   try {
-    return decodeURIComponent(value || '').trim().replace(/^@+/, '').toLowerCase();
+    return decodeURIComponent(value || '');
   } catch {
-    return (value || '').trim().replace(/^@+/, '').toLowerCase();
+    return value || '';
   }
+}
+
+function normalizeUsername(value: string) {
+  return decodeSafe(value).trim().replace(/^@+/, '').replace(/[^a-z0-9._-].*$/i, '').toLowerCase();
+}
+
+function extractInviteUsername(value: string) {
+  let raw = decodeSafe(value).trim();
+  if (!raw) return '';
+
+  const urlMatch = raw.match(/https?:\/\/[^\s]+/i);
+  if (urlMatch) raw = urlMatch[0];
+
+  try {
+    const url = new URL(raw);
+    const nestedFrom = url.searchParams.get('from');
+    if (nestedFrom) return extractInviteUsername(nestedFrom);
+    const parts = url.pathname.split('/').filter(Boolean);
+    const uIndex = parts.findIndex(part => part.toLowerCase() === 'u');
+    if (uIndex >= 0 && parts[uIndex + 1]) return normalizeUsername(parts[uIndex + 1]);
+    if (parts.length === 1 && parts[0] !== 'contacts' && parts[0] !== 'install') return normalizeUsername(parts[0]);
+  } catch {}
+
+  const queryMatch = raw.match(/[?&]from=([^&#\s]+)/i);
+  if (queryMatch?.[1]) return extractInviteUsername(queryMatch[1]);
+
+  const pathMatch = raw.match(/\/u\/([^/?#\s]+)/i);
+  if (pathMatch?.[1]) return normalizeUsername(pathMatch[1]);
+
+  return normalizeUsername(raw.split(/\s+/)[0] || raw);
 }
 
 async function sha256(value: string) {
@@ -92,7 +122,7 @@ export default function ContactsPage() {
     setMounted(true);
     if (status === 'unauthenticated') {
       const params = new URLSearchParams(window.location.search);
-      const inviteFrom = normalizeUsername(params.get('from') || '');
+      const inviteFrom = extractInviteUsername(params.get('from') || '');
       if (inviteFrom) {
         const next = `/contacts?from=${encodeURIComponent(inviteFrom)}`;
         sessionStorage.setItem('oracle-after-login', next);
@@ -107,7 +137,7 @@ export default function ContactsPage() {
   useEffect(() => {
     if (!mounted || status !== 'authenticated' || !token) return;
     const params = new URLSearchParams(window.location.search);
-    const inviteFrom = normalizeUsername(params.get('from') || '');
+    const inviteFrom = extractInviteUsername(params.get('from') || '');
     if (inviteFrom) { openConvByUsername(inviteFrom); return; }
 
     // 1. Charger depuis le cache local (contacts importés précédemment)
@@ -146,22 +176,41 @@ export default function ContactsPage() {
   }
 
   async function openConvByUsername(username: string) {
-    const normalizedUsername = normalizeUsername(username);
+    const normalizedUsername = extractInviteUsername(username);
     if (!normalizedUsername) {
       importAndMatch();
       return;
     }
+    let user: AppUser | null = null;
     try {
-      const user = await api.users.byUsername(normalizedUsername);
-      if (user?.id) {
-        const conv = await api.conversations.create(user.id, token);
-        sessionStorage.removeItem('oracle-after-login');
-        localStorage.removeItem('oracle-after-login');
-        router.replace(`/chat?conv=${conv.id}`);
-        return;
-      }
-    } catch {}
-    alert('Ce contact Oracle Messenger est introuvable. Importez vos contacts ou demandez-lui de renvoyer son lien.');
+      user = await api.users.byUsername(normalizedUsername);
+    } catch {
+      alert('Connexion impossible pour vérifier ce lien. Réessayez avec une bonne connexion.');
+      importAndMatch();
+      return;
+    }
+
+    if (!user?.id) {
+      alert('Ce lien Oracle Messenger est ancien ou incorrect. Demandez à la personne de renvoyer son lien depuis son profil.');
+      importAndMatch();
+      return;
+    }
+
+    if (user.id === session?.user?.id) {
+      router.replace('/chat');
+      return;
+    }
+
+    try {
+      const conv = await api.conversations.create(user.id, token);
+      if (!conv?.id) throw new Error('Conversation non créée');
+      sessionStorage.removeItem('oracle-after-login');
+      localStorage.removeItem('oracle-after-login');
+      router.replace(`/chat?conv=${conv.id}`);
+      return;
+    } catch {
+      alert('Le contact est trouvé, mais la conversation ne peut pas encore s’ouvrir. Vérifiez votre connexion puis réessayez.');
+    }
     importAndMatch();
   }
 

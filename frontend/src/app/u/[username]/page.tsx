@@ -6,12 +6,16 @@ import { useRouter } from 'next/navigation';
 
 interface Props { params: { username: string }; }
 
-function normalizeUsername(value: string) {
+function decodeSafe(value: string) {
   try {
-    return decodeURIComponent(value || '').trim().replace(/^@+/, '').toLowerCase();
+    return decodeURIComponent(value || '');
   } catch {
-    return (value || '').trim().replace(/^@+/, '').toLowerCase();
+    return value || '';
   }
+}
+
+function normalizeUsername(value: string) {
+  return decodeSafe(value).trim().replace(/^@+/, '').replace(/[^a-z0-9._-].*$/i, '').toLowerCase();
 }
 
 // Client component — gère la session et redirige correctement

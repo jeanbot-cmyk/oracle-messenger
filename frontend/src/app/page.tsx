@@ -41,6 +41,7 @@ export default function HomePage() {
   const [showIos, setShowIos] = useState(false);
   const promptRef = useRef<any>(null);
   const [installing, setInstalling] = useState(false);
+  const [manualInstall, setManualInstall] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -76,12 +77,14 @@ export default function HomePage() {
 
   function handleAndroidPWA() {
     const prompt = promptRef.current;
+    setManualInstall(false);
     if (prompt) {
       setInstalling(true);
       prompt.prompt();
       prompt.userChoice.finally(() => setInstalling(false));
     } else {
-      handleOpen();
+      setManualInstall(true);
+      router.push('/install');
     }
   }
 
@@ -183,6 +186,14 @@ export default function HomePage() {
               </div>
               <svg style={{ marginLeft: 'auto' }} width="20" height="20" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
             </button>
+
+            {manualInstall && (
+              <div style={{ background: '#fff8e1', border: '1px solid #f3d58b', borderRadius: 16, padding: 14 }}>
+                <p style={{ fontSize: 13, color: '#5f4a13', margin: 0, lineHeight: 1.5, fontWeight: 650 }}>
+                  Aucun APK n’est utilisé. Si Chrome ne lance pas l’installation automatique, utilise le menu ⋮ puis “Installer l’application”.
+                </p>
+              </div>
+            )}
 
             {/* Guide installation PWA */}
             <div style={{ background: '#f8fffe', border: '1px solid #e8f5f3', borderRadius: 16, padding: 16 }}>

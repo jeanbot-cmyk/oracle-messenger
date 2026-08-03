@@ -112,6 +112,7 @@ export default function InstallPage() {
   const [installed,  setInstalled]  = useState(false);
   const [mounted,    setMounted]    = useState(false);
   const [iosStep,    setIosStep]    = useState(0);
+  const [manualInstall, setManualInstall] = useState(false);
   const promptRef = useRef<any>(null);
 
   useEffect(() => {
@@ -150,6 +151,7 @@ export default function InstallPage() {
 
   function handleAndroidInstall() {
     const prompt = promptRef.current || (window as any).__installPrompt;
+    setManualInstall(false);
 
     if (prompt) {
       // Call synchronously — must stay in user gesture context
@@ -167,7 +169,9 @@ export default function InstallPage() {
       return;
     }
 
-    // Prompt not yet available — show spinner and wait for it
+    // Prompt not yet available — show spinner and wait briefly.
+    // Chrome may hide beforeinstallprompt when the app is already installed,
+    // recently dismissed, or opened inside an in-app browser.
     setInstalling(true);
     const waitHandler = (e: any) => {
       e.preventDefault();
@@ -180,18 +184,19 @@ export default function InstallPage() {
         .then((choice: any) => {
           if (choice.outcome === 'accepted') {
             setInstalled(true);
-            setTimeout(() => window.location.replace('/'), 1800);
+            setTimeout(() => window.location.replace(appEntry()), 1800);
           }
           setInstalling(false);
         })
         .catch(() => setInstalling(false));
     };
     window.addEventListener('beforeinstallprompt', waitHandler);
-    // After 8s give up — show access button
+    // After 3s show safe PWA manual instructions. Never fall back to APK.
     setTimeout(() => {
       window.removeEventListener('beforeinstallprompt', waitHandler);
       setInstalling(false);
-    }, 8000);
+      setManualInstall(true);
+    }, 3000);
   }
 
   if (!mounted) return null;
@@ -332,6 +337,17 @@ export default function InstallPage() {
           </>
         )}
       </button>
+
+      {manualInstall && (
+        <div style={{ width: '100%', maxWidth: 380, background: '#fff8e1', border: '1px solid #f3d58b', borderRadius: 18, padding: 16, marginBottom: 14, color: '#5f4a13' }}>
+          <p style={{ fontSize: 14, fontWeight: 800, margin: '0 0 8px' }}>
+            Installation sécurisée uniquement depuis le navigateur
+          </p>
+          <p style={{ fontSize: 13, lineHeight: 1.55, margin: 0 }}>
+            Si le bouton automatique ne s’affiche pas, ouvre cette page dans Chrome, appuie sur le menu ⋮ puis choisis “Installer l’application” ou “Ajouter à l’écran d’accueil”.
+          </p>
+        </div>
+      )}
 
       {/* Fallback — never block access */}
       <button
