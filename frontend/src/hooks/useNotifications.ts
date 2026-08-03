@@ -73,9 +73,8 @@ export function useNotifications() {
         });
       }
 
-      // Envoyer la subscription au backend (nécessite le token)
-      const tokenEl = document.cookie.match(/next-auth\.session-token=([^;]+)/);
-      // On passe par l'API Next.js pour avoir le token backend
+      // On passe par l'API Next.js pour récupérer la session serveur
+      // et transmettre le token backend sans l'exposer côté client.
       await fetch('/api/push-subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

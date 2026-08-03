@@ -43,9 +43,7 @@ export function useSocket() {
     // Demander permission notifs dès la connexion
     requestPermission();
 
-    socket.on('connect', () => {
-      console.log('[Socket] connected');
-    });
+    socket.on('connect', () => {});
 
     socket.on('message:new', (msg: Message) => {
       store.addMessage(msg);

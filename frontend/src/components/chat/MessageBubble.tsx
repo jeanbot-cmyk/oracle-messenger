@@ -227,12 +227,18 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
   const lastTapRef                    = useRef(0);
   const wrapRef                       = useRef<HTMLDivElement | null>(null);
 
-  // Auto-save silencieux des médias reçus dans la galerie
   const effectiveTypeEarly = detectType(message.content, message.type ?? 'text');
   const mediaSrcEarly = attachmentUrl(message.content);
-  if (!isOwn && !message.isDeleted && (effectiveTypeEarly === 'image' || effectiveTypeEarly === 'video')) {
-    saveToGallery(mediaSrcEarly, effectiveTypeEarly, undefined);
-  }
+
+  // Auto-save silencieux des médias reçus dans la galerie.
+  // Doit rester dans un effet React: écrire dans localStorage pendant le rendu
+  // peut provoquer des ralentissements et des écritures répétées.
+  useEffect(() => {
+    if (isOwn || message.isDeleted || !mediaSrcEarly) return;
+    if (effectiveTypeEarly === 'image' || effectiveTypeEarly === 'video') {
+      saveToGallery(mediaSrcEarly, effectiveTypeEarly, undefined);
+    }
+  }, [isOwn, message.id, message.isDeleted, mediaSrcEarly, effectiveTypeEarly]);
 
   // Double-tap → répondre
   function handleTap() {

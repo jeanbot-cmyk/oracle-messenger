@@ -277,7 +277,6 @@ export function useWebRTC(userId: string, token = '') {
       socket.off('webrtc:ice');
 
       socket.on('call:incoming', (data: CallInfo) => {
-        console.log('[WebRTC] incoming call from', data.callerName);
         _setInfo(data);
         _setState('incoming');
         notifyIncomingCall(data.callerName ?? 'Quelqu\'un', data.type, data.conversationId);
@@ -311,7 +310,6 @@ export function useWebRTC(userId: string, token = '') {
       });
 
       socket.on('webrtc:offer', async (data: { callId: string; fromUserId: string; sdp: RTCSessionDescriptionInit }) => {
-        console.log('[WebRTC] offer from', data.fromUserId);
         try {
           // Attendre que le stream local soit prêt (récepteur vient d'accepter)
           let waited = 0;
