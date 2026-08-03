@@ -6,7 +6,7 @@ import { useSettings } from '../store/settings';
 import { detectLanguage } from '../lib/i18n';
 import { PhoneOnboarding } from '../components/PhoneOnboarding';
 
-const CLIENT_CACHE_VERSION = '20260803-invite-pwa-fix';
+const CLIENT_CACHE_VERSION = '20260803-contacts-actions';
 
 function ThemeApplier() {
   const { theme, lang, setLang } = useSettings();

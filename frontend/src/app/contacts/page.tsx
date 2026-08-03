@@ -117,6 +117,8 @@ export default function ContactsPage() {
   const [newName,  setNewName]  = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [permDenied, setPermDenied] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [pendingInvite, setPendingInvite] = useState('');
 
   useEffect(() => {
     setMounted(true);
@@ -135,10 +137,15 @@ export default function ContactsPage() {
   }, [status]);
 
   useEffect(() => {
-    if (!mounted || status !== 'authenticated' || !token) return;
+    if (!mounted || status !== 'authenticated') return;
     const params = new URLSearchParams(window.location.search);
     const inviteFrom = extractInviteUsername(params.get('from') || '');
-    if (inviteFrom) { openConvByUsername(inviteFrom); return; }
+    if (inviteFrom) {
+      setPendingInvite(inviteFrom);
+      if (token) openConvByUsername(inviteFrom);
+      return;
+    }
+    if (!token) return;
 
     // 1. Charger depuis le cache local (contacts importés précédemment)
     const cached: LocalContact[] = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]');
@@ -161,8 +168,12 @@ export default function ContactsPage() {
 
   // Fallback iOS/desktop : charger tous les utilisateurs Oracle connus
   async function loadAllOracleUsers() {
-    if (!token) return;
+    if (!token) {
+      setNotice('Votre session n’est pas encore prête. Appuyez sur “Reconnecter” pour continuer.');
+      return;
+    }
     setLoading(true);
+    setNotice('');
     try {
       const users: AppUser[] = await api.users.search('', token).catch(() => []);
       const enriched: EnrichedContact[] = users.map(u => ({
@@ -170,6 +181,12 @@ export default function ContactsPage() {
         appUser: u,
       }));
       setContacts(enriched);
+      setImported(true);
+      if (enriched.length === 0) {
+        setNotice('Aucun utilisateur Oracle Messenger trouvé pour le moment. Vous pouvez ajouter un contact manuellement.');
+      }
+    } catch {
+      setNotice('Impossible de charger les contacts Oracle. Vérifiez votre connexion puis réessayez.');
     } finally {
       setLoading(false);
     }
@@ -178,20 +195,26 @@ export default function ContactsPage() {
   async function openConvByUsername(username: string) {
     const normalizedUsername = extractInviteUsername(username);
     if (!normalizedUsername) {
+      setNotice('Le lien d’invitation est incomplet. Demandez à la personne de renvoyer son lien depuis son profil.');
       importAndMatch();
+      return;
+    }
+    setPendingInvite(normalizedUsername);
+    if (!token) {
+      setNotice('Votre session n’est pas encore prête. Appuyez sur “Reconnecter” pour continuer.');
       return;
     }
     let user: AppUser | null = null;
     try {
       user = await api.users.byUsername(normalizedUsername);
     } catch {
-      alert('Connexion impossible pour vérifier ce lien. Réessayez avec une bonne connexion.');
+      setNotice('Connexion impossible pour vérifier ce lien. Réessayez avec une bonne connexion.');
       importAndMatch();
       return;
     }
 
     if (!user?.id) {
-      alert('Ce lien Oracle Messenger est ancien ou incorrect. Demandez à la personne de renvoyer son lien depuis son profil.');
+      setNotice('Ce lien Oracle Messenger est ancien ou incorrect. Demandez à la personne de renvoyer son lien depuis son profil.');
       importAndMatch();
       return;
     }
@@ -206,17 +229,24 @@ export default function ContactsPage() {
       if (!conv?.id) throw new Error('Conversation non créée');
       sessionStorage.removeItem('oracle-after-login');
       localStorage.removeItem('oracle-after-login');
+      setPendingInvite('');
+      setNotice('');
       router.replace(`/chat?conv=${conv.id}`);
       return;
     } catch {
-      alert('Le contact est trouvé, mais la conversation ne peut pas encore s’ouvrir. Vérifiez votre connexion puis réessayez.');
+      setNotice('Le contact est trouvé, mais la conversation ne peut pas encore s’ouvrir. Vérifiez votre connexion puis réessayez.');
     }
     importAndMatch();
   }
 
   const importAndMatch = useCallback(async () => {
+    if (!token) {
+      setNotice('Votre session n’est pas encore prête. Appuyez sur “Reconnecter” pour continuer.');
+      return;
+    }
     setLoading(true);
     setPermDenied(false);
+    setNotice('');
     let locals: LocalContact[] = [];
     try {
       if ('contacts' in navigator && 'ContactsManager' in window) {
@@ -273,6 +303,9 @@ export default function ContactsPage() {
         return a.local.name.localeCompare(b.local.name);
       });
       setContacts(enriched);
+      if (enriched.length === 0) {
+        setNotice('Aucun contact importé n’est encore inscrit sur Oracle Messenger. Vous pouvez ajouter un contact manuellement ou inviter vos contacts.');
+      }
     } finally {
       setLoading(false);
     }
@@ -359,6 +392,13 @@ export default function ContactsPage() {
 
   if (!mounted || status === 'loading') return <Spinner />;
 
+  function reconnect() {
+    const current = `${window.location.pathname}${window.location.search || ''}`;
+    sessionStorage.setItem('oracle-after-login', current);
+    localStorage.setItem('oracle-after-login', current);
+    router.replace('/login');
+  }
+
   return (
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: APP_BG }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} *{-webkit-tap-highlight-color:transparent}`}</style>
@@ -399,6 +439,30 @@ export default function ContactsPage() {
           </button>
         </div>
       </div>
+
+      {(!token || notice || pendingInvite) && (
+        <div style={{ flexShrink: 0, margin: '10px 14px 0', background: pendingInvite ? '#ecfdf5' : '#fff8e1', border: `1px solid ${pendingInvite ? '#a7f3d0' : '#f3d58b'}`, borderRadius: 14, padding: '12px 14px', color: pendingInvite ? '#065f46' : '#5f4a13' }}>
+          {pendingInvite && (
+            <p style={{ margin: '0 0 8px', fontSize: 13, lineHeight: 1.45, fontWeight: 800 }}>
+              Invitation reçue : @{pendingInvite}
+            </p>
+          )}
+          {notice && (
+            <p style={{ margin: '0 0 8px', fontSize: 13, lineHeight: 1.45, fontWeight: 650 }}>{notice}</p>
+          )}
+          {!token ? (
+            <button onClick={reconnect}
+              style={{ border: 'none', borderRadius: 999, background: 'var(--brand)', color: '#fff', padding: '9px 14px', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>
+              Reconnecter
+            </button>
+          ) : pendingInvite ? (
+            <button onClick={() => openConvByUsername(pendingInvite)}
+              style={{ border: 'none', borderRadius: 999, background: 'var(--brand)', color: '#fff', padding: '9px 14px', fontSize: 13, fontWeight: 900, cursor: 'pointer' }}>
+              Ouvrir la conversation
+            </button>
+          ) : null}
+        </div>
+      )}
 
       {/* Search */}
       {imported && (
