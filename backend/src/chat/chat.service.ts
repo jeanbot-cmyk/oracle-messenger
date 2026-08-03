@@ -147,6 +147,25 @@ export class ChatService {
     return msg;
   }
 
+  async updateMessageStatus(messageId: string, status: 'sent' | 'delivered' | 'read') {
+    return this.prisma.message.update({
+      where: { id: messageId },
+      data: { status },
+    });
+  }
+
+  async markConversationRead(conversationId: string, readerId: string) {
+    await this.markRead(conversationId, readerId);
+    return this.prisma.message.updateMany({
+      where: {
+        conversationId,
+        senderId: { not: readerId },
+        status: { not: 'read' },
+      },
+      data: { status: 'read' },
+    });
+  }
+
   async deleteMessage(messageId: string, userId: string) {
     const msg = await this.prisma.message.findUnique({ where: { id: messageId } });
     if (!msg) throw new NotFoundException();
@@ -166,6 +185,14 @@ export class ChatService {
       where: { userId_conversationId: { userId, conversationId } },
       data: { lastReadAt: new Date() },
     });
+  }
+
+  async isParticipant(conversationId: string, userId: string) {
+    const participant = await this.prisma.participant.findUnique({
+      where: { userId_conversationId: { userId, conversationId } },
+      select: { id: true },
+    });
+    return !!participant;
   }
 
   async getParticipantIds(conversationId: string): Promise<string[]> {

@@ -22,6 +22,7 @@ interface ChatStore {
   setTyping:          (convId: string, userId: string, isTyping: boolean, userName?: string) => void;
   setOnline:          (userId: string, online: boolean) => void;
   markRead:           (convId: string) => void;
+  markConversationMessagesRead: (convId: string, readerId: string, currentUserId: string) => void;
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -49,9 +50,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const exists = prev.find(m => m.id === msg.id);
       const updated = exists ? prev.map(m => m.id === msg.id ? msg : m) : [...prev, msg];
       // Mettre à jour lastMessage dans la conversation
-      const convs = s.conversations.map(c =>
-        c.id === msg.conversationId ? { ...c, lastMessage: msg, updatedAt: msg.createdAt } : c
-      );
+      const convs = s.conversations.map(c => {
+        if (c.id !== msg.conversationId) return c;
+        const next = { ...c, lastMessage: msg, updatedAt: msg.createdAt };
+        saveConversation(next).catch(() => {});
+        return next;
+      });
       return { messages: { ...s.messages, [msg.conversationId]: updated }, conversations: convs };
     });
   },
@@ -60,7 +64,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set(s => {
       const updated: Record<string, Message[]> = {};
       for (const [convId, msgs] of Object.entries(s.messages)) {
-        updated[convId] = msgs.map(m => m.id === id ? { ...m, ...patch } : m);
+        updated[convId] = msgs.map(m => {
+          if (m.id !== id) return m;
+          const next = { ...m, ...patch };
+          saveMessage(next).catch(() => {});
+          return next;
+        });
       }
       return { messages: updated };
     });
@@ -70,9 +79,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     set(s => ({
       messages: {
         ...s.messages,
-        [convId]: (s.messages[convId] ?? []).map(m =>
-          m.id === msgId ? { ...m, isDeleted: true, content: 'Ce message a été supprimé' } : m
-        ),
+        [convId]: (s.messages[convId] ?? []).map(m => {
+          if (m.id !== msgId) return m;
+          const next = { ...m, isDeleted: true, content: 'Ce message a été supprimé' };
+          saveMessage(next).catch(() => {});
+          return next;
+        }),
       },
     }));
   },
@@ -119,6 +131,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       conversations: s.conversations.map(c =>
         c.id === convId ? { ...c, unreadCount: 0 } : c
       ),
+    }));
+  },
+
+  markConversationMessagesRead: (convId, readerId, currentUserId) => {
+    set(s => ({
+      messages: {
+        ...s.messages,
+        [convId]: (s.messages[convId] ?? []).map(m => {
+          if (readerId === currentUserId) return m;
+          if (m.senderId !== currentUserId || m.status === 'read') return m;
+          const next = { ...m, status: 'read' as const };
+          saveMessage(next).catch(() => {});
+          return next;
+        }),
+      },
     }));
   },
 }));

@@ -61,12 +61,7 @@ export function useSocket() {
     // When the other user reads the conversation → mark all our messages as read
     socket.on('conversation:read', ({ conversationId, userId: readerUserId }: { conversationId: string; userId: string }) => {
       if (readerUserId === userId) return; // ignore own read events
-      const msgs = useChatStore.getState().messages[conversationId] ?? [];
-      msgs.forEach(m => {
-        if (m.senderId === userId && m.status !== 'read') {
-          store.updateMessage(m.id, { status: 'read' });
-        }
-      });
+      useChatStore.getState().markConversationMessagesRead(conversationId, readerUserId, userId);
     });
 
     socket.on('message:delete', ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {

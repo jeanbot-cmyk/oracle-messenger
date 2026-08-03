@@ -112,6 +112,7 @@ function linkifyText(text: string) {
 
 function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const normalizedSrc = src.replace(/^data:(audio\/[^;]+);codecs=[^;]+;base64,/i, 'data:$1;base64,');
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [current, setCurrent] = useState(0);
@@ -120,6 +121,7 @@ function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
+    if (audio.src !== normalizedSrc) audio.src = normalizedSrc;
     audio.defaultPlaybackRate = 1;
     audio.playbackRate = 1;
     const onLoaded = () => setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
@@ -136,7 +138,7 @@ function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('error', onError);
     };
-  }, [src]);
+  }, [normalizedSrc]);
 
   function fmt(seconds: number) {
     if (!Number.isFinite(seconds) || seconds <= 0) return '00:00';
@@ -165,7 +167,7 @@ function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }
 
   return (
     <div style={{ padding: '7px 9px', minWidth: 244, maxWidth: 340 }}>
-      <audio ref={audioRef} src={src} preload="metadata" />
+      <audio ref={audioRef} src={normalizedSrc} preload="metadata" />
       <div style={{ display:'flex', alignItems:'center', gap:10 }}>
         <button onClick={toggle} disabled={error}
           style={{ width:40, height:40, borderRadius:'50%', border:'none', background:error ? 'var(--bg-app)' : 'transparent', color:error ? 'var(--text-muted)' : '#5F6B70', cursor:error ? 'not-allowed' : 'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
@@ -187,7 +189,7 @@ function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }
       </div>
       {error && (
         <div style={{ marginTop:8, padding:'8px 10px', borderRadius:10, background:'rgba(220,38,38,0.08)', color:'#991b1b', fontSize:12, lineHeight:1.4 }}>
-          Lecture impossible sur ce téléphone. <a href={src} download="message-vocal" style={{ color:'#991b1b', fontWeight:800 }}>Télécharger l'audio</a>
+          Lecture impossible sur ce téléphone. <a href={normalizedSrc} download="message-vocal" style={{ color:'#991b1b', fontWeight:800 }}>Télécharger l'audio</a>
         </div>
       )}
       {timeRow}

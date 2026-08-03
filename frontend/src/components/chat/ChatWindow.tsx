@@ -22,6 +22,27 @@ const EMOJI_CATEGORIES: { label: string; emojis: string[] }[] = [
   { label: '🚗', emojis: ['🚗','🚕','🚙','🚌','🚎','🏎️','🚓','🚑','🚒','🚐','🛻','🚚','🚛','🚜','🏍️','🛵','🛺','🚲','🛴','🛹','🛼','🚏','🛣️','🛤️','⛽','🚨','🚥','🚦','🛑','🚧','⚓','🛟','⛵','🚤','🛥️','🛳️','⛴️','🚢','✈️','🛩️','🛫','🛬','🪂','💺','🚁','🚟','🚠','🚡','🛰️','🚀','🛸','🪐','🌍','🌎','🌏','🌐','🗺️','🧭','🏔️','⛰️','🌋','🗻','🏕️','🏖️','🏜️','🏝️','🏞️','🏟️','🏛️','🏗️','🧱','🪨','🪵','🛖','🏘️','🏚️','🏠','🏡','🏢','🏣','🏤','🏥','🏦','🏨','🏩','🏪','🏫','🏬','🏭','🏯','🏰','💒','🗼','🗽','⛪','🕌','🛕','🕍','⛩️','🕋','⛲','⛺','🌁','🌃','🏙️','🌄','🌅','🌆','🌇','🌉','♨️','🎠','🛝','🎡','🎢','💈','🎪'] },
 ];
 
+function attachmentUrl(content?: string) {
+  const trimmed = typeof content === 'string' ? content.trim() : '';
+  if (!trimmed) return '';
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object' && typeof parsed.url === 'string') return parsed.url.trim();
+  } catch {}
+  return trimmed;
+}
+
+function messagePreview(message?: Message | null) {
+  if (!message) return '';
+  if (message.isDeleted) return 'Message supprimé';
+  const src = attachmentUrl(message.content);
+  if (message.type === 'image' || src.startsWith('data:image')) return 'Photo';
+  if (message.type === 'video' || src.startsWith('data:video')) return 'Vidéo';
+  if (message.type === 'audio' || src.startsWith('data:audio')) return 'Audio';
+  if (message.type === 'file' || message.type === 'document' || src.startsWith('data:')) return 'Fichier';
+  return message.content;
+}
+
 function EmojiPicker({ onSelect, onClose }: { onSelect: (e: string) => void; onClose: () => void }) {
   const [cat, setCat] = useState(0);
   const [search, setSearch] = useState('');
@@ -267,7 +288,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       const isSafari = /^((?!chrome|android|crios|fxios).)*safari/i.test(ua);
       const mimeCandidates = isSafari
         ? ['audio/mp4', 'audio/aac', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg']
-        : ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg', 'audio/mp4', 'audio/aac'];
+        : ['audio/mp4', 'audio/aac', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg'];
       const mimeType = mimeCandidates.find(m => MediaRecorder.isTypeSupported(m)) ?? '';
 
       const mr = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 128000 } : {});
@@ -275,7 +296,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       mr.ondataavailable = e => { if (e.data.size > 0) audioChunks.current.push(e.data); };
       mr.onstop = () => {
         stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(audioChunks.current, { type: mr.mimeType || 'audio/webm' });
+        const safeMime = (mr.mimeType || 'audio/webm').split(';')[0] || 'audio/webm';
+        const blob = new Blob(audioChunks.current, { type: safeMime });
         const reader = new FileReader();
         const seconds = Math.max(1, recSecondsRef.current);
         reader.onload = () => setVoiceDraft({ dataUrl: reader.result as string, seconds });
@@ -475,7 +497,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             <p style={{ fontSize:12, color:'var(--accent)', fontWeight:600, margin:0 }}>
               {editMsg ? t(lang,'chat.edit.msg') : `${t(lang,'chat.reply.to')} ${replyTo?.sender?.name}`}
             </p>
-            <p style={{ fontSize:12, color:'var(--text-muted)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{editMsg?.content ?? replyTo?.content}</p>
+            <p style={{ fontSize:12, color:'var(--text-muted)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{messagePreview(editMsg ?? replyTo)}</p>
           </div>
           <button onClick={() => { setReplyTo(null); setEditMsg(null); }} style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--text-muted)', fontSize:18 }}>×</button>
         </div>
