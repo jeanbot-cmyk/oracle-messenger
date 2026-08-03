@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v11
+// Oracle Messenger — Service Worker v15
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '14-20260803-contact-picker-fix';
+const CACHE_VERSION = '15-20260803-force-cache-refresh';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [

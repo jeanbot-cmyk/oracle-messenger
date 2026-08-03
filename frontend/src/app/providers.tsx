@@ -6,7 +6,7 @@ import { useSettings } from '../store/settings';
 import { detectLanguage } from '../lib/i18n';
 import { PhoneOnboarding } from '../components/PhoneOnboarding';
 
-const CLIENT_CACHE_VERSION = '20260803-contact-picker-fix';
+const CLIENT_CACHE_VERSION = '20260803-force-cache-refresh';
 
 function ThemeApplier() {
   const { theme, lang, setLang } = useSettings();
@@ -43,7 +43,17 @@ function ThemeApplier() {
             caches.keys()
               .then(keys => Promise.all(keys.map(key => caches.delete(key))))
               .then(() => localStorage.setItem('oracle-client-cache-version', CLIENT_CACHE_VERSION))
-              .then(() => reg.update().catch(() => {}))
+              .then(() => {
+                navigator.serviceWorker.controller?.postMessage({ type: 'force-update' });
+                return reg.update().catch(() => {});
+              })
+              .then(() => {
+                const reloadKey = `oracle-cache-reloaded-${CLIENT_CACHE_VERSION}`;
+                if (!sessionStorage.getItem(reloadKey)) {
+                  sessionStorage.setItem(reloadKey, '1');
+                  window.location.reload();
+                }
+              })
               .catch(() => localStorage.setItem('oracle-client-cache-version', CLIENT_CACHE_VERSION));
           }
           // Check for updates every time the page loads
