@@ -5,6 +5,20 @@ import { PrismaService } from '../prisma/prisma.service';
 export class StoriesService {
   constructor(private prisma: PrismaService) {}
 
+  private async visibleAuthorIds(userId: string) {
+    const participants = await this.prisma.participant.findMany({
+      where: {
+        userId: { not: userId },
+        conversation: {
+          participants: { some: { userId } },
+        },
+      },
+      select: { userId: true },
+    });
+
+    return [...new Set([userId, ...participants.map(p => p.userId)])];
+  }
+
   async create(authorId: string, dto: { content: string; caption?: string; type: string; bg: string }) {
     const type = dto.type === 'image' ? 'image' : dto.type === 'text' ? 'text' : '';
     if (!type) throw new BadRequestException('Type de story invalide');
@@ -28,8 +42,12 @@ export class StoriesService {
 
   async findAll(requesterId: string) {
     const now = new Date();
+    const visibleAuthorIds = await this.visibleAuthorIds(requesterId);
     const stories = await this.prisma.story.findMany({
-      where: { expiresAt: { gt: now } },
+      where: {
+        expiresAt: { gt: now },
+        authorId: { in: visibleAuthorIds },
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         author: { select: { id: true, name: true, avatar: true } },
@@ -44,8 +62,13 @@ export class StoriesService {
   }
 
   async markViewed(storyId: string, userId: string) {
+    const visibleAuthorIds = await this.visibleAuthorIds(userId);
     const exists = await this.prisma.story.findFirst({
-      where: { id: storyId, expiresAt: { gt: new Date() } },
+      where: {
+        id: storyId,
+        expiresAt: { gt: new Date() },
+        authorId: { in: visibleAuthorIds },
+      },
       select: { id: true },
     });
     if (!exists) throw new NotFoundException('Story introuvable');
