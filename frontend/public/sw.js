@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v55
+// Oracle Messenger — Service Worker v56
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '55-20260803-chat-paste-support';
+const CACHE_VERSION = '56-20260803-emoji-multitap';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [

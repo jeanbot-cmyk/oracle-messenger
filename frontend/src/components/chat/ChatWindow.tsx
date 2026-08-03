@@ -667,7 +667,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         {/* Emoji picker */}
         {showEmoji && (
           <EmojiPicker
-            onSelect={e => { setInput(v => v + e); setShowEmoji(false); }}
+            onSelect={e => insertTextAtCursor(e)}
             onClose={() => setShowEmoji(false)}
           />
         )}
