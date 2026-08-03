@@ -24,7 +24,7 @@ export function MenuDots() {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  const menuStyle: React.CSSProperties = { position:'absolute', right:0, top:46, zIndex:50, width:238, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:16, boxShadow:'var(--shadow-soft)', overflow:'hidden' };
+  const menuStyle: React.CSSProperties = { position:'absolute', right:0, top:58, zIndex:50, width:238, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:16, boxShadow:'var(--shadow-soft)', overflow:'hidden' };
   const itemStyle: React.CSSProperties = { width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', textAlign:'left' as const, color:'var(--text-primary)', fontSize:14.5, lineHeight:1.25 };
   const divStyle: React.CSSProperties = { height:1, background:'var(--border)', margin:'2px 0' };
 
@@ -39,9 +39,13 @@ export function MenuDots() {
 
   return (
     <div ref={ref} style={{ position:'relative' }}>
-      <button onClick={() => setOpen(v => !v)} style={{ width:40, height:40, minHeight:40, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.10)', cursor:'pointer', color:'#F8FAFC' }}>
-        <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <path strokeLinecap="round" d="M12 5.5h.01M12 12h.01M12 18.5h.01"/>
+      <button
+        onClick={() => setOpen(v => !v)}
+        aria-label="Ouvrir le menu"
+        style={{ width:52, height:52, minHeight:52, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1.5px solid rgba(255,255,255,0.22)', background:'rgba(255,255,255,0.14)', cursor:'pointer', color:'#FFFFFF', boxShadow:'inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 20px rgba(0,0,0,0.16)' }}
+      >
+        <svg width="30" height="30" fill="currentColor" viewBox="0 0 24 24">
+          <circle cx="12" cy="5" r="1.85"/><circle cx="12" cy="12" r="1.85"/><circle cx="12" cy="19" r="1.85"/>
         </svg>
       </button>
 

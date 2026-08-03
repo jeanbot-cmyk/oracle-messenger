@@ -6,6 +6,7 @@ import { t } from '../../lib/i18n';
 import { format } from 'date-fns';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
+import { MediaLightbox } from '../ui/MediaLightbox';
 
 interface Props {
   search?: string;
@@ -41,6 +42,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
   const { lang } = useSettings();
   const router = useRouter();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<{ src: string; name: string } | null>(null);
 
   const filtered = conversations.filter(c => {
     const name = c.type === 'group' ? c.name : c.participants?.[0]?.name;
@@ -71,6 +73,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
   );
 
   return (
+    <>
     <ul className="om-fade-in" style={{ flex:1, overflowY:'auto', listStyle:'none', margin:0, padding:'4px 0 8px' }}>
       {filtered.map(conv => {
         const other    = conv.participants?.[0];
@@ -94,7 +97,18 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
               }}
             >
               {/* Avatar */}
-              <div style={{ position:'relative', flexShrink:0 }}>
+              <div
+                role={avatar ? 'button' : undefined}
+                aria-label={avatar ? `Agrandir la photo de ${name}` : undefined}
+                title={avatar ? `Agrandir la photo de ${name}` : undefined}
+                onClick={(event) => {
+                  if (!avatar) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setPhotoPreview({ src: avatar, name: name ?? 'Profil' });
+                }}
+                style={{ position:'relative', flexShrink:0, cursor: avatar ? 'zoom-in' : 'inherit' }}
+              >
                 <div style={{ width:52, height:52, borderRadius:'50%', background:'var(--brand-soft)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
                   {avatar
                     ? <Image src={avatar} alt={name ?? ''} width={52} height={52} style={{ objectFit:'cover' }}/>
@@ -170,5 +184,13 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
         );
       })}
     </ul>
+    {photoPreview && (
+      <MediaLightbox
+        src={photoPreview.src}
+        type="image"
+        onClose={() => setPhotoPreview(null)}
+      />
+    )}
+    </>
   );
 }

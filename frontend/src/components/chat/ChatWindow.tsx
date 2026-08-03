@@ -396,10 +396,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             </svg>
           </button>
         )}
-        {/* Avatar : simple clic → modal profil, double-clic → photo plein écran */}
+        {/* Avatar : simple clic → photo plein écran si disponible, sinon profil */}
         <button
-          onClick={() => setProfileModal(true)}
-          onDoubleClick={e => { e.stopPropagation(); if (avatar) setAvatarLightbox(true); }}
+          onClick={() => avatar ? setAvatarLightbox(true) : setProfileModal(true)}
           style={{ position:'relative', border:'none', background:'transparent', padding:0, cursor:'pointer', flexShrink:0 }}>
           <div className="om-chat-avatar" style={{ width:40, height:40, borderRadius:'50%', background:'#F8FAFC', border:'1.5px solid rgba(255,255,255,0.72)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', flexShrink:0 }}>
             {avatar ? <img src={avatar} alt={name??''} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} /> : (
@@ -661,14 +660,18 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                 style={{ position:'absolute', top:12, right:12, width:32, height:32, borderRadius:'50%', border:'none', background:'rgba(0,0,0,0.3)', cursor:'pointer', color:'#fff', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center' }}>
                 ✕
               </button>
-              <div style={{ position:'absolute', bottom:-44, width:88, height:88, borderRadius:'50%', overflow:'hidden', border:'4px solid var(--bg-surface)', background:'var(--accent)' }}>
+              <button
+                onClick={() => avatar && setAvatarLightbox(true)}
+                title={avatar ? 'Agrandir la photo' : undefined}
+                style={{ position:'absolute', bottom:-44, width:88, height:88, borderRadius:'50%', overflow:'hidden', border:'4px solid var(--bg-surface)', background:'var(--accent)', padding:0, cursor: avatar ? 'zoom-in' : 'default' }}
+              >
                 {avatar
                   ? <img src={avatar} alt={name??''} style={{ width:'100%', height:'100%', objectFit:'cover' }}/>
                   : <div style={{ width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center' }}>
                       <span style={{ fontSize:36, fontWeight:800, color:'var(--header-bg)' }}>{(name??'?')[0].toUpperCase()}</span>
                     </div>
                 }
-              </div>
+              </button>
             </div>
             {/* Infos */}
             <div style={{ paddingTop:56, paddingLeft:24, paddingRight:24, textAlign:'center' }}>
