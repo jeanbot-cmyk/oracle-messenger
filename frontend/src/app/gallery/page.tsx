@@ -1,6 +1,6 @@
 'use client';
 export const dynamic = 'force-dynamic';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { MediaLightbox } from '../../components/ui/MediaLightbox';
@@ -16,6 +16,8 @@ export default function GalleryPage() {
   const [lightbox, setLightbox] = useState<MediaItem | null>(null);
   const [mounted,  setMounted]  = useState(false);
   const [tab,      setTab]      = useState<'all' | MediaItem['type']>('all');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const suppressNextClick = useRef(false);
 
   useEffect(() => {
     setMounted(true);
@@ -37,6 +39,29 @@ export default function GalleryPage() {
     setItems(updated);
     writeGalleryItems(updated);
     if (lightbox?.src === item.src) setLightbox(null);
+  }
+
+  function toggleSelected(item: MediaItem) {
+    setSelected(current => {
+      const next = new Set(current);
+      if (next.has(item.src)) next.delete(item.src);
+      else next.add(item.src);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelected(new Set());
+  }
+
+  function deleteSelected() {
+    if (!selected.size) return;
+    const selectedSrc = new Set(selected);
+    const updated = items.filter(item => !selectedSrc.has(item.src));
+    setItems(updated);
+    writeGalleryItems(updated);
+    if (lightbox && selectedSrc.has(lightbox.src)) setLightbox(null);
+    clearSelection();
   }
 
   function handleEdit(item: MediaItem) {
@@ -67,6 +92,7 @@ export default function GalleryPage() {
   const vidCount = items.filter(i => i.type === 'video').length;
   const audioCount = items.filter(i => i.type === 'audio').length;
   const fileCount = items.filter(i => i.type === 'file').length;
+  const selectionMode = selected.size > 0;
 
   function formatDate(value: number) {
     const date = new Date(value);
@@ -78,11 +104,25 @@ export default function GalleryPage() {
     <div style={{ minHeight: '100dvh', background: 'var(--bg-input)' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', background: '#fff', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, zIndex: 10 }}>
-        <button onClick={() => router.back()} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: 'var(--bg-input)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        <button onClick={selectionMode ? clearSelection : () => router.back()} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: 'var(--bg-input)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {selectionMode ? (
+            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+          ) : (
+            <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+          )}
         </button>
-        <h1 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0, flex: 1 }}>Galerie</h1>
-        <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{items.length} média{items.length !== 1 ? 's' : ''}</span>
+        <h1 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0, flex: 1 }}>
+          {selectionMode ? `${selected.size} sélectionné${selected.size > 1 ? 's' : ''}` : 'Galerie'}
+        </h1>
+        {selectionMode ? (
+          <button onClick={deleteSelected}
+            style={{ minHeight: 36, borderRadius: 18, border: 'none', background: '#ef4444', color: '#fff', padding: '0 14px', cursor: 'pointer', fontSize: 13, fontWeight: 850, display: 'flex', alignItems: 'center', gap: 7 }}>
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+            Effacer
+          </button>
+        ) : (
+          <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{items.length} média{items.length !== 1 ? 's' : ''}</span>
+        )}
       </div>
       <div style={{ display: 'flex', gap: 8, padding: '10px 16px', background: '#fff', borderBottom: '1px solid var(--border)', overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
         {([['all', `Tout (${items.length})`], ['image', `Photos (${imgCount})`], ['video', `Vidéos (${vidCount})`], ['audio', `Audios (${audioCount})`], ['file', `Fichiers (${fileCount})`]] as [string,string][]).map(([id, label]) => (
@@ -103,8 +143,38 @@ export default function GalleryPage() {
         </div>
       ) : (
         <div style={{ padding: 3, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 3 }}>
-          {filtered.map((item, i) => (
-            <div key={i} onClick={() => setLightbox(item)} style={{ aspectRatio: '1', overflow: 'hidden', cursor: 'pointer', position: 'relative', background: '#000' }}>
+          {filtered.map((item, i) => {
+            const isSelected = selected.has(item.src);
+            return (
+            <div
+              key={`${item.src}-${i}`}
+              onClick={() => {
+                if (suppressNextClick.current) {
+                  suppressNextClick.current = false;
+                  return;
+                }
+                selectionMode ? toggleSelected(item) : setLightbox(item);
+              }}
+              onContextMenu={e => { e.preventDefault(); toggleSelected(item); }}
+              onPointerDown={e => {
+                const target = e.currentTarget;
+                const timer = window.setTimeout(() => {
+                  suppressNextClick.current = true;
+                  toggleSelected(item);
+                }, 520);
+                target.dataset.pressTimer = String(timer);
+              }}
+              onPointerUp={e => {
+                const target = e.currentTarget;
+                const timer = Number(target.dataset.pressTimer);
+                if (timer) window.clearTimeout(timer);
+              }}
+              onPointerCancel={e => {
+                const timer = Number(e.currentTarget.dataset.pressTimer);
+                if (timer) window.clearTimeout(timer);
+              }}
+              style={{ aspectRatio: '1', overflow: 'hidden', cursor: 'pointer', position: 'relative', background: '#000', outline: isSelected ? '3px solid var(--brand)' : 'none', outlineOffset: -3 }}
+            >
               {item.type === 'image' ? (
                 <img src={item.src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               ) : item.type === 'video' ? (
@@ -129,8 +199,15 @@ export default function GalleryPage() {
               <div style={{ position: 'absolute', bottom: 4, right: 4, background: 'rgba(0,0,0,0.5)', borderRadius: 4, padding: '2px 5px' }}>
                 <span style={{ fontSize: 9, color: '#fff' }}>{formatDate(item.savedAt)}</span>
               </div>
+              {selectionMode && (
+                <div style={{ position: 'absolute', inset: 0, background: isSelected ? 'rgba(16,42,42,0.30)' : 'rgba(0,0,0,0.08)', display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', padding: 7 }}>
+                  <span style={{ width: 25, height: 25, borderRadius: '50%', border: isSelected ? 'none' : '2px solid rgba(255,255,255,0.92)', background: isSelected ? 'var(--brand)' : 'rgba(0,0,0,0.25)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.22)' }}>
+                    {isSelected && <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg>}
+                  </span>
+                </div>
+              )}
             </div>
-          ))}
+          )})}
         </div>
       )}
       {lightbox && (lightbox.type === 'image' || lightbox.type === 'video') && (

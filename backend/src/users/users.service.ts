@@ -60,29 +60,19 @@ export class UsersService {
     const term = (q ?? '').trim();
     const cleaned = term.replace(/[^\d+]/g, '');
     const digits = cleaned.replace(/\D/g, '');
-    if (digits.length < 6 && term.length < 3) return [];
+    if (digits.length < 6) return [];
 
     const phoneCandidates = this.phoneLookupCandidates(term);
-    const textFilters = digits.length >= 6 ? [] : [
-      { name:     { contains: term, mode: 'insensitive' as const } },
-      { username: { contains: term, mode: 'insensitive' as const } },
-    ];
     const users = await this.prisma.user.findMany({
       where: {
         AND: [
           { id: { not: excludeId } },
-          { OR: [
-            ...textFilters,
-            // Recherche par numéro de téléphone (partielle)
-            ...(digits.length >= 6 ? phoneCandidates.map(candidate => ({ phone: { contains: candidate } })) : []),
-          ]},
+          { OR: phoneCandidates.map(candidate => ({ phone: { contains: candidate } })) },
         ],
       },
       select: { id:true, name:true, username:true, avatar:true, status:true, phone:true },
-      take: digits.length >= 6 ? 200 : 20,
+      take: 200,
     });
-
-    if (digits.length < 6) return users.slice(0, 20);
 
     const ranked = users
       .map(user => ({ user, score: this.phoneMatchScore(term, user.phone ?? '') }))
