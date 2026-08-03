@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -6,9 +6,22 @@ export class StoriesService {
   constructor(private prisma: PrismaService) {}
 
   async create(authorId: string, dto: { content: string; caption?: string; type: string; bg: string }) {
+    const type = dto.type === 'image' ? 'image' : dto.type === 'text' ? 'text' : '';
+    if (!type) throw new BadRequestException('Type de story invalide');
+
+    const content = String(dto.content ?? '').trim();
+    if (!content) throw new BadRequestException('Contenu de story requis');
+    if (type === 'text' && content.length > 200) throw new BadRequestException('Texte trop long');
+    if (type === 'image') {
+      if (!content.startsWith('data:image/')) throw new BadRequestException('Image invalide');
+      if (content.length > 7_000_000) throw new BadRequestException('Image trop lourde');
+    }
+
+    const caption = dto.caption ? String(dto.caption).trim().slice(0, 120) : undefined;
+    const bg = /^#[0-9a-fA-F]{6}$/.test(dto.bg ?? '') ? dto.bg : '#102A2A';
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     return this.prisma.story.create({
-      data: { authorId, content: dto.content, caption: dto.caption, type: dto.type, bg: dto.bg, expiresAt },
+      data: { authorId, content, caption, type, bg, expiresAt },
       include: { author: { select: { id: true, name: true, avatar: true } }, views: true },
     });
   }
@@ -31,6 +44,11 @@ export class StoriesService {
   }
 
   async markViewed(storyId: string, userId: string) {
+    const exists = await this.prisma.story.findFirst({
+      where: { id: storyId, expiresAt: { gt: new Date() } },
+      select: { id: true },
+    });
+    if (!exists) throw new NotFoundException('Story introuvable');
     await this.prisma.storyView.upsert({
       where: { storyId_userId: { storyId, userId } },
       create: { storyId, userId },
@@ -39,6 +57,9 @@ export class StoriesService {
   }
 
   async delete(storyId: string, authorId: string) {
-    await this.prisma.story.deleteMany({ where: { id: storyId, authorId } });
+    const story = await this.prisma.story.findUnique({ where: { id: storyId }, select: { authorId: true } });
+    if (!story) throw new NotFoundException('Story introuvable');
+    if (story.authorId !== authorId) throw new ForbiddenException('Suppression non autorisée');
+    await this.prisma.story.delete({ where: { id: storyId } });
   }
 }

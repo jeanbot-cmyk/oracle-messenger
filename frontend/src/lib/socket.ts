@@ -7,7 +7,7 @@ export function getSocket(token?: string): Socket | null {
     if (socket) { socket.disconnect(); socket = null; }
     socket = io(process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:3001', {
       auth: { token },
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 20,
       reconnectionDelay: 1000,

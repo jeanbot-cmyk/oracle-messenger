@@ -1,60 +1,39 @@
 import type { NextAuthOptions } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
-import CredentialsProvider from 'next-auth/providers/credentials';
 
 export const authOptions: NextAuthOptions = {
   providers: [
-    // ── Phone login (no OTP) ──────────────────────────────────────────────
-    CredentialsProvider({
-      id: 'phone',
-      name: 'Phone',
-      credentials: {
-        backendToken: { type: 'text' },
-        userId:       { type: 'text' },
-        username:     { type: 'text' },
-        isNew:        { type: 'text' },
-      },
-      async authorize(credentials) {
-        if (!credentials?.backendToken || !credentials?.userId) return null;
-        return {
-          id:           credentials.userId,
-          backendToken: credentials.backendToken,
-          username:     credentials.username ?? '',
-          isNew:        credentials.isNew === 'true',
-        };
-      },
-    }),
-
-    // ── Google OAuth (comptes existants) ─────────────────────────────────
+    // Google is the only trusted identity provider. Phone numbers are profile data.
     GoogleProvider({
       clientId:     process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      // Désactiver PKCE — les cookies SameSite=Lax sont perdus derrière le proxy Coolify
-      checks: ['state'],
     }),
   ],
 
   callbacks: {
-    async jwt({ token, user, account, profile }) {
-      // ── Phone credentials ─────────────────────────────────────────────
-      if (account?.provider === 'phone' && user) {
-        token.backendToken = (user as any).backendToken;
-        token.userId       = user.id;
-        token.username     = (user as any).username;
-        token.isNew        = (user as any).isNew;
-        token.phone        = (user as any).phone;
+    async jwt({ token, account, profile, trigger, session }) {
+      if (trigger === 'update' && (session as any)?.user) {
+        const updated = (session as any).user;
+        if (updated.name !== undefined) token.name = updated.name;
+        if (updated.image !== undefined) token.picture = updated.image;
+        if (updated.phone !== undefined) {
+          token.phone = updated.phone;
+          token.isNew = !updated.phone;
+        }
+        if (updated.username !== undefined) token.username = updated.username;
       }
 
       // ── Google OAuth ──────────────────────────────────────────────────
       if (account?.provider === 'google' && profile) {
         const googleId  = (profile as any).sub;
         const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL;
-        if (googleId && backendUrl) {
+        if (googleId && backendUrl && account.id_token) {
           try {
             const res = await fetch(`${backendUrl}/auth/google`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
+                idToken: account.id_token,
                 googleId,
                 email:  token.email   ?? '',
                 name:   token.name    ?? '',
@@ -66,7 +45,8 @@ export const authOptions: NextAuthOptions = {
               token.backendToken = data.token;
               token.userId       = data.user?.id;
               token.username     = data.user?.username;
-              token.isNew        = false; // Google users are never "new" in onboarding sense
+              token.phone        = data.user?.phone ?? '';
+              token.isNew        = !data.user?.phone;
             }
           } catch (e) {
             console.error('[NextAuth] Backend call failed:', e);
@@ -82,6 +62,7 @@ export const authOptions: NextAuthOptions = {
       session.user.username     = (token.username     as string)  ?? '';
       session.user.backendToken = (token.backendToken as string)  ?? '';
       session.user.isNew        = (token.isNew        as boolean) ?? false;
+      if (token.picture) session.user.image = token.picture as string;
       if (token.phone) (session.user as any).phone = token.phone as string;
       return session;
     },

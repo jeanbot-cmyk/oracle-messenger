@@ -64,7 +64,7 @@ export default function UserLandingPage({ params }: Props) {
         </p>
         {typeof window !== 'undefined' && shouldOpenAndroidLinkInChrome() && (
           <a href={buildChromeIntentUrl()}
-            style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', margin:'0 0 18px', padding:'12px 18px', borderRadius:999, background:'var(--brand)', color:'#fff', fontSize:14, fontWeight:900, textDecoration:'none' }}>
+            style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', margin:'0 0 18px', padding:'12px 18px', borderRadius:999, background:'var(--brand)', color:'var(--accent-text)', fontSize:14, fontWeight:900, textDecoration:'none' }}>
             Ouvrir dans Chrome
           </a>
         )}

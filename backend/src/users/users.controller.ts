@@ -12,7 +12,7 @@ export class UsersController {
 
   @Patch('me')
   @UseGuards(JwtGuard)
-  updateMe(@Request() req: any, @Body() body: { name?: string; bio?: string; avatar?: string }) {
+  updateMe(@Request() req: any, @Body() body: { name?: string; bio?: string; avatar?: string; phone?: string }) {
     return this.users.updateProfile(req.user.id, body);
   }
 
@@ -27,10 +27,10 @@ export class UsersController {
     return this.users.findByUsername(username);
   }
 
-  @Post('match-phones')
+  @Post('match-phone-hashes')
   @UseGuards(JwtGuard)
-  matchPhones(@Body() body: { phones: string[] }) {
-    return this.users.matchByPhones(body.phones ?? []);
+  matchPhoneHashes(@Request() req: any, @Body() body: { hashes: string[] }) {
+    return this.users.matchByPhoneHashes(body.hashes ?? [], req.user.id);
   }
 
   @Get('me/has-phone')

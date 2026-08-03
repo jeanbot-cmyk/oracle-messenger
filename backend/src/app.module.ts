@@ -19,8 +19,6 @@ class HealthController {
   @Get('calls/ice-servers')
   @UseGuards(JwtGuard)
   getIceServers() {
-    // Public TURN servers via openrelay (free, no signup)
-    // For production, replace with Twilio/Metered credentials from env vars
     const iceServers: any[] = [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
@@ -34,11 +32,6 @@ class HealthController {
         credential: 'openrelayproject',
       },
     ];
-
-    // If Twilio credentials are configured, use them instead (more reliable)
-    if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-      // Would call Twilio API here — for now fall through to openrelay
-    }
 
     return { iceServers };
   }

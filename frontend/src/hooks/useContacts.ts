@@ -5,6 +5,16 @@ export interface PhoneContact {
   name: string;
   phones: string[];
   emails: string[];
+  avatar?: string | null;
+}
+
+function readBlobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => resolve('');
+    reader.readAsDataURL(blob);
+  });
 }
 
 export function useContacts() {
@@ -19,13 +29,17 @@ export function useContacts() {
     }
     setLoading(true);
     try {
-      const props = ['name', 'tel', 'email'];
+      const props = ['name', 'tel', 'email', 'icon'];
       const opts  = { multiple: true };
       const raw   = await (navigator as any).contacts.select(props, opts);
-      const parsed: PhoneContact[] = raw.map((c: any) => ({
-        name:   c.name?.[0] ?? 'Inconnu',
-        phones: c.tel  ?? [],
-        emails: c.email ?? [],
+      const parsed: PhoneContact[] = await Promise.all(raw.map(async (c: any) => {
+        const icon = Array.isArray(c.icon) ? c.icon[0] : null;
+        return {
+          name:   c.name?.[0] ?? 'Inconnu',
+          phones: c.tel  ?? [],
+          emails: c.email ?? [],
+          avatar: icon instanceof Blob ? await readBlobAsDataUrl(icon) : null,
+        };
       }));
       setContacts(parsed);
       setGranted(true);

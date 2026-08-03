@@ -5,14 +5,20 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log'],
-    bodyParser: true,
+    bodyParser: false,
   });
-  // Allow large payloads for base64 image/video transfers
-  app.use(require('express').json({ limit: '200mb' }));
-  app.use(require('express').urlencoded({ limit: '200mb', extended: true }));
+  app.use(require('express').json({ limit: process.env.JSON_LIMIT ?? '25mb' }));
+  app.use(require('express').urlencoded({ limit: process.env.JSON_LIMIT ?? '25mb', extended: true }));
 
+  const allowedOrigins = (process.env.CORS_ORIGINS ?? 'https://messenger.oracle-plus.online')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
   app.enableCors({
-    origin: '*',
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error('Origin not allowed by CORS'), false);
+    },
     credentials: true,
   });
 

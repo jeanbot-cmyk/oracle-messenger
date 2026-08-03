@@ -104,6 +104,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [callNotice, setCallNotice] = useState('');
+  const [showMessageSearch, setShowMessageSearch] = useState(false);
+  const [messageSearch, setMessageSearch] = useState('');
+  const [activeSearchIndex, setActiveSearchIndex] = useState(0);
   // Audio recording
   const [recording, setRecording]   = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
@@ -114,6 +117,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const recSecondsRef = useRef(0);
   const bottomRef  = useRef<HTMLDivElement>(null);
   const messagesViewportRef = useRef<HTMLDivElement>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const initialScrollPending = useRef(false);
   const isNearBottomRef = useRef(true);
   const prevConvRef = useRef<string | null>(null);
@@ -121,7 +125,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const typingTimer = useRef<NodeJS.Timeout | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
-  const firstMessageRef = useRef<HTMLDivElement>(null);
+  const firstMessageRef = useRef<HTMLDivElement | null>(null);
 
   const conv = conversations.find(c => c.id === activeConvId);
   const convMessages = activeConvId
@@ -136,10 +140,22 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     .map(id => allParticipants.find(p => p.id === id)?.name ?? storedNames[id] ?? 'Quelqu\'un');
   const other = conv?.participants?.[0];
   const isOnline = other && onlineUsers.has(other.id);
+  const searchNeedle = messageSearch.trim().toLowerCase();
+  const searchMatches = searchNeedle
+    ? convMessages.filter(msg =>
+        !msg.isDeleted &&
+        msg.type === 'text' &&
+        (msg.content ?? '').toLowerCase().includes(searchNeedle)
+      )
+    : [];
+  const activeSearchMessage = searchMatches[activeSearchIndex]?.id ?? '';
 
   useEffect(() => {
     setReplyTo(null);
     setEditMsg(null);
+    setShowMessageSearch(false);
+    setMessageSearch('');
+    setActiveSearchIndex(0);
     if (!activeConvId || !token) return;
     initialScrollPending.current = true;
     isNearBottomRef.current = true;
@@ -149,6 +165,15 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     emitRead(activeConvId);
     api.messages.list(activeConvId, token).then(msgs => { setMessages(activeConvId, msgs); markRead(activeConvId); emitRead(activeConvId); }).catch(() => {});
   }, [activeConvId, token]);
+
+  useEffect(() => {
+    setActiveSearchIndex(0);
+  }, [messageSearch, activeConvId]);
+
+  useEffect(() => {
+    if (!activeSearchMessage) return;
+    messageRefs.current[activeSearchMessage]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [activeSearchMessage]);
 
   function isNearBottom(el: HTMLDivElement) {
     return el.scrollHeight - el.scrollTop - el.clientHeight < 120;
@@ -448,12 +473,62 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             </button>
           </>
         )}
-        <button className="om-chat-action" style={{ width:30, height:30, minHeight:30, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }}>
+        <button
+          onClick={() => setShowMessageSearch(v => !v)}
+          className="om-chat-action"
+          style={{ width:30, height:30, minHeight:30, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background: showMessageSearch ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }}
+          title="Rechercher dans la conversation"
+        >
           <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </button>
       </div>
+
+      {showMessageSearch && (
+        <div style={{ flexShrink:0, background:'#FFFFFF', borderBottom:'1px solid var(--border)', padding:'8px 10px', display:'flex', alignItems:'center', gap:8 }}>
+          <div style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', gap:8, background:'var(--bg-input)', border:'1px solid var(--border)', borderRadius:999, padding:'8px 12px' }}>
+            <svg width="16" height="16" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            <input
+              value={messageSearch}
+              onChange={e => setMessageSearch(e.target.value)}
+              autoFocus
+              placeholder="Rechercher un message"
+              style={{ flex:1, minWidth:0, border:'none', outline:'none', background:'transparent', fontSize:14, color:'var(--text-primary)' }}
+            />
+            {messageSearch && (
+              <span style={{ fontSize:12, color:'var(--text-muted)', fontWeight:750, whiteSpace:'nowrap' }}>
+                {searchMatches.length ? `${activeSearchIndex + 1}/${searchMatches.length}` : '0'}
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => setActiveSearchIndex(i => searchMatches.length ? (i - 1 + searchMatches.length) % searchMatches.length : 0)}
+            disabled={!searchMatches.length}
+            style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'1px solid var(--border)', background:'#fff', color:'var(--text-primary)', opacity: searchMatches.length ? 1 : 0.4, cursor: searchMatches.length ? 'pointer' : 'default' }}
+            title="Résultat précédent"
+          >
+            ↑
+          </button>
+          <button
+            onClick={() => setActiveSearchIndex(i => searchMatches.length ? (i + 1) % searchMatches.length : 0)}
+            disabled={!searchMatches.length}
+            style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'1px solid var(--border)', background:'#fff', color:'var(--text-primary)', opacity: searchMatches.length ? 1 : 0.4, cursor: searchMatches.length ? 'pointer' : 'default' }}
+            title="Résultat suivant"
+          >
+            ↓
+          </button>
+          <button
+            onClick={() => { setShowMessageSearch(false); setMessageSearch(''); }}
+            style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'none', background:'transparent', color:'var(--text-muted)', cursor:'pointer', fontSize:18 }}
+            title="Fermer"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {callNotice && (
         <div style={{ flexShrink:0, background:'#EAF4F1', borderBottom:'1px solid rgba(16,42,42,0.12)', color:'#102A2A', padding:'9px 14px', fontSize:12, lineHeight:1.4, fontWeight:750 }}>
@@ -471,7 +546,14 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         <div className="om-messages-inner" style={{ display:'flex', flexDirection:'column', gap:2 }}>
           <div className="om-messages-top-spacer" />
           {convMessages.map((msg, index) => (
-            <div key={msg.id} ref={index === 0 ? firstMessageRef : undefined}>
+            <div
+              key={msg.id}
+              ref={el => {
+                messageRefs.current[msg.id] = el;
+                if (index === 0) firstMessageRef.current = el;
+              }}
+              style={msg.id === activeSearchMessage ? { borderRadius:12, boxShadow:'0 0 0 2px rgba(15,118,110,0.28)', background:'rgba(15,118,110,0.08)', transition:'box-shadow .2s ease, background .2s ease' } : undefined}
+            >
               {shouldShowDateSeparator(msg, convMessages[index - 1]) && (
                 <div className="om-date-separator">
                   {formatDateSeparator(msg.createdAt)}
