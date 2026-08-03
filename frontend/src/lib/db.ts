@@ -60,6 +60,15 @@ export async function getConversations(): Promise<Conversation[]> {
   return all.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 }
 
+export async function deleteConversation(conversationId: string) {
+  const database = await getDB();
+  const tx = database.transaction(['conversations', 'messages'], 'readwrite');
+  await tx.objectStore('conversations').delete(conversationId);
+  const messages = await tx.objectStore('messages').index('conversationId').getAll(conversationId);
+  await Promise.all(messages.map(message => tx.objectStore('messages').delete(message.id)));
+  await tx.done;
+}
+
 export async function clearOldMessages(daysOld = 30) {
   const database = await getDB();
   const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000).toISOString();

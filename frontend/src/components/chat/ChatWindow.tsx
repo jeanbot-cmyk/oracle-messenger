@@ -136,6 +136,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const isOnline = other && onlineUsers.has(other.id);
 
   useEffect(() => {
+    setReplyTo(null);
+    setEditMsg(null);
     if (!activeConvId || !token) return;
     initialScrollPending.current = true;
     isNearBottomRef.current = true;
@@ -492,14 +494,19 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
 
       {/* Reply/Edit bar */}
       {(replyTo || editMsg) && (
-        <div style={{ padding:'8px 16px', borderTop:'1px solid var(--border)', background:'var(--bg-surface)', display:'flex', alignItems:'center', gap:12 }}>
-          <div style={{ flex:1, borderLeft:'3px solid var(--accent)', paddingLeft:10 }}>
-            <p style={{ fontSize:12, color:'var(--accent)', fontWeight:600, margin:0 }}>
+        <div style={{ padding:'9px 12px', borderTop:'1px solid var(--border)', background:'var(--bg-surface)', display:'flex', alignItems:'center', gap:10, boxShadow:'0 -6px 18px rgba(17,24,28,0.05)', flexShrink:0 }}>
+          <div style={{ flex:1, minWidth:0, borderLeft:'4px solid var(--accent)', padding:'7px 10px', borderRadius:12, background:'var(--bg-input)' }}>
+            <p style={{ fontSize:12, color:'var(--accent-text)', fontWeight:850, margin:0, lineHeight:1.2 }}>
               {editMsg ? t(lang,'chat.edit.msg') : `${t(lang,'chat.reply.to')} ${replyTo?.sender?.name}`}
             </p>
-            <p style={{ fontSize:12, color:'var(--text-muted)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{messagePreview(editMsg ?? replyTo)}</p>
+            <p style={{ fontSize:13, color:'var(--text-secondary)', margin:'2px 0 0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.25 }}>{messagePreview(editMsg ?? replyTo)}</p>
           </div>
-          <button onClick={() => { setReplyTo(null); setEditMsg(null); }} style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--text-muted)', fontSize:18 }}>×</button>
+          <button
+            onClick={() => { setReplyTo(null); setEditMsg(null); }}
+            style={{ border:'1px solid var(--border)', background:'#FFFFFF', cursor:'pointer', color:'var(--text-primary)', fontSize:13, fontWeight:850, borderRadius:999, padding:'0 13px', height:38, minHeight:38, flexShrink:0, boxShadow:'var(--shadow)' }}
+          >
+            Annuler
+          </button>
         </div>
       )}
 

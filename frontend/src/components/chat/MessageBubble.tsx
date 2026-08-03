@@ -59,6 +59,18 @@ function detectType(content: string, declaredType: string): 'image' | 'video' | 
   return 'text';
 }
 
+function messagePreview(message?: Message | null) {
+  if (!message) return '';
+  if (message.isDeleted) return 'Message supprimé';
+  const src = attachmentUrl(message.content);
+  const effective = detectType(message.content, message.type ?? 'text');
+  if (effective === 'image') return 'Photo';
+  if (effective === 'video') return 'Vidéo';
+  if (effective === 'audio') return 'Audio';
+  if (effective === 'file') return 'Fichier';
+  return src.length > 90 ? `${src.slice(0, 90)}…` : src;
+}
+
 function parseFilePayload(content: string) {
   try {
     const parsed = JSON.parse(content);
@@ -371,7 +383,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onMed
         {message.replyTo && (
           <div style={{ marginBottom: 4, padding: '6px 10px', borderRadius: 8, borderLeft: '3px solid var(--accent)', background: 'var(--bg-input)', fontSize: 12, color: 'var(--text-muted)' }}>
             <p style={{ fontWeight: 600, color: 'var(--accent)', fontSize: 12, margin: '0 0 2px' }}>{message.replyTo.sender?.name}</p>
-            <p style={{ margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{message.replyTo.content}</p>
+            <p style={{ margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{messagePreview(message.replyTo)}</p>
           </div>
         )}
 

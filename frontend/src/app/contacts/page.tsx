@@ -271,6 +271,23 @@ export default function ContactsPage() {
     return [...base, ...extra.filter(m => !base.some(b => b.name === m.name))];
   }
 
+  function contactKey(contact: LocalContact) {
+    return `${contact.name.trim().toLowerCase()}|${contact.phones.join(',')}|${contact.emails.join(',')}`;
+  }
+
+  function removeContact(contact: LocalContact) {
+    const key = contactKey(contact);
+    const removeFrom = (storageKey: string) => {
+      const existing: LocalContact[] = JSON.parse(localStorage.getItem(storageKey) ?? '[]');
+      const next = existing.filter(item => contactKey(item) !== key);
+      localStorage.setItem(storageKey, JSON.stringify(next));
+    };
+    removeFrom(CACHE_KEY);
+    removeFrom(MANUAL_KEY);
+    setContacts(current => current.filter(item => contactKey(item.local) !== key));
+    setNotice('Contact retiré de cette liste.');
+  }
+
   // Fallback iOS/desktop : charger tous les utilisateurs Oracle connus
   async function loadAllOracleUsers() {
     if (!token) {
@@ -708,13 +725,13 @@ export default function ContactsPage() {
                 {oracleContacts.length > 0 && (
                   <>
                     <SectionTitle>Contacts sur Oracle Messenger</SectionTitle>
-                    {oracleContacts.map((c, i) => <ContactRow key={`oracle-${c.local.name}-${i}`} c={c} onTap={() => handleTap(c)} creating={creating} />)}
+                    {oracleContacts.map((c, i) => <ContactRow key={`oracle-${c.local.name}-${i}`} c={c} onTap={() => handleTap(c)} onRemove={() => removeContact(c.local)} creating={creating} />)}
                   </>
                 )}
                 {inviteContacts.length > 0 && (
                   <>
                     <SectionTitle>Inviter sur Oracle Messenger</SectionTitle>
-                    {inviteContacts.map((c, i) => <ContactRow key={`invite-${c.local.name}-${i}`} c={c} onTap={() => handleTap(c)} creating={creating} />)}
+                    {inviteContacts.map((c, i) => <ContactRow key={`invite-${c.local.name}-${i}`} c={c} onTap={() => handleTap(c)} onRemove={() => removeContact(c.local)} creating={creating} />)}
                   </>
                 )}
               </div>
@@ -813,12 +830,12 @@ function SectionTitle({ children }: { children: ReactNode }) {
   );
 }
 
-function ContactRow({ c, onTap, creating }: { c: EnrichedContact; onTap: () => void; creating: boolean }) {
+function ContactRow({ c, onTap, onRemove, creating }: { c: EnrichedContact; onTap: () => void; onRemove: () => void; creating: boolean }) {
   const { local, appUser } = c;
   return (
-    <div style={{ background: '#FFFFFF', overflow: 'hidden' }}>
+    <div style={{ background: '#FFFFFF', overflow: 'hidden', display:'flex', alignItems:'center', paddingRight:10 }}>
       <button onClick={onTap} disabled={creating}
-        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px', minHeight: 72, border: 'none', background: 'transparent', cursor: creating ? 'wait' : 'pointer', textAlign: 'left' }}>
+        style={{ flex:1, minWidth:0, display: 'flex', alignItems: 'center', gap: 14, padding: '12px 10px 12px 18px', minHeight: 72, border: 'none', background: 'transparent', cursor: creating ? 'wait' : 'pointer', textAlign: 'left' }}>
         <div style={{ position: 'relative', flexShrink: 0 }}>
           <Avatar name={local.name} avatar={appUser?.avatar ?? local.avatar} size={52} />
           {appUser && (
@@ -840,6 +857,17 @@ function ContactRow({ c, onTap, creating }: { c: EnrichedContact; onTap: () => v
           )}
         </div>
         {!appUser && <span style={{ color: 'var(--brand)', fontSize: 14, fontWeight: 800, flexShrink: 0 }}>Inviter</span>}
+      </button>
+      <button
+        onClick={() => {
+          if (confirm(`Retirer ${local.name} de cette liste ?`)) onRemove();
+        }}
+        aria-label={`Retirer ${local.name}`}
+        style={{ width:38, height:38, minHeight:38, borderRadius:'50%', border:'1px solid var(--border)', background:'#FFFFFF', color:'#B42318', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
+      >
+        <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/>
+        </svg>
       </button>
     </div>
   );

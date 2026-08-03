@@ -6,6 +6,7 @@ import { ConversationList } from '../chat/ConversationList';
 import { ChatWindow } from '../chat/ChatWindow';
 import { MenuDots } from './MenuDots';
 import { useChatStore } from '../../store/chat';
+import { api } from '../../lib/api';
 
 type Tab = 'discussions' | 'appels' | 'actus' | 'outils';
 
@@ -23,7 +24,8 @@ export function MainLayout({ onStartCall }: Props) {
   const [isMobile, setIsMobile] = useState(false);
   const cameraRef = useRef<HTMLInputElement>(null);
   const photoPickerRef = useRef<HTMLInputElement>(null);
-  const { activeConvId, setActiveConv } = useChatStore();
+  const token = session?.user?.backendToken ?? '';
+  const { activeConvId, setActiveConv, removeConversation } = useChatStore();
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -47,22 +49,35 @@ export function MainLayout({ onStartCall }: Props) {
     setActiveConv('');
   }
 
+  async function handleDeleteConversation(convId: string, name: string) {
+    if (!token) return;
+    const ok = confirm(`Supprimer la discussion avec ${name} ?`);
+    if (!ok) return;
+    removeConversation(convId);
+    if (activeConvId === convId && isMobile) setShowChat(false);
+    try {
+      await api.conversations.delete(convId, token);
+    } catch {
+      alert('La discussion a été retirée de ce téléphone. La suppression serveur sera à réessayer si elle réapparaît.');
+    }
+  }
+
   const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
     {
       id: 'discussions', label: 'Discussions',
-      icon: <svg width="22" height="22" fill="currentColor" viewBox="0 0 24 24"><path d="M20 2H4a2 2 0 00-2 2v18l4-4h14a2 2 0 002-2V4a2 2 0 00-2-2z"/></svg>,
+      icon: <svg width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 4.5v10.8a2.2 2.2 0 01-2.2 2.2H7.2L3.5 21V4.5a2.2 2.2 0 012.2-2.2h12.1A2.2 2.2 0 0120 4.5z"/></svg>,
     },
     {
       id: 'appels', label: 'Appels',
-      icon: <svg width="22" height="22" fill="currentColor" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>,
+      icon: <svg width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M7.1 4.8l1.6 3.6c.2.5.1 1-.3 1.4l-1 1c1.1 2.2 2.8 3.9 5 5l1-1c.4-.4 1-.5 1.4-.3l3.6 1.6c.5.2.8.7.8 1.2v2a1.4 1.4 0 01-1.5 1.4C9.6 20.4 3.6 14.4 3.3 6.3A1.4 1.4 0 014.7 4.8h2.4z"/></svg>,
     },
     {
       id: 'actus', label: 'Actus',
-      icon: <svg width="22" height="22" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M12 14c-5 0-8 2.5-8 4v1h16v-1c0-1.5-3-4-8-4z" opacity=".5"/></svg>,
+      icon: <svg width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5a4 4 0 110 8 4 4 0 010-8zM4.5 20c.9-3.7 3.4-5.5 7.5-5.5s6.6 1.8 7.5 5.5"/></svg>,
     },
     {
       id: 'outils', label: 'Outils',
-      icon: <svg width="22" height="22" fill="currentColor" viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>,
+      icon: <svg width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 7h14M5 12h14M5 17h14"/></svg>,
     },
   ];
 
@@ -105,22 +120,22 @@ export function MainLayout({ onStartCall }: Props) {
   const showChatPanel = !isMobile || showChat;
 
   return (
-    <div style={{ display: 'flex', flex: 1, overflow: 'hidden', height: '100%' }}>
+    <div style={{ display: 'flex', flex: 1, overflow: 'hidden', height: '100%', minHeight: 0 }}>
 
       {/* ── Panneau gauche (liste) ── */}
-      <div style={{ width: isMobile ? '100%' : '100%', maxWidth: isMobile ? '100%' : 420, display: showList ? 'flex' : 'none', flexDirection: 'column', background: 'var(--bg-surface)', borderRight: isMobile ? 'none' : '1px solid var(--border)', height: '100%', flexShrink: 0, position: 'relative' }}>
+      <div style={{ width: isMobile ? '100%' : '100%', maxWidth: isMobile ? '100%' : 420, display: showList ? 'flex' : 'none', flexDirection: 'column', background: 'var(--bg-surface)', borderRight: isMobile ? 'none' : '1px solid var(--border)', height: '100%', minHeight:0, flexShrink: 0, position: 'relative' }}>
 
         {/* Header */}
-        <div style={{ padding: '14px 16px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, background: 'var(--header-bg)', borderBottom: '1px solid rgba(214,178,94,0.22)' }}>
-          <span style={{ fontSize: 22, fontWeight: 900, color: '#FFFFFF', letterSpacing: 0 }}>Oracle Messenger</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <div style={{ padding: 'calc(14px + env(safe-area-inset-top, 0px)) 18px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, background: 'linear-gradient(180deg, var(--header-bg), #235F58)', borderBottom: '1px solid rgba(255,255,255,0.10)', boxShadow: '0 1px 0 rgba(17,24,28,0.05)' }}>
+          <span style={{ fontSize: 24, lineHeight: 1.1, fontWeight: 850, color: '#FFFFFF', letterSpacing: 0 }}>Oracle Messenger</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {/* Bouton caméra → ouvre caméra native */}
             <button
               onClick={() => cameraRef.current?.click()}
-              style={{ width: 38, height: 38, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(255,255,255,0.08)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F8FAFC' }}
+              style={{ width: 40, height: 40, minHeight: 40, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(255,255,255,0.10)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F8FAFC' }}
               title="Prendre une photo"
             >
-              <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
               </svg>
@@ -134,28 +149,28 @@ export function MainLayout({ onStartCall }: Props) {
         </div>
 
         {/* Barre de recherche */}
-        <div style={{ padding: '10px 12px', flexShrink: 0, background: 'var(--bg-surface)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#FFFFFF', border: '1px solid var(--border)', borderRadius: 24, padding: '9px 14px' }}>
-            <svg width="16" height="16" fill="none" stroke="var(--text-muted)" strokeWidth="2" viewBox="0 0 24 24">
+        <div style={{ padding: '12px 16px 10px', flexShrink: 0, background: 'var(--bg-surface)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 22, padding: '9px 14px', minHeight: 44, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.75)' }}>
+            <svg width="18" height="18" fill="none" stroke="var(--text-muted)" strokeWidth="1.9" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
             </svg>
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher…"
-              style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 14, color: 'var(--text-primary)', fontWeight: 600 }} />
+              style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 15, color: 'var(--text-primary)', fontWeight: 500, lineHeight: 1.35 }} />
           </div>
         </div>
 
         {/* Filtres pills — seulement Discussions */}
         {tab === 'discussions' && (
-          <div style={{ display: 'flex', gap: 8, padding: '0 12px 10px', overflowX: 'auto', flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: 8, padding: '0 16px 12px', overflowX: 'auto', flexShrink: 0 }}>
             {FILTERS.map(f => (
               <button key={f.id} onClick={() => setFilter(f.id as any)}
-              style={{ flexShrink: 0, padding: '6px 16px', borderRadius: 20, border: filter === f.id ? 'none' : '1px solid var(--border)', background: filter === f.id ? '#D6B25E' : 'transparent', color: filter === f.id ? '#102A2A' : 'var(--text-primary)', fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              style={{ flexShrink: 0, minHeight: 36, padding: '8px 15px', borderRadius: 999, border: filter === f.id ? '1px solid transparent' : '1px solid var(--border)', background: filter === f.id ? 'var(--brand-soft)' : '#FFFFFF', color: filter === f.id ? 'var(--brand)' : 'var(--text-secondary)', fontSize: 14, lineHeight: 1.15, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', boxShadow: filter === f.id ? '0 6px 16px rgba(30,97,89,0.08)' : 'none' }}>
                 {f.label}
               </button>
             ))}
             <button
               onClick={() => router.push('/contacts')}
-              style={{ flexShrink: 0, width: 32, height: 32, borderRadius: '50%', border: '1px solid var(--border)', background: 'rgba(214,178,94,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#102A2A', fontSize: 18, fontWeight: 700 }}>
+              style={{ flexShrink: 0, width: 36, height: 36, minHeight: 36, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--accent-soft)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-text)', fontSize: 20, fontWeight: 700 }}>
               +
             </button>
           </div>
@@ -168,6 +183,7 @@ export function MainLayout({ onStartCall }: Props) {
               search={search}
               filter={filter}
               onSelect={(convId) => handleSelectConv(convId)}
+              onDelete={handleDeleteConversation}
             />
           )}
           {tab === 'appels'      && <CallsTab />}
@@ -179,20 +195,20 @@ export function MainLayout({ onStartCall }: Props) {
         {tab === 'discussions' && (
           <button
             onClick={() => router.push('/contacts')}
-            style={{ position: 'absolute', bottom: 72, right: 16, width: 56, height: 56, borderRadius: '50%', background: '#D6B25E', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(201,168,76,0.35)', zIndex: 10 }}
+            style={{ position: 'absolute', bottom: 78, right: 18, width: 54, height: 54, minHeight: 54, borderRadius: '18px', background: 'var(--brand)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 12px 26px rgba(30,97,89,0.24)', zIndex: 10 }}
             title="Nouveau message"
           >
-            <svg width="24" height="24" fill="#102A2A" viewBox="0 0 24 24">
-              <path d="M20 2H4a2 2 0 00-2 2v18l4-4h14a2 2 0 002-2V4a2 2 0 00-2-2zm-2 10h-4v4h-2v-4H8v-2h4V6h2v4h4v2z"/>
+            <svg width="23" height="23" fill="none" stroke="#FFFFFF" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14"/>
             </svg>
           </button>
         )}
 
         {/* Tabs bas */}
-        <div style={{ display: 'flex', borderTop: '1px solid var(--border)', background: 'var(--bg-surface)', flexShrink: 0, paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        <div style={{ display: 'flex', borderTop: '1px solid var(--border)', background: 'rgba(255,255,255,0.96)', flexShrink: 0, paddingBottom: 'env(safe-area-inset-bottom)', boxShadow: '0 -8px 24px rgba(17,24,28,0.04)' }}>
           {TABS.map(tb => (
             <button key={tb.id} onClick={() => setTab(tb.id)}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '10px 4px 8px', border: 'none', background: 'transparent', cursor: 'pointer', color: tab === tb.id ? '#D6B25E' : 'var(--text-muted)', fontSize: 11, fontWeight: tab === tb.id ? 800 : 500, transition: 'color 0.15s' }}>
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '9px 4px 8px', minHeight: 62, border: 'none', background: 'transparent', cursor: 'pointer', color: tab === tb.id ? 'var(--brand)' : 'var(--text-muted)', fontSize: 12, lineHeight: 1.1, fontWeight: tab === tb.id ? 800 : 600, transition: 'color 0.2s ease, transform 0.2s ease' }}>
               {tb.icon}
               {tb.label}
             </button>
@@ -201,7 +217,7 @@ export function MainLayout({ onStartCall }: Props) {
       </div>
 
       {/* ── Panneau droit (conversation) ── */}
-      <div style={{ flex: 1, display: showChatPanel ? 'flex' : 'none', overflow: 'hidden', flexDirection: 'column' }}>
+      <div style={{ flex: 1, display: showChatPanel ? 'flex' : 'none', overflow: 'hidden', flexDirection: 'column', minHeight:0 }}>
         <ChatWindow
           onStartCall={onStartCall}
           onBack={isMobile ? handleBackToList : undefined}
@@ -266,7 +282,7 @@ function CallsTab() {
 
   if (!mounted) return null;
 
-  const ACCENT = '#D6B25E';
+  const ACCENT = 'var(--accent)';
 
   const dirIcon = (d: string) => {
     if (d === 'missed')   return <span style={{ color:'#dc2626', fontSize:13 }}>↙ Manqué</span>;
@@ -277,7 +293,7 @@ function CallsTab() {
   return (
     <div style={{ height:'100%', display:'flex', flexDirection:'column', background:'var(--bg-app)' }}>
       {/* Header */}
-      <div style={{ background:'#102A2A', padding:'14px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0, borderBottom:'1px solid rgba(214,178,94,0.22)' }}>
+      <div style={{ background:'var(--header-bg)', padding:'14px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0, borderBottom:'1px solid rgba(200,168,90,0.22)' }}>
         <h2 style={{ color:'#fff', fontSize:18, fontWeight:800, margin:0 }}>Appels</h2>
         <div style={{ display:'flex', gap:8 }}>
           {log.length > 0 && (
@@ -287,7 +303,7 @@ function CallsTab() {
             </button>
           )}
           <button onClick={() => router.push('/contacts')}
-            style={{ background:'#D6B25E', border:'none', borderRadius:20, padding:'8px 16px', color:'#102A2A', fontWeight:800, fontSize:13, cursor:'pointer' }}>
+            style={{ background:'var(--accent)', border:'none', borderRadius:20, padding:'8px 16px', color:'var(--header-bg)', fontWeight:800, fontSize:13, cursor:'pointer' }}>
             + Nouvel appel
           </button>
         </div>
@@ -295,13 +311,13 @@ function CallsTab() {
 
       {loading ? (
         <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <div style={{ width:28, height:28, border:'3px solid #e9edef', borderTopColor:ACCENT, borderRadius:'50%', animation:'spin .8s linear infinite' }}/>
+          <div style={{ width:28, height:28, border:'3px solid var(--border)', borderTopColor:ACCENT, borderRadius:'50%', animation:'spin .8s linear infinite' }}/>
           <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
         </div>
       ) : log.length === 0 ? (
         <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:12, color:'var(--text-muted)', padding:24 }}>
-          <div style={{ width:72, height:72, borderRadius:'50%', background:'rgba(214,178,94,0.12)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-            <svg width="36" height="36" fill="#D6B25E" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+          <div style={{ width:72, height:72, borderRadius:'50%', background:'rgba(200,168,90,0.12)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <svg width="36" height="36" fill="var(--accent)" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
           </div>
           <p style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)', margin:0 }}>Aucun appel récent</p>
           <p style={{ fontSize:13, textAlign:'center', lineHeight:1.5, margin:0 }}>Vos appels apparaîtront ici</p>
@@ -316,8 +332,8 @@ function CallsTab() {
             return (
               <div key={entry.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 16px', background:'var(--bg-surface)', borderBottom:'1px solid var(--border)' }}>
                 {/* Avatar */}
-                <div style={{ width:48, height:48, borderRadius:'50%', background: entry.direction==='missed' ? '#fef2f2' : 'rgba(214,178,94,0.15)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <span style={{ fontSize:20, fontWeight:800, color: entry.direction==='missed' ? '#dc2626' : '#102A2A' }}>{initials}</span>
+                <div style={{ width:48, height:48, borderRadius:'50%', background: entry.direction==='missed' ? '#fef2f2' : 'rgba(200,168,90,0.15)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <span style={{ fontSize:20, fontWeight:800, color: entry.direction==='missed' ? '#dc2626' : 'var(--header-bg)' }}>{initials}</span>
                 </div>
                 {/* Info */}
                 <div style={{ flex:1, minWidth:0 }}>
@@ -353,13 +369,13 @@ function ActusTab() {
   const router = useRouter();
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--text-muted)', padding: 24, background: 'var(--bg-app)' }}>
-      <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(214,178,94,0.12)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D6B25E' }}>
+      <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(200,168,90,0.12)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>
         <svg width="36" height="36" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/></svg>
       </div>
       <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Stories & Actus</p>
       <p style={{ fontSize: 13, textAlign: 'center', lineHeight: 1.5 }}>Partagez des moments avec vos contacts</p>
       <button onClick={() => router.push('/stories')}
-        style={{ background: '#D6B25E', color: '#102A2A', border: 'none', borderRadius: 20, padding: '10px 24px', cursor: 'pointer', fontWeight: 800, fontSize: 14, marginTop: 8 }}>
+        style={{ background: 'var(--accent)', color: 'var(--header-bg)', border: 'none', borderRadius: 20, padding: '10px 24px', cursor: 'pointer', fontWeight: 800, fontSize: 14, marginTop: 8 }}>
         Voir les stories
       </button>
     </div>
@@ -424,8 +440,8 @@ function OutilsTab({ onPickPhoto }: { onPickPhoto: () => void }) {
           <div style={{ background: 'var(--bg-surface)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
             {section.items.map((tool, i) => (
               <button key={tool.label} onClick={tool.action}
-                style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%', borderBottom: i < section.items.length - 1 ? '1px solid rgba(214,178,94,0.14)' : 'none' }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(214,178,94,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#D6B25E', flexShrink: 0 }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%', borderBottom: i < section.items.length - 1 ? '1px solid rgba(200,168,90,0.14)' : 'none' }}>
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(200,168,90,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)', flexShrink: 0 }}>
                   {TOOL_ICONS[tool.iconKey]}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>

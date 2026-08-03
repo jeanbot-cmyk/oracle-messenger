@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Conversation, Message, User } from '../types';
-import { saveMessage, saveConversation, getMessages, getConversations } from '../lib/db';
+import { saveMessage, saveConversation, getMessages, getConversations, deleteConversation as deleteLocalConversation } from '../lib/db';
 
 interface ChatStore {
   conversations:      Conversation[];
@@ -14,6 +14,7 @@ interface ChatStore {
   setCurrentUser:     (u: User) => void;
   setConversations:   (c: Conversation[]) => void;
   setActiveConv:      (id: string) => void;
+  removeConversation: (id: string) => void;
   addMessage:         (msg: Message) => void;
   updateMessage:      (id: string, patch: Partial<Message>) => void;
   deleteMessage:      (convId: string, msgId: string) => void;
@@ -42,6 +43,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   setActiveConv: (id) => set({ activeConvId: id }),
+
+  removeConversation: (id) => {
+    deleteLocalConversation(id).catch(() => {});
+    set(s => {
+      const nextMessages = { ...s.messages };
+      delete nextMessages[id];
+      return {
+        conversations: s.conversations.filter(c => c.id !== id),
+        messages: nextMessages,
+        activeConvId: s.activeConvId === id ? null : s.activeConvId,
+      };
+    });
+  },
 
   addMessage: (msg) => {
     saveMessage(msg);

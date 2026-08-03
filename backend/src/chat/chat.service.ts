@@ -67,6 +67,23 @@ export class ChatService {
     };
   }
 
+  async deleteConversationForUser(conversationId: string, userId: string) {
+    const participant = await this.prisma.participant.findUnique({
+      where: { userId_conversationId: { userId, conversationId } },
+      select: { id: true },
+    });
+    if (!participant) throw new ForbiddenException();
+
+    await this.prisma.participant.delete({ where: { id: participant.id } });
+
+    const remaining = await this.prisma.participant.count({ where: { conversationId } });
+    if (remaining === 0) {
+      await this.prisma.conversation.delete({ where: { id: conversationId } });
+    }
+
+    return { ok: true };
+  }
+
   async getOrCreateDirect(userId: string, participantId: string) {
     // Chercher une conversation directe existante
     let conv = await this.prisma.conversation.findFirst({

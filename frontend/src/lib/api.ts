@@ -19,6 +19,8 @@ export const api = {
     get:  (id: string, token: string) => req<any>(`/conversations/${id}`, {}, token),
     create: (participantId: string, token: string) =>
       req<any>('/conversations', { method: 'POST', body: JSON.stringify({ participantId }) }, token),
+    delete: (id: string, token: string) =>
+      req<{ ok: boolean }>(`/conversations/${id}`, { method: 'DELETE' }, token),
   },
   messages: {
     list: (convId: string, token: string, before?: string) =>

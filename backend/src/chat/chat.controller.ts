@@ -22,6 +22,11 @@ export class ChatController {
     return this.chat.getConversation(id, req.user.id);
   }
 
+  @Delete('conversations/:id')
+  deleteConversation(@Param('id') id: string, @Request() req: any) {
+    return this.chat.deleteConversationForUser(id, req.user.id);
+  }
+
   @Get('conversations/:id/messages')
   messages(@Param('id') id: string, @Query('before') before: string, @Request() req: any) {
     return this.chat.getMessages(id, req.user.id, before);
