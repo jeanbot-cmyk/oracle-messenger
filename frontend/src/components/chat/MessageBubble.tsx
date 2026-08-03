@@ -243,8 +243,21 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
   // peut provoquer des ralentissements et des écritures répétées.
   useEffect(() => {
     if (isOwn || message.isDeleted || !mediaSrcEarly) return;
-    if (effectiveTypeEarly === 'image' || effectiveTypeEarly === 'video') {
-      saveToGallery(mediaSrcEarly, effectiveTypeEarly, undefined);
+    if (effectiveTypeEarly === 'image' || effectiveTypeEarly === 'video' || effectiveTypeEarly === 'audio' || effectiveTypeEarly === 'file') {
+      let name: string | undefined;
+      let mime: string | undefined;
+      let size: number | undefined;
+      if (effectiveTypeEarly === 'file') {
+        try {
+          const parsed = JSON.parse(message.content);
+          if (parsed && typeof parsed === 'object') {
+            name = typeof parsed.name === 'string' ? parsed.name : undefined;
+            mime = typeof parsed.mime === 'string' ? parsed.mime : undefined;
+            size = typeof parsed.size === 'number' ? parsed.size : undefined;
+          }
+        } catch {}
+      }
+      saveToGallery(mediaSrcEarly, effectiveTypeEarly, name, { mime, size, source: 'conversation' });
     }
   }, [isOwn, message.id, message.isDeleted, mediaSrcEarly, effectiveTypeEarly]);
 

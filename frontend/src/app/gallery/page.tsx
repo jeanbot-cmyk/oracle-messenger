@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { MediaLightbox } from '../../components/ui/MediaLightbox';
-import { GALLERY_KEY, type MediaItem } from '../../lib/gallery';
+import { type MediaItem, readGalleryItems, writeGalleryItems } from '../../lib/gallery';
 
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
@@ -15,7 +15,7 @@ export default function GalleryPage() {
   const [items,    setItems]    = useState<MediaItem[]>([]);
   const [lightbox, setLightbox] = useState<MediaItem | null>(null);
   const [mounted,  setMounted]  = useState(false);
-  const [tab,      setTab]      = useState<'all' | 'image' | 'video'>('all');
+  const [tab,      setTab]      = useState<'all' | MediaItem['type']>('all');
 
   useEffect(() => {
     setMounted(true);
@@ -24,8 +24,9 @@ export default function GalleryPage() {
 
   const reload = useCallback(() => {
     try {
-      const saved: MediaItem[] = JSON.parse(localStorage.getItem(GALLERY_KEY) ?? '[]');
+      const saved = readGalleryItems();
       setItems(saved);
+      writeGalleryItems(saved);
     } catch {}
   }, []);
 
@@ -34,7 +35,7 @@ export default function GalleryPage() {
   function handleDelete(item: MediaItem) {
     const updated = items.filter(i => i.src !== item.src);
     setItems(updated);
-    localStorage.setItem(GALLERY_KEY, JSON.stringify(updated));
+    writeGalleryItems(updated);
     if (lightbox?.src === item.src) setLightbox(null);
   }
 
@@ -47,7 +48,7 @@ export default function GalleryPage() {
     try {
       const a = document.createElement('a');
       a.href = item.src;
-      a.download = item.name ?? `oracle-${item.type}-${Date.now()}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
+      a.download = item.name ?? `oracle-${item.type}-${Date.now()}.${item.type === 'video' ? 'mp4' : item.type === 'audio' ? 'webm' : item.type === 'file' ? 'bin' : 'jpg'}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -64,6 +65,14 @@ export default function GalleryPage() {
   const filtered = tab === 'all' ? items : items.filter(i => i.type === tab);
   const imgCount = items.filter(i => i.type === 'image').length;
   const vidCount = items.filter(i => i.type === 'video').length;
+  const audioCount = items.filter(i => i.type === 'audio').length;
+  const fileCount = items.filter(i => i.type === 'file').length;
+
+  function formatDate(value: number) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+  }
 
   return (
     <div style={{ minHeight: '100dvh', background: 'var(--bg-input)' }}>
@@ -75,13 +84,16 @@ export default function GalleryPage() {
         <h1 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0, flex: 1 }}>Galerie</h1>
         <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{items.length} média{items.length !== 1 ? 's' : ''}</span>
       </div>
-      <div style={{ display: 'flex', gap: 8, padding: '10px 16px', background: '#fff', borderBottom: '1px solid var(--border)' }}>
-        {([['all', `Tout (${items.length})`], ['image', `Photos (${imgCount})`], ['video', `Vidéos (${vidCount})`]] as [string,string][]).map(([id, label]) => (
+      <div style={{ display: 'flex', gap: 8, padding: '10px 16px', background: '#fff', borderBottom: '1px solid var(--border)', overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
+        {([['all', `Tout (${items.length})`], ['image', `Photos (${imgCount})`], ['video', `Vidéos (${vidCount})`], ['audio', `Audios (${audioCount})`], ['file', `Fichiers (${fileCount})`]] as [string,string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id as any)}
-            style={{ padding: '6px 14px', borderRadius: 20, border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', background: tab === id ? ACCENT : 'var(--bg-input)', color: tab === id ? '#fff' : 'var(--text-secondary)' }}>
+            style={{ flex:'0 0 auto', padding: '8px 14px', borderRadius: 20, border: 'none', fontSize: 13, fontWeight: 750, cursor: 'pointer', background: tab === id ? ACCENT : 'var(--bg-input)', color: tab === id ? '#fff' : 'var(--text-secondary)' }}>
             {label}
           </button>
         ))}
+      </div>
+      <div style={{ background:'#EAF4F1', borderBottom:'1px solid rgba(16,42,42,0.12)', color:'#102A2A', padding:'10px 16px', fontSize:12.5, lineHeight:1.45, fontWeight:700 }}>
+        Les médias reçus dans les conversations sont conservés ici localement sur ce téléphone. Les retouches photo enregistrées apparaissent aussi dans cette galerie.
       </div>
       {filtered.length === 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 'calc(100dvh - 120px)', gap: 16, color: 'var(--text-muted)', padding: 24, textAlign: 'center' }}>
@@ -95,7 +107,7 @@ export default function GalleryPage() {
             <div key={i} onClick={() => setLightbox(item)} style={{ aspectRatio: '1', overflow: 'hidden', cursor: 'pointer', position: 'relative', background: '#000' }}>
               {item.type === 'image' ? (
                 <img src={item.src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              ) : (
+              ) : item.type === 'video' ? (
                 <>
                   <video src={item.src} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -104,15 +116,24 @@ export default function GalleryPage() {
                     </div>
                   </div>
                 </>
+              ) : (
+                <div style={{ width:'100%', height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:7, padding:10, color:'#fff', textAlign:'center', background:item.type === 'audio' ? '#1F2937' : '#111827' }}>
+                  <div style={{ width:42, height:42, borderRadius:14, background:'rgba(255,255,255,0.12)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22 }}>
+                    {item.type === 'audio' ? '🎙️' : '📄'}
+                  </div>
+                  <p style={{ margin:0, fontSize:11, lineHeight:1.25, fontWeight:800, maxWidth:'100%', overflow:'hidden', textOverflow:'ellipsis', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical' as any }}>
+                    {item.name || (item.type === 'audio' ? 'Audio' : 'Fichier')}
+                  </p>
+                </div>
               )}
               <div style={{ position: 'absolute', bottom: 4, right: 4, background: 'rgba(0,0,0,0.5)', borderRadius: 4, padding: '2px 5px' }}>
-                <span style={{ fontSize: 9, color: '#fff' }}>{new Date(item.savedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })}</span>
+                <span style={{ fontSize: 9, color: '#fff' }}>{formatDate(item.savedAt)}</span>
               </div>
             </div>
           ))}
         </div>
       )}
-      {lightbox && (
+      {lightbox && (lightbox.type === 'image' || lightbox.type === 'video') && (
         <>
           <MediaLightbox src={lightbox.src} type={lightbox.type} onClose={() => setLightbox(null)} onSave={() => downloadToPhone(lightbox)} />
           <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1001, display: 'flex', gap: 10, padding: '12px 16px', background: 'linear-gradient(transparent, rgba(0,0,0,0.85))' }}>
@@ -133,6 +154,24 @@ export default function GalleryPage() {
             </button>
           </div>
         </>
+      )}
+      {lightbox && (lightbox.type === 'audio' || lightbox.type === 'file') && (
+        <div style={{ position:'fixed', inset:0, zIndex:1000, background:'rgba(0,0,0,0.82)', display:'flex', alignItems:'flex-end' }} onClick={e => { if (e.target === e.currentTarget) setLightbox(null); }}>
+          <div style={{ width:'100%', background:'#fff', borderRadius:'22px 22px 0 0', padding:'18px 16px max(18px, env(safe-area-inset-bottom))' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:14 }}>
+              <div style={{ width:50, height:50, borderRadius:16, background:'var(--bg-input)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24 }}>{lightbox.type === 'audio' ? '🎙️' : '📄'}</div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <p style={{ margin:0, fontSize:16, fontWeight:900, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{lightbox.name || (lightbox.type === 'audio' ? 'Audio' : 'Fichier')}</p>
+                <p style={{ margin:'3px 0 0', fontSize:12, color:'var(--text-muted)', fontWeight:700 }}>{formatDate(lightbox.savedAt)}</p>
+              </div>
+              <button onClick={() => setLightbox(null)} style={{ width:38, height:38, borderRadius:'50%', border:'none', background:'var(--bg-input)', fontSize:20, cursor:'pointer' }}>×</button>
+            </div>
+            {lightbox.type === 'audio' && <audio src={lightbox.src} controls style={{ width:'100%', marginBottom:12 }} />}
+            <button onClick={() => downloadToPhone(lightbox)} style={{ width:'100%', border:'none', borderRadius:14, background:ACCENT, color:ACCENT_TEXT, padding:14, fontSize:15, fontWeight:900, cursor:'pointer' }}>
+              Enregistrer sur le téléphone
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

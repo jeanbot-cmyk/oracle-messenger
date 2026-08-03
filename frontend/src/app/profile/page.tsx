@@ -157,7 +157,7 @@ export default function ProfilePage() {
   if (!mounted || status === 'loading') return <Spinner />;
 
   return (
-    <div style={{ minHeight:'100dvh', background:'var(--bg-app)', paddingBottom:'calc(84px + env(safe-area-inset-bottom))' }}>
+    <div style={{ minHeight:'100dvh', background:'var(--bg-app)', paddingBottom:'calc(158px + env(safe-area-inset-bottom))' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
       {/* Header */}
@@ -220,12 +220,12 @@ export default function ProfilePage() {
               <span style={{ fontSize:18 }}>🔗</span>
               <p style={{ fontSize:14, fontWeight:800, color:'var(--text-primary)', margin:0 }}>{t(lang, 'profile.uniqueLink')}</p>
             </div>
-            <div style={{ background:'#F8FAFC', borderRadius:10, padding:'10px 12px', marginBottom:10, border:'1px solid var(--border)' }}>
-              <p style={{ fontSize:13, color:'var(--text-primary)', margin:0, wordBreak:'break-all', fontWeight:700, lineHeight:1.45 }}>{profileLink}</p>
+            <div style={{ background:'#F8FAFC', borderRadius:10, padding:'10px 12px', marginBottom:10, border:'1px solid var(--border)', userSelect:'text', WebkitUserSelect:'text' }}>
+              <p style={{ fontSize:13, color:'#151A23', margin:0, wordBreak:'break-all', fontWeight:800, lineHeight:1.45 }}>{profileLink}</p>
             </div>
             {/* Explication */}
             <div style={{ background:'rgba(16,42,42,0.06)', borderRadius:10, padding:'10px 12px', marginBottom:12, border:'1px solid rgba(16,42,42,0.12)' }}>
-              <p style={{ fontSize:12.5, color:'var(--text-primary)', margin:0, lineHeight:1.62, fontWeight:650 }}>
+              <p style={{ fontSize:12.5, color:'#151A23', margin:0, lineHeight:1.62, fontWeight:750 }}>
                 💡 <strong>{t(lang, 'profile.linkHelp1')}</strong><br/>
                 {t(lang, 'profile.linkHelp2')}<br/>
                 {t(lang, 'profile.linkHelp3')}

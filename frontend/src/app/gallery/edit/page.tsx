@@ -2,6 +2,7 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { saveToGallery } from '../../../lib/gallery';
 
 const ACCENT = 'var(--brand)';
 
@@ -10,26 +11,33 @@ interface Adjustments {
   contrast:   number;
   saturation: number;
   blur:       number; // 0-10
+  warmth:     number; // -100..100
+  sepia:      number; // 0-100
+  grayscale:  number; // 0-100
   rotation:   number; // 0,90,180,270
   flipH:      boolean;
   flipV:      boolean;
 }
 
-const DEFAULT: Adjustments = { brightness:100, contrast:100, saturation:100, blur:0, rotation:0, flipH:false, flipV:false };
+const DEFAULT: Adjustments = { brightness:100, contrast:100, saturation:100, blur:0, warmth:0, sepia:0, grayscale:0, rotation:0, flipH:false, flipV:false };
 
 const FILTERS = [
   { name:'Original',  css:'' },
+  { name:'Pro net',   css:'contrast(1.08) saturate(1.12) brightness(1.03)' },
   { name:'Vivid',     css:'saturate(1.8) contrast(1.1)' },
-  { name:'Fade',      css:'brightness(1.1) saturate(0.7) contrast(0.9)' },
-  { name:'Noir',      css:'grayscale(1) contrast(1.1)' },
-  { name:'Chaud',     css:'sepia(0.4) saturate(1.3) brightness(1.05)' },
-  { name:'Froid',     css:'hue-rotate(200deg) saturate(1.2)' },
-  { name:'Drama',     css:'contrast(1.4) saturate(1.3) brightness(0.9)' },
-  { name:'Vintage',   css:'sepia(0.6) contrast(0.9) brightness(1.1) saturate(0.8)' },
+  { name:'Portrait',  css:'brightness(1.05) contrast(1.04) saturate(1.08)' },
+  { name:'Noir',      css:'grayscale(1) contrast(1.12)' },
+  { name:'Chaud',     css:'sepia(0.34) saturate(1.25) brightness(1.05)' },
+  { name:'Froid',     css:'hue-rotate(200deg) saturate(1.15)' },
+  { name:'Drama',     css:'contrast(1.34) saturate(1.24) brightness(0.94)' },
+  { name:'Vintage',   css:'sepia(0.58) contrast(0.92) brightness(1.08) saturate(0.82)' },
+  { name:'Clair',     css:'brightness(1.14) contrast(0.98) saturate(1.04)' },
 ];
 
 function buildFilter(adj: Adjustments, extra = '') {
-  return `brightness(${adj.brightness}%) contrast(${adj.contrast}%) saturate(${adj.saturation}%) blur(${adj.blur}px) ${extra}`;
+  const hue = adj.warmth * -0.18;
+  const warmSepia = Math.max(0, adj.warmth) * 0.002;
+  return `brightness(${adj.brightness}%) contrast(${adj.contrast}%) saturate(${adj.saturation}%) sepia(${(adj.sepia / 100) + warmSepia}) grayscale(${adj.grayscale}%) hue-rotate(${hue}deg) blur(${adj.blur}px) ${extra}`;
 }
 
 function buildTransform(adj: Adjustments) {
@@ -96,10 +104,7 @@ export default function PhotoEditPage() {
       ctx.drawImage(img, -img.naturalWidth/2, -img.naturalHeight/2);
       ctx.restore();
       const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-      // Sauvegarder dans la galerie locale
-      const gallery: string[] = JSON.parse(localStorage.getItem('oracle-gallery') ?? '[]');
-      gallery.unshift(dataUrl);
-      localStorage.setItem('oracle-gallery', JSON.stringify(gallery.slice(0, 100)));
+      saveToGallery(dataUrl, 'image', `retouche-${Date.now()}.jpg`, { source: 'edit', mime: 'image/jpeg' });
       setSaved(true);
       setTimeout(() => router.back(), 1200);
     } finally {
@@ -111,6 +116,9 @@ export default function PhotoEditPage() {
     { key:'brightness', label:'Luminosité',  min:0,   max:200, step:1 },
     { key:'contrast',   label:'Contraste',   min:0,   max:200, step:1 },
     { key:'saturation', label:'Saturation',  min:0,   max:300, step:1 },
+    { key:'warmth',     label:'Chaleur',     min:-100,max:100, step:1 },
+    { key:'sepia',      label:'Sépia',       min:0,   max:100, step:1 },
+    { key:'grayscale',  label:'Noir & blanc',min:0,   max:100, step:1 },
     { key:'blur',       label:'Flou',        min:0,   max:10,  step:0.1 },
   ];
 
@@ -165,6 +173,10 @@ export default function PhotoEditPage() {
           ))}
         </div>
 
+        <div style={{ padding:'8px 16px 0', color:'rgba(255,255,255,0.68)', fontSize:12, lineHeight:1.35 }}>
+          Outils gratuits : luminosité, contraste, saturation, chaleur, noir & blanc, sépia, flou, rotation, miroir et filtres.
+        </div>
+
         {/* Adjust tab */}
         {tab === 'adjust' && (
           <div style={{ padding:'12px 16px 20px', display:'flex', flexDirection:'column', gap:14 }}>
@@ -186,7 +198,7 @@ export default function PhotoEditPage() {
               <div key={s.key}>
                 <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
                   <span style={{ fontSize:12, color:'rgba(255,255,255,0.7)' }}>{s.label}</span>
-                  <span style={{ fontSize:12, color:ACCENT, fontWeight:600 }}>{(adj[s.key] as number).toFixed(s.step < 1 ? 1 : 0)}{s.key==='blur'?'px':'%'}</span>
+                  <span style={{ fontSize:12, color:ACCENT, fontWeight:600 }}>{(adj[s.key] as number).toFixed(s.step < 1 ? 1 : 0)}{s.key==='blur'?'px':s.key==='warmth'?'':'%'}</span>
                 </div>
                 <input type="range" min={s.min} max={s.max} step={s.step}
                   value={adj[s.key] as number}

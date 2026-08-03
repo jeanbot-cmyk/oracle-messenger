@@ -9,7 +9,7 @@ import { t } from '../../lib/i18n';
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
 const MANUAL_CONTACTS_KEY = 'oracle-manual-contacts';
-const INSTALL_VERSION = '86-20260803-i18n';
+const INSTALL_VERSION = '87-20260803-business-gallery';
 const INSTALL_RESET_KEY = `oracle-install-reset-${INSTALL_VERSION}`;
 
 type Device = 'ios' | 'android' | 'other';

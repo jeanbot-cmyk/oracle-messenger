@@ -67,10 +67,12 @@ function MeetingTab({ userName }: { userName: string }) {
   const [active, setActive] = useState(false);
   const [roomName, setRoomName] = useState('');
   const [joinLink, setJoinLink] = useState('');
+  const [notice, setNotice] = useState('');
 
   function startMeeting() {
     const name = room.trim() || `oracle-${Math.random().toString(36).slice(2, 8)}`;
     setRoomName(name); setActive(true);
+    setNotice('Réunion créée. Si Jitsi demande comment rejoindre, choisissez “Rejoindre depuis le navigateur”.');
     window.open(`https://meet.jit.si/${name}#userInfo.displayName="${encodeURIComponent(userName)}"`, '_blank', 'noopener');
   }
   function joinMeeting() {
@@ -79,13 +81,33 @@ function MeetingTab({ userName }: { userName: string }) {
     window.open(`https://meet.jit.si/${r}#userInfo.displayName="${encodeURIComponent(userName)}"`, '_blank', 'noopener');
   }
   const shareLink = `https://meet.jit.si/${roomName}`;
+  const pendingRoom = room.trim() || roomName || 'oracle-votre-salle';
 
   return (
     <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ background:'#EAF4F1', border:'1px solid rgba(16,42,42,0.14)', borderRadius:16, padding:14, color:'#102A2A' }}>
+        <p style={{ margin:'0 0 8px', fontSize:15, fontWeight:900 }}>Comment lancer une réunion</p>
+        <div style={{ display:'grid', gap:6, marginBottom:12 }}>
+          {[
+            '1. Donnez un nom simple à la salle ou laissez Oracle générer un nom.',
+            '2. Appuyez sur “Démarrer la réunion”.',
+            '3. Si Jitsi affiche un choix, appuyez sur “Rejoindre depuis le navigateur”.',
+            '4. Copiez ou partagez le lien avec vos invités. Ils ouvrent le même lien pour rejoindre.',
+          ].map(step => <p key={step} style={{ margin:0, fontSize:12.7, lineHeight:1.45, fontWeight:700 }}>{step}</p>)}
+        </div>
+        <p style={{ margin:0, fontSize:12.2, lineHeight:1.45, color:'rgba(16,42,42,0.72)', fontWeight:700 }}>
+          Conseil : sur Android, Chrome donne souvent une meilleure compatibilité micro/caméra que certains navigateurs intégrés.
+        </p>
+      </div>
+
       <div style={{ background: '#fff', borderRadius: 16, padding: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
         <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand)', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Nouvelle réunion</p>
         <input value={room} onChange={e => setRoom(e.target.value)} placeholder="Nom de la salle (optionnel)"
           style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', fontSize: 15, outline: 'none', boxSizing: 'border-box', marginBottom: 12 }} />
+        <div style={{ background:'var(--bg-input)', border:'1px solid var(--border)', borderRadius:10, padding:'9px 11px', marginBottom:12 }}>
+          <p style={{ margin:'0 0 3px', fontSize:11.5, color:'var(--text-muted)', fontWeight:800 }}>Lien prévu</p>
+          <p style={{ margin:0, fontSize:12.5, color:'var(--text-primary)', fontWeight:800, wordBreak:'break-all' }}>https://meet.jit.si/{pendingRoom}</p>
+        </div>
         <button onClick={startMeeting} style={{ width: '100%', background: 'var(--brand)', color: 'var(--accent-text)', border: 'none', borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
           🎥 Démarrer la réunion
         </button>
@@ -94,6 +116,7 @@ function MeetingTab({ userName }: { userName: string }) {
       {active && (
         <div style={{ background: '#e8f5e9', borderRadius: 16, padding: 16, border: '1px solid #c8e6c9' }}>
           <p style={{ fontSize: 13, fontWeight: 700, color: '#2e7d32', margin: '0 0 6px' }}>✅ Réunion : <strong>{roomName}</strong></p>
+          {notice && <p style={{ fontSize:12.5, lineHeight:1.45, color:'#2e7d32', margin:'0 0 8px', fontWeight:700 }}>{notice}</p>}
           <div style={{ background: '#fff', borderRadius: 10, padding: '8px 12px', marginBottom: 10, wordBreak: 'break-all', fontSize: 13, color: 'var(--brand)' }}>{shareLink}</div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
             <button onClick={() => navigator.clipboard?.writeText(shareLink).then(() => alert('Lien copié !'))}
@@ -101,6 +124,10 @@ function MeetingTab({ userName }: { userName: string }) {
             <button onClick={() => navigator.share?.({ title: 'Rejoins ma réunion', url: shareLink }).catch(() => {})}
               style={{ flex: 1, background: 'var(--brand)', border: 'none', borderRadius: 10, padding: 10, cursor: 'pointer', fontSize: 13, color: '#fff', fontWeight: 600 }}>📤 Partager</button>
           </div>
+          <button onClick={() => window.open(`${shareLink}#userInfo.displayName="${encodeURIComponent(userName)}"`, '_blank', 'noopener')}
+            style={{ width: '100%', background: '#fff', border: '1px solid #c8e6c9', borderRadius: 10, padding: 10, cursor: 'pointer', fontSize: 13, color: '#2e7d32', fontWeight: 800, marginBottom: 8 }}>
+            🌐 Ouvrir / rejoindre depuis le navigateur
+          </button>
           <button onClick={() => { setActive(false); setRoom(''); setRoomName(''); }}
             style={{ width: '100%', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: 10, cursor: 'pointer', fontSize: 13, color: '#dc2626', fontWeight: 600 }}>
             ✖ Terminer

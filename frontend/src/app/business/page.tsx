@@ -48,6 +48,11 @@ export default function BusinessPage() {
   const [showRemind,setShowRemind]=useState<Client|null>(null);
   const [remDate,setRemDate]=useState('');
   const [remNote,setRemNote]=useState('');
+  const [guideOpen,setGuideOpen]=useState(true);
+  const username=(session?.user as any)?.username ?? '';
+  const businessLink=username
+    ? `https://messenger.oracle-plus.online/u/${encodeURIComponent(username)}`
+    : 'https://messenger.oracle-plus.online/install';
 
   useEffect(()=>{setMounted(true);if(status==='unauthenticated')router.replace('/login');},[status]);
   useEffect(()=>{if(!mounted)return;setClients(ld('oracle-crm',[]) );setReminders(ld('oracle-rem',[]));checkReminders();},[mounted]);
@@ -65,6 +70,8 @@ export default function BusinessPage() {
 
   function saveC(list:Client[]){setClients(list);sv('oracle-crm',list);}
   function saveR(list:Reminder[]){setReminders(list);sv('oracle-rem',list);}
+  function copyBusinessLink(){navigator.clipboard?.writeText(businessLink).then(()=>alert('Lien copié !')).catch(()=>{});}
+  function shareBusinessLink(){navigator.share?.({title:'Oracle Messenger',text:'Contactez-moi directement sur Oracle Messenger.',url:businessLink}).catch(()=>copyBusinessLink());}
 
   const filtered=clients.filter(c=>{
     const ms=c.name.toLowerCase().includes(search.toLowerCase())||c.phone.includes(search);
@@ -108,6 +115,38 @@ export default function BusinessPage() {
         </div>
       </div>
       <div style={{flex:1,overflowY:'auto'}}>
+        <div style={{padding:'12px 12px 0'}}>
+          <div style={{background:'var(--bg-surface)',border:'1px solid var(--border)',borderRadius:18,padding:14,boxShadow:'var(--shadow)'}}>
+            <button onClick={()=>setGuideOpen(v=>!v)} style={{width:'100%',display:'flex',alignItems:'center',gap:10,border:'none',background:'transparent',padding:0,cursor:'pointer',textAlign:'left'}}>
+              <span style={{width:38,height:38,borderRadius:14,background:'rgba(16,42,42,0.08)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>💼</span>
+              <div style={{flex:1,minWidth:0}}>
+                <p style={{margin:0,fontSize:15,fontWeight:900,color:'var(--text-primary)',lineHeight:1.2}}>À quoi sert Business & CRM ?</p>
+                <p style={{margin:'3px 0 0',fontSize:12.5,color:'var(--text-secondary)',fontWeight:650,lineHeight:1.35}}>Suivre clients, rappels, relances, paiements et messages WhatsApp.</p>
+              </div>
+              <span style={{fontSize:18,color:'var(--text-muted)',transform:guideOpen?'rotate(180deg)':'none',transition:'transform .18s'}}>⌄</span>
+            </button>
+            {guideOpen&&(
+              <div style={{marginTop:12,borderTop:'1px solid var(--border)',paddingTop:12}}>
+                <div style={{display:'grid',gap:8,marginBottom:12}}>
+                  {[
+                    '1. Ajoutez un client avec son numéro et son statut.',
+                    '2. Programmez un rappel pour ne pas oublier une relance.',
+                    '3. Marquez payé, chaud, froid, VIP ou à relancer.',
+                    '4. Copiez votre lien et publiez-le sur Facebook, WhatsApp, Instagram ou SMS pour que les clients vous écrivent directement.',
+                  ].map(line=><p key={line} style={{margin:0,fontSize:12.8,lineHeight:1.45,color:'var(--text-secondary)',fontWeight:650}}>{line}</p>)}
+                </div>
+                <p style={{margin:'0 0 6px',fontSize:12,fontWeight:900,color:'var(--brand)',textTransform:'uppercase',letterSpacing:.4}}>Votre lien à partager</p>
+                <div style={{background:'#F8FAFC',border:'1px solid var(--border)',borderRadius:12,padding:'10px 12px',marginBottom:10}}>
+                  <p style={{margin:0,fontSize:12.5,lineHeight:1.45,color:'var(--text-primary)',fontWeight:800,wordBreak:'break-all'}}>{businessLink}</p>
+                </div>
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={copyBusinessLink} style={{flex:1,border:'1px solid var(--border)',background:'var(--bg-app)',borderRadius:12,padding:'10px 8px',fontSize:13,fontWeight:900,color:'var(--text-primary)',cursor:'pointer'}}>📋 Copier</button>
+                  <button onClick={shareBusinessLink} style={{flex:1,border:'none',background:'var(--header-bg)',borderRadius:12,padding:'10px 8px',fontSize:13,fontWeight:900,color:'#fff',cursor:'pointer'}}>📤 Partager</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
         {tab==='clients'&&(
           <>
             {/* Search + filter */}
@@ -318,12 +357,12 @@ function ClientForm({initial,onSave,onClose}:{initial:Client|null;onSave:(c:Clie
         </div>
         {[{label:'Nom *',val:name,set:setName,ph:'Nom du client'},{label:'Téléphone',val:phone,set:setPhone,ph:'+225 07...'},{label:'Email',val:email,set:setEmail,ph:'email@...'},{label:'Valeur (€)',val:value,set:setValue,ph:'0'}].map(f=>(
           <div key={f.label} style={{marginBottom:12}}>
-            <p style={{fontSize:12,fontWeight:600,color:'var(--accent-text)',margin:'0 0 4px',textTransform:'uppercase',letterSpacing:0.5}}>{f.label}</p>
+            <p style={{fontSize:12,fontWeight:850,color:'var(--brand)',margin:'0 0 4px',textTransform:'uppercase',letterSpacing:0.5}}>{f.label}</p>
             <input value={f.val} onChange={e=>f.set(e.target.value)} placeholder={f.ph}
               style={{width:'100%',padding:'10px 14px',borderRadius:12,border:'1px solid var(--border)',fontSize:15,outline:'none',boxSizing:'border-box'}}/>
           </div>
         ))}
-        <p style={{fontSize:12,fontWeight:600,color:'var(--accent-text)',margin:'0 0 8px',textTransform:'uppercase',letterSpacing:0.5}}>Tags</p>
+        <p style={{fontSize:12,fontWeight:850,color:'var(--brand)',margin:'0 0 8px',textTransform:'uppercase',letterSpacing:0.5}}>Tags</p>
         <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
           {(Object.keys(TAG_META) as Tag[]).map(t=>(
             <button key={t} onClick={()=>toggleTag(t)} style={{padding:'5px 12px',borderRadius:16,border:'none',background:tags.includes(t)?TAG_META[t].bg:'var(--bg-app)',color:tags.includes(t)?TAG_META[t].color:'var(--text-muted)',fontSize:12,cursor:'pointer',fontWeight:tags.includes(t)?700:400}}>
@@ -331,7 +370,7 @@ function ClientForm({initial,onSave,onClose}:{initial:Client|null;onSave:(c:Clie
             </button>
           ))}
         </div>
-        <p style={{fontSize:12,fontWeight:600,color:'var(--accent-text)',margin:'0 0 4px',textTransform:'uppercase',letterSpacing:0.5}}>Notes</p>
+        <p style={{fontSize:12,fontWeight:850,color:'var(--brand)',margin:'0 0 4px',textTransform:'uppercase',letterSpacing:0.5}}>Notes</p>
         <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={3} placeholder="Notes sur ce client…"
           style={{width:'100%',padding:'10px 14px',borderRadius:12,border:'1px solid var(--border)',fontSize:14,outline:'none',resize:'none',boxSizing:'border-box'}}/>
       </div>
