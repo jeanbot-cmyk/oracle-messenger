@@ -5,6 +5,7 @@ import { getSocket } from '../lib/socket';
 import { useChatStore } from '../store/chat';
 import { useNotifications } from './useNotifications';
 import type { Message } from '../types';
+import { isMediaMessage } from '../lib/db';
 
 function attachmentPreview(msg: Message) {
   if (msg.isDeleted) return 'Message supprimé';
@@ -20,6 +21,10 @@ function attachmentPreview(msg: Message) {
   if (type === 'audio' || type === 'voice' || src.startsWith('data:audio')) return 'Audio';
   if (type === 'file' || type === 'document' || src.startsWith('data:') || (src.length > 500 && /^[A-Za-z0-9+/=\r\n]+$/.test(src))) return 'Fichier';
   return content;
+}
+
+function hasMediaPayload(msg: Message) {
+  return isMediaMessage(msg.type) && typeof msg.content === 'string' && msg.content.trim().length > 0;
 }
 
 export function useSocket() {
@@ -44,6 +49,9 @@ export function useSocket() {
 
     socket.on('message:new', (msg: Message) => {
       store.addMessage(msg);
+      if (hasMediaPayload(msg)) {
+        window.setTimeout(() => socket.emit('message:media-saved', { messageId: msg.id }), 150);
+      }
       // Notifier seulement si le message vient de quelqu'un d'autre
       if (msg.senderId !== userId) {
         const senderName = msg.sender?.name ?? 'Nouveau message';
@@ -142,6 +150,9 @@ export function useSocket() {
       if (ack?.id) {
         useChatStore.getState().deleteMessage(convId, tempId);
         useChatStore.getState().addMessage({ ...ack, status: ack.status ?? 'sent' });
+        if (hasMediaPayload(ack)) {
+          window.setTimeout(() => socket.emit('message:media-saved', { messageId: ack.id }), 150);
+        }
       }
     });
   }

@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import type { Conversation, Message, User } from '../types';
-import { saveMessage, saveConversation, getMessages, deleteMessage as deleteLocalMessage, deleteConversation as deleteLocalConversation } from '../lib/db';
+import {
+  saveMessage,
+  saveConversation,
+  getMessages,
+  deleteMessage as deleteLocalMessage,
+  deleteConversation as deleteLocalConversation,
+  preserveLocalMediaContent,
+} from '../lib/db';
 
 interface ChatStore {
   conversations:      Conversation[];
@@ -58,15 +65,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   addMessage: (msg) => {
-    saveMessage(msg);
     set(s => {
       const prev = s.messages[msg.conversationId] ?? [];
       const exists = prev.find(m => m.id === msg.id);
-      const updated = exists ? prev.map(m => m.id === msg.id ? msg : m) : [...prev, msg];
+      const nextMsg = preserveLocalMediaContent(msg, exists);
+      saveMessage(nextMsg).catch(() => {});
+      const updated = exists ? prev.map(m => m.id === msg.id ? nextMsg : m) : [...prev, nextMsg];
       // Mettre à jour lastMessage dans la conversation
       const convs = s.conversations.map(c => {
         if (c.id !== msg.conversationId) return c;
-        const next = { ...c, lastMessage: msg, updatedAt: msg.createdAt };
+        const next = { ...c, lastMessage: nextMsg, updatedAt: nextMsg.createdAt };
         saveConversation(next).catch(() => {});
         return next;
       });
@@ -80,7 +88,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       for (const [convId, msgs] of Object.entries(s.messages)) {
         updated[convId] = msgs.map(m => {
           if (m.id !== id) return m;
-          const next = { ...m, ...patch };
+          const effectivePatch =
+            patch.content === '' && preserveLocalMediaContent({ ...m, ...patch }, m).content === m.content
+              ? Object.fromEntries(Object.entries(patch).filter(([key]) => key !== 'content')) as Partial<Message>
+              : patch;
+          const next = { ...m, ...effectivePatch };
           saveMessage(next).catch(() => {});
           return next;
         });
@@ -105,12 +117,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   setMessages: (convId, msgs) => {
-    msgs.forEach(m => saveMessage(m));
     set(s => {
       const existing = s.messages[convId] ?? [];
       const byId = new Map<string, Message>();
       for (const msg of existing) byId.set(msg.id, msg);
-      for (const msg of msgs) byId.set(msg.id, msg);
+      for (const msg of msgs) {
+        const nextMsg = preserveLocalMediaContent(msg, byId.get(msg.id));
+        byId.set(msg.id, nextMsg);
+        saveMessage(nextMsg).catch(() => {});
+      }
       const merged = Array.from(byId.values())
         .filter(msg => msg.conversationId === convId)
         .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());

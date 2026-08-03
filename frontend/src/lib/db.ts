@@ -7,6 +7,26 @@ const DB_VERSION = 1;
 
 let db: IDBPDatabase | null = null;
 
+export function isMediaMessage(type?: string | null) {
+  return ['image', 'video', 'audio', 'voice', 'file', 'document'].includes(String(type ?? '').toLowerCase());
+}
+
+function hasLocalPayload(content?: string | null) {
+  return typeof content === 'string' && content.trim().length > 0;
+}
+
+export function preserveLocalMediaContent(incoming: Message, existing?: Message | null): Message {
+  if (
+    existing &&
+    isMediaMessage(incoming.type) &&
+    !hasLocalPayload(incoming.content) &&
+    hasLocalPayload(existing.content)
+  ) {
+    return { ...incoming, content: existing.content };
+  }
+  return incoming;
+}
+
 async function getDB() {
   if (db) return db;
   db = await openDB(DB_NAME, DB_VERSION, {
@@ -34,7 +54,8 @@ async function getDB() {
 // ── Messages ─────────────────────────────────────────────────────────────────
 export async function saveMessage(msg: Message) {
   const database = await getDB();
-  await database.put('messages', msg);
+  const existing = await database.get('messages', msg.id);
+  await database.put('messages', preserveLocalMediaContent(msg, existing));
 }
 
 export async function getMessages(conversationId: string, limit = 50): Promise<Message[]> {
@@ -76,5 +97,15 @@ export async function clearOldMessages(daysOld = 30) {
   const old = all.filter(m => m.createdAt < cutoff);
   const tx = database.transaction('messages', 'readwrite');
   await Promise.all(old.map(m => tx.store.delete(m.id)));
+  await tx.done;
+}
+
+export async function clearOldTextMessages(daysOld = 5) {
+  const database = await getDB();
+  const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000).toISOString();
+  const all = await database.getAll('messages');
+  const oldText = all.filter(m => m.type === 'text' && m.createdAt < cutoff);
+  const tx = database.transaction('messages', 'readwrite');
+  await Promise.all(oldText.map(m => tx.store.delete(m.id)));
   await tx.done;
 }

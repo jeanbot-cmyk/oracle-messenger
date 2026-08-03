@@ -5,6 +5,10 @@ import { PrismaService } from '../prisma/prisma.service';
 export class ChatService {
   constructor(private prisma: PrismaService) {}
 
+  private isMediaType(type?: string | null) {
+    return ['image', 'video', 'audio', 'voice', 'file', 'document'].includes(String(type ?? '').toLowerCase());
+  }
+
   // ── Conversations ──────────────────────────────────────────────────────────
   async getConversations(userId: string) {
     const participations = await this.prisma.participant.findMany({
@@ -130,6 +134,8 @@ export class ChatService {
 
   // ── Messages ───────────────────────────────────────────────────────────────
   async getMessages(conversationId: string, userId: string, before?: string) {
+    await this.cleanupOldTextMessages(5).catch(() => null);
+
     // Vérifier que l'utilisateur est participant
     const participant = await this.prisma.participant.findUnique({
       where: { userId_conversationId: { userId, conversationId } },
@@ -163,6 +169,54 @@ export class ChatService {
     await this.prisma.conversation.update({ where: { id: conversationId }, data: { updatedAt: new Date() } });
 
     return msg;
+  }
+
+  async markMediaSavedLocally(messageId: string, userId: string) {
+    const msg = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      include: { conversation: { include: { participants: { select: { userId: true } } } } },
+    });
+    if (!msg) throw new NotFoundException();
+    if (!this.isMediaType(msg.type)) return { cleared: false, message: msg };
+
+    const participantIds = msg.conversation.participants.map(p => p.userId);
+    if (!participantIds.includes(userId)) throw new ForbiddenException();
+
+    await this.prisma.messageLocalSave.upsert({
+      where: { messageId_userId: { messageId, userId } },
+      create: { messageId, userId },
+      update: {},
+    });
+
+    const savedCount = await this.prisma.messageLocalSave.count({
+      where: { messageId, userId: { in: participantIds } },
+    });
+    const allParticipantsSaved = savedCount >= participantIds.length;
+    const hasServerPayload = typeof msg.content === 'string' && msg.content.trim().length > 0;
+
+    if (!allParticipantsSaved || !hasServerPayload) return { cleared: false, message: msg };
+
+    const cleared = await this.prisma.message.update({
+      where: { id: messageId },
+      data: { content: '' },
+    });
+    return { cleared: true, message: cleared };
+  }
+
+  async cleanupOldTextMessages(days = 5) {
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    return this.prisma.message.updateMany({
+      where: {
+        type: 'text',
+        isDeleted: false,
+        createdAt: { lt: cutoff },
+        content: { not: '' },
+      },
+      data: {
+        content: '',
+        isDeleted: true,
+      },
+    });
   }
 
   async updateMessageStatus(messageId: string, status: 'sent' | 'delivered' | 'read') {

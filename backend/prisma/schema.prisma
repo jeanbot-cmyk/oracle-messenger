@@ -102,6 +102,20 @@ model Message {
   sender         User         @relation("SentMessages", fields: [senderId], references: [id])
   replyTo        Message?     @relation("Replies", fields: [replyToId], references: [id])
   replies        Message[]    @relation("Replies")
+  localSaves     MessageLocalSave[]
+}
+
+model MessageLocalSave {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([messageId])
+  @@index([userId])
 }
 
 // Stories — visibles 24h, partagées entre utilisateurs

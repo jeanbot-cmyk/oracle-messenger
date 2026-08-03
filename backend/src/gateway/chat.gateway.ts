@@ -38,6 +38,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     participants: Set<string>;
   }>();
   private offlineTimers = new Map<string, NodeJS.Timeout>();
+  private cleanupTimer?: NodeJS.Timeout;
 
   constructor(
     private jwt: JwtService,
@@ -50,6 +51,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   afterInit(server: Server) {
     this.socketState.setServer(server);
+    this.chat.cleanupOldTextMessages(5).catch(() => {});
+    this.cleanupTimer = setInterval(() => {
+      this.chat.cleanupOldTextMessages(5).catch(() => {});
+    }, 6 * 60 * 60 * 1000);
+    this.cleanupTimer.unref?.();
   }
 
   // ── Connexion ─────────────────────────────────────────────────────────────
@@ -233,6 +239,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       for (const uid of participantIds) {
         for (const sid of this.socketState.getSocketIds(uid)) {
           this.server.to(sid).emit('conversation:read', payload);
+        }
+      }
+    } catch {}
+  }
+
+  @SubscribeMessage('message:media-saved')
+  async handleMediaSaved(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { messageId: string },
+  ) {
+    try {
+      const result = await this.chat.markMediaSavedLocally(data.messageId, client.data.userId);
+      if (!result.cleared) return;
+
+      const msg: any = result.message;
+      const patch = { content: '', updatedAt: msg.updatedAt };
+      this.server.to(`conv:${msg.conversationId}`).emit('message:update', {
+        id: msg.id,
+        patch,
+      });
+
+      const participantIds = await this.chat.getParticipantIds(msg.conversationId);
+      for (const uid of participantIds) {
+        for (const sid of this.socketState.getSocketIds(uid)) {
+          this.server.to(sid).emit('message:update', { id: msg.id, patch });
         }
       }
     } catch {}

@@ -6,8 +6,9 @@ import { useSettings } from '../store/settings';
 import { detectLanguage } from '../lib/i18n';
 import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { buildChromeIntentUrl, openCurrentAndroidLinkInChrome, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
+import { clearOldTextMessages } from '../lib/db';
 
-const CLIENT_CACHE_VERSION = '51-20260803-call-presence-stability';
+const CLIENT_CACHE_VERSION = '52-20260803-media-local-text-cleanup';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 
@@ -98,6 +99,7 @@ function ThemeApplier() {
 
     // Contacts are imported only from /contacts after an explicit user tap.
     // Browsers display a native contact picker that cannot be styled by the app.
+    clearOldTextMessages(5).catch(() => {});
   }, []);
 
   return null;

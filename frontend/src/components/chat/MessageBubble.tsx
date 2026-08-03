@@ -317,6 +317,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onMed
 
   const effectiveType = detectType(message.content, message.type ?? 'text');
   const mediaSrc = attachmentUrl(message.content);
+  const missingLocalMedia = effectiveType !== 'text' && !mediaSrc;
   const timeStr = (() => { try { return format(new Date(message.createdAt), 'HH:mm'); } catch { return ''; } })();
 
   const menuStyle: React.CSSProperties = {
@@ -398,8 +399,17 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onMed
           onMouseLeave={handlePressEnd}
           onDoubleClick={() => onReply(message)}
         >
+          {missingLocalMedia && (
+            <div style={{ padding: '10px 12px', minWidth: 220 }}>
+              <p style={{ fontSize: 13, lineHeight: 1.35, color: 'var(--text-muted)', margin: 0 }}>
+                Média non disponible sur ce téléphone.
+              </p>
+              <TimeRow />
+            </div>
+          )}
+
           {/* IMAGE */}
-          {effectiveType === 'image' && !imgError && (
+          {effectiveType === 'image' && !missingLocalMedia && !imgError && (
             <div>
               <img src={mediaSrc} alt="image" onError={() => setImgError(true)}
                 style={{ width: '100%', maxHeight: 'min(52vh, 520px)', borderRadius: 8, display: 'block', cursor: 'zoom-in', objectFit: 'contain', background: '#111' }}
@@ -411,7 +421,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onMed
               </div>
             </div>
           )}
-          {effectiveType === 'image' && imgError && (
+          {effectiveType === 'image' && !missingLocalMedia && imgError && (
             <div style={{ padding: '10px 14px' }}>
               <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>🖼️ Image non disponible</p>
               <TimeRow />
@@ -419,7 +429,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onMed
           )}
 
           {/* VIDEO */}
-          {effectiveType === 'video' && (
+          {effectiveType === 'video' && !missingLocalMedia && (
             <div>
               <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setLightbox(true)}>
                 <video src={mediaSrc} playsInline muted onLoadedMetadata={onMediaLoad}
@@ -442,12 +452,12 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onMed
           )}
 
           {/* AUDIO */}
-          {effectiveType === 'audio' && (
+          {effectiveType === 'audio' && !missingLocalMedia && (
             <AudioPlayer src={mediaSrc} timeRow={<TimeRow />} />
           )}
 
           {/* FILE */}
-          {effectiveType === 'file' && (
+          {effectiveType === 'file' && !missingLocalMedia && (
             <div style={{ padding: '8px 12px' }}>
               {(() => {
                 const file = parseFilePayload(message.content);
