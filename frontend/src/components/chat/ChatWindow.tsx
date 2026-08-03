@@ -50,11 +50,21 @@ function EmojiPicker({ onSelect, onClose }: { onSelect: (e: string) => void; onC
     ? EMOJI_CATEGORIES.flatMap(c => c.emojis).filter(e => e.includes(search))
     : EMOJI_CATEGORIES[cat].emojis;
   return (
-    <div style={{ position:'absolute', bottom:'100%', left:0, right:0, background:'#fff', borderRadius:'16px 16px 0 0', boxShadow:'0 -4px 24px rgba(0,0,0,0.15)', zIndex:200, maxHeight:320, display:'flex', flexDirection:'column' }}>
+    <div
+      className="om-emoji-picker"
+      style={{ position:'absolute', bottom:'100%', left:0, right:0, background:'#fff', borderRadius:'16px 16px 0 0', boxShadow:'0 -4px 24px rgba(0,0,0,0.15)', zIndex:200, height:'min(42dvh, 330px)', maxHeight:'calc(100dvh - 170px)', display:'flex', flexDirection:'column', overflow:'hidden', overscrollBehavior:'contain' }}
+    >
       {/* Search */}
-      <div style={{ padding:'10px 12px 6px', borderBottom:'1px solid var(--bg-input)' }}>
+      <div style={{ padding:'10px 12px 6px', borderBottom:'1px solid var(--bg-input)', flexShrink:0, display:'flex', alignItems:'center', gap:8 }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un emoji…"
-          style={{ width:'100%', border:'1px solid var(--border)', borderRadius:20, padding:'6px 14px', fontSize:14, outline:'none', boxSizing:'border-box' }}/>
+          style={{ flex:1, minWidth:0, border:'1px solid var(--border)', borderRadius:20, padding:'8px 14px', fontSize:14, outline:'none', boxSizing:'border-box' }}/>
+        <button
+          onClick={onClose}
+          aria-label="Fermer les emojis"
+          style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'1px solid var(--border)', background:'#F8FAFC', color:'var(--text-primary)', fontSize:20, lineHeight:1, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
+        >
+          ×
+        </button>
       </div>
       {/* Category tabs */}
       {!search && (
@@ -68,10 +78,10 @@ function EmojiPicker({ onSelect, onClose }: { onSelect: (e: string) => void; onC
         </div>
       )}
       {/* Grid */}
-      <div style={{ overflowY:'auto', padding:'8px', display:'flex', flexWrap:'wrap', gap:2 }}>
+      <div style={{ overflowY:'auto', padding:'8px 10px 12px', display:'grid', gridTemplateColumns:'repeat(8, minmax(0, 1fr))', gap:4, flex:1, minHeight:0, overscrollBehavior:'contain', WebkitOverflowScrolling:'touch' }}>
         {filtered.map((e, i) => (
-          <button key={i} onClick={() => onSelect(e)}
-            style={{ border:'none', background:'transparent', fontSize:24, cursor:'pointer', padding:'4px', borderRadius:8, lineHeight:1 }}>
+          <button key={i} type="button" onClick={() => onSelect(e)}
+            style={{ border:'none', background:'transparent', fontSize:24, cursor:'pointer', padding:'6px 0', borderRadius:8, lineHeight:1, minWidth:0, aspectRatio:'1 / 1', display:'flex', alignItems:'center', justifyContent:'center' }}>
             {e}
           </button>
         ))}
@@ -313,7 +323,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   async function handleSend() {
     const content = input.trim();
     if (!content || !activeConvId || sending) return;
-    setInput(''); setSending(true);
+    setInput('');
+    setShowEmoji(false);
+    setSending(true);
     if (typingTimer.current) clearTimeout(typingTimer.current);
     sendTyping(activeConvId, false);
     if (editMsg) {

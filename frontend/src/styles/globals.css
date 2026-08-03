@@ -315,6 +315,11 @@ textarea:focus {
   box-shadow: 0 -1px 0 rgba(17,24,28,0.06);
 }
 
+.om-emoji-picker {
+  contain: layout paint;
+  touch-action: pan-y;
+}
+
 @media (max-width: 768px) and (pointer: coarse) {
   .om-chat-header {
     gap: 8px !important;
@@ -414,6 +419,11 @@ textarea:focus {
 
   .om-composer-emoji {
     font-size: 20px !important;
+  }
+
+  .om-emoji-picker {
+    height: min(40dvh, 315px) !important;
+    max-height: calc(100dvh - 164px) !important;
   }
 }
 
