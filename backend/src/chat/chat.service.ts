@@ -9,6 +9,15 @@ export class ChatService {
     return ['image', 'video', 'audio', 'voice', 'file', 'document'].includes(String(type ?? '').toLowerCase());
   }
 
+  private unreadWhere(conversationId: string, userId: string, lastReadAt?: Date | null) {
+    return {
+      conversationId,
+      senderId: { not: userId },
+      isDeleted: false,
+      ...(lastReadAt ? { createdAt: { gt: lastReadAt } } : {}),
+    };
+  }
+
   // ── Conversations ──────────────────────────────────────────────────────────
   async getConversations(userId: string) {
     const participations = await this.prisma.participant.findMany({
@@ -24,10 +33,12 @@ export class ChatService {
       orderBy: { conversation: { updatedAt: 'desc' } },
     });
 
-    return participations.map(p => {
+    return Promise.all(participations.map(async p => {
       const conv = p.conversation;
       const others = conv.participants.filter(pt => pt.userId !== userId).map(pt => pt.user);
-      const unread = 0; // calculé côté client via IndexedDB
+      const unread = await this.prisma.message.count({
+        where: this.unreadWhere(conv.id, userId, p.lastReadAt),
+      });
       return {
         id: conv.id,
         type: conv.type,
@@ -39,7 +50,7 @@ export class ChatService {
         isPinned: false,
         updatedAt: conv.updatedAt,
       };
-    });
+    }));
   }
 
   async getConversation(conversationId: string, userId: string) {
@@ -58,6 +69,9 @@ export class ChatService {
     if (!conv) throw new NotFoundException();
 
     const others = conv.participants.filter(p => p.userId !== userId).map(p => p.user);
+    const unread = await this.prisma.message.count({
+      where: this.unreadWhere(conv.id, userId, participant.lastReadAt),
+    });
     return {
       id: conv.id,
       type: conv.type,
@@ -65,7 +79,7 @@ export class ChatService {
       avatar: conv.avatar,
       participants: others,
       lastMessage: conv.messages[0] ?? null,
-      unreadCount: 0,
+      unreadCount: unread,
       isPinned: false,
       updatedAt: conv.updatedAt,
     };

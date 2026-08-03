@@ -13,6 +13,12 @@ export class CallsController {
     return this.calls.getHistory(req.user.id, limit ? parseInt(limit, 10) : 50);
   }
 
+  /** GET /calls/ice-servers — configuration STUN/TURN utilisée par WebRTC */
+  @Get('ice-servers')
+  getIceServers() {
+    return this.calls.getIceServers();
+  }
+
   /** POST /calls/log — enregistrer un appel depuis le client */
   @Post('log')
   logCall(

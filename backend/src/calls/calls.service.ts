@@ -11,9 +11,44 @@ export interface LogCallDto {
   duration?: number;
 }
 
+export interface IceServerConfig {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
+
 @Injectable()
 export class CallsService {
   constructor(private prisma: PrismaService) {}
+
+  getIceServers() {
+    const turnUrls = (process.env.TURN_URLS ?? '')
+      .split(',')
+      .map(url => url.trim())
+      .filter(Boolean);
+
+    const iceServers: IceServerConfig[] = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' },
+    ];
+
+    if (turnUrls.length && process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL) {
+      iceServers.push({
+        urls: turnUrls,
+        username: process.env.TURN_USERNAME,
+        credential: process.env.TURN_CREDENTIAL,
+      });
+    } else {
+      iceServers.push({
+        urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turns:openrelay.metered.ca:443'],
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      });
+    }
+
+    return { iceServers };
+  }
 
   async logCall(dto: LogCallDto) {
     const existing = await this.prisma.callLog.findFirst({

@@ -152,6 +152,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.callTimeouts.delete(callId);
   }
 
+  private isSocketInRoom(socketId: string, room: string) {
+    return this.server.sockets.sockets.get(socketId)?.rooms.has(room) ?? false;
+  }
+
   private scheduleNoAnswerTimeout(callId: string) {
     this.clearCallTimeout(callId);
     const timer = setTimeout(async () => {
@@ -265,7 +269,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
 
       // 1. Diffuser à tous dans la room (ceux qui ont fait conversation:join)
-      this.server.to(`conv:${data.conversationId}`).emit('message:new', msg);
+      const conversationRoom = `conv:${data.conversationId}`;
+      this.server.to(conversationRoom).emit('message:new', msg);
 
       // 2. Notifier les participants connectés mais pas dans la room
       const participantIds = await this.chat.getParticipantIds(data.conversationId);
@@ -283,7 +288,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const socketIds = this.socketState.getSocketIds(pid);
         if (socketIds.length) {
           // Connecté → socket temps réel
-          for (const sid of socketIds) this.server.to(sid).emit('message:new', msg);
+          for (const sid of socketIds) {
+            if (this.isSocketInRoom(sid, conversationRoom)) continue;
+            this.server.to(sid).emit('message:new', msg);
+          }
           deliveredToAny = true;
         } else {
           // Hors ligne → Push Notification (son géré par l'OS)
