@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v30
+// Oracle Messenger — Service Worker v31
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '30-20260803-call-audio-cleanup';
+const CACHE_VERSION = '31-20260803-video-call-flow';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [

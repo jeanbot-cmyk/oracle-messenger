@@ -33,6 +33,12 @@ const CALL_AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   sampleRate: { ideal: 48000 },
   sampleSize: { ideal: 16 },
 };
+const CALL_VIDEO_CONSTRAINTS = (facingMode: 'user' | 'environment'): MediaTrackConstraints => ({
+  facingMode: { ideal: facingMode },
+  width: { ideal: 1280 },
+  height: { ideal: 720 },
+  frameRate: { ideal: 24, max: 30 },
+});
 
 async function getIceServers(token: string): Promise<RTCIceServer[]> {
   try {
@@ -41,6 +47,13 @@ async function getIceServers(token: string): Promise<RTCIceServer[]> {
     if (res.ok) { const d = await res.json(); return d.iceServers ?? DEFAULT_ICE; }
   } catch {}
   return DEFAULT_ICE;
+}
+
+async function getCallStream(type: 'audio' | 'video', facingMode: 'user' | 'environment') {
+  return getMediaStream({
+    audio: CALL_AUDIO_CONSTRAINTS,
+    video: type === 'video' ? CALL_VIDEO_CONSTRAINTS(facingMode) : false,
+  });
 }
 
 // L'historique des appels est persisté côté serveur (CallLog en base).
@@ -148,10 +161,7 @@ export function useWebRTC(userId: string, token = '') {
     const callId = `call_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     try {
       iceServersRef.current = await getIceServers(token);
-      const stream = await getMediaStream({
-        audio: CALL_AUDIO_CONSTRAINTS,
-        video: type === 'video' ? { facingMode: cameraFacing } : false,
-      });
+      const stream = await getCallStream(type, cameraFacing);
       localStreamRef.current = stream;
       setLocalStream(stream);
       const info: CallInfo = { callId, conversationId, callerId: userId, type, participants: targetUserIds };
@@ -178,10 +188,7 @@ export function useWebRTC(userId: string, token = '') {
       // Obtenir le stream LOCAL avant d'avertir le caller.
       // Ainsi quand le caller envoie webrtc:offer, localStreamRef est déjà prêt
       // et createPC() peut ajouter les tracks immédiatement.
-      const stream = await getMediaStream({
-        audio: CALL_AUDIO_CONSTRAINTS,
-        video: info.type === 'video' ? { facingMode: cameraFacing } : false,
-      });
+      const stream = await getCallStream(info.type, cameraFacing);
       localStreamRef.current = stream;
       setLocalStream(stream);
       // Seulement maintenant on notifie le caller → il va envoyer l'offer
@@ -248,6 +255,7 @@ export function useWebRTC(userId: string, token = '') {
       socket.off('call:incoming');
       socket.off('call:answered');
       socket.off('call:ended');
+      socket.off('call:error');
       socket.off('webrtc:offer');
       socket.off('webrtc:answer');
       socket.off('webrtc:ice');
@@ -278,6 +286,11 @@ export function useWebRTC(userId: string, token = '') {
         if (state === 'incoming' && info) {
           notifyMissedCall(info.callerName ?? 'Quelqu\'un');
         }
+        endCall(false);
+      });
+
+      socket.on('call:error', (data: { message?: string }) => {
+        console.error('[WebRTC] call error:', data?.message ?? 'Erreur appel');
         endCall(false);
       });
 
@@ -326,6 +339,7 @@ export function useWebRTC(userId: string, token = '') {
         socket.off('call:incoming');
         socket.off('call:answered');
         socket.off('call:ended');
+        socket.off('call:error');
         socket.off('webrtc:offer');
         socket.off('webrtc:answer');
         socket.off('webrtc:ice');

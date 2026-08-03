@@ -21,7 +21,13 @@ interface Props {
 function VideoEl({ stream, muted = false, style }: { stream: MediaStream | null; muted?: boolean; style?: React.CSSProperties }) {
   const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => {
-    if (ref.current && stream) ref.current.srcObject = stream;
+    const video = ref.current;
+    if (!video || !stream) return;
+    if (video.srcObject !== stream) video.srcObject = stream;
+    video.muted = muted;
+    video.defaultPlaybackRate = 1;
+    video.playbackRate = 1;
+    video.play().catch(() => {});
   }, [stream]);
   return <video ref={ref} autoPlay playsInline muted={muted} style={{ width:'100%', height:'100%', objectFit:'cover', background:'#000', ...style }} />;
 }
@@ -75,9 +81,9 @@ export function CallOverlay({ callState, callInfo, localStream, remoteStreams, i
 
   return (
     <div style={overlay}>
-      {/* Audio distant : indispensable pour les appels audio purs.
-          Les appels vidéo jouent le son via les éléments vidéo distants. */}
-      {!isVideo && remoteList.map(([uid, stream]) => (
+      {/* Audio distant unique : les vidéos distantes sont muettes pour éviter
+          les doubles lectures et l'écho sur Android. */}
+      {remoteList.map(([uid, stream]) => (
         <AudioEl key={`audio-${uid}`} stream={stream} />
       ))}
 
@@ -85,7 +91,7 @@ export function CallOverlay({ callState, callInfo, localStream, remoteStreams, i
       {isVideo && remoteList.length > 0 && (
         <div style={{ position:'absolute', inset:0, display:'grid', gridTemplateColumns: remoteList.length > 1 ? '1fr 1fr' : '1fr', gap:2 }}>
           {remoteList.map(([uid, stream]) => (
-            <VideoEl key={uid} stream={stream} style={{ borderRadius:0 }} />
+            <VideoEl key={uid} stream={stream} muted style={{ borderRadius:0 }} />
           ))}
         </div>
       )}
