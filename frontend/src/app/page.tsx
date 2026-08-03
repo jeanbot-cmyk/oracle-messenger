@@ -74,11 +74,11 @@ export default function HomePage() {
     }
     const pending = pendingRoute();
     if (status === 'authenticated') { router.replace(pending || '/chat'); return; }
-    if (isStandalone()) { router.replace('/login'); return; }
+    if (isStandalone()) { router.replace('/chat'); return; }
   }, [status]);
 
   function handleOpen() {
-    router.replace(status === 'authenticated' ? '/chat' : '/login');
+    router.replace('/chat');
   }
 
   function handleAndroidPWA() {

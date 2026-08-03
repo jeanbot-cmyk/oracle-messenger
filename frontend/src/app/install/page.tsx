@@ -280,19 +280,13 @@ export default function InstallPage() {
       return;
     }
 
-    if (!sessionStorage.getItem('oracle-install-reload-attempted')) {
-      sessionStorage.setItem('oracle-install-reload-attempted', '1');
-      setInstallMessage("Je prépare Chrome pour l'installation...");
-      setTimeout(() => window.location.reload(), 650);
-      return;
-    }
-
     setManualInstall(true);
-    setInstallMessage("Chrome ne donne pas encore la fenêtre automatique. Utilise le menu ⋮ puis Installer l'application.");
+    setInstallMessage("Chrome ne donne pas encore la fenêtre automatique. Appuie sur le menu ⋮ en haut à droite de Chrome, puis choisis Installer l'application ou Ajouter à l'écran d'accueil.");
   }
 
   async function handleAndroidInstall() {
     if (shouldOpenAndroidLinkInChrome()) {
+      setInstallMessage('Ouverture dans Chrome pour lancer une installation sûre...');
       window.location.href = buildChromeIntentUrl();
       return;
     }
