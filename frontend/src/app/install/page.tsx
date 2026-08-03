@@ -18,8 +18,8 @@ function detectDevice(): Device {
 }
 
 function appEntry() {
-  if (typeof window === 'undefined') return '/';
-  return localStorage.getItem('oracle-after-login') || sessionStorage.getItem('oracle-after-login') || '/';
+  if (typeof window === 'undefined') return '/chat';
+  return localStorage.getItem('oracle-after-login') || sessionStorage.getItem('oracle-after-login') || '/chat';
 }
 
 function normalizeInviteUsername(value: string) {

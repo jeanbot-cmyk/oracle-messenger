@@ -36,6 +36,11 @@ const nextConfig = {
   async redirects() {
     return [
       {
+        source: '/',
+        destination: '/chat',
+        permanent: false,
+      },
+      {
         source: '/oracle-messenger.apk',
         destination: '/install',
         permanent: false,

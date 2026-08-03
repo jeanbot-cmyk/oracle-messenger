@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v67
+// Oracle Messenger — Service Worker v68
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '67-20260803-whatsapp-forward-flow';
+const CACHE_VERSION = '68-20260803-root-chat-entry';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [
@@ -63,7 +63,7 @@ self.addEventListener('fetch', e => {
           }
           return res;
         })
-        .catch(() => caches.match(e.request).then(cached => cached || caches.match('/')))
+        .catch(() => caches.match(e.request).then(cached => cached || caches.match('/chat')))
     );
     return;
   }
