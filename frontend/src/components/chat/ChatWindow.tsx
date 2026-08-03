@@ -85,9 +85,11 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   // Audio recording
   const [recording, setRecording]   = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
+  const [voiceDraft, setVoiceDraft] = useState<{ dataUrl: string; seconds: number } | null>(null);
   const mediaRecRef  = useRef<MediaRecorder | null>(null);
   const audioChunks  = useRef<Blob[]>([]);
   const recTimer     = useRef<NodeJS.Timeout | null>(null);
+  const recSecondsRef = useRef(0);
   const bottomRef  = useRef<HTMLDivElement>(null);
   const messagesViewportRef = useRef<HTMLDivElement>(null);
   const initialScrollPending = useRef(false);
@@ -252,7 +254,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
 
   // ── Audio recording ────────────────────────────────────────────────────────
   async function startRecording() {
-    if (!activeConvId) return;
+    if (!activeConvId || recording || voiceDraft) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -275,17 +277,23 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(audioChunks.current, { type: mr.mimeType || 'audio/webm' });
         const reader = new FileReader();
-        reader.onload = () => sendMessage(activeConvId!, reader.result as string, 'audio');
+        const seconds = Math.max(1, recSecondsRef.current);
+        reader.onload = () => setVoiceDraft({ dataUrl: reader.result as string, seconds });
         reader.readAsDataURL(blob);
         setRecording(false);
         setRecSeconds(0);
+        recSecondsRef.current = 0;
         if (recTimer.current) clearInterval(recTimer.current);
       };
       mr.start();
       mediaRecRef.current = mr;
       setRecording(true);
       setRecSeconds(0);
-      recTimer.current = setInterval(() => setRecSeconds(s => s + 1), 1000);
+      recSecondsRef.current = 0;
+      recTimer.current = setInterval(() => {
+        recSecondsRef.current += 1;
+        setRecSeconds(recSecondsRef.current);
+      }, 1000);
     } catch {
       alert('Microphone non disponible — vérifiez les permissions');
     }
@@ -305,6 +313,17 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     if (recTimer.current) clearInterval(recTimer.current);
     setRecording(false);
     setRecSeconds(0);
+    recSecondsRef.current = 0;
+  }
+
+  function sendVoiceDraft() {
+    if (!activeConvId || !voiceDraft) return;
+    sendMessage(activeConvId, voiceDraft.dataUrl, 'audio');
+    setVoiceDraft(null);
+  }
+
+  function discardVoiceDraft() {
+    setVoiceDraft(null);
   }
 
   const name = conv?.type === 'group' ? conv.name : other?.name ?? 'Inconnu';
@@ -489,6 +508,27 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             <button onClick={stopRecording}
               style={{ width:42, height:42, borderRadius:'50%', border:'none', background:'var(--accent)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
               <svg width="18" height="18" fill="white" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            </button>
+          </div>
+        ) : voiceDraft ? (
+          <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 4px' }}>
+            <button onClick={discardVoiceDraft}
+              style={{ width:42, height:42, borderRadius:'50%', border:'none', background:'#FEE2E2', color:'#DC2626', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+            <div style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', gap:10, background:'var(--bg-surface)', borderRadius:24, padding:'6px 10px', border:'1px solid rgba(200,168,90,0.24)' }}>
+              <audio src={voiceDraft.dataUrl} controls preload="metadata" style={{ width:'100%', height:34 }} />
+              <span style={{ fontSize:12, color:'var(--text-muted)', fontWeight:700, whiteSpace:'nowrap' }}>
+                {String(Math.floor(voiceDraft.seconds / 60)).padStart(2,'0')}:{String(voiceDraft.seconds % 60).padStart(2,'0')}
+              </span>
+            </div>
+            <button onClick={sendVoiceDraft}
+              style={{ width:42, height:42, borderRadius:'50%', border:'none', background:'var(--header-bg)', color:'#fff', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
             </button>
           </div>
         ) : (
