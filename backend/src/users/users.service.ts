@@ -29,6 +29,7 @@ export class UsersService {
       : data.phone === ''
         ? null
         : undefined;
+    const phoneHashes = phone !== undefined ? this.phoneHashData(phone) : undefined;
 
     return this.prisma.user.update({
       where: { id },
@@ -36,7 +37,7 @@ export class UsersService {
         ...(data.name   ? { name: data.name }     : {}),
         ...(data.bio    !== undefined ? { bio: data.bio } : {}),
         ...(data.avatar ? { avatar: data.avatar } : {}),
-        ...(phone !== undefined ? { phone } : {}),
+        ...(phone !== undefined ? { phone, ...phoneHashes } : {}),
       },
     });
   }
@@ -46,7 +47,7 @@ export class UsersService {
 
     return this.prisma.user.update({
       where: { id },
-      data: { phone: cleaned },
+      data: { phone: cleaned, ...this.phoneHashData(cleaned) },
     });
   }
 
@@ -56,17 +57,22 @@ export class UsersService {
   }
 
   async search(q: string, excludeId: string) {
-    const cleaned = q.replace(/[^\d+]/g, '');
+    const term = (q ?? '').trim();
+    const cleaned = term.replace(/[^\d+]/g, '');
     const digits = cleaned.replace(/\D/g, '');
-    const phoneCandidates = this.phoneLookupCandidates(q);
+    if (digits.length < 6 && term.length < 3) return [];
+
+    const phoneCandidates = this.phoneLookupCandidates(term);
+    const textFilters = digits.length >= 6 ? [] : [
+      { name:     { contains: term, mode: 'insensitive' as const } },
+      { username: { contains: term, mode: 'insensitive' as const } },
+    ];
     const users = await this.prisma.user.findMany({
       where: {
         AND: [
           { id: { not: excludeId } },
           { OR: [
-            { name:     { contains: q, mode: 'insensitive' } },
-            { username: { contains: q, mode: 'insensitive' } },
-            { email:    { contains: q, mode: 'insensitive' } },
+            ...textFilters,
             // Recherche par numéro de téléphone (partielle)
             ...(digits.length >= 6 ? phoneCandidates.map(candidate => ({ phone: { contains: candidate } })) : []),
           ]},
@@ -79,7 +85,7 @@ export class UsersService {
     if (digits.length < 6) return users.slice(0, 20);
 
     const ranked = users
-      .map(user => ({ user, score: this.phoneMatchScore(q, user.phone ?? '') }))
+      .map(user => ({ user, score: this.phoneMatchScore(term, user.phone ?? '') }))
       .filter(item => item.score > 0 || users.length <= 20)
       .sort((a, b) => b.score - a.score)
       .map(item => item.user);
@@ -90,11 +96,20 @@ export class UsersService {
   async matchByPhoneHashes(hashes: string[], requesterId: string) {
     const hashSet = new Set((hashes ?? []).filter(h => /^[a-f0-9]{64}$/i.test(h)));
     if (!hashSet.size) return [];
+    await this.backfillMissingPhoneHashes();
 
     const users = await this.prisma.user.findMany({
-      where: { phone: { not: null }, id: { not: requesterId } },
+      where: {
+        id: { not: requesterId },
+        OR: [
+          { phoneHash: { in: [...hashSet] } },
+          { phoneDigitsHash: { in: [...hashSet] } },
+          { phoneLast8Hash: { in: [...hashSet] } },
+          { phoneLast9Hash: { in: [...hashSet] } },
+        ],
+      },
       select: { id:true, name:true, username:true, avatar:true, status:true, phone:true },
-      take: 5000,
+      take: 500,
     });
 
     return users.filter(user => {
@@ -138,7 +153,52 @@ export class UsersService {
   private phoneHashVariants(phone: string) {
     const normalized = this.normalizePhone(phone);
     const digits = normalized.replace(/\D/g, '');
-    return [this.sha256(normalized), this.sha256(digits), this.sha256(digits.slice(-8))];
+    return [
+      this.sha256(normalized),
+      this.sha256(digits),
+      ...(digits.length >= 8 ? [this.sha256(digits.slice(-8))] : []),
+      ...(digits.length >= 9 ? [this.sha256(digits.slice(-9))] : []),
+    ];
+  }
+
+  private phoneHashData(phone: string | null) {
+    if (!phone) {
+      return {
+        phoneHash: null,
+        phoneDigitsHash: null,
+        phoneLast8Hash: null,
+        phoneLast9Hash: null,
+      };
+    }
+    const normalized = this.normalizePhone(phone);
+    const digits = normalized.replace(/\D/g, '');
+    return {
+      phoneHash: this.sha256(normalized),
+      phoneDigitsHash: digits ? this.sha256(digits) : null,
+      phoneLast8Hash: digits.length >= 8 ? this.sha256(digits.slice(-8)) : null,
+      phoneLast9Hash: digits.length >= 9 ? this.sha256(digits.slice(-9)) : null,
+    };
+  }
+
+  private async backfillMissingPhoneHashes() {
+    const users = await this.prisma.user.findMany({
+      where: {
+        phone: { not: null },
+        OR: [
+          { phoneHash: null },
+          { phoneDigitsHash: null },
+        ],
+      },
+      select: { id: true, phone: true },
+      take: 1000,
+    });
+    if (!users.length) return;
+    await this.prisma.$transaction(
+      users.map(user => this.prisma.user.update({
+        where: { id: user.id },
+        data: this.phoneHashData(user.phone),
+      })),
+    );
   }
 
   private phoneLookupCandidates(phone: string) {

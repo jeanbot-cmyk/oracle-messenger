@@ -299,10 +299,6 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             if (user.id && user.id !== userId) byId.set(user.id, user);
           });
         }
-        const searched = await api.users.search('', token).catch(() => []);
-        searched.forEach((user: User) => {
-          if (user.id && user.id !== userId) byId.set(user.id, user);
-        });
       } catch {}
       if (!cancelled) setForwardUsers([...byId.values()]);
     }

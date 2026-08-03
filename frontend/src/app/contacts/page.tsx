@@ -288,34 +288,6 @@ export default function ContactsPage() {
     setNotice('Contact retiré de cette liste.');
   }
 
-  // Fallback iOS/desktop : charger tous les utilisateurs Oracle connus
-  async function loadAllOracleUsers() {
-    if (!token) {
-      setNotice('Votre session n’est pas encore prête. Appuyez sur “Reconnecter” pour continuer.');
-      return;
-    }
-    setLoading(true);
-    setNotice('');
-    setActionNotice('Recherche des comptes Oracle Messenger...');
-    try {
-      const users: AppUser[] = await api.users.search('', token).catch(() => []);
-      const enriched: EnrichedContact[] = users.map(u => ({
-        local: { name: u.name, phones: u.phone ? [u.phone] : [], emails: [], avatar: u.avatar ?? null },
-        appUser: u,
-      }));
-      setContacts(enriched);
-      setImported(true);
-      if (enriched.length === 0) {
-        setNotice('Aucun utilisateur Oracle Messenger trouvé pour le moment. Vous pouvez ajouter un contact manuellement.');
-      }
-    } catch {
-      setNotice('Impossible de charger les contacts Oracle. Vérifiez votre connexion puis réessayez.');
-    } finally {
-      setLoading(false);
-      setActionNotice('');
-    }
-  }
-
   async function openConvByUsername(username: string) {
     const normalizedUsername = extractInviteUsername(username);
     if (!normalizedUsername) {
@@ -429,8 +401,10 @@ export default function ContactsPage() {
       await matchWithBackend(all);
       setActionNotice('');
     } else {
-      // Aucun contact local → afficher les utilisateurs Oracle connus et garder une action manuelle visible.
-      await loadAllOracleUsers();
+      setLoading(false);
+      setImported(false);
+      setActionNotice('');
+      setNotice('Aucun contact local sélectionné. Ajoutez un contact manuellement ou ouvrez un lien d’invitation.');
     }
   }, [token]);
 
@@ -595,14 +569,14 @@ export default function ContactsPage() {
               </svg>
             </button>
           )}
-          <button onClick={hasNative ? importAndMatch : loadAllOracleUsers} disabled={loading}
+          <button onClick={importAndMatch} disabled={loading}
             style={{ minHeight: 42, borderRadius: 999, border: 'none', background: 'var(--brand)', color: 'var(--accent-text)', cursor: loading ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '0 14px', fontSize: 14, fontWeight: 800, whiteSpace: 'nowrap', boxShadow:'0 8px 18px rgba(16,42,42,0.14)' }}>
             <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2.3" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
               <circle cx="8.5" cy="7" r="4"/>
               <path strokeLinecap="round" strokeLinejoin="round" d="M20 8v6m3-3h-6"/>
             </svg>
-            {hasNative ? 'Importer' : 'Chercher'}
+            Importer
           </button>
         </div>
       </div>
@@ -709,7 +683,7 @@ export default function ContactsPage() {
               <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0, fontWeight: 650 }}>
                 {hasNative
                   ? 'Appuyer sur importer vos contacts votre téléphone vas ouvrir son écran de sélection des contacts. Cochez les contacts à importer, puis appuyez sur OK. Ensuite Oracle Messenger vas detecter ceux qui sont deja inscrit sur oracle.'
-                  : 'Ajoutez un contact pour ouvrir une conversation ou partager une invitation.'}
+                  : 'Ajoutez un contact avec son numéro pour vérifier s’il utilise déjà Oracle Messenger, ou ouvrez son lien d’invitation.'}
               </p>
             </div>
             {hasNative && (
@@ -719,12 +693,6 @@ export default function ContactsPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
                 </svg>
                 Importer mes contacts
-              </button>
-            )}
-            {!hasNative && (
-              <button onClick={loadAllOracleUsers}
-                style={{ background: ACCENT, color: ACCENT_TEXT, border: 'none', borderRadius: 18, padding: '15px 18px', cursor: 'pointer', fontWeight: 900, fontSize: 15, boxShadow:'var(--shadow)' }}>
-                Voir les utilisateurs Oracle
               </button>
             )}
             <button onClick={() => setShowAdd(true)}

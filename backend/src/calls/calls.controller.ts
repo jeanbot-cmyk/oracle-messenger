@@ -22,7 +22,7 @@ export class CallsController {
       peerId: string;
       peerName: string;
       type: 'audio' | 'video';
-      direction: 'incoming' | 'outgoing' | 'missed';
+      direction: 'incoming' | 'outgoing' | 'missed' | 'refused' | 'cancelled';
       duration?: number;
     },
   ) {

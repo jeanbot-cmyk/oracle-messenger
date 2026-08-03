@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://messenger.oracle-plus.online/sitemap.xml

@@ -20,6 +20,10 @@ model User {
   premiumUntil DateTime?
   bio         String?
   phone       String?  @unique  // Format international nettoyé : +225XXXXXXXX
+  phoneHash   String?  @unique
+  phoneDigitsHash String?
+  phoneLast8Hash  String?
+  phoneLast9Hash  String?
   pushToken   String?  @db.Text
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -31,6 +35,10 @@ model User {
   storyViews       StoryView[]
   callLogs         CallLog[]
   pwaInstall       PwaInstall?
+
+  @@index([phoneDigitsHash])
+  @@index([phoneLast8Hash])
+  @@index([phoneLast9Hash])
 }
 
 model PwaInstall {

@@ -33,10 +33,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly callNoAnswerTimeoutMs = 75_000;
 
-  // callId → { callerId, callerName, conversationId, type, startedAt, answered, participants: Set<userId> }
+  // callId → appel actif. La durée est comptée uniquement après acceptation réelle.
   private activeCalls = new Map<string, {
     callerId: string; callerName: string; conversationId: string;
-    type: 'audio' | 'video'; startedAt: number; answered: boolean;
+    type: 'audio' | 'video'; startedAt: number; answered: boolean; answeredAt?: number;
     participants: Set<string>;
   }>();
   private callTimeouts = new Map<string, NodeJS.Timeout>();
@@ -177,12 +177,57 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         call.type,
         'missed',
       ).catch(() => {});
+      await this.logCallFinalState(callId, call, call.callerId, 'missed').catch(() => {});
 
       this.activeCalls.delete(callId);
       this.callTimeouts.delete(callId);
     }, this.callNoAnswerTimeoutMs);
     timer.unref?.();
     this.callTimeouts.set(callId, timer);
+  }
+
+  private async logCallFinalState(
+    callId: string,
+    call: {
+      callerId: string; callerName: string; conversationId: string;
+      type: 'audio' | 'video'; startedAt: number; answered: boolean; answeredAt?: number;
+      participants: Set<string>;
+    },
+    enderId: string,
+    reason: 'ended' | 'missed' | 'refused' | 'cancelled',
+  ) {
+    const connected = call.answered && !!call.answeredAt && reason === 'ended';
+    const duration = connected ? Math.max(1, Math.round((Date.now() - call.answeredAt!) / 1000)) : undefined;
+
+    for (const uid of call.participants) {
+      const isCallerSide = uid === call.callerId;
+      const peerId = isCallerSide
+        ? [...call.participants].find(p => p !== uid) ?? ''
+        : call.callerId;
+      let peerName = call.callerName;
+      if (isCallerSide) {
+        const peer = await this.users.findById(peerId).catch(() => null);
+        peerName = peer?.name ?? 'Inconnu';
+      }
+
+      const direction = connected
+        ? (isCallerSide ? 'outgoing' : 'incoming')
+        : reason === 'refused'
+          ? (uid === enderId ? 'refused' : isCallerSide ? 'outgoing' : 'missed')
+          : reason === 'cancelled'
+            ? (isCallerSide ? 'cancelled' : 'missed')
+            : (isCallerSide ? 'outgoing' : 'missed');
+
+      await this.callsSvc.logCall({
+        callId,
+        userId: uid,
+        peerId,
+        peerName,
+        type: call.type,
+        direction,
+        duration,
+      }).catch(() => {});
+    }
   }
 
   // ── Conversations ─────────────────────────────────────────────────────────
@@ -408,25 +453,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
       this.scheduleNoAnswerTimeout(data.callId);
 
-      const firstTargetId = validTargets[0];
-      const firstTarget = firstTargetId ? await this.users.findById(firstTargetId).catch(() => null) : null;
-      this.callsSvc.logCall({
-        callId: data.callId,
-        userId: callerId,
-        peerId: firstTargetId ?? '',
-        peerName: firstTarget?.name ?? 'Inconnu',
-        type: data.type,
-        direction: 'outgoing',
-      }).catch(() => {});
-
       for (const targetId of validTargets) {
-        this.callsSvc.logCall({
-          callId: data.callId,
-          userId: targetId,
-          peerId: callerId,
-          peerName: callerName,
-          type: data.type,
-          direction: 'missed',
+        this.notif.sendPush(targetId, {
+          title: `📞 Appel ${data.type === 'video' ? 'vidéo' : 'audio'} — ${callerName}`,
+          body: 'Appuyez pour répondre',
+          url: `/chat?conv=${encodeURIComponent(data.conversationId)}`,
+          tag: `incoming-call-${data.callId}`,
+          type: 'call',
+          requireInteraction: true,
+          vibrate: [1000, 300, 1000, 300, 1000, 700, 1000, 300, 1000],
         }).catch(() => {});
 
         const socketIds = this.socketState.getSocketIds(targetId);
@@ -443,17 +478,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             participants: validTargets,
             });
           }
-        } else {
-          // Hors ligne → Push Notification
-          this.notif.sendPush(targetId, {
-            title: `📞 Appel ${data.type === 'video' ? 'vidéo' : 'audio'} — ${callerName}`,
-            body: 'Appuyez pour répondre',
-            url: `/chat?conv=${encodeURIComponent(data.conversationId)}`,
-            tag: `incoming-call-${data.callId}`,
-            type: 'call',
-            requireInteraction: true,
-            vibrate: [1000, 300, 1000, 300, 1000, 700, 1000, 300, 1000],
-          }).catch(() => {});
         }
       }
     } catch {}
@@ -475,21 +499,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const call = this.activeCalls.get(data.callId);
     if (call && data.accepted) {
       call.answered = true;
+      call.answeredAt = Date.now();
       this.clearCallTimeout(data.callId);
     }
     if (!data.accepted && call) {
-      // Appel refusé → log "missed" pour le caller, "incoming" refusé pour le récepteur
-      const responder = await this.users.findById(responderId).catch(() => null);
-      const responderName = responder?.name ?? 'Inconnu';
-      this.callsSvc.logCall({
-        callId: data.callId, userId: call.callerId, peerId: responderId,
-        peerName: responderName, type: call.type, direction: 'outgoing',
-      }).catch(() => {});
-      this.callsSvc.logCall({
-        callId: data.callId, userId: responderId, peerId: call.callerId,
-        peerName: call.callerName, type: call.type, direction: 'missed',
-      }).catch(() => {});
       this.publishCallTrace(call.conversationId, responderId, call.type, 'refused').catch(() => {});
+      this.logCallFinalState(data.callId, call, responderId, 'refused').catch(() => {});
       this.clearCallTimeout(data.callId);
       this.activeCalls.delete(data.callId);
     }
@@ -525,45 +540,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       }
 
-      const duration = Math.round((Date.now() - call.startedAt) / 1000);
-      const connected = duration > 3; // < 3s = appel manqué/non répondu
-
-      // Logger pour chaque participant
-      for (const uid of call.participants) {
-        const isCallerSide = uid === call.callerId;
-        const peerId = isCallerSide
-          ? [...call.participants].find(p => p !== uid) ?? ''
-          : call.callerId;
-
-        let peerName = call.callerName;
-        if (!isCallerSide) {
-          // peerName = callerName déjà connu
-        } else {
-          const peer = await this.users.findById(peerId).catch(() => null);
-          peerName = peer?.name ?? 'Inconnu';
-        }
-
-        const direction = !connected
-          ? (isCallerSide ? 'outgoing' : 'missed')
-          : (isCallerSide ? 'outgoing' : 'incoming');
-
-        this.callsSvc.logCall({
-          callId: data.callId,
-          userId: uid,
-          peerId,
-          peerName,
-          type: call.type,
-          direction,
-          duration: connected ? duration : undefined,
-        }).catch(() => {});
-      }
+      const connected = call.answered && !!call.answeredAt;
+      const duration = connected ? Math.max(1, Math.round((Date.now() - call.answeredAt!) / 1000)) : undefined;
+      const reason = connected ? 'ended' : enderId === call.callerId ? 'cancelled' : 'missed';
+      await this.logCallFinalState(data.callId, call, enderId, reason).catch(() => {});
 
       await this.publishCallTrace(
         call.conversationId,
         enderId,
         call.type,
         connected ? 'ended' : 'missed',
-        connected ? duration : undefined,
+        duration,
       ).catch(() => {});
 
       this.activeCalls.delete(data.callId);
