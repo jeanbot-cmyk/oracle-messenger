@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef } from 'react';
 import type { CallState, CallInfo } from '../../hooks/useWebRTC';
-import { startRingtone, stopRingtone, playCallConnected, playCallEnded } from '../../lib/sounds';
+import { startRingtone, stopRingtone, startOutgoingCallTone, stopOutgoingCallTone, playCallConnected } from '../../lib/sounds';
 
 interface Props {
   callState: CallState;
@@ -64,16 +64,23 @@ export function CallOverlay({ callState, callInfo, localStream, remoteStreams, i
   // qu'un retour discret, sinon son téléphone se comporte comme un appel entrant.
   useEffect(() => {
     if (callState === 'incoming') {
+      stopOutgoingCallTone();
       startRingtone();
     } else if (callState === 'calling') {
       stopRingtone();
+      startOutgoingCallTone();
     } else if (callState === 'connected') {
       stopRingtone();
+      stopOutgoingCallTone();
       playCallConnected();
     } else if (callState === 'ended' || callState === 'idle') {
       stopRingtone();
+      stopOutgoingCallTone();
     }
-    return () => stopRingtone();
+    return () => {
+      stopRingtone();
+      stopOutgoingCallTone();
+    };
   }, [callState]);
 
   if (callState === 'idle' || callState === 'ended') return null;

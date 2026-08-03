@@ -186,7 +186,7 @@ export function MainLayout({ onStartCall }: Props) {
               onDelete={handleDeleteConversation}
             />
           )}
-          {tab === 'appels'      && <CallsTab />}
+          {tab === 'appels'      && <CallsTab onStartCall={onStartCall} />}
           {tab === 'actus'       && <ActusTab />}
           {tab === 'outils'      && <OutilsTab onPickPhoto={() => photoPickerRef.current?.click()} />}
         </div>
@@ -239,15 +239,17 @@ function formatDuration(s?: number) {
   return `${Math.floor(s/60)}min ${s%60}s`;
 }
 
-function CallsTab() {
+function CallsTab({ onStartCall }: { onStartCall?: (convId: string, userIds: string[], type: 'audio' | 'video') => void }) {
   const router = useRouter();
   const { data: session } = useSession();
   const token = session?.user?.backendToken ?? '';
   const BASE  = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
+  const { setActiveConv, setConversations } = useChatStore();
 
   const [log,     setLog]     = useState<CallLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
+  const [callingId, setCallingId] = useState('');
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -278,6 +280,25 @@ function CallsTab() {
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => {});
     setLog(prev => prev.filter(e => e.id !== id));
+  }
+
+  async function callBack(entry: CallLogEntry) {
+    if (!token || !onStartCall || callingId) return;
+    setCallingId(entry.id);
+    try {
+      const conv = await api.conversations.create(entry.peerId, token);
+      if (!conv?.id) throw new Error('Conversation introuvable');
+      const existing = useChatStore.getState().conversations;
+      if (!existing.some(c => c.id === conv.id)) {
+        setConversations([conv, ...existing]);
+      }
+      setActiveConv(conv.id);
+      onStartCall(conv.id, [entry.peerId], entry.type);
+    } catch {
+      alert('Impossible de relancer cet appel. Vérifiez votre connexion puis réessayez.');
+    } finally {
+      setCallingId('');
+    }
   }
 
   if (!mounted) return null;
@@ -330,7 +351,15 @@ function CallsTab() {
             const dateStr = d.toLocaleDateString('fr-FR', { weekday:'short', day:'numeric', month:'short' });
             const initials = entry.peerName?.[0]?.toUpperCase() ?? '?';
             return (
-              <div key={entry.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 16px', background:'var(--bg-surface)', borderBottom:'1px solid var(--border)' }}>
+              <div
+                key={entry.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => callBack(entry)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); callBack(entry); } }}
+                title={`Rappeler ${entry.peerName}`}
+                style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 16px', background: callingId === entry.id ? 'var(--bg-input)' : 'var(--bg-surface)', borderBottom:'1px solid var(--border)', cursor: onStartCall ? 'pointer' : 'default', opacity: callingId && callingId !== entry.id ? 0.62 : 1, transition:'background .18s ease, opacity .18s ease' }}
+              >
                 {/* Avatar */}
                 <div style={{ width:48, height:48, borderRadius:'50%', background: entry.direction==='missed' ? '#fef2f2' : 'rgba(16,42,42,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
                   <span style={{ fontSize:20, fontWeight:800, color: entry.direction==='missed' ? '#dc2626' : 'var(--header-bg)' }}>{initials}</span>
@@ -345,13 +374,14 @@ function CallsTab() {
                       : <svg width="13" height="13" fill="var(--text-muted)" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
                     }
                     {entry.duration ? <span style={{ fontSize:12, color:'var(--text-muted)' }}>{formatDuration(entry.duration)}</span> : null}
+                    {callingId === entry.id && <span style={{ fontSize:12, color:'var(--accent)', fontWeight:800 }}>Appel...</span>}
                   </div>
                 </div>
                 {/* Date + heure + supprimer */}
                 <div style={{ textAlign:'right', flexShrink:0, display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
                   <p style={{ fontSize:12, color:'var(--text-muted)', margin:0 }}>{timeStr}</p>
                   <p style={{ fontSize:11, color:'var(--text-muted)', margin:0, opacity:0.7 }}>{dateStr}</p>
-                  <button onClick={() => deleteEntry(entry.id)}
+                  <button onClick={(e) => { e.stopPropagation(); deleteEntry(entry.id); }}
                     style={{ border:'none', background:'none', cursor:'pointer', color:'#dc2626', fontSize:11, padding:0, opacity:0.6 }}>
                     ✕
                   </button>

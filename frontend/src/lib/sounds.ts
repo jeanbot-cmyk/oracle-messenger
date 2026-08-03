@@ -57,6 +57,7 @@ export function playNotificationSound() {
 // ── Sonnerie appel entrant : motif répété ─────────────────────────────────────
 let ringtoneInterval: ReturnType<typeof setInterval> | null = null;
 let vibrationInterval: ReturnType<typeof setInterval> | null = null;
+let outgoingToneInterval: ReturnType<typeof setInterval> | null = null;
 let ringUntil = 0;
 
 function ringOnce() {
@@ -110,6 +111,38 @@ export function stopRingtone() {
   ringUntil = 0;
   if ('vibrate' in navigator) {
     try { navigator.vibrate(0); } catch {}
+  }
+}
+
+function outgoingToneOnce() {
+  try {
+    const c = resume();
+    const now = c.currentTime;
+    [[0, 430], [0.18, 480]].forEach(([delay, freq]) => {
+      const osc = c.createOscillator();
+      const gain = c.createGain();
+      osc.connect(gain); gain.connect(c.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq as number, now + (delay as number));
+      gain.gain.setValueAtTime(0, now + (delay as number));
+      gain.gain.linearRampToValueAtTime(0.07, now + (delay as number) + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + (delay as number) + 0.22);
+      osc.start(now + (delay as number));
+      osc.stop(now + (delay as number) + 0.25);
+    });
+  } catch {}
+}
+
+export function startOutgoingCallTone() {
+  stopOutgoingCallTone();
+  outgoingToneOnce();
+  outgoingToneInterval = setInterval(outgoingToneOnce, 2200);
+}
+
+export function stopOutgoingCallTone() {
+  if (outgoingToneInterval) {
+    clearInterval(outgoingToneInterval);
+    outgoingToneInterval = null;
   }
 }
 
