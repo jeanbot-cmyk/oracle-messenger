@@ -6,7 +6,7 @@
 
 /* ── Thème CLAIR — aligné sur la consultation publique Oracle Plus ── */
 :root {
-  --bg-app:          #F5F1EA;
+  --bg-app:          #F6F7F9;
   --bg-surface:      #FFFFFF;
   --bg-elevated:     #F8FAFC;
   --bg-input:        #F0F2F5;
@@ -15,15 +15,15 @@
   --text-muted:      #64748B;
   --accent:          #D6B25E;
   --accent-hover:    #C9A84C;
-  --accent-soft:     rgba(214,178,94,0.15);
+  --accent-soft:     rgba(214,178,94,0.10);
   --accent-text:     #102A2A;
   --brand:           #D6B25E;
-  --brand-soft:      rgba(214,178,94,0.16);
+  --brand-soft:      rgba(214,178,94,0.10);
   --border:          rgba(16,42,42,0.10);
   --border-strong:   rgba(16,42,42,0.18);
   --bubble-out:      #E4F7DF;
   --bubble-out-text: #151A23;
-  --bubble-in:       #FFFDF7;
+  --bubble-in:       #FFFFFF;
   --bubble-in-text:  #151A23;
   --header-bg:       #102A2A;
   --unread-bg:       #D6B25E;
@@ -49,7 +49,7 @@
 
 /* ── Thème SOMBRE (optionnel) ── */
 .dark {
-  --bg-app:          #080B14;
+  --bg-app:          #090D14;
   --bg-surface:      #0F1E35;
   --bg-elevated:     #102A2A;
   --bg-input:        rgba(255,255,255,0.08);
@@ -66,7 +66,7 @@
   --border-strong:   rgba(214,178,94,0.34);
   --bubble-out:      #E4F7DF;
   --bubble-out-text: #151A23;
-  --bubble-in:       #FFFDF7;
+  --bubble-in:       #FFFFFF;
   --bubble-in-text:  #151A23;
   --header-bg:       #102A2A;
   --unread-bg:       #D6B25E;
@@ -235,14 +235,14 @@ textarea:focus {
 .bubble-out {
   background: var(--bubble-out);
   color: var(--bubble-out-text);
-  border: 1px solid rgba(16,42,42,0.06);
+  border: 1px solid rgba(16,42,42,0.05);
   border-radius: 18px 18px 6px 18px;
   box-shadow: var(--shadow);
 }
 .bubble-in {
   background: var(--bubble-in);
   color: var(--bubble-in-text);
-  border: 1px solid rgba(214,178,94,0.18);
+  border: 1px solid rgba(15,23,42,0.07);
   border-radius: 18px 18px 18px 6px;
   box-shadow: var(--shadow);
 }
@@ -313,28 +313,28 @@ textarea:focus {
 @media (max-width: 768px) and (pointer: coarse) {
   .om-chat-header {
     gap: 8px !important;
-    padding: calc(5px + env(safe-area-inset-top, 0px)) 8px 5px !important;
-    min-height: calc(56px + env(safe-area-inset-top, 0px)) !important;
+    padding: calc(3px + env(safe-area-inset-top, 0px)) 8px 4px !important;
+    min-height: calc(50px + env(safe-area-inset-top, 0px)) !important;
   }
 
   .om-chat-avatar {
-    width: 38px !important;
-    height: 38px !important;
+    width: 36px !important;
+    height: 36px !important;
   }
 
   .om-chat-title {
-    font-size: 15.5px !important;
+    font-size: 15px !important;
   }
 
   .om-chat-subtitle {
-    font-size: 11.5px !important;
+    font-size: 11px !important;
     margin-top: 2px !important;
   }
 
   .om-chat-action {
-    width: 32px !important;
-    height: 32px !important;
-    min-height: 32px !important;
+    width: 31px !important;
+    height: 31px !important;
+    min-height: 31px !important;
   }
 
   .om-messages-viewport {
