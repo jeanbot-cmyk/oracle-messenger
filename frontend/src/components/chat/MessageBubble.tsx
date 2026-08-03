@@ -424,7 +424,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
   return (
     <div
       className={`om-message-row ${isOwn ? 'om-message-row-own' : 'om-message-row-in'} ${selectionMode ? 'om-message-row-selecting' : ''} ${selected ? 'om-message-row-selected' : ''}`}
-      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative', padding: '2px 0', background: selected ? 'rgba(15,118,110,0.10)' : 'transparent', borderRadius: 14 }}
+      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative', padding: '2px 0', background: 'transparent', borderRadius: 14 }}
       ref={wrapRef}
       onContextMenu={e => {
         e.preventDefault();
@@ -447,11 +447,11 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
           onClick={e => { e.stopPropagation(); onSelect(message); }}
           style={{
             position:'absolute',
-            left: isOwn ? 'auto' : 8,
-            right: isOwn ? 8 : 'auto',
-            top:8,
-            width:22,
-            height:22,
+            left: isOwn ? 'auto' : 6,
+            right: isOwn ? 6 : 'auto',
+            top:6,
+            width:20,
+            height:20,
             borderRadius:'50%',
             border:'2px solid #fff',
             background:'var(--header-bg)',
@@ -461,7 +461,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
             justifyContent:'center',
             zIndex:2,
             cursor:'pointer',
-            boxShadow:'0 3px 10px rgba(16,42,42,0.22)',
+            boxShadow:'0 2px 7px rgba(16,42,42,0.20)',
           }}
         >
           <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
@@ -599,7 +599,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
           {/* TEXT */}
           {effectiveType === 'text' && (
             <>
-              <p className="om-message-text" style={{ fontSize: 15, lineHeight: 1.34, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere', margin: 0, letterSpacing: 0 }}>
+              <p className="om-message-text" style={{ fontSize: 15, lineHeight: 1.38, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere', margin: 0, letterSpacing: 0 }}>
                 {linkifyText(message.content)}
               </p>
               <TimeRow />

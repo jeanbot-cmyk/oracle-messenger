@@ -243,14 +243,14 @@ textarea:focus {
   color: var(--bubble-out-text);
   border: 1px solid rgba(16,42,42,0.05);
   border-radius: 18px 18px 6px 18px;
-  box-shadow: var(--shadow);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
 }
 .bubble-in {
   background: var(--bubble-in);
   color: var(--bubble-in-text);
   border: 1px solid rgba(15,23,42,0.07);
   border-radius: 18px 18px 18px 6px;
-  box-shadow: var(--shadow);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.07);
 }
 
 .om-chat-window {
@@ -296,12 +296,16 @@ textarea:focus {
 }
 
 .om-message-row-selecting:active {
-  background: rgba(15, 118, 110, 0.07) !important;
+  background: transparent !important;
 }
 
 .om-message-row-selected {
-  background: rgba(15, 118, 110, 0.10) !important;
-  box-shadow: inset 3px 0 0 rgba(16, 42, 42, 0.26);
+  background: transparent !important;
+  box-shadow: none;
+}
+
+.om-message-row-selected .om-message-bubble {
+  box-shadow: 0 0 0 2px rgba(11, 61, 53, 0.16), 0 2px 7px rgba(15, 23, 42, 0.10);
 }
 
 .om-message-bubble {
@@ -310,6 +314,7 @@ textarea:focus {
   word-break: break-word;
   min-width: 72px;
   max-width: 100%;
+  font-size: 15px;
 }
 
 .om-date-separator {

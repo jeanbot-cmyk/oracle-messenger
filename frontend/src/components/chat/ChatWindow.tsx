@@ -56,6 +56,7 @@ type ForwardTarget = {
 };
 
 const CONTACT_CACHE_KEYS = ['oracle-contacts', 'oracle-manual-contacts'];
+const HIDDEN_MESSAGES_PREFIX = 'oracle-messenger-hidden-messages:';
 const PROBABLE_DIAL_CODES = [
   '225', '237', '221', '223', '226', '224', '228', '229', '227',
   '243', '242', '241', '233', '234', '212', '213', '216',
@@ -105,6 +106,24 @@ async function phoneHashesForForward(phones: string[]) {
     }
   }
   return Promise.all([...variants].map(value => sha256(value)));
+}
+
+function readHiddenMessageIds(conversationId: string) {
+  if (typeof window === 'undefined') return new Set<string>();
+  try {
+    const raw = localStorage.getItem(`${HIDDEN_MESSAGES_PREFIX}${conversationId}`);
+    const ids = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function writeHiddenMessageIds(conversationId: string, ids: Set<string>) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(`${HIDDEN_MESSAGES_PREFIX}${conversationId}`, JSON.stringify([...ids]));
+  } catch {}
 }
 
 function EmojiPicker({ onSelect, onClose }: { onSelect: (e: string) => void; onClose: () => void }) {
@@ -187,6 +206,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const [forwardSearch, setForwardSearch] = useState('');
   const [forwarding, setForwarding] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+  const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
   // Audio recording
   const [recording, setRecording]   = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
@@ -209,9 +229,10 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const firstMessageRef = useRef<HTMLDivElement | null>(null);
 
   const conv = conversations.find(c => c.id === activeConvId);
-  const convMessages = activeConvId
+  const rawConvMessages = activeConvId
     ? [...(messages[activeConvId] ?? [])].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
     : [];
+  const convMessages = rawConvMessages.filter(message => !hiddenMessageIds.has(message.id));
   const typingIds = activeConvId ? (typingUsers[activeConvId] ?? []) : [];
   const storedNames = activeConvId ? (typingNamesStore[activeConvId] ?? {}) : {};
   // Resolve typing user IDs to names: prefer participant list, fallback to server-sent name
@@ -243,6 +264,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     setForwardMessages([]);
     setForwardTargets([]);
     setForwardSearch('');
+    setHiddenMessageIds(activeConvId ? readHiddenMessageIds(activeConvId) : new Set());
     if (!activeConvId || !token) return;
     initialScrollPending.current = true;
     isNearBottomRef.current = true;
@@ -633,6 +655,27 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     setSelectedMessageIds([]);
   }
 
+  function deleteSelectedMessages() {
+    if (!activeConvId || selectedMessages.length === 0) return;
+    const count = selectedMessages.length;
+    const ok = window.confirm(`Effacer ${count} message${count > 1 ? 's' : ''} sélectionné${count > 1 ? 's' : ''} ?`);
+    if (!ok) return;
+    const ids = selectedMessages.map(message => message.id);
+    const nextHidden = new Set(hiddenMessageIds);
+    ids.forEach(id => nextHidden.add(id));
+    setHiddenMessageIds(nextHidden);
+    writeHiddenMessageIds(activeConvId, nextHidden);
+
+    selectedMessages
+      .filter(message => message.senderId === userId)
+      .forEach(message => deleteSocketMessage(activeConvId, message.id));
+
+    setSelectedMessageIds([]);
+    setReplyTo(null);
+    setEditMsg(null);
+    showNotice(`${count} message${count > 1 ? 's effacés' : ' effacé'}.`);
+  }
+
   function openForwardSheet(message: Message) {
     if (message.isDeleted) return;
     setForwardMessages([message]);
@@ -792,7 +835,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       </div>
 
       {selectionMode && (
-        <div style={{ flexShrink:0, background:'#FFFFFF', borderBottom:'1px solid var(--border)', padding:'7px 10px', display:'flex', alignItems:'center', gap:10, boxShadow:'0 4px 14px rgba(16,42,42,0.06)', zIndex:25 }}>
+        <div style={{ flexShrink:0, background:'#FFFFFF', borderBottom:'1px solid rgba(15,23,42,0.08)', padding:'8px 10px', display:'flex', alignItems:'center', gap:8, boxShadow:'0 4px 14px rgba(16,42,42,0.05)', zIndex:25 }}>
           <button
             onClick={clearMessageSelection}
             aria-label="Annuler la sélection"
@@ -801,13 +844,24 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             ×
           </button>
           <div style={{ flex:1, minWidth:0 }}>
-            <p style={{ margin:0, fontSize:15, lineHeight:1.18, fontWeight:900, color:'var(--text-primary)' }}>
+            <p style={{ margin:0, fontSize:15.5, lineHeight:1.16, fontWeight:900, color:'var(--text-primary)' }}>
               {selectedMessages.length} message{selectedMessages.length > 1 ? 's' : ''} sélectionné{selectedMessages.length > 1 ? 's' : ''}
             </p>
-            <p style={{ margin:'1px 0 0', fontSize:12, lineHeight:1.2, fontWeight:700, color:'var(--text-muted)' }}>
+            <p style={{ margin:'2px 0 0', fontSize:12.2, lineHeight:1.2, fontWeight:700, color:'var(--text-muted)' }}>
               Touchez d’autres messages pour ajouter ou retirer.
             </p>
           </div>
+          <button
+            onClick={deleteSelectedMessages}
+            disabled={selectedMessages.length === 0}
+            title="Effacer"
+            aria-label="Effacer les messages sélectionnés"
+            style={{ width:38, height:38, minHeight:38, borderRadius:'50%', border:'none', background:selectedMessages.length ? 'rgba(220,38,38,0.10)' : 'rgba(16,42,42,0.10)', color:selectedMessages.length ? '#dc2626' : 'var(--text-muted)', cursor:selectedMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
+          >
+            <svg width="19" height="19" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h8l1-14M10 10v7m4-7v7" />
+            </svg>
+          </button>
           <button
             onClick={openSelectedForwardSheet}
             disabled={selectedMessages.length === 0}
@@ -939,7 +993,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       )}
 
       {/* Reply/Edit bar */}
-      {(replyTo || editMsg) && (
+      {!selectionMode && (replyTo || editMsg) && (
         <div style={{ padding:'9px 12px', borderTop:'1px solid var(--border)', background:'var(--bg-surface)', display:'flex', alignItems:'center', gap:10, boxShadow:'0 -6px 18px rgba(16,42,42,0.05)', flexShrink:0 }}>
           <div style={{ flex:1, minWidth:0, borderLeft:'4px solid var(--accent)', padding:'7px 10px', borderRadius:12, background:'var(--bg-input)' }}>
             <p style={{ fontSize:12, color:'var(--accent-text)', fontWeight:850, margin:0, lineHeight:1.2 }}>
@@ -957,6 +1011,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       )}
 
       {/* Input — toujours visible, safe-area iOS */}
+      {!selectionMode && (
       <div className="chat-composer-safe om-chat-composer" style={{ position:'relative', padding:'6px 8px', paddingBottom:'max(7px, env(safe-area-inset-bottom))', background:'#F0F2F5', borderTop:'1px solid #D7DBDF', flexShrink:0 }}>
         {/* Emoji picker */}
         {showEmoji && (
@@ -1087,6 +1142,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         )}
         <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
       </div>
+      )}
 
       {/* Transfert de message */}
       {forwardMessages.length > 0 && (
