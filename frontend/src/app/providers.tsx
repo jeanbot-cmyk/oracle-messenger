@@ -5,8 +5,9 @@ import { useEffect, useState } from 'react';
 import { useSettings } from '../store/settings';
 import { detectLanguage } from '../lib/i18n';
 import { PhoneOnboarding } from '../components/PhoneOnboarding';
+import { openCurrentAndroidLinkInChrome } from '../lib/androidChrome';
 
-const CLIENT_CACHE_VERSION = '20260803-phone-account-lookup';
+const CLIENT_CACHE_VERSION = '20260803-android-chrome-only';
 
 function ThemeApplier() {
   const { theme, lang, setLang } = useSettings();
@@ -26,6 +27,8 @@ function ThemeApplier() {
   }, [lang, setLang]);
 
   useEffect(() => {
+    openCurrentAndroidLinkInChrome('global');
+
     // Cookie PWA si mode standalone
     const isStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||

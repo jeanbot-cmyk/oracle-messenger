@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v23
+// Oracle Messenger — Service Worker v24
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '23-20260803-phone-account-lookup';
+const CACHE_VERSION = '24-20260803-android-chrome-only';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [

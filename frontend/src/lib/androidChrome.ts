@@ -28,10 +28,10 @@ export function buildChromeIntentUrl(url = window.location.href) {
   return `intent://${target.host}${path}#Intent;scheme=${target.protocol.replace(':', '')};package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(target.href)};end`;
 }
 
-export function openCurrentAndroidLinkInChrome() {
+export function openCurrentAndroidLinkInChrome(scope = 'route') {
   if (!shouldOpenAndroidLinkInChrome()) return false;
   const currentUrl = window.location.href;
-  const key = `oracle-opened-chrome:${currentUrl}`;
+  const key = `oracle-opened-chrome:${scope}:${currentUrl}`;
   if (sessionStorage.getItem(key)) return false;
   sessionStorage.setItem(key, '1');
   window.location.href = buildChromeIntentUrl(currentUrl);
