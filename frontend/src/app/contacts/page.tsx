@@ -105,6 +105,19 @@ function isPhoneSearch(value: string) {
   return value.replace(/\D/g, '').length >= 6;
 }
 
+function phonesMatch(a = '', b = '') {
+  const da = a.replace(/\D/g, '');
+  const db = b.replace(/\D/g, '');
+  if (da.length < 6 || db.length < 6) return false;
+  return da === db ||
+    da.endsWith(db) ||
+    db.endsWith(da) ||
+    (da.length >= 8 && db.endsWith(da.slice(-8))) ||
+    (db.length >= 8 && da.endsWith(db.slice(-8))) ||
+    (da.length >= 9 && db.endsWith(da.slice(-9))) ||
+    (db.length >= 9 && da.endsWith(db.slice(-9)));
+}
+
 async function getSupportedContactProps() {
   const manager = (navigator as any).contacts;
   const fallback = ['name', 'tel', 'email'];
@@ -124,6 +137,7 @@ export default function ContactsPage() {
   const token      = session?.user?.backendToken ?? '';
   const myName     = session?.user?.name ?? 'un ami';
   const myUsername = (session?.user as any)?.username ?? '';
+  const myPhone    = (session?.user as any)?.phone ?? '';
 
   const { setActiveConv, setConversations, conversations } = useChatStore();
 
@@ -363,7 +377,7 @@ export default function ContactsPage() {
       const enriched: EnrichedContact[] = locals.map(local => ({
         local,
         appUser: matched.find(u =>
-          local.phones.some(p => p.replace(/\D/g, '').slice(-8) === u.phone?.replace(/\D/g, '').slice(-8))
+          local.phones.some(p => phonesMatch(p, u.phone ?? ''))
         ) ?? null,
       }));
       enriched.sort((a, b) => {
@@ -424,10 +438,16 @@ export default function ContactsPage() {
     return username ? `${base}/u/${encodeURIComponent(username)}` : `${base}/install`;
   }
 
+  function normalizeInternationalPhone(phone = '') {
+    const digits = phone.replace(/\D/g, '');
+    return digits.length >= 8 ? `+${digits}` : '';
+  }
+
   function shareInvite(contact: LocalContact, selectedPhone = invitePhone) {
     const link = getInviteLink();
-    const destination = selectedPhone ? `\nContact : ${selectedPhone}` : '';
-    const msg = `Salut ${contact.name} !\n${myName} t'invite à rejoindre Oracle Messenger.${destination}\n\nInstalle l'app :\n${link}`;
+    const senderPhone = normalizeInternationalPhone(myPhone);
+    const phoneLine = senderPhone ? `\nMon contact : ${senderPhone}` : '';
+    const msg = `Salut ${contact.name} !\n${myName} t'invite à rejoindre Oracle Messenger.${phoneLine}\n\nInstalle l'app :\n${link}`;
     if (navigator.share) {
       navigator.share({ title: 'Oracle Messenger', text: msg }).catch(() => {});
     } else {

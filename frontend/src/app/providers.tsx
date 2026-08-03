@@ -7,7 +7,7 @@ import { detectLanguage } from '../lib/i18n';
 import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { openCurrentAndroidLinkInChrome } from '../lib/androidChrome';
 
-const CLIENT_CACHE_VERSION = '20260803-android-chrome-only';
+const CLIENT_CACHE_VERSION = '20260803-invite-sender-phone';
 
 function ThemeApplier() {
   const { theme, lang, setLang } = useSettings();
