@@ -242,15 +242,15 @@ textarea:focus {
   background: var(--bubble-out);
   color: var(--bubble-out-text);
   border: 1px solid rgba(16,42,42,0.05);
-  border-radius: 18px 18px 6px 18px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  border-radius: 11px 11px 4px 11px;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.08);
 }
 .bubble-in {
   background: var(--bubble-in);
   color: var(--bubble-in-text);
   border: 1px solid rgba(15,23,42,0.07);
-  border-radius: 18px 18px 18px 6px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.07);
+  border-radius: 11px 11px 11px 4px;
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.07);
 }
 
 .om-chat-window {
@@ -293,6 +293,9 @@ textarea:focus {
 
 .om-message-row-selecting {
   cursor: pointer;
+  min-height: 32px;
+  padding-left: 40px !important;
+  padding-right: 8px !important;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -302,19 +305,19 @@ textarea:focus {
 }
 
 .om-message-row-selected {
-  background: transparent !important;
-  box-shadow: none;
+  background: rgba(16, 42, 42, 0.075) !important;
+  box-shadow: inset 3px 0 0 var(--header-bg);
 }
 
 .om-message-row-selected .om-message-bubble {
-  box-shadow: 0 0 0 2px rgba(11, 61, 53, 0.16), 0 2px 7px rgba(15, 23, 42, 0.10);
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.08);
 }
 
 .om-message-bubble {
   font-feature-settings: "kern";
   overflow-wrap: anywhere;
   word-break: break-word;
-  min-width: 72px;
+  min-width: 48px;
   max-width: 100%;
   font-size: 15px;
 }
@@ -342,7 +345,7 @@ textarea:focus {
 }
 
 .om-selection-toolbar {
-  min-height: 54px;
+  min-height: 50px;
 }
 
 .om-selection-copy {
@@ -396,12 +399,12 @@ textarea:focus {
 
   .om-selection-toolbar {
     gap: 6px !important;
-    padding: 7px 8px !important;
-    min-height: 52px;
+    padding: 5px 8px !important;
+    min-height: 48px;
   }
 
   .om-selection-copy p:first-child {
-    font-size: 14px !important;
+    font-size: 13.5px !important;
   }
 
   .om-selection-copy p:nth-child(2) {
@@ -409,13 +412,13 @@ textarea:focus {
   }
 
   .om-selection-actions {
-    max-width: 68% !important;
+    max-width: none !important;
   }
 
   .om-selection-actions button {
-    width: 35px !important;
-    height: 35px !important;
-    min-height: 35px !important;
+    width: 36px !important;
+    height: 36px !important;
+    min-height: 36px !important;
   }
 
   .om-messages-viewport {
@@ -436,19 +439,24 @@ textarea:focus {
     padding-left: 8px !important;
   }
 
+  .om-message-row-selecting {
+    padding-left: 38px !important;
+    padding-right: 6px !important;
+  }
+
   .om-message-bubble {
     max-width: 100%;
-    min-width: 78px;
-    border-radius: 18px 18px 6px 18px;
+    min-width: 48px;
+    border-radius: 11px 11px 4px 11px;
   }
 
   .bubble-in.om-message-bubble {
-    border-radius: 18px 18px 18px 6px;
+    border-radius: 11px 11px 11px 4px;
   }
 
   .om-message-text {
     font-size: 15px !important;
-    line-height: 1.46 !important;
+    line-height: 1.38 !important;
     font-weight: 500 !important;
   }
 

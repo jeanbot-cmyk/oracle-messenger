@@ -438,7 +438,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
   return (
     <div
       className={`om-message-row ${isOwn ? 'om-message-row-own' : 'om-message-row-in'} ${selectionMode ? 'om-message-row-selecting' : ''} ${selected ? 'om-message-row-selected' : ''}`}
-      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative', padding: '2px 0', background: 'transparent', borderRadius: 14 }}
+      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative', padding: '1px 0', background: 'transparent', borderRadius: 0 }}
       ref={wrapRef}
       onContextMenu={e => {
         e.preventDefault();
@@ -461,11 +461,11 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
           onClick={e => { e.stopPropagation(); onSelect(message); }}
           style={{
             position:'absolute',
-            left: isOwn ? 'auto' : 6,
-            right: isOwn ? 6 : 'auto',
-            top:6,
-            width:20,
-            height:20,
+            left:10,
+            top:'50%',
+            transform:'translateY(-50%)',
+            width:22,
+            height:22,
             borderRadius:'50%',
             border:'2px solid #fff',
             background:'var(--header-bg)',
@@ -475,7 +475,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
             justifyContent:'center',
             zIndex:2,
             cursor:'pointer',
-            boxShadow:'0 2px 7px rgba(16,42,42,0.20)',
+            boxShadow:'0 2px 8px rgba(16,42,42,0.22)',
           }}
         >
           <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
@@ -500,8 +500,8 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
 
       <div style={{
         position: 'relative',
-        maxWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(78vw, 410px)' : 'min(82vw, 580px)',
-        minWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(54vw, 240px)' : effectiveType === 'text' ? 72 : undefined,
+        maxWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(76vw, 410px)' : 'min(76vw, 560px)',
+        minWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(52vw, 230px)' : effectiveType === 'text' ? 48 : undefined,
         transform: swipeX ? `translateX(${swipeX}px)` : undefined,
         transition: swiping ? 'none' : 'transform 0.2s ease',
       }}>
@@ -515,7 +515,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
 
         <div
           className={`om-message-bubble ${isOwn ? 'bubble-out' : 'bubble-in'}`}
-          style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? 3 : '7px 10px 5px 10px', overflow: 'hidden' }}
+          style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? 3 : '6px 9px 4px 9px', overflow: 'hidden' }}
           onDoubleClick={() => onReply(message)}
         >
           {missingLocalMedia && (
@@ -613,7 +613,7 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
           {/* TEXT */}
           {effectiveType === 'text' && (
             <>
-              <p className="om-message-text" style={{ fontSize: 15, lineHeight: 1.38, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere', margin: 0, letterSpacing: 0 }}>
+              <p className="om-message-text" style={{ fontSize: 15, lineHeight: 1.36, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere', margin: 0, letterSpacing: 0 }}>
                 {linkifyText(message.content)}
               </p>
               <TimeRow />
