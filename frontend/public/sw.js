@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v60
+// Oracle Messenger — Service Worker v61
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '60-20260803-emoji-panel-stable';
+const CACHE_VERSION = '61-20260803-install-flow-retry';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [

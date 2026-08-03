@@ -197,6 +197,8 @@ const IOS_STEPS = [
 export default function InstallPage() {
   const [device,     setDevice]     = useState<Device>('android');
   const [installing, setInstalling] = useState(false);
+  const [installReady, setInstallReady] = useState(false);
+  const [installMessage, setInstallMessage] = useState('');
   const [installed,  setInstalled]  = useState(false);
   const [mounted,    setMounted]    = useState(false);
   const [iosStep,    setIosStep]    = useState(0);
@@ -228,76 +230,114 @@ export default function InstallPage() {
     // Capture prompt (may already be set by layout.tsx inline script)
     if ((window as any).__installPrompt) {
       promptRef.current = (window as any).__installPrompt;
+      setInstallReady(true);
     }
 
     const handler = (e: any) => {
       e.preventDefault();
       promptRef.current = e;
       (window as any).__installPrompt = e;
+      (window as any).__pwaPrompt = e;
+      setInstallReady(true);
+      setInstallMessage('');
+      setManualInstall(false);
     };
     window.addEventListener('beforeinstallprompt', handler);
-    window.addEventListener('appinstalled', () => {
+    const onInstalled = () => {
       setInstalled(true);
+      setInstallReady(false);
+      promptRef.current = null;
+      (window as any).__installPrompt = null;
+      (window as any).__pwaPrompt = null;
+      sessionStorage.removeItem('oracle-install-reload-attempted');
       setTimeout(goToAppEntry, 1800);
-    });
+    };
+    window.addEventListener('appinstalled', onInstalled);
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+      navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+        .then(reg => reg.update().catch(() => {}))
+        .catch(() => {});
     }
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
   }, []);
 
-  function handleAndroidInstall() {
+  async function prepareInstallRetry() {
+    setInstallMessage("Préparation de l'installation sécurisée...");
+    if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
+        await reg.update().catch(() => {});
+        await navigator.serviceWorker.ready;
+      } catch {}
+    }
+
+    const prompt = promptRef.current || (window as any).__installPrompt || (window as any).__pwaPrompt;
+    if (prompt?.prompt) {
+      setInstallReady(true);
+      setInstallMessage("Installation prête. Appuie encore sur Installer l'application.");
+      return;
+    }
+
+    if (!sessionStorage.getItem('oracle-install-reload-attempted')) {
+      sessionStorage.setItem('oracle-install-reload-attempted', '1');
+      setInstallMessage("Je prépare Chrome pour l'installation...");
+      setTimeout(() => window.location.reload(), 650);
+      return;
+    }
+
+    setManualInstall(true);
+    setInstallMessage("Chrome ne donne pas encore la fenêtre automatique. Utilise le menu ⋮ puis Installer l'application.");
+  }
+
+  async function handleAndroidInstall() {
     if (shouldOpenAndroidLinkInChrome()) {
       window.location.href = buildChromeIntentUrl();
       return;
     }
-    const prompt = promptRef.current || (window as any).__installPrompt;
+    const prompt = promptRef.current || (window as any).__installPrompt || (window as any).__pwaPrompt;
     setManualInstall(false);
+    setInstallMessage('');
 
     if (prompt) {
       // Call synchronously — must stay in user gesture context
-      prompt.prompt();
-      prompt.userChoice
-        .then((choice: any) => {
-          if (choice.outcome === 'accepted') {
-            setInstalled(true);
-            setTimeout(goToAppEntry, 1800);
-          }
-          setInstalling(false);
-        })
-        .catch(() => setInstalling(false));
       setInstalling(true);
+      try {
+        prompt.prompt();
+        const choice = await prompt.userChoice;
+        promptRef.current = null;
+        (window as any).__installPrompt = null;
+        (window as any).__pwaPrompt = null;
+        setInstallReady(false);
+        if (choice.outcome === 'accepted') {
+          setInstalled(true);
+          sessionStorage.removeItem('oracle-install-reload-attempted');
+          setTimeout(goToAppEntry, 1800);
+        } else {
+          setManualInstall(true);
+          setInstallMessage("Installation annulée. Appuie à nouveau sur Installer l'application pour réessayer.");
+        }
+      } catch {
+        promptRef.current = null;
+        (window as any).__installPrompt = null;
+        (window as any).__pwaPrompt = null;
+        setInstallReady(false);
+        setManualInstall(true);
+        setInstallMessage("Chrome n'a pas pu ouvrir la fenêtre d'installation. Réessaie depuis Chrome.");
+      } finally {
+        setInstalling(false);
+      }
       return;
     }
 
-    // Prompt not yet available — show spinner and wait briefly.
-    // Chrome may hide beforeinstallprompt when the app is already installed,
-    // recently dismissed, or opened inside an in-app browser.
     setInstalling(true);
-    const waitHandler = (e: any) => {
-      e.preventDefault();
-      promptRef.current = e;
-      (window as any).__installPrompt = e;
-      window.removeEventListener('beforeinstallprompt', waitHandler);
-      // Call immediately — we are inside the event (user gesture still valid)
-      e.prompt();
-      e.userChoice
-        .then((choice: any) => {
-          if (choice.outcome === 'accepted') {
-            setInstalled(true);
-            setTimeout(goToAppEntry, 1800);
-          }
-          setInstalling(false);
-        })
-        .catch(() => setInstalling(false));
-    };
-    window.addEventListener('beforeinstallprompt', waitHandler);
-    // After 3s show safe PWA manual instructions. Never fall back to APK.
-    setTimeout(() => {
-      window.removeEventListener('beforeinstallprompt', waitHandler);
+    try {
+      await prepareInstallRetry();
+    } finally {
       setInstalling(false);
-      setManualInstall(true);
-    }, 3000);
+    }
   }
 
   if (!mounted) return null;
@@ -476,18 +516,18 @@ export default function InstallPage() {
             <svg width="22" height="22" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
             </svg>
-            Installer l'application
+            {installReady ? "Installer l'application" : "Préparer l'installation"}
           </>
         )}
       </button>
 
-      {manualInstall && (
+      {(installMessage || manualInstall) && (
         <div style={{ width: '100%', maxWidth: 380, background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 18, padding: 16, marginBottom: 14, color: '#102A2A' }}>
           <p style={{ fontSize: 14, fontWeight: 800, margin: '0 0 8px' }}>
             Installation sécurisée uniquement depuis le navigateur
           </p>
           <p style={{ fontSize: 13, lineHeight: 1.55, margin: 0 }}>
-            Si le bouton automatique ne s’affiche pas, ouvre cette page dans Chrome, appuie sur le menu ⋮ puis choisis “Installer l’application” ou “Ajouter à l’écran d’accueil”.
+            {installMessage || 'Si le bouton automatique ne s’affiche pas, ouvre cette page dans Chrome, appuie sur le menu ⋮ puis choisis “Installer l’application” ou “Ajouter à l’écran d’accueil”.'}
           </p>
         </div>
       )}
