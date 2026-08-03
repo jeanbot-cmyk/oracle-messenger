@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v65
+// Oracle Messenger — Service Worker v66
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '65-20260803-multi-message-forward';
+const CACHE_VERSION = '66-20260803-pwa-install-cleanup';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [
@@ -26,7 +26,6 @@ self.addEventListener('activate', e => {
       caches.keys().then(keys =>
         Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
       ),
-      caches.open(CACHE_NAME).then(cache => cache.delete('/oracle-messenger.apk')).catch(() => {}),
       // Prendre le contrôle de tous les clients immédiatement
       self.clients.claim(),
     ])
@@ -49,10 +48,7 @@ self.addEventListener('fetch', e => {
   }
 
   if (url.pathname === '/oracle-messenger.apk') {
-    e.respondWith(new Response('APK disabled. Install Oracle Messenger from the browser as a PWA.', {
-      status: 410,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
-    }));
+    e.respondWith(Response.redirect('/install', 302));
     return;
   }
 

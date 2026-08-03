@@ -183,7 +183,7 @@ export default function HomePage() {
               <p style={{ fontSize: 13, fontWeight: 700, color: '#15803d', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: 0.5 }}>🤖 Android</p>
               <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>Installer l'application</h2>
               <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
-                Installe Oracle Messenger sur l'écran d'accueil sans télécharger d'APK.
+                Installe Oracle Messenger sur l'écran d'accueil depuis le navigateur.
               </p>
             </div>
 
@@ -209,7 +209,7 @@ export default function HomePage() {
               </div>
               <div>
                 <p style={{ fontSize: 16, fontWeight: 800, margin: '0 0 2px' }}>{installing ? 'Installation...' : 'Installer l’application'}</p>
-                <p style={{ fontSize: 12, margin: 0, opacity: 0.85 }}>Méthode recommandée · Sans alerte APK</p>
+                <p style={{ fontSize: 12, margin: 0, opacity: 0.85 }}>Méthode recommandée · Installation sécurisée</p>
               </div>
               <svg style={{ marginLeft: 'auto' }} width="20" height="20" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
             </button>
@@ -217,7 +217,7 @@ export default function HomePage() {
             {manualInstall && (
               <div style={{ background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 16, padding: 14 }}>
                 <p style={{ fontSize: 13, color: '#102A2A', margin: 0, lineHeight: 1.5, fontWeight: 650 }}>
-                  Aucun APK n’est utilisé. Si Chrome ne lance pas l’installation automatique, utilise le menu ⋮ puis “Installer l’application”.
+                  Si Chrome ne lance pas l’installation automatique, utilise le menu ⋮ puis “Installer l’application”.
                 </p>
               </div>
             )}

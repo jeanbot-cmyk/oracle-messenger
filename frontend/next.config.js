@@ -31,11 +31,14 @@ const nextConfig = {
           { key: 'Cache-Control', value: 'no-cache, no-store, max-age=0, must-revalidate' },
         ],
       },
+    ];
+  },
+  async redirects() {
+    return [
       {
         source: '/oracle-messenger.apk',
-        headers: [
-          { key: 'Cache-Control', value: 'no-cache, no-store, max-age=0, must-revalidate' },
-        ],
+        destination: '/install',
+        permanent: false,
       },
     ];
   },
