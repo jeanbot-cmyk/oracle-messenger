@@ -14,8 +14,8 @@ interface LocalContact { name: string; phones: string[]; emails: string[]; avata
 interface AppUser { id: string; name: string; username: string; avatar?: string; phone?: string }
 interface EnrichedContact { local: LocalContact; appUser: AppUser | null }
 
-const MANUAL_KEY   = 'oracle-manual-contacts';
-const CACHE_KEY    = 'oracle-contacts';
+const LEGACY_MANUAL_KEY = 'oracle-manual-contacts';
+const LEGACY_CACHE_KEY  = 'oracle-contacts';
 const ACCENT       = 'var(--accent)';
 const ACCENT_TEXT  = 'var(--accent-text)';
 const HEADER_BG    = 'var(--header-bg)';
@@ -121,8 +121,23 @@ function canUseContactPicker() {
   return typeof navigator !== 'undefined' && typeof (navigator as any).contacts?.select === 'function';
 }
 
-function isPhoneSearch(value: string) {
-  return value.replace(/\D/g, '').length >= 6;
+function scopedStorageKey(base: string, userId?: string) {
+  return userId ? `${base}:${userId}` : '';
+}
+
+function readLocalContacts(key: string): LocalContact[] {
+  if (!key) return [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) ?? '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalContacts(key: string, contacts: LocalContact[]) {
+  if (!key) return;
+  localStorage.setItem(key, JSON.stringify(contacts));
 }
 
 function phonesMatch(a = '', b = '') {
@@ -162,6 +177,7 @@ export default function ContactsPage() {
   const { data: session, status } = useSession();
   const router     = useRouter();
   const token      = session?.user?.backendToken ?? '';
+  const userId     = String((session?.user as any)?.id ?? '');
   const myName     = session?.user?.name ?? 'un ami';
   const myUsername = (session?.user as any)?.username ?? '';
   const myPhone    = (session?.user as any)?.phone ?? '';
@@ -185,6 +201,8 @@ export default function ContactsPage() {
   const [inviteUser, setInviteUser] = useState<AppUser | null>(null);
   const [inviteOpening, setInviteOpening] = useState(false);
   const [actionNotice, setActionNotice] = useState('');
+  const cacheKey = scopedStorageKey(LEGACY_CACHE_KEY, userId);
+  const manualKey = scopedStorageKey(LEGACY_MANUAL_KEY, userId);
 
   useEffect(() => {
     setMounted(true);
@@ -213,9 +231,13 @@ export default function ContactsPage() {
     }
     if (!token) return;
 
-    // 1. Charger depuis le cache local (contacts importés précédemment)
-    const cached: LocalContact[] = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]');
-    const manual: LocalContact[] = JSON.parse(localStorage.getItem(MANUAL_KEY) ?? '[]');
+    // Nettoyer les anciens caches globaux: ils ne sont pas liés au compte connecté.
+    localStorage.removeItem(LEGACY_CACHE_KEY);
+    localStorage.removeItem(LEGACY_MANUAL_KEY);
+
+    // Charger uniquement le cache local du compte connecté.
+    const cached = readLocalContacts(cacheKey);
+    const manual = readLocalContacts(manualKey);
     const all = mergeContacts(cached, manual);
 
     if (all.length > 0) {
@@ -226,49 +248,7 @@ export default function ContactsPage() {
     }
 
     setImported(false);
-  }, [mounted, status, token]);
-
-  useEffect(() => {
-    if (!token || !isPhoneSearch(search)) return;
-    const timer = setTimeout(async () => {
-      try {
-        const users: AppUser[] = await api.users.search(search, token);
-        if (!users.length) return;
-        setContacts(current => {
-          const additions = users
-            .filter(user => !current.some(c => c.appUser?.id === user.id))
-            .map(user => ({
-              local: { name: user.name, phones: user.phone ? [user.phone] : [], emails: [], avatar: user.avatar ?? null },
-              appUser: user,
-            }));
-          return additions.length ? [...additions, ...current] : current;
-        });
-        setImported(true);
-      } catch {}
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [search, token]);
-
-  useEffect(() => {
-    if (!token || !isPhoneSearch(newPhone)) return;
-    const timer = setTimeout(async () => {
-      try {
-        const users: AppUser[] = await api.users.search(newPhone, token);
-        if (!users.length) return;
-        const user = users[0];
-        setNewName(name => name.trim() ? name : user.name);
-        setContacts(current => {
-          if (current.some(c => c.appUser?.id === user.id)) return current;
-          return [{
-            local: { name: user.name, phones: user.phone ? [user.phone] : [newPhone], emails: [], avatar: user.avatar ?? null },
-            appUser: user,
-          }, ...current];
-        });
-        setImported(true);
-      } catch {}
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [newPhone, token]);
+  }, [mounted, status, token, cacheKey, manualKey]);
 
   function mergeContacts(base: LocalContact[], extra: LocalContact[]): LocalContact[] {
     return [...base, ...extra.filter(m => !base.some(b => b.name === m.name))];
@@ -281,12 +261,12 @@ export default function ContactsPage() {
   function removeContact(contact: LocalContact) {
     const key = contactKey(contact);
     const removeFrom = (storageKey: string) => {
-      const existing: LocalContact[] = JSON.parse(localStorage.getItem(storageKey) ?? '[]');
+      const existing = readLocalContacts(storageKey);
       const next = existing.filter(item => contactKey(item) !== key);
-      localStorage.setItem(storageKey, JSON.stringify(next));
+      writeLocalContacts(storageKey, next);
     };
-    removeFrom(CACHE_KEY);
-    removeFrom(MANUAL_KEY);
+    removeFrom(cacheKey);
+    removeFrom(manualKey);
     setContacts(current => current.filter(item => contactKey(item.local) !== key));
     setNotice('Contact retiré de cette liste.');
   }
@@ -375,12 +355,12 @@ export default function ContactsPage() {
         const raw = await (navigator as any).contacts.select(props, { multiple: true });
         locals = await Promise.all((raw as any[]).map(normalizeNativeContact));
         if (locals.length > 0) {
-          localStorage.setItem(CACHE_KEY, JSON.stringify(locals));
+          writeLocalContacts(cacheKey, locals);
         } else {
           setNotice('Aucun contact sélectionné. Appuyez sur “Ajouter un contact” pour continuer manuellement.');
         }
       } else {
-        locals = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]');
+        locals = readLocalContacts(cacheKey);
         if (locals.length === 0) {
           setNotice('Ce navigateur ne permet pas l’import automatique des contacts. Utilisez Chrome Android ou ajoutez un contact manuellement.');
           setActionNotice('');
@@ -395,9 +375,9 @@ export default function ContactsPage() {
         err?.message?.toLowerCase().includes('denied');
       if (denied) setPermDenied(true);
       setNotice('L’import des contacts n’a pas pu s’ouvrir. Autorisez les contacts ou ajoutez un contact manuellement.');
-      locals = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]');
+      locals = readLocalContacts(cacheKey);
     }
-    const manual: LocalContact[] = JSON.parse(localStorage.getItem(MANUAL_KEY) ?? '[]');
+    const manual = readLocalContacts(manualKey);
     const all = mergeContacts(locals, manual);
     setImported(true);
     if (all.length > 0) {
@@ -409,7 +389,7 @@ export default function ContactsPage() {
       setActionNotice('');
       setNotice('Aucun contact local sélectionné. Ajoutez un contact manuellement ou ouvrez un lien d’invitation.');
     }
-  }, [token]);
+  }, [token, cacheKey, manualKey]);
 
   async function matchWithBackend(locals: LocalContact[]) {
     try {
@@ -517,13 +497,16 @@ export default function ContactsPage() {
   function addManualContact() {
     if (!newName.trim()) return;
     const c: LocalContact = { name: newName.trim(), phones: newPhone ? [newPhone.trim()] : [], emails: [], avatar: null };
-    const manual: LocalContact[] = JSON.parse(localStorage.getItem(MANUAL_KEY) ?? '[]');
-    manual.push(c);
-    localStorage.setItem(MANUAL_KEY, JSON.stringify(manual));
+    const manual = readLocalContacts(manualKey);
+    const exists = manual.some(item => contactKey(item) === contactKey(c));
+    const nextManual = exists ? manual : [c, ...manual];
+    writeLocalContacts(manualKey, nextManual);
     setActionNotice('Contact ajouté. Oracle Messenger vérifie s’il est déjà inscrit.');
     setTimeout(() => setActionNotice(''), 3000);
     setNewName(''); setNewPhone(''); setShowAdd(false);
-    importAndMatch();
+    setImported(true);
+    setLoading(true);
+    matchWithBackend(mergeContacts(readLocalContacts(cacheKey), nextManual));
   }
 
   const filtered      = contacts.filter(c =>

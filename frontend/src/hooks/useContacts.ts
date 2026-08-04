@@ -17,7 +17,11 @@ function readBlobAsDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-export function useContacts() {
+function storageKey(userId?: string) {
+  return userId ? `oracle-contacts:${userId}` : '';
+}
+
+export function useContacts(userId?: string) {
   const [contacts, setContacts] = useState<PhoneContact[]>([]);
   const [loading, setLoading]   = useState(false);
   const [granted, setGranted]   = useState(false);
@@ -43,8 +47,8 @@ export function useContacts() {
       }));
       setContacts(parsed);
       setGranted(true);
-      // Stocker localement (IndexedDB)
-      localStorage.setItem('oracle-contacts', JSON.stringify(parsed));
+      const key = storageKey(userId);
+      if (key) localStorage.setItem(key, JSON.stringify(parsed));
       return { supported: true, contacts: parsed };
     } catch {
       return { supported: true, contacts: [] };
@@ -55,11 +59,12 @@ export function useContacts() {
 
   const loadCached = useCallback(() => {
     try {
-      const cached = JSON.parse(localStorage.getItem('oracle-contacts') ?? '[]');
+      const key = storageKey(userId);
+      const cached = key ? JSON.parse(localStorage.getItem(key) ?? '[]') : [];
       setContacts(cached);
       return cached as PhoneContact[];
     } catch { return []; }
-  }, []);
+  }, [userId]);
 
   return { contacts, loading, granted, importContacts, loadCached };
 }

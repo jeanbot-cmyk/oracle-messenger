@@ -57,30 +57,12 @@ export class UsersService {
   }
 
   async search(q: string, excludeId: string) {
-    const term = (q ?? '').trim();
-    const cleaned = term.replace(/[^\d+]/g, '');
-    const digits = cleaned.replace(/\D/g, '');
-    if (digits.length < 6) return [];
-
-    const phoneCandidates = this.phoneLookupCandidates(term);
-    const users = await this.prisma.user.findMany({
-      where: {
-        AND: [
-          { id: { not: excludeId } },
-          { OR: phoneCandidates.map(candidate => ({ phone: { contains: candidate } })) },
-        ],
-      },
-      select: { id:true, name:true, username:true, avatar:true, status:true, phone:true },
-      take: 200,
-    });
-
-    const ranked = users
-      .map(user => ({ user, score: this.phoneMatchScore(term, user.phone ?? '') }))
-      .filter(item => item.score > 0 || users.length <= 20)
-      .sort((a, b) => b.score - a.score)
-      .map(item => item.user);
-
-    return ranked.slice(0, 20);
+    // La découverte d'utilisateurs par recherche directe est désactivée.
+    // Les contacts autorisés passent uniquement par matchByPhoneHashes(), à partir
+    // des numéros importés ou ajoutés explicitement par l'utilisateur.
+    void q;
+    void excludeId;
+    return [];
   }
 
   async matchByPhoneHashes(hashes: string[], requesterId: string) {

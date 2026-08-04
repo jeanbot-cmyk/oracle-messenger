@@ -60,7 +60,7 @@ type ForwardTarget = {
   userId?: string;
 };
 
-const CONTACT_CACHE_KEYS = ['oracle-contacts', 'oracle-manual-contacts'];
+const CONTACT_CACHE_BASE_KEYS = ['oracle-contacts', 'oracle-manual-contacts'];
 const HIDDEN_MESSAGES_PREFIX = 'oracle-messenger-hidden-messages:';
 const PROBABLE_DIAL_CODES = [
   '225', '237', '221', '223', '226', '224', '228', '229', '227',
@@ -68,9 +68,11 @@ const PROBABLE_DIAL_CODES = [
   '33', '32', '41', '1', '44',
 ];
 
-function readStoredContactPhones() {
+function readStoredContactPhones(userId: string) {
   const phones = new Set<string>();
-  for (const key of CONTACT_CACHE_KEYS) {
+  if (!userId) return [];
+  for (const baseKey of CONTACT_CACHE_BASE_KEYS) {
+    const key = `${baseKey}:${userId}`;
     try {
       const contacts: LocalForwardContact[] = JSON.parse(localStorage.getItem(key) ?? '[]');
       contacts.forEach(contact => (contact.phones ?? []).forEach(phone => {
@@ -298,7 +300,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     async function loadForwardUsers() {
       const byId = new Map<string, User>();
       try {
-        const phones = readStoredContactPhones();
+        const phones = readStoredContactPhones(userId);
         const hashes = await phoneHashesForForward(phones);
         if (hashes.length) {
           const matched = await api.users.matchByPhoneHashes(hashes, token).catch(() => []);

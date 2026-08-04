@@ -8,7 +8,6 @@ import { t } from '../../lib/i18n';
 
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
-const MANUAL_CONTACTS_KEY = 'oracle-manual-contacts';
 const INSTALL_VERSION = '90-20260803-capacitor-calls';
 const INSTALL_RESET_KEY = `oracle-install-reset-${INSTALL_VERSION}`;
 
@@ -185,28 +184,6 @@ function normalizeInternationalPhone(phone = '') {
   return `+${digits}`;
 }
 
-function rememberOracleContact(inviter: Inviter) {
-  const phone = normalizeInternationalPhone(inviter.phone || '');
-  const contact = {
-    name: inviter.name || inviter.username || 'Oracle Messenger',
-    phones: phone ? [phone] : [],
-    emails: [],
-    avatar: inviter.avatar || null,
-  };
-  try {
-    const current = JSON.parse(localStorage.getItem(MANUAL_CONTACTS_KEY) || '[]');
-    const exists = current.some((c: any) =>
-      c?.name === contact.name ||
-      (phone && Array.isArray(c?.phones) && c.phones.some((p: string) => normalizeInternationalPhone(p) === phone))
-    );
-    if (!exists) {
-      localStorage.setItem(MANUAL_CONTACTS_KEY, JSON.stringify([contact, ...current]));
-    }
-  } catch {
-    localStorage.setItem(MANUAL_CONTACTS_KEY, JSON.stringify([contact]));
-  }
-}
-
 function saveContact(inviter: Inviter) {
   const name = inviter.name || inviter.username || 'Oracle Messenger';
   const phone = normalizeInternationalPhone(inviter.phone || '');
@@ -232,7 +209,6 @@ function saveContact(inviter: Inviter) {
 }
 
 function openDiscussionWithInviter(inviter: Inviter | null) {
-  if (inviter) rememberOracleContact(inviter);
   goToAppEntry();
 }
 
@@ -603,7 +579,7 @@ export default function InstallPage() {
           )}
           <div style={{ display: 'grid', gridTemplateColumns: normalizeInternationalPhone(inviter.phone || '') ? '1fr 1fr' : '1fr', gap: 8 }}>
             {normalizeInternationalPhone(inviter.phone || '') && (
-              <button onClick={() => { rememberOracleContact(inviter); saveContact(inviter); setContactSaved(true); }}
+              <button onClick={() => { saveContact(inviter); setContactSaved(true); }}
                 style={{ border: 'none', borderRadius: 999, background: 'var(--header-bg)', color: '#fff', padding: '11px 12px', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>
                 Enregistrer contact
               </button>
