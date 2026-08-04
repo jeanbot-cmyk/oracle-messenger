@@ -45,6 +45,7 @@ export default function AdminPage() {
   const [liveOnline, setLiveOnline] = useState<number | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const systemMessageRef = useRef<HTMLDivElement | null>(null);
 
   const token = session?.user?.backendToken;
   const api = process.env.NEXT_PUBLIC_BACKEND_URL;
@@ -143,6 +144,7 @@ export default function AdminPage() {
   async function sendBroadcast() {
     if (!broadcast.trim() && !broadcastMedia) return;
     setBroadcasting(true);
+    setBroadcastMsg('');
     try {
       const r = await fetch(`${api}/admin/broadcast`, {
         method: 'POST',
@@ -163,8 +165,10 @@ export default function AdminPage() {
       setBroadcast('');
       setBroadcastMedia(null);
     } catch { setBroadcastMsg('Erreur réseau'); }
-    setBroadcasting(false);
-    setTimeout(() => setBroadcastMsg(''), 5000);
+    finally {
+      setBroadcasting(false);
+      setTimeout(() => setBroadcastMsg(''), 5000);
+    }
   }
 
   async function sendNotif() {
@@ -212,9 +216,14 @@ export default function AdminPage() {
               Oracle Messenger · données API réelles
             </p>
           </div>
-          <button onClick={() => router.push('/chat')} style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, padding:'11px 15px', cursor:'pointer', color:'var(--text-primary)', fontSize:14, fontWeight:800, boxShadow:'var(--shadow-soft)', whiteSpace:'nowrap' }}>
-            ← Retour au chat
-          </button>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
+            <button onClick={() => systemMessageRef.current?.scrollIntoView({ behavior:'smooth', block:'start' })} style={{ background:'var(--brand)', border:'none', borderRadius:14, padding:'11px 15px', cursor:'pointer', color:'var(--accent-text)', fontSize:14, fontWeight:900, boxShadow:'var(--shadow-soft)', whiteSpace:'nowrap' }}>
+              📢 Message système
+            </button>
+            <button onClick={() => router.push('/chat')} style={{ background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:14, padding:'11px 15px', cursor:'pointer', color:'var(--text-primary)', fontSize:14, fontWeight:800, boxShadow:'var(--shadow-soft)', whiteSpace:'nowrap' }}>
+              ← Retour au chat
+            </button>
+          </div>
         </div>
 
         <div style={{ background: loadError ? '#FEF2F2' : '#EAF4F1', border:`1px solid ${loadError ? '#FECACA' : 'rgba(16,42,42,0.14)'}`, color: loadError ? '#B42318' : '#102A2A', borderRadius:16, padding:'12px 14px', marginBottom:14, display:'flex', alignItems:'center', justifyContent:'space-between', gap:12 }}>
@@ -258,11 +267,11 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Canal de diffusion vente */}
-        <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, marginBottom:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)' }}>
-          <h2 style={{ fontSize:18, fontWeight:600, color:'var(--text-primary)', margin:'0 0 6px' }}>📢 Canal officiel Oracle Messenger</h2>
+        {/* Message système officiel */}
+        <div ref={systemMessageRef} style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, marginBottom:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)', border:'2px solid rgba(16,42,42,0.14)' }}>
+          <h2 style={{ fontSize:20, fontWeight:900, color:'var(--text-primary)', margin:'0 0 6px' }}>📢 Message système à tous les utilisateurs</h2>
           <p style={{ fontSize:13, color:'var(--text-muted)', margin:'0 0 16px' }}>
-            Le message arrive dans une conversation officielle épinglée en haut, envoyé par Aura Messenger avec le logo et le badge certifié.
+            Ce message arrive chez chaque utilisateur comme une conversation normale, épinglée en haut, envoyée par Aura Messenger avec le logo officiel et le badge certifié. Les utilisateurs ne répondent pas directement à ce canal.
           </p>
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
             <textarea value={broadcast} onChange={e => setBroadcast(e.target.value)}
