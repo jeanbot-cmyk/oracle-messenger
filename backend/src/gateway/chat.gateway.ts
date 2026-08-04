@@ -190,6 +190,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.callTimeouts.set(callId, timer);
   }
 
+  private getAuthorizedCall(callId: string, userId: string, targetUserId?: string) {
+    const call = this.activeCalls.get(callId);
+    if (!call) return null;
+    if (!call.participants.has(userId)) return null;
+    if (targetUserId && !call.participants.has(targetUserId)) return null;
+    if (targetUserId && targetUserId === userId) return null;
+    return call;
+  }
+
   private async logCallFinalState(
     callId: string,
     call: {
@@ -490,6 +499,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     try {
       const callerId = client.data.userId;
+      if (!data.callId || this.activeCalls.has(data.callId)) {
+        client.emit('call:error', { message: 'Identifiant d’appel invalide' });
+        return;
+      }
+      if (data.type !== 'audio' && data.type !== 'video') {
+        client.emit('call:error', { message: 'Type d’appel invalide' });
+        return;
+      }
       const allowed = await this.chat.isParticipant(data.conversationId, callerId);
       if (!allowed) {
         client.emit('call:error', { message: 'Accès refusé à cette conversation' });
@@ -559,6 +576,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { callId: string; accepted: boolean },
   ) {
     const responderId = client.data.userId;
+    const call = this.getAuthorizedCall(data.callId, responderId);
+    if (!call || responderId === call.callerId) {
+      client.emit('call:error', { message: 'Appel introuvable ou non autorisé' });
+      return;
+    }
     client.join(`call:${data.callId}`);
     this.server.to(`call:${data.callId}`).emit('call:answered', {
       callId: data.callId,
@@ -566,7 +588,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       accepted: data.accepted,
     });
 
-    const call = this.activeCalls.get(data.callId);
     if (call && data.accepted) {
       call.answered = true;
       call.answeredAt = Date.now();
@@ -604,7 +625,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const enderId = client.data.userId;
     const call = this.activeCalls.get(data.callId);
-    this.clearCallTimeout(data.callId);
     if (!call) {
       this.server.to(`call:${data.callId}`).emit('call:ended', {
         callId: data.callId,
@@ -615,6 +635,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     if (call) {
+      if (!call.participants.has(enderId)) {
+        client.emit('call:error', { message: 'Appel non autorisé' });
+        return;
+      }
+      this.clearCallTimeout(data.callId);
       for (const uid of call.participants) {
         const socketIds = this.socketState.getSocketIds(uid);
         for (const sid of socketIds) {
@@ -653,6 +678,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string; targetUserId: string; sdp: RTCSessionDescriptionInit },
   ) {
+    if (!this.getAuthorizedCall(data.callId, client.data.userId, data.targetUserId)) {
+      client.emit('call:error', { message: 'Signalisation non autorisée' });
+      return;
+    }
     const socketIds = this.socketState.getSocketIds(data.targetUserId);
     for (const sid of socketIds) {
       this.server.to(sid).emit('webrtc:offer', {
@@ -668,6 +697,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string; targetUserId: string; sdp: RTCSessionDescriptionInit },
   ) {
+    if (!this.getAuthorizedCall(data.callId, client.data.userId, data.targetUserId)) {
+      client.emit('call:error', { message: 'Signalisation non autorisée' });
+      return;
+    }
     const socketIds = this.socketState.getSocketIds(data.targetUserId);
     for (const sid of socketIds) {
       this.server.to(sid).emit('webrtc:answer', {
@@ -683,6 +716,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string; targetUserId: string; candidate: RTCIceCandidateInit },
   ) {
+    if (!this.getAuthorizedCall(data.callId, client.data.userId, data.targetUserId)) {
+      client.emit('call:error', { message: 'Signalisation non autorisée' });
+      return;
+    }
     const socketIds = this.socketState.getSocketIds(data.targetUserId);
     for (const sid of socketIds) {
       this.server.to(sid).emit('webrtc:ice', {

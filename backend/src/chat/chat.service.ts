@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -117,6 +117,15 @@ export class ChatService {
   }
 
   async getOrCreateDirect(userId: string, participantId: string) {
+    if (!participantId || participantId === userId) {
+      throw new BadRequestException('Destinataire invalide');
+    }
+    const target = await this.prisma.user.findUnique({
+      where: { id: participantId },
+      select: { id: true },
+    });
+    if (!target) throw new NotFoundException('Contact introuvable');
+
     // Chercher une conversation directe existante
     let conv = await this.prisma.conversation.findFirst({
       where: {
@@ -145,14 +154,14 @@ export class ChatService {
       });
     }
 
+    await this.rememberConversationContacts(userId, participantId);
+
     // Return same shape as getConversations — filter out self from participants
     return this.toConversationSummary(conv, userId, 0);
   }
 
   // ── Messages ───────────────────────────────────────────────────────────────
   async getMessages(conversationId: string, userId: string, before?: string) {
-    await this.cleanupOldTextMessages(5).catch(() => null);
-
     // Vérifier que l'utilisateur est participant
     const participant = await this.prisma.participant.findUnique({
       where: { userId_conversationId: { userId, conversationId } },
@@ -243,20 +252,8 @@ export class ChatService {
   }
 
   async cleanupOldTextMessages(days = 5) {
-    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-    return this.prisma.message.updateMany({
-      where: {
-        type: 'text',
-        isDeleted: false,
-        createdAt: { lt: cutoff },
-        content: { not: '' },
-        conversation: { type: { not: this.officialConversationType } },
-      },
-      data: {
-        content: '',
-        isDeleted: true,
-      },
-    });
+    void days;
+    return { count: 0 };
   }
 
   async updateMessageStatus(messageId: string, status: 'sent' | 'delivered' | 'read') {
@@ -356,5 +353,20 @@ export class ChatService {
   async getParticipantIds(conversationId: string): Promise<string[]> {
     const parts = await this.prisma.participant.findMany({ where: { conversationId } });
     return parts.map(p => p.userId);
+  }
+
+  private async rememberConversationContacts(userId: string, participantId: string) {
+    await this.prisma.$transaction([
+      this.prisma.contact.upsert({
+        where: { ownerId_contactUserId: { ownerId: userId, contactUserId: participantId } },
+        create: { ownerId: userId, contactUserId: participantId, source: 'conversation' },
+        update: { source: 'conversation' },
+      }),
+      this.prisma.contact.upsert({
+        where: { ownerId_contactUserId: { ownerId: participantId, contactUserId: userId } },
+        create: { ownerId: participantId, contactUserId: userId, source: 'conversation' },
+        update: { source: 'conversation' },
+      }),
+    ]);
   }
 }

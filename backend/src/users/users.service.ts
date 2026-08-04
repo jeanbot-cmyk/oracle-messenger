@@ -19,7 +19,7 @@ export class UsersService {
     if (!normalized) return null;
     return this.prisma.user.findFirst({
       where: { username: { equals: normalized, mode: 'insensitive' } },
-      select: { id:true, name:true, username:true, avatar:true, status:true, phone:true },
+      select: { id:true, name:true, username:true, avatar:true, status:true },
     });
   }
 

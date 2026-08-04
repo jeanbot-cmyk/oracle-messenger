@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface LogCallDto {
@@ -51,6 +51,17 @@ export class CallsService {
   }
 
   async logCall(dto: LogCallDto) {
+    const allowedTypes = new Set(['audio', 'video']);
+    const allowedDirections = new Set(['incoming', 'outgoing', 'missed', 'refused', 'cancelled']);
+    if (!dto.callId || !dto.peerId || !allowedTypes.has(dto.type) || !allowedDirections.has(dto.direction)) {
+      throw new BadRequestException('Journal d’appel invalide');
+    }
+    if (dto.peerId === dto.userId) {
+      throw new BadRequestException('Correspondant invalide');
+    }
+    const peer = await this.prisma.user.findUnique({ where: { id: dto.peerId }, select: { id: true } });
+    if (!peer) throw new BadRequestException('Correspondant introuvable');
+
     const existing = await this.prisma.callLog.findFirst({
       where: { callId: dto.callId, userId: dto.userId },
       orderBy: { startedAt: 'desc' },
