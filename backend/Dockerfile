@@ -19,5 +19,5 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/package.json ./
 EXPOSE 3001
-# Pousser le schéma (crée les tables si absentes) puis démarrer
-CMD ["sh", "-c", "n=0; until npx prisma db push --accept-data-loss || [ $n -ge 10 ]; do n=$((n+1)); echo \"DB not ready, attempt $n/10, retrying in 5s...\"; sleep 5; done && node dist/main"]
+# Appliquer uniquement les migrations versionnées en production, sans perte de données.
+CMD ["sh", "-c", "n=0; until npx prisma migrate deploy --schema=prisma/schema.prisma || [ $n -ge 10 ]; do n=$((n+1)); echo \"DB not ready, attempt $n/10, retrying in 5s...\"; sleep 5; done && node dist/main"]

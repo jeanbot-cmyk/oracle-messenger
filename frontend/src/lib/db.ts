@@ -4,8 +4,10 @@ import type { Message, Conversation } from '../types';
 
 const DB_NAME    = 'oracle-messenger';
 const DB_VERSION = 1;
+const DATA_URL_FALLBACK_MAX_BYTES = 256 * 1024;
 
 let db: IDBPDatabase | null = null;
+const objectUrls = new Map<string, string>();
 
 export function isMediaMessage(type?: string | null) {
   return ['image', 'video', 'audio', 'voice', 'file', 'document'].includes(String(type ?? '').toLowerCase());
@@ -36,6 +38,14 @@ function blobToDataUrl(blob: Blob): Promise<string> {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(blob);
   });
+}
+
+function makeObjectUrl(id: string, blob: Blob) {
+  const previous = objectUrls.get(id);
+  if (previous) URL.revokeObjectURL(previous);
+  const next = URL.createObjectURL(blob);
+  objectUrls.set(id, next);
+  return next;
 }
 
 function extractAttachment(content?: string | null, type?: string | null) {
@@ -89,6 +99,22 @@ async function writeToOpfs(messageId: string, checksum: string, blob: Blob) {
   }
 }
 
+async function readFromOpfs(path?: string | null) {
+  if (!path?.startsWith('opfs:/') || typeof navigator === 'undefined') return null;
+  const storage = navigator.storage as any;
+  if (!storage?.getDirectory) return null;
+  try {
+    const fileName = path.split('/').pop();
+    if (!fileName) return null;
+    const root = await storage.getDirectory();
+    const dir = await root.getDirectoryHandle('oracle-message-media', { create: false });
+    const file = await dir.getFileHandle(fileName, { create: false });
+    return file.getFile();
+  } catch {
+    return null;
+  }
+}
+
 async function deleteFromOpfs(path?: string | null) {
   if (!path?.startsWith('opfs:/') || typeof navigator === 'undefined') return;
   const storage = navigator.storage as any;
@@ -110,6 +136,20 @@ function buildLocalContent(originalContent: string, localUrl: string, meta: any)
     }
   } catch {}
   return localUrl;
+}
+
+async function renderStoredMediaContent(media: any, message: Message) {
+  const blob = await readFromOpfs(media?.opfsPath)
+    || (media?.blob instanceof Blob ? media.blob : null);
+  if (blob) {
+    const localUrl = makeObjectUrl(message.id, blob);
+    return buildLocalContent(
+      media.originalContent || message.content || media.content || localUrl,
+      localUrl,
+      { checksum: media.checksum },
+    );
+  }
+  return typeof media?.content === 'string' && media.content.trim() ? media.content : message.content;
 }
 
 export function preserveLocalMediaContent(incoming: Message, existing?: Message | null): Message {
@@ -154,9 +194,12 @@ export async function saveMessage(msg: Message) {
   const existing = await database.get('messages', msg.id);
   const media = isMediaMessage(msg.type) ? await database.get('media', msg.id) : null;
   const next = preserveLocalMediaContent(msg, existing);
+  const content = media
+    ? await renderStoredMediaContent(media, next)
+    : (!hasLocalPayload(next.content) && existing?.content ? existing.content : next.content);
   await database.put('messages', {
     ...next,
-    content: !hasLocalPayload(next.content) && media?.content ? media.content : next.content,
+    content,
   });
 }
 
@@ -165,9 +208,9 @@ export async function getMessages(conversationId: string, limit = 50): Promise<M
   const all = await database.getAllFromIndex('messages', 'conversationId', conversationId);
   const messages = all.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()).slice(-limit);
   const hydrated = await Promise.all(messages.map(async message => {
-    if (!isMediaMessage(message.type) || hasLocalPayload(message.content)) return message;
+    if (!isMediaMessage(message.type)) return message;
     const media = await database.get('media', message.id);
-    return media?.content ? { ...message, content: media.content } : message;
+    return media ? { ...message, content: await renderStoredMediaContent(media, message) } : message;
   }));
   return hydrated;
 }
@@ -189,13 +232,14 @@ export async function persistMessageMedia(msg: Message) {
 
   const database = await getDB();
   const existing = await database.get('media', msg.id);
-  if (existing?.checksum && existing?.content) {
-    await saveMessage({ ...msg, content: existing.content });
+  if (existing?.checksum && (existing?.blob || existing?.opfsPath || existing?.content)) {
+    const content = await renderStoredMediaContent(existing, msg);
+    await saveMessage({ ...msg, content });
     return {
       checksum: existing.checksum as string,
       size: existing.size as number | undefined,
       opfsPath: existing.opfsPath as string | undefined,
-      content: existing.content as string,
+      content,
     };
   }
 
@@ -203,9 +247,12 @@ export async function persistMessageMedia(msg: Message) {
   const buffer = await blob.arrayBuffer();
   const checksum = bytesToHex(await crypto.subtle.digest('SHA-256', buffer));
   const verifiedBlob = new Blob([buffer], { type: blob.type || attachment.mime });
-  const localUrl = await blobToDataUrl(verifiedBlob);
+  const localUrl = makeObjectUrl(msg.id, verifiedBlob);
   const opfsPath = await writeToOpfs(msg.id, checksum, verifiedBlob);
   const content = buildLocalContent(msg.content, localUrl, { checksum });
+  const dataUrl = verifiedBlob.size <= DATA_URL_FALLBACK_MAX_BYTES
+    ? await blobToDataUrl(verifiedBlob).catch(() => undefined)
+    : undefined;
 
   await database.put('media', {
     id: msg.id,
@@ -215,8 +262,10 @@ export async function persistMessageMedia(msg: Message) {
     size: verifiedBlob.size,
     checksum,
     content,
-    dataUrl: localUrl,
+    blob: verifiedBlob,
+    dataUrl,
     opfsPath,
+    originalContent: msg.content,
     name: attachment.name,
     savedAt: Date.now(),
   });

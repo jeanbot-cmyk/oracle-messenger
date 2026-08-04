@@ -1,10 +1,10 @@
-// Oracle Messenger — Service Worker v90
+// Oracle Messenger — Service Worker v91
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '90-20260803-capacitor-calls';
+const CACHE_VERSION = '91-20260804-playstore-pwa';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [
-  '/reset-pwa.html', '/manifest.json',
+  '/reset-pwa.html', '/manifest.json', '/manifest.webmanifest',
   '/icons/icon-192-v20260803.png', '/icons/icon-512-v20260803.png', '/icons/icon-1024-v20260803.png'
 ];
 

@@ -13,6 +13,7 @@ export function middleware(request: NextRequest) {
     pathname.startsWith('/reset-pwa.html') ||
     pathname.startsWith('/login') ||
     pathname === '/manifest.json' ||
+    pathname === '/manifest.webmanifest' ||
     pathname === '/sw.js' ||
     pathname === '/service-worker.js' ||
     pathname === '/favicon.ico'
@@ -31,5 +32,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|icons|sw.js|service-worker.js|manifest.json).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|icons|sw.js|service-worker.js|manifest.json|manifest.webmanifest).*)'],
 };

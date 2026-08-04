@@ -40,7 +40,6 @@ export class AdminService {
   getMetrics() {
     const cpu = this.getInstantCpuUsage();
     const load = os.loadavg()[0] ?? 0;
-    const cpus = os.cpus();
     const totalMem = os.totalmem();
     const freeMem  = os.freemem();
     const usedMem  = totalMem - freeMem;
