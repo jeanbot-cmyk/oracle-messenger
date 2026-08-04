@@ -38,6 +38,9 @@
     "@types/passport-jwt": "^4.0.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/web-push": "^3.6.3",
+    "@typescript-eslint/eslint-plugin": "^8.39.0",
+    "@typescript-eslint/parser": "^8.39.0",
+    "eslint": "^8.57.1",
     "typescript": "^5",
     "prisma": "^5.17.0",
     "ts-node": "^10.9.2"
