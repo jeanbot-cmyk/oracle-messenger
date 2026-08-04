@@ -35,6 +35,7 @@ export default function AdminPage() {
   const [countries, setCountries] = useState<CountryStat[]>([]);
   const [notif, setNotif] = useState({ title:'', body:'' });
   const [broadcast, setBroadcast] = useState('');
+  const [broadcastMedia, setBroadcastMedia] = useState<{ content: string; type: string; name: string; size: number } | null>(null);
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [sending, setSending] = useState(false);
@@ -113,14 +114,45 @@ export default function AdminPage() {
     }
   }
 
+  function inferBroadcastType(file: File) {
+    if (file.type.startsWith('image/')) return 'image';
+    if (file.type.startsWith('video/')) return 'video';
+    if (file.type.startsWith('audio/')) return 'audio';
+    return 'document';
+  }
+
+  function pickBroadcastFile(file?: File | null) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setBroadcastMedia({
+        content: JSON.stringify({
+          url: String(reader.result ?? ''),
+          name: file.name,
+          mime: file.type || 'application/octet-stream',
+          size: file.size,
+        }),
+        type: inferBroadcastType(file),
+        name: file.name,
+        size: file.size,
+      });
+    };
+    reader.readAsDataURL(file);
+  }
+
   async function sendBroadcast() {
-    if (!broadcast.trim()) return;
+    if (!broadcast.trim() && !broadcastMedia) return;
     setBroadcasting(true);
     try {
       const r = await fetch(`${api}/admin/broadcast`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: broadcast }),
+        body: JSON.stringify({
+          content: broadcastMedia
+            ? JSON.stringify({ ...JSON.parse(broadcastMedia.content), caption: broadcast.trim() || undefined })
+            : broadcast,
+          type: broadcastMedia?.type ?? 'text',
+        }),
       });
       const d = await r.json();
       if (!r.ok || (!d.success && !d.sent)) {
@@ -129,6 +161,7 @@ export default function AdminPage() {
       }
       setBroadcastMsg(d.failed ? `✓ Envoyé à ${d.sent} utilisateurs · ${d.failed} échec(s)` : `✓ Envoyé à ${d.sent} utilisateurs`);
       setBroadcast('');
+      setBroadcastMedia(null);
     } catch { setBroadcastMsg('Erreur réseau'); }
     setBroadcasting(false);
     setTimeout(() => setBroadcastMsg(''), 5000);
@@ -229,14 +262,27 @@ export default function AdminPage() {
         <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, marginBottom:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)' }}>
           <h2 style={{ fontSize:18, fontWeight:600, color:'var(--text-primary)', margin:'0 0 6px' }}>📢 Canal officiel Oracle Messenger</h2>
           <p style={{ fontSize:13, color:'var(--text-muted)', margin:'0 0 16px' }}>
-            Le message arrive dans une conversation officielle épinglée en haut, avec le logo Oracle Messenger et un badge certifié.
+            Le message arrive dans une conversation officielle épinglée en haut, envoyé par Aura Messenger avec le logo et le badge certifié.
           </p>
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
             <textarea value={broadcast} onChange={e => setBroadcast(e.target.value)}
-              placeholder="Rédigez votre message de vente ou d'annonce…" rows={4}
+              placeholder="Rédigez votre annonce, lien ou message officiel…" rows={4}
               style={{ padding:'12px 16px', borderRadius:10, border:'1px solid var(--border)', background:'var(--bg-input)', color:'var(--text-primary)', fontSize:14, outline:'none', resize:'vertical' }} />
-            <button onClick={sendBroadcast} disabled={broadcasting || !broadcast.trim()}
-              style={{ background:'var(--brand)', color:'var(--accent-text)', border:'none', borderRadius:10, padding:'12px 24px', fontSize:15, fontWeight:600, cursor:'pointer', opacity: broadcasting || !broadcast.trim() ? .6 : 1 }}>
+            <div style={{ display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
+              <label style={{ display:'inline-flex', alignItems:'center', gap:8, background:'var(--bg-input)', color:'var(--text-primary)', border:'1px solid var(--border)', borderRadius:10, padding:'10px 14px', fontSize:13, fontWeight:800, cursor:'pointer' }}>
+                📎 Ajouter image / vidéo / audio / fichier
+                <input type="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt" onChange={e => pickBroadcastFile(e.target.files?.[0])} style={{ display:'none' }} />
+              </label>
+              {broadcastMedia && (
+                <div style={{ display:'flex', alignItems:'center', gap:8, minHeight:40, borderRadius:10, background:'#EAF4F1', color:'#102A2A', padding:'8px 10px', fontSize:13, fontWeight:800 }}>
+                  <span>{broadcastMedia.type === 'image' ? '🖼️' : broadcastMedia.type === 'video' ? '🎥' : broadcastMedia.type === 'audio' ? '🎙️' : '📄'}</span>
+                  <span style={{ maxWidth:260, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{broadcastMedia.name}</span>
+                  <button onClick={() => setBroadcastMedia(null)} style={{ border:'none', background:'transparent', color:'#B42318', cursor:'pointer', fontWeight:950 }}>×</button>
+                </div>
+              )}
+            </div>
+            <button onClick={sendBroadcast} disabled={broadcasting || (!broadcast.trim() && !broadcastMedia)}
+              style={{ background:'var(--brand)', color:'var(--accent-text)', border:'none', borderRadius:10, padding:'12px 24px', fontSize:15, fontWeight:600, cursor:'pointer', opacity: broadcasting || (!broadcast.trim() && !broadcastMedia) ? .6 : 1 }}>
               {broadcasting ? 'Envoi en cours…' : '📤 Envoyer dans le canal officiel'}
             </button>
             {broadcastMsg && <p style={{ color:'var(--accent)', fontSize:14, margin:0 }}>{broadcastMsg}</p>}

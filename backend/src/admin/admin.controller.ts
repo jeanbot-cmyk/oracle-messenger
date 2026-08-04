@@ -49,10 +49,10 @@ export class AdminController {
   }
 
   @Post('broadcast')
-  async broadcast(@CurrentUser() user: any, @Body() body: { content: string; mediaUrl?: string }) {
+  async broadcast(@CurrentUser() user: any, @Body() body: { content?: string; mediaUrl?: string; type?: string }) {
     requireAdmin(user);
-    if (!body.content?.trim()) throw new ForbiddenException('Contenu requis');
-    return this.admin.broadcastSalesMessage(user.id, body.content.trim(), body.mediaUrl);
+    if (!body.content?.trim() && !body.mediaUrl?.trim()) throw new ForbiddenException('Contenu requis');
+    return this.admin.broadcastSalesMessage(user.id, body.content?.trim() ?? '', body.mediaUrl, body.type);
   }
 
   @Get('countries')

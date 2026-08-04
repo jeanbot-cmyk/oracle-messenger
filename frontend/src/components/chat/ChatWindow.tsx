@@ -1140,8 +1140,16 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         </div>
       )}
 
+      {isOfficialConversation && !selectionMode && (
+        <div style={{ padding:'12px 14px max(12px, env(safe-area-inset-bottom))', background:'#EAF4F1', borderTop:'1px solid rgba(16,42,42,0.14)', color:'#102A2A', flexShrink:0 }}>
+          <p style={{ margin:0, fontSize:13.5, fontWeight:850, lineHeight:1.45, textAlign:'center' }}>
+            Conversation officielle Aura Messenger. Les réponses sont désactivées pour ce canal.
+          </p>
+        </div>
+      )}
+
       {/* Input — toujours visible, safe-area iOS */}
-      {!selectionMode && (
+      {!selectionMode && !isOfficialConversation && (
       <div className="chat-composer-safe om-chat-composer" style={{ position:'relative', padding:'6px 8px', paddingBottom:'max(7px, env(safe-area-inset-bottom))', background:'#F0F2F5', borderTop:'1px solid #D7DBDF', flexShrink:0 }}>
         {/* Emoji picker */}
         {showEmoji && (

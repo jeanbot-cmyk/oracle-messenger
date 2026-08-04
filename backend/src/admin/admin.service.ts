@@ -8,8 +8,9 @@ import * as os from 'os';
 export class AdminService {
   private readonly logger = new Logger(AdminService.name);
   private lastCpuSnapshot: { idle: number; total: number } | null = null;
-  private readonly officialConversationName = 'Oracle Messenger';
+  private readonly officialConversationName = 'Aura Messenger';
   private readonly officialConversationAvatar = '/icons/icon-192.png';
+  private readonly officialSystemEmail = 'system-aura@oracle-messenger.local';
 
   constructor(
     private prisma: PrismaService,
@@ -117,10 +118,34 @@ export class AdminService {
     };
   }
 
-  async broadcastSalesMessage(adminId: string, content: string, mediaUrl?: string) {
-    // Get or create one official Oracle Messenger conversation for each user.
+  private async getOrCreateOfficialSystemUser() {
+    return this.prisma.user.upsert({
+      where: { email: this.officialSystemEmail },
+      update: {
+        name: this.officialConversationName,
+        username: 'aura_messenger',
+        avatar: this.officialConversationAvatar,
+        status: 'online',
+      },
+      create: {
+        googleId: 'system-aura-messenger',
+        email: this.officialSystemEmail,
+        name: this.officialConversationName,
+        username: 'aura_messenger',
+        avatar: this.officialConversationAvatar,
+        status: 'online',
+      },
+    });
+  }
+
+  async broadcastSalesMessage(adminId: string, content: string, mediaUrl?: string, type = 'text') {
+    const systemUser = await this.getOrCreateOfficialSystemUser();
+    const cleanContent = content?.trim() || mediaUrl?.trim() || '';
+    if (!cleanContent) return { success: false, sent: 0, failed: 0, total: 0, message: 'Contenu requis' };
+
+    // Get or create one official Aura Messenger conversation for each user.
     const users = await this.prisma.user.findMany({
-      where: { id: { not: adminId } },
+      where: { id: { not: systemUser.id } },
       select: { id: true },
     });
 
@@ -131,10 +156,7 @@ export class AdminService {
         let conv = await this.prisma.conversation.findFirst({
           where: {
             type: 'official',
-            AND: [
-              { participants: { some: { userId: adminId } } },
-              { participants: { some: { userId: user.id } } },
-            ],
+            participants: { some: { userId: user.id } },
           },
           include: {
             participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
@@ -149,8 +171,21 @@ export class AdminService {
               name: this.officialConversationName,
               avatar: this.officialConversationAvatar,
               participants: {
-                create: [{ userId: adminId }, { userId: user.id }],
+                create: [{ userId: systemUser.id }, { userId: user.id }],
               },
+            },
+            include: {
+              participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+              messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+            },
+          });
+        } else if (!conv.participants.some((participant: any) => participant.userId === systemUser.id)) {
+          conv = await this.prisma.conversation.update({
+            where: { id: conv.id },
+            data: {
+              name: this.officialConversationName,
+              avatar: this.officialConversationAvatar,
+              participants: { create: [{ userId: systemUser.id }] },
             },
             include: {
               participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
@@ -159,12 +194,13 @@ export class AdminService {
           });
         }
 
+        const messageType = ['text', 'image', 'video', 'audio', 'voice', 'file', 'document'].includes(type) ? type : 'text';
         const msg = await this.prisma.message.create({
           data: {
             conversationId: conv.id,
-            senderId: adminId,
-            content,
-            type: 'text',
+            senderId: systemUser.id,
+            content: cleanContent,
+            type: messageType,
             status: 'sent',
           },
           include: { sender: { select: { id:true, name:true, username:true, avatar:true } } },
@@ -197,7 +233,16 @@ export class AdminService {
     }
 
     // Push notification pour les utilisateurs hors ligne
-    await this.notifications.sendToAll({ title: 'Oracle Messenger', body: content }).catch(() => {});
+    const notificationBody = type === 'image'
+      ? 'Photo officielle'
+      : type === 'video'
+        ? 'Vidéo officielle'
+        : type === 'audio' || type === 'voice'
+          ? 'Message vocal officiel'
+          : type === 'file' || type === 'document'
+            ? 'Fichier officiel'
+            : cleanContent;
+    await this.notifications.sendToAll({ title: this.officialConversationName, body: notificationBody }).catch(() => {});
 
     return { success: failed === 0, sent, failed, total: users.length };
   }

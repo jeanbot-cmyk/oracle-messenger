@@ -7,8 +7,9 @@ export class ChatService {
 
   private readonly allowedReactions = new Set(['👍', '❤️', '😂', '😮', '😢', '🙏', '😡']);
   private readonly officialConversationType = 'official';
-  private readonly officialConversationName = 'Oracle Messenger';
+  private readonly officialConversationName = 'Aura Messenger';
   private readonly officialConversationAvatar = '/icons/icon-192.png';
+  private readonly officialSystemEmail = 'system-aura@oracle-messenger.local';
 
   private isMediaType(type?: string | null) {
     return ['image', 'video', 'audio', 'voice', 'file', 'document'].includes(String(type ?? '').toLowerCase());
@@ -178,6 +179,20 @@ export class ChatService {
       where: { userId_conversationId: { userId: senderId, conversationId } },
     });
     if (!participant) throw new ForbiddenException();
+
+    const convMeta = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { type: true },
+    });
+    if (convMeta?.type === this.officialConversationType) {
+      const sender = await this.prisma.user.findUnique({
+        where: { id: senderId },
+        select: { email: true },
+      });
+      if (sender?.email !== this.officialSystemEmail) {
+        throw new ForbiddenException('Cette conversation officielle ne reçoit pas de réponses');
+      }
+    }
 
     const msg = await this.prisma.message.create({
       data: { conversationId, senderId, content, type, replyToId },
