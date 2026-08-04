@@ -14,13 +14,15 @@ export interface User {
 
 export interface Conversation {
   id: string;
-  type: 'direct' | 'group';
+  type: 'direct' | 'group' | 'official';
   name?: string;
   avatar?: string;
   participants: User[];
   lastMessage?: Message;
   unreadCount: number;
   isPinned: boolean;
+  isOfficial?: boolean;
+  isVerified?: boolean;
   updatedAt: string;
 }
 

@@ -4,7 +4,7 @@ import { useSession } from 'next-auth/react';
 import { getSocket } from '../lib/socket';
 import { useChatStore } from '../store/chat';
 import { useNotifications } from './useNotifications';
-import type { Message } from '../types';
+import type { Conversation, Message } from '../types';
 import { isMediaMessage } from '../lib/db';
 
 function attachmentPreview(msg: Message) {
@@ -60,6 +60,10 @@ export function useSocket() {
       }
     });
 
+    socket.on('conversation:upsert', (conversation: Conversation) => {
+      useChatStore.getState().upsertConversation(conversation);
+    });
+
     socket.on('message:update', ({ id, patch }: { id: string; patch: Partial<Message> }) => {
       store.updateMessage(id, patch);
     });
@@ -87,6 +91,7 @@ export function useSocket() {
     return () => {
       socket.off('connect');
       socket.off('message:new');
+      socket.off('conversation:upsert');
       socket.off('message:update');
       socket.off('conversation:read');
       socket.off('message:delete');

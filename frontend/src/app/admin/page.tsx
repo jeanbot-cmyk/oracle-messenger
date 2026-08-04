@@ -223,9 +223,9 @@ export default function AdminPage() {
 
         {/* Canal de diffusion vente */}
         <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, marginBottom:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)' }}>
-          <h2 style={{ fontSize:18, fontWeight:600, color:'var(--text-primary)', margin:'0 0 6px' }}>📢 Canal de diffusion</h2>
+          <h2 style={{ fontSize:18, fontWeight:600, color:'var(--text-primary)', margin:'0 0 6px' }}>📢 Canal officiel Oracle Messenger</h2>
           <p style={{ fontSize:13, color:'var(--text-muted)', margin:'0 0 16px' }}>
-            Le message arrive directement dans la discussion de chaque utilisateur, comme un message privé.
+            Le message arrive dans une conversation officielle épinglée en haut, avec le logo Oracle Messenger et un badge certifié.
           </p>
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
             <textarea value={broadcast} onChange={e => setBroadcast(e.target.value)}
@@ -233,7 +233,7 @@ export default function AdminPage() {
               style={{ padding:'12px 16px', borderRadius:10, border:'1px solid var(--border)', background:'var(--bg-input)', color:'var(--text-primary)', fontSize:14, outline:'none', resize:'vertical' }} />
             <button onClick={sendBroadcast} disabled={broadcasting || !broadcast.trim()}
               style={{ background:'var(--brand)', color:'var(--accent-text)', border:'none', borderRadius:10, padding:'12px 24px', fontSize:15, fontWeight:600, cursor:'pointer', opacity: broadcasting || !broadcast.trim() ? .6 : 1 }}>
-              {broadcasting ? 'Envoi en cours…' : '📤 Diffuser à tous les utilisateurs'}
+              {broadcasting ? 'Envoi en cours…' : '📤 Envoyer dans le canal officiel'}
             </button>
             {broadcastMsg && <p style={{ color:'var(--accent)', fontSize:14, margin:0 }}>{broadcastMsg}</p>}
           </div>

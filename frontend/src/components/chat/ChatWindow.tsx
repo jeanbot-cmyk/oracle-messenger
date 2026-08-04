@@ -245,8 +245,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const typingNames = typingIds
     .filter(id => id !== userId)
     .map(id => allParticipants.find(p => p.id === id)?.name ?? storedNames[id] ?? 'Quelqu\'un');
+  const isOfficialConversation = Boolean((conv as any)?.isOfficial || conv?.type === 'official');
   const other = conv?.participants?.[0];
-  const isOnline = other && onlineUsers.has(other.id);
+  const isOnline = !isOfficialConversation && other && onlineUsers.has(other.id);
   const searchNeedle = messageSearch.trim().toLowerCase();
   const searchMatches = searchNeedle
     ? convMessages.filter(msg =>
@@ -622,8 +623,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     setVoiceDraft(null);
   }
 
-  const name = conv?.type === 'group' ? conv.name : other?.name ?? t(lang, 'common.unknown');
-  const avatar = conv?.type === 'group' ? conv.avatar : other?.avatar;
+  const name = isOfficialConversation ? (conv?.name ?? 'Oracle Messenger') : conv?.type === 'group' ? conv.name : other?.name ?? t(lang, 'common.unknown');
+  const avatar = isOfficialConversation ? (conv?.avatar ?? '/icons/icon-192.png') : conv?.type === 'group' ? conv.avatar : other?.avatar;
   const forwardConversations = conversations
     .filter(item => item.id !== activeConvId)
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -858,13 +859,31 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               <span style={{ fontWeight:800, color:'var(--header-bg)', fontSize:18 }}>{(name??'?')[0].toUpperCase()}</span>
             )}
           </div>
+          {isOfficialConversation && (
+            <span title="Compte officiel certifié" style={{ position:'absolute', bottom:0, right:0, width:15, height:15, borderRadius:'50%', background:'#1D9BF0', border:'2px solid var(--header-bg)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <svg width="9" height="9" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </span>
+          )}
           {isOnline && <span style={{ position:'absolute', bottom:1, right:1, width:11, height:11, background:'var(--online-dot)', borderRadius:'50%', border:'2px solid var(--header-bg)' }} />}
         </button>
         <button onClick={() => setProfileModal(true)}
           style={{ flex:1, border:'none', background:'transparent', cursor:'pointer', textAlign:'left', padding:0, minWidth:0 }}>
-          <p className="om-chat-title" style={{ fontWeight:800, fontSize:16, lineHeight:1.08, color:'#FFFFFF', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', letterSpacing:0 }}>{name}</p>
+          <p className="om-chat-title" style={{ fontWeight:800, fontSize:16, lineHeight:1.08, color:'#FFFFFF', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', letterSpacing:0, display:'flex', alignItems:'center', gap:6 }}>
+            <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</span>
+            {isOfficialConversation && (
+              <span style={{ width:15, height:15, borderRadius:'50%', background:'#1D9BF0', color:'#fff', display:'inline-flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto' }}>
+                <svg width="9" height="9" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </span>
+            )}
+          </p>
           <p className="om-chat-subtitle" style={{ fontSize:12, lineHeight:1.15, color: typingNames.length > 0 ? '#DDEFEA' : isOnline ? '#34D399' : 'rgba(255,255,255,0.62)', margin:'3px 0 0', fontWeight:600 }}>
-            {typingNames.length > 0
+            {isOfficialConversation
+              ? 'Compte officiel certifié'
+              : typingNames.length > 0
               ? typingNames.length === 1
                 ? `${typingNames[0]} est en train d'écrire…`
                 : `${typingNames.slice(0,-1).join(', ')} et ${typingNames[typingNames.length-1]} écrivent…`
@@ -872,7 +891,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
           </p>
         </button>
         {/* Boutons appel */}
-        {onStartCall && conv && (
+        {onStartCall && conv && !isOfficialConversation && (
           <>
             <button
               onClick={() => startConversationCall('audio')}

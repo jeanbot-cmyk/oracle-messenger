@@ -7,6 +7,8 @@ import * as os from 'os';
 @Injectable()
 export class AdminService {
   private lastCpuSnapshot: { idle: number; total: number } | null = null;
+  private readonly officialConversationName = 'Oracle Messenger';
+  private readonly officialConversationAvatar = '/icons/icon-192.png';
 
   constructor(
     private prisma: PrismaService,
@@ -97,8 +99,25 @@ export class AdminService {
     return { tracked: true, total: await this.prisma.pwaInstall.count() };
   }
 
+  private toOfficialConversationSummary(conv: any, userId: string, unreadCount = 1) {
+    const others = conv.participants.filter((pt: any) => pt.userId !== userId).map((pt: any) => pt.user);
+    return {
+      id: conv.id,
+      type: conv.type,
+      name: this.officialConversationName,
+      avatar: this.officialConversationAvatar,
+      participants: others,
+      lastMessage: conv.messages?.[0] ?? null,
+      unreadCount,
+      isPinned: true,
+      isOfficial: true,
+      isVerified: true,
+      updatedAt: conv.updatedAt,
+    };
+  }
+
   async broadcastSalesMessage(adminId: string, content: string, mediaUrl?: string) {
-    // Get or create a "Oracle Officiel" conversation for each user
+    // Get or create one official Oracle Messenger conversation for each user.
     const users = await this.prisma.user.findMany({
       where: { id: { not: adminId } },
       select: { id: true },
@@ -107,24 +126,34 @@ export class AdminService {
     let sent = 0;
     for (const user of users) {
       try {
-        // Find existing direct conv between admin and user
         let conv = await this.prisma.conversation.findFirst({
           where: {
-            type: 'direct',
-            participants: { every: { userId: { in: [adminId, user.id] } } },
+            type: 'official',
+            AND: [
+              { participants: { some: { userId: adminId } } },
+              { participants: { some: { userId: user.id } } },
+            ],
           },
-          include: { participants: true },
+          include: {
+            participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+            messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+          },
         });
 
         if (!conv) {
           conv = await this.prisma.conversation.create({
             data: {
-              type: 'direct',
+              type: 'official',
+              name: this.officialConversationName,
+              avatar: this.officialConversationAvatar,
               participants: {
                 create: [{ userId: adminId }, { userId: user.id }],
               },
             },
-            include: { participants: true },
+            include: {
+              participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+              messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+            },
           });
         }
 
@@ -138,8 +167,22 @@ export class AdminService {
           },
           include: { sender: { select: { id:true, name:true, username:true, avatar:true } } },
         });
+        const updatedConv = await this.prisma.conversation.update({
+          where: { id: conv.id },
+          data: {
+            name: this.officialConversationName,
+            avatar: this.officialConversationAvatar,
+            updatedAt: new Date(),
+          },
+          include: {
+            participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+            messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+          },
+        });
+        const officialSummary = this.toOfficialConversationSummary(updatedConv, user.id);
 
         // Émettre en temps réel via socket si l'utilisateur est connecté
+        this.socketState.emitToUser(user.id, 'conversation:upsert', officialSummary);
         this.socketState.emitToUser(user.id, 'message:new', msg);
         // Émettre aussi dans la room de la conversation
         this.socketState.server?.to(`conv:${conv.id}`).emit('message:new', msg);

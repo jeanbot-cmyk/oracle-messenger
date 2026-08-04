@@ -3,8 +3,8 @@ import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AdminService } from './admin.service';
 
-const ADMIN_EMAILS = ['tchingankonggeorges@gmail.com'];
-const ADMIN_PHONES = ['+2250504673829'];
+const ADMIN_EMAILS = ['tchingankonggeorges@gmail.com', 'tchingangankonggeorges@gmail.com'];
+const ADMIN_PHONES = ['+2250504673829', '+2250700508618'];
 
 function isAdmin(user: any): boolean {
   return ADMIN_EMAILS.includes(user?.email) || ADMIN_PHONES.includes(user?.phone);

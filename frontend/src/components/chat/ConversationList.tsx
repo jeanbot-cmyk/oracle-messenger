@@ -57,7 +57,8 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
   const favoriteIds = readFavoriteConversationIds();
 
   const filtered = conversations.filter(c => {
-    const name = c.type === 'group' ? c.name : c.participants?.[0]?.name;
+    const isOfficial = Boolean((c as any).isOfficial || c.type === 'official');
+    const name = isOfficial ? (c.name ?? 'Oracle Messenger') : c.type === 'group' ? c.name : c.participants?.[0]?.name;
     if (search && !name?.toLowerCase().includes(search.toLowerCase())) return false;
     if (filter === 'unread' && (c.unreadCount ?? 0) === 0) return false;
     if (filter === 'groups' && c.type !== 'group') return false;
@@ -121,11 +122,13 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
     <>
     <ul className="om-fade-in" style={{ flex:1, overflowY:'auto', listStyle:'none', margin:0, padding:'4px 0 8px' }}>
       {filtered.map(conv => {
+        const isOfficial = Boolean((conv as any).isOfficial || conv.type === 'official');
+        const isVerified = Boolean((conv as any).isVerified || isOfficial);
         const other    = conv.participants?.[0];
-        const isOnline = other && onlineUsers.has(other.id);
+        const isOnline = !isOfficial && other && onlineUsers.has(other.id);
         const isActive = conv.id === activeConvId;
-        const name     = conv.type === 'group' ? conv.name : other?.name ?? t(lang, 'common.unknown');
-        const avatar   = conv.type === 'group' ? conv.avatar : other?.avatar;
+        const name     = isOfficial ? (conv.name ?? 'Oracle Messenger') : conv.type === 'group' ? conv.name : other?.name ?? t(lang, 'common.unknown');
+        const avatar   = isOfficial ? (conv.avatar ?? '/icons/icon-192.png') : conv.type === 'group' ? conv.avatar : other?.avatar;
         const lastMsg  = conv.lastMessage;
         const timeStr  = lastMsg ? format(new Date(lastMsg.createdAt), 'HH:mm') : '';
 
@@ -136,7 +139,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
               style={{
                 width:'100%', display:'flex', alignItems:'center', gap:12,
                 padding:'11px 10px 11px 16px', border:'none',
-                background: isActive ? 'var(--brand-soft)' : 'transparent',
+                background: isActive ? 'var(--brand-soft)' : isOfficial ? 'rgba(16,42,42,0.035)' : 'transparent',
                 cursor:'pointer', textAlign:'left',
                 borderRadius:0,
               }}
@@ -154,12 +157,19 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
                 }}
                 style={{ position:'relative', flexShrink:0, cursor: avatar ? 'zoom-in' : 'inherit' }}
               >
-                <div style={{ width:52, height:52, borderRadius:'50%', background:'var(--brand-soft)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden' }}>
+                <div style={{ width:52, height:52, borderRadius:'50%', background: isOfficial ? '#102A2A' : 'var(--brand-soft)', border: isOfficial ? '2px solid rgba(217,183,91,0.82)' : '1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', boxShadow: isOfficial ? '0 4px 14px rgba(16,42,42,0.18)' : 'none' }}>
                   {avatar
                     ? <Image src={avatar} alt={name ?? ''} width={52} height={52} style={{ objectFit:'cover' }}/>
                     : <span style={{ fontSize:20, fontWeight:800, color:'var(--brand)' }}>{(name ?? '?')[0].toUpperCase()}</span>
                   }
                 </div>
+                {isVerified && (
+                  <span title="Compte officiel certifié" style={{ position:'absolute', bottom:0, right:0, width:18, height:18, borderRadius:'50%', background:'#1D9BF0', border:'2px solid var(--bg-surface)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 6px rgba(15,23,42,0.18)' }}>
+                    <svg width="11" height="11" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </span>
+                )}
                 {isOnline && (
                   <span style={{ position:'absolute', bottom:2, right:2, width:12, height:12, background:'var(--online-dot)', borderRadius:'50%', border:'2px solid var(--bg-surface)' }}/>
                 )}
@@ -168,7 +178,16 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
               {/* Infos */}
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:4 }}>
-                  <span style={{ fontWeight:720, fontSize:16, lineHeight:1.25, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>{name}</span>
+                  <span style={{ fontWeight: isOfficial ? 850 : 720, fontSize:16, lineHeight:1.25, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, display:'inline-flex', alignItems:'center', gap:6, minWidth:0 }}>
+                    <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</span>
+                    {isVerified && (
+                      <span style={{ width:16, height:16, borderRadius:'50%', background:'#1D9BF0', color:'#fff', display:'inline-flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto' }}>
+                        <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </span>
+                    )}
+                  </span>
                   <span style={{ fontSize:12, color: conv.unreadCount > 0 ? 'var(--brand)' : 'var(--text-muted)', flexShrink:0, marginLeft:8, fontWeight: conv.unreadCount > 0 ? 750 : 500 }}>{timeStr}</span>
                 </div>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
@@ -177,6 +196,11 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
                       ? <em style={{ color:'var(--text-muted)' }}>{t(lang, 'chat.deleted')}</em>
                       : messagePreview(lastMsg)}
                   </p>
+                  {isOfficial && (conv.unreadCount ?? 0) === 0 && (
+                    <span style={{ marginLeft:8, flexShrink:0, borderRadius:999, background:'rgba(29,155,240,0.10)', color:'#1D4ED8', fontSize:10.5, fontWeight:900, padding:'3px 7px', letterSpacing:0 }}>
+                      OFFICIEL
+                    </span>
+                  )}
                   {conv.unreadCount > 0 && (
                     <span style={{ marginLeft:8, flexShrink:0, minWidth:21, height:21, background:'var(--unread-bg)', borderRadius:11, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11.5, color:'var(--accent-text)', fontWeight:850, padding:'0 6px' }}>
                       {conv.unreadCount > 9 ? '9+' : conv.unreadCount}
@@ -185,6 +209,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
                 </div>
               </div>
 
+              {!isOfficial && (
               <span
                 role="button"
                 aria-label={`${t(lang, 'chat.options')} ${name}`}
@@ -199,8 +224,9 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
                   <circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/>
                 </svg>
               </span>
+              )}
             </button>
-            {openMenuId === conv.id && (
+            {openMenuId === conv.id && !isOfficial && (
               <>
                 <button
                   aria-label={t(lang, 'common.close')}

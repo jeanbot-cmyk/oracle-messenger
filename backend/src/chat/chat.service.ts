@@ -5,6 +5,10 @@ import { PrismaService } from '../prisma/prisma.service';
 export class ChatService {
   constructor(private prisma: PrismaService) {}
 
+  private readonly officialConversationType = 'official';
+  private readonly officialConversationName = 'Oracle Messenger';
+  private readonly officialConversationAvatar = '/icons/icon-192.png';
+
   private isMediaType(type?: string | null) {
     return ['image', 'video', 'audio', 'voice', 'file', 'document'].includes(String(type ?? '').toLowerCase());
   }
@@ -15,6 +19,24 @@ export class ChatService {
       senderId: { not: userId },
       isDeleted: false,
       ...(lastReadAt ? { createdAt: { gt: lastReadAt } } : {}),
+    };
+  }
+
+  private toConversationSummary(conv: any, userId: string, unreadCount: number) {
+    const isOfficial = conv.type === this.officialConversationType;
+    const others = conv.participants.filter((pt: any) => pt.userId !== userId).map((pt: any) => pt.user);
+    return {
+      id: conv.id,
+      type: conv.type,
+      name: isOfficial ? this.officialConversationName : conv.name,
+      avatar: isOfficial ? this.officialConversationAvatar : conv.avatar,
+      participants: others,
+      lastMessage: conv.messages?.[0] ?? null,
+      unreadCount,
+      isPinned: isOfficial,
+      isOfficial,
+      isVerified: isOfficial,
+      updatedAt: conv.updatedAt,
     };
   }
 
@@ -33,24 +55,17 @@ export class ChatService {
       orderBy: { conversation: { updatedAt: 'desc' } },
     });
 
-    return Promise.all(participations.map(async p => {
+    const summaries = await Promise.all(participations.map(async p => {
       const conv = p.conversation;
-      const others = conv.participants.filter(pt => pt.userId !== userId).map(pt => pt.user);
       const unread = await this.prisma.message.count({
         where: this.unreadWhere(conv.id, userId, p.lastReadAt),
       });
-      return {
-        id: conv.id,
-        type: conv.type,
-        name: conv.name,
-        avatar: conv.avatar,
-        participants: others,
-        lastMessage: conv.messages[0] ?? null,
-        unreadCount: unread,
-        isPinned: false,
-        updatedAt: conv.updatedAt,
-      };
+      return this.toConversationSummary(conv, userId, unread);
     }));
+    return summaries.sort((a, b) => {
+      if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
   }
 
   async getConversation(conversationId: string, userId: string) {
@@ -68,21 +83,10 @@ export class ChatService {
     });
     if (!conv) throw new NotFoundException();
 
-    const others = conv.participants.filter(p => p.userId !== userId).map(p => p.user);
     const unread = await this.prisma.message.count({
       where: this.unreadWhere(conv.id, userId, participant.lastReadAt),
     });
-    return {
-      id: conv.id,
-      type: conv.type,
-      name: conv.name,
-      avatar: conv.avatar,
-      participants: others,
-      lastMessage: conv.messages[0] ?? null,
-      unreadCount: unread,
-      isPinned: false,
-      updatedAt: conv.updatedAt,
-    };
+    return this.toConversationSummary(conv, userId, unread);
   }
 
   async deleteConversationForUser(conversationId: string, userId: string) {
@@ -91,6 +95,14 @@ export class ChatService {
       select: { id: true },
     });
     if (!participant) throw new ForbiddenException();
+
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { type: true },
+    });
+    if (conv?.type === this.officialConversationType) {
+      throw new ForbiddenException('La conversation officielle ne peut pas être supprimée');
+    }
 
     await this.prisma.participant.delete({ where: { id: participant.id } });
 
@@ -132,18 +144,7 @@ export class ChatService {
     }
 
     // Return same shape as getConversations — filter out self from participants
-    const others = conv.participants.filter(p => p.userId !== userId).map(p => p.user);
-    return {
-      id: conv.id,
-      type: conv.type,
-      name: conv.name,
-      avatar: conv.avatar,
-      participants: others,
-      lastMessage: conv.messages[0] ?? null,
-      unreadCount: 0,
-      isPinned: false,
-      updatedAt: conv.updatedAt,
-    };
+    return this.toConversationSummary(conv, userId, 0);
   }
 
   // ── Messages ───────────────────────────────────────────────────────────────
@@ -225,6 +226,7 @@ export class ChatService {
         isDeleted: false,
         createdAt: { lt: cutoff },
         content: { not: '' },
+        conversation: { type: { not: this.officialConversationType } },
       },
       data: {
         content: '',

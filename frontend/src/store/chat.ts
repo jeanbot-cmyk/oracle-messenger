@@ -20,6 +20,7 @@ interface ChatStore {
 
   setCurrentUser:     (u: User) => void;
   setConversations:   (c: Conversation[]) => void;
+  upsertConversation: (c: Conversation) => void;
   setActiveConv:      (id: string) => void;
   removeConversation: (id: string) => void;
   addMessage:         (msg: Message) => void;
@@ -46,7 +47,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   setConversations: (convs) => {
     convs.forEach(c => saveConversation(c));
-    set({ conversations: convs });
+    set({ conversations: sortConversations(convs) });
+  },
+
+  upsertConversation: (conv) => {
+    saveConversation(conv).catch(() => {});
+    set(s => {
+      const exists = s.conversations.some(c => c.id === conv.id);
+      const next = exists
+        ? s.conversations.map(c => c.id === conv.id ? { ...c, ...conv } : c)
+        : [conv, ...s.conversations];
+      return { conversations: sortConversations(next) };
+    });
   },
 
   setActiveConv: (id) => set({ activeConvId: id }),
@@ -78,7 +90,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         saveConversation(next).catch(() => {});
         return next;
       });
-      return { messages: { ...s.messages, [msg.conversationId]: updated }, conversations: convs };
+      return { messages: { ...s.messages, [msg.conversationId]: updated }, conversations: sortConversations(convs) };
     });
   },
 
@@ -188,3 +200,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }));
   },
 }));
+
+function sortConversations(convs: Conversation[]) {
+  return [...convs].sort((a, b) => {
+    const aPinned = Boolean(a.isPinned || a.isOfficial || a.type === 'official');
+    const bPinned = Boolean(b.isPinned || b.isOfficial || b.type === 'official');
+    if (aPinned !== bPinned) return aPinned ? -1 : 1;
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+  });
+}
