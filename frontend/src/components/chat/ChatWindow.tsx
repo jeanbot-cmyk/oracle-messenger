@@ -191,7 +191,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const userId = session?.user?.id ?? '';
   const { lang } = useSettings();
 
-  const { activeConvId, conversations, messages, typingUsers, typingNames: typingNamesStore, onlineUsers, setConversations, setMessages, markRead, loadLocalMessages } = useChatStore();
+  const { activeConvId, conversations, messages, typingUsers, typingNames: typingNamesStore, onlineUsers, setConversations, setMessages, markRead, loadLocalMessages, removeConversation } = useChatStore();
   const { joinConversation, sendTyping, sendMessage, deleteMessage: deleteSocketMessage, editMessage: editSocketMessage, markRead: emitRead, reactToMessage } = useSocket();
 
   const [input, setInput]         = useState('');
@@ -282,7 +282,11 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     loadLocalMessages(activeConvId);
     joinConversation(activeConvId);
     emitRead(activeConvId);
-    api.messages.list(activeConvId, token).then(msgs => { setMessages(activeConvId, msgs); markRead(activeConvId); emitRead(activeConvId); }).catch(() => {});
+    api.messages.list(activeConvId, token)
+      .then(msgs => { setMessages(activeConvId, msgs); markRead(activeConvId); emitRead(activeConvId); })
+      .catch(error => {
+        if (String(error?.message || error).includes('404')) removeConversation(activeConvId);
+      });
   }, [activeConvId, token]);
 
   useEffect(() => {

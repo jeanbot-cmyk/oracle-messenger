@@ -46,19 +46,35 @@ export class ChatService {
   private toConversationSummary(conv: any, userId: string, unreadCount: number) {
     const isOfficial = conv.type === this.officialConversationType;
     const others = conv.participants.filter((pt: any) => pt.userId !== userId).map((pt: any) => pt.user);
+    const lastMessage = conv.messages?.[0] ?? null;
+    const officialExpiresAt = isOfficial && conv.viewerLastReadAt && lastMessage
+      ? new Date(new Date(conv.viewerLastReadAt).getTime() + 24 * 60 * 60 * 1000).toISOString()
+      : undefined;
     return {
       id: conv.id,
       type: conv.type,
       name: isOfficial ? this.officialConversationName : conv.name,
       avatar: isOfficial ? this.officialConversationAvatar : conv.avatar,
       participants: others,
-      lastMessage: conv.messages?.[0] ?? null,
+      lastMessage,
       unreadCount,
       isPinned: isOfficial,
       isOfficial,
       isVerified: isOfficial,
+      officialExpiresAt,
       updatedAt: conv.updatedAt,
     };
+  }
+
+  private officialConversationHasExpired(conv: any, lastReadAt?: Date | null) {
+    if (conv.type !== this.officialConversationType) return false;
+    const lastMessage = conv.messages?.[0];
+    if (!lastMessage || !lastReadAt) return false;
+    const messageCreatedAt = new Date(lastMessage.createdAt).getTime();
+    const readAt = new Date(lastReadAt).getTime();
+    if (!Number.isFinite(messageCreatedAt) || !Number.isFinite(readAt)) return false;
+    if (readAt < messageCreatedAt) return false;
+    return Date.now() - readAt >= 24 * 60 * 60 * 1000;
   }
 
   // ── Conversations ──────────────────────────────────────────────────────────
@@ -81,9 +97,10 @@ export class ChatService {
       const unread = await this.prisma.message.count({
         where: this.unreadWhere(conv.id, userId, p.lastReadAt),
       });
-      return this.toConversationSummary(conv, userId, unread);
+      if (unread === 0 && this.officialConversationHasExpired(conv, p.lastReadAt)) return null;
+      return this.toConversationSummary({ ...conv, viewerLastReadAt: p.lastReadAt }, userId, unread);
     }));
-    return summaries.sort((a, b) => {
+    return summaries.filter(Boolean).sort((a: any, b: any) => {
       if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
       return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     });
@@ -103,11 +120,14 @@ export class ChatService {
       },
     });
     if (!conv) throw new NotFoundException();
+    if (this.officialConversationHasExpired(conv, participant.lastReadAt)) {
+      throw new NotFoundException('Message officiel expiré');
+    }
 
     const unread = await this.prisma.message.count({
       where: this.unreadWhere(conv.id, userId, participant.lastReadAt),
     });
-    return this.toConversationSummary(conv, userId, unread);
+    return this.toConversationSummary({ ...conv, viewerLastReadAt: participant.lastReadAt }, userId, unread);
   }
 
   async deleteConversationForUser(conversationId: string, userId: string) {
@@ -186,6 +206,18 @@ export class ChatService {
       where: { userId_conversationId: { userId, conversationId } },
     });
     if (!participant) throw new ForbiddenException();
+
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: {
+        type: true,
+        messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true } },
+      },
+    });
+    if (!conv) throw new NotFoundException();
+    if (this.officialConversationHasExpired(conv, participant.lastReadAt)) {
+      throw new NotFoundException('Message officiel expiré');
+    }
 
     const messages = await this.prisma.message.findMany({
       where: {

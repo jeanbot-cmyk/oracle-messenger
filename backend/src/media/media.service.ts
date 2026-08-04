@@ -10,6 +10,7 @@ const SAFE_MIME = new Set([
   'video/mp4', 'video/webm', 'video/quicktime',
   'audio/mpeg', 'audio/mp3', 'audio/mp4', 'audio/aac', 'audio/webm', 'audio/ogg', 'audio/wav',
   'application/pdf',
+  'text/plain',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.ms-excel',
@@ -34,6 +35,7 @@ function extensionFor(mime: string, originalName = '') {
     'audio/ogg': ['.ogg'],
     'audio/wav': ['.wav'],
     'application/pdf': ['.pdf'],
+    'text/plain': ['.txt'],
     'application/msword': ['.doc'],
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
     'application/vnd.ms-excel': ['.xls'],
@@ -54,6 +56,7 @@ function extensionFor(mime: string, originalName = '') {
   if (mime === 'audio/ogg') return '.ogg';
   if (mime === 'audio/wav') return '.wav';
   if (mime === 'application/pdf') return '.pdf';
+  if (mime === 'text/plain') return '.txt';
   if (mime === 'application/msword') return '.doc';
   if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return '.docx';
   if (mime === 'application/vnd.ms-excel') return '.xls';

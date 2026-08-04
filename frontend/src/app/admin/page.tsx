@@ -4,14 +4,23 @@ import { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { getSocket } from '../../lib/socket';
+import { api as apiClient } from '../../lib/api';
 
 const ADMIN_EMAILS = ['tchingankonggeorges@gmail.com', 'tchingangankonggeorges@gmail.com'];
 const ADMIN_PHONES = ['+2250504673829', '+2250700508618'];
+const MAX_BROADCAST_FILE_BYTES = 18 * 1024 * 1024;
 const isAdminUser  = (s: any) => ADMIN_EMAILS.includes(s?.user?.email) || ADMIN_PHONES.includes(s?.user?.phone);
 
 interface Stats { totalUsers:number; onlineUsers:number; pwaInstalls:number; totalMessages:number; totalConversations:number; premiumUsers?:number; }
 interface Metrics { cpu:number; ramPct:number; ramUsed:number; ramTotal:number; uptime:number; loadAvg1m?:number; platform?:string; }
 interface CountryStat { country:string; count:number; online:number; }
+interface BroadcastMedia {
+  dataUrl: string;
+  type: string;
+  mime: string;
+  name: string;
+  size: number;
+}
 
 function formatNumber(value?: number | null) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
@@ -35,7 +44,7 @@ export default function AdminPage() {
   const [countries, setCountries] = useState<CountryStat[]>([]);
   const [notif, setNotif] = useState({ title:'', body:'' });
   const [broadcast, setBroadcast] = useState('');
-  const [broadcastMedia, setBroadcastMedia] = useState<{ content: string; type: string; name: string; size: number } | null>(null);
+  const [broadcastMedia, setBroadcastMedia] = useState<BroadcastMedia | null>(null);
   const [broadcasting, setBroadcasting] = useState(false);
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [sending, setSending] = useState(false);
@@ -122,38 +131,72 @@ export default function AdminPage() {
     return 'document';
   }
 
+  function readFileAsDataUrl(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ''));
+      reader.onerror = () => reject(new Error('Lecture du fichier impossible.'));
+      reader.readAsDataURL(file);
+    });
+  }
+
   function pickBroadcastFile(file?: File | null) {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setBroadcastMedia({
-        content: JSON.stringify({
-          url: String(reader.result ?? ''),
-          name: file.name,
+    if (file.size > MAX_BROADCAST_FILE_BYTES) {
+      setBroadcastMsg('Fichier trop lourd. Limite actuelle : 18 MB.');
+      return;
+    }
+    readFileAsDataUrl(file)
+      .then(dataUrl => {
+        setBroadcastMedia({
+          dataUrl,
+          type: inferBroadcastType(file),
           mime: file.type || 'application/octet-stream',
+          name: file.name,
           size: file.size,
-        }),
-        type: inferBroadcastType(file),
-        name: file.name,
-        size: file.size,
-      });
-    };
-    reader.readAsDataURL(file);
+        });
+        setBroadcastMsg('');
+      })
+      .catch(() => setBroadcastMsg('Impossible de lire le fichier sélectionné.'));
   }
 
   async function sendBroadcast() {
     if (!broadcast.trim() && !broadcastMedia) return;
+    if (!api || !token) {
+      setBroadcastMsg('Session admin ou API indisponible.');
+      return;
+    }
     setBroadcasting(true);
     setBroadcastMsg('');
     try {
+      let content = broadcast.trim();
+      let type = 'text';
+
+      if (broadcastMedia) {
+        setBroadcastMsg('Téléversement du fichier officiel...');
+        const uploaded = await apiClient.media.upload(token, {
+          dataUrl: broadcastMedia.dataUrl,
+          name: broadcastMedia.name,
+          mime: broadcastMedia.mime,
+          kind: broadcastMedia.type,
+        });
+        type = broadcastMedia.type;
+        content = JSON.stringify({
+          url: uploaded.url,
+          name: uploaded.name || broadcastMedia.name,
+          mime: uploaded.mime || broadcastMedia.mime,
+          size: uploaded.size || broadcastMedia.size,
+          caption: broadcast.trim() || undefined,
+        });
+        setBroadcastMsg('Fichier prêt. Envoi du message système...');
+      }
+
       const r = await fetch(`${api}/admin/broadcast`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          content: broadcastMedia
-            ? JSON.stringify({ ...JSON.parse(broadcastMedia.content), caption: broadcast.trim() || undefined })
-            : broadcast,
-          type: broadcastMedia?.type ?? 'text',
+          content,
+          type,
         }),
       });
       const d = await r.json();
@@ -271,7 +314,7 @@ export default function AdminPage() {
         <div ref={systemMessageRef} style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, marginBottom:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)', border:'2px solid rgba(16,42,42,0.14)' }}>
           <h2 style={{ fontSize:20, fontWeight:900, color:'var(--text-primary)', margin:'0 0 6px' }}>📢 Message système à tous les utilisateurs</h2>
           <p style={{ fontSize:13, color:'var(--text-muted)', margin:'0 0 16px' }}>
-            Ce message arrive chez chaque utilisateur comme une conversation normale, épinglée en haut, envoyée par Aura Messenger avec le logo officiel et le badge certifié. Les utilisateurs ne répondent pas directement à ce canal.
+            Ce message arrive chez chaque utilisateur comme une conversation normale, épinglée en haut, envoyée par Aura Messenger avec le logo officiel et le badge certifié. Vous pouvez envoyer un texte seul, un fichier seul, ou un texte avec image, vidéo, audio ou document dans la même bulle.
           </p>
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
             <textarea value={broadcast} onChange={e => setBroadcast(e.target.value)}
@@ -286,6 +329,7 @@ export default function AdminPage() {
                 <div style={{ display:'flex', alignItems:'center', gap:8, minHeight:40, borderRadius:10, background:'#EAF4F1', color:'#102A2A', padding:'8px 10px', fontSize:13, fontWeight:800 }}>
                   <span>{broadcastMedia.type === 'image' ? '🖼️' : broadcastMedia.type === 'video' ? '🎥' : broadcastMedia.type === 'audio' ? '🎙️' : '📄'}</span>
                   <span style={{ maxWidth:260, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{broadcastMedia.name}</span>
+                  {broadcast.trim() && <span style={{ color:'#047857', fontWeight:900 }}>+ texte</span>}
                   <button onClick={() => setBroadcastMedia(null)} style={{ border:'none', background:'transparent', color:'#B42318', cursor:'pointer', fontWeight:950 }}>×</button>
                 </div>
               )}

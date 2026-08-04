@@ -94,10 +94,15 @@ function parseFilePayload(content: string) {
         name: typeof parsed.name === 'string' ? parsed.name : t(useSettings.getState().lang, 'chat.attachedFile'),
         size: typeof parsed.size === 'number' ? parsed.size : undefined,
         mime: typeof parsed.mime === 'string' ? parsed.mime : '',
+        caption: typeof parsed.caption === 'string' ? parsed.caption.trim() : '',
       };
     }
   } catch {}
-  return { url: attachmentUrl(content), name: t(useSettings.getState().lang, 'chat.attachedFile'), size: undefined as number | undefined, mime: '' };
+  return { url: attachmentUrl(content), name: t(useSettings.getState().lang, 'chat.attachedFile'), size: undefined as number | undefined, mime: '', caption: '' };
+}
+
+function attachmentCaption(content: string) {
+  return parseFilePayload(content).caption;
 }
 
 function formatBytes(size?: number) {
@@ -418,6 +423,7 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
 
   const effectiveType = detectType(message.content, message.type ?? 'text');
   const mediaSrc = attachmentUrl(message.content);
+  const caption = attachmentCaption(message.content);
   const missingLocalMedia = effectiveType !== 'text' && !mediaSrc;
   const timeStr = (() => { try { return format(new Date(message.createdAt), 'HH:mm'); } catch { return ''; } })();
   const myReaction = message.reactions?.find(reaction => reaction.userId === currentUserId)?.emoji ?? '';
@@ -461,6 +467,15 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
       {isOwn && <StatusIcon status={message.status} tone="light" />}
     </div>
   );
+
+  const CaptionBlock = () => caption ? (
+    <div style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? '7px 9px 4px' : '6px 0 0' }}>
+      <p className="om-message-text" style={{ fontSize: 14.5, lineHeight: 1.34, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere', margin: 0, letterSpacing: 0 }}>
+        {linkifyText(caption)}
+      </p>
+      <TimeRow />
+    </div>
+  ) : null;
 
   // longPressTimer est géré via useRef ci-dessus
 
@@ -573,6 +588,7 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
               <MediaTimeOverlay />
             </div>
           )}
+          {effectiveType === 'image' && !missingLocalMedia && !imgError && <CaptionBlock />}
           {effectiveType === 'image' && !missingLocalMedia && imgError && (
             <div style={{ padding: '10px 14px' }}>
               <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>🖼️ {t(lang, 'chat.imageUnavailable')}</p>
@@ -606,10 +622,14 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
               <MediaTimeOverlay />
             </div>
           )}
+          {effectiveType === 'video' && !missingLocalMedia && <CaptionBlock />}
 
           {/* AUDIO */}
           {effectiveType === 'audio' && !missingLocalMedia && (
-            <AudioPlayer src={mediaSrc} timeRow={<TimeRow />} />
+            <div>
+              <AudioPlayer src={mediaSrc} timeRow={caption ? null : <TimeRow />} />
+              <CaptionBlock />
+            </div>
           )}
 
           {/* FILE */}
@@ -631,7 +651,7 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
               </a>
                 );
               })()}
-              <TimeRow />
+              {caption ? <CaptionBlock /> : <TimeRow />}
             </div>
           )}
 

@@ -25,17 +25,45 @@ function attachmentUrl(content?: string) {
   return trimmed;
 }
 
+function attachmentCaption(content?: string) {
+  const trimmed = typeof content === 'string' ? content.trim() : '';
+  if (!trimmed) return '';
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object' && typeof parsed.caption === 'string') {
+      return parsed.caption.trim();
+    }
+  } catch {}
+  return '';
+}
+
 function messagePreview(message: any) {
   const lang = useSettings.getState().lang;
   if (!message) return '';
   if (message.isDeleted) return t(lang, 'chat.deleted');
   const src = attachmentUrl(message.content);
+  const caption = attachmentCaption(message.content);
   const type = message.type;
-  if (type === 'image' || src.startsWith('data:image')) return t(lang, 'common.photo');
-  if (type === 'video' || src.startsWith('data:video')) return t(lang, 'common.video');
-  if (type === 'audio' || type === 'voice' || src.startsWith('data:audio')) return t(lang, 'common.audio');
-  if (type === 'file' || type === 'document' || src.startsWith('data:') || (src.length > 500 && /^[A-Za-z0-9+/=\r\n]+$/.test(src))) return t(lang, 'common.file');
+  const withCaption = (label: string) => caption ? `${label} · ${caption}` : label;
+  if (type === 'image' || src.startsWith('data:image')) return withCaption(t(lang, 'common.photo'));
+  if (type === 'video' || src.startsWith('data:video')) return withCaption(t(lang, 'common.video'));
+  if (type === 'audio' || type === 'voice' || src.startsWith('data:audio')) return withCaption(t(lang, 'common.audio'));
+  if (type === 'file' || type === 'document' || src.startsWith('data:') || (src.length > 500 && /^[A-Za-z0-9+/=\r\n]+$/.test(src))) return withCaption(t(lang, 'common.file'));
   return message.content ?? '';
+}
+
+function VerifiedSeal({ size = 18 }: { size?: number }) {
+  return (
+    <span title="Compte officiel certifié" style={{ width:size, height:size, display:'inline-flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto' }}>
+      <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{ display:'block', filter:'drop-shadow(0 1px 2px rgba(15,23,42,.18))' }}>
+        <path
+          fill="#1D9BF0"
+          d="M12 1.5l2.08 1.78 2.72-.32 1.15 2.49 2.56.98-.08 2.74 1.58 2.24-1.58 2.24.08 2.74-2.56.98-1.15 2.49-2.72-.32L12 22.5l-2.08-1.78-2.72.32-1.15-2.49-2.56-.98.08-2.74L1.99 12.6l1.58-2.24-.08-2.74 2.56-.98L7.2 4.15l2.72.32L12 1.5z"
+        />
+        <path d="M7.35 12.25l3.05 3.05 6.25-6.6" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
+  );
 }
 
 function readFavoriteConversationIds() {
@@ -164,10 +192,8 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
                   }
                 </div>
                 {isVerified && (
-                  <span title="Compte officiel certifié" style={{ position:'absolute', bottom:0, right:0, width:18, height:18, borderRadius:'50%', background:'#1D9BF0', border:'2px solid var(--bg-surface)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 6px rgba(15,23,42,0.18)' }}>
-                    <svg width="11" height="11" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
+                  <span style={{ position:'absolute', bottom:-1, right:-1, width:21, height:21, borderRadius:'50%', background:'var(--bg-surface)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <VerifiedSeal size={18} />
                   </span>
                 )}
                 {isOnline && (
@@ -181,11 +207,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
                   <span style={{ fontWeight: isOfficial ? 850 : 720, fontSize:16, lineHeight:1.25, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, display:'inline-flex', alignItems:'center', gap:6, minWidth:0 }}>
                     <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</span>
                     {isVerified && (
-                      <span style={{ width:16, height:16, borderRadius:'50%', background:'#1D9BF0', color:'#fff', display:'inline-flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto' }}>
-                        <svg width="10" height="10" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      </span>
+                      <VerifiedSeal size={16} />
                     )}
                   </span>
                   <span style={{ fontSize:12, color: conv.unreadCount > 0 ? 'var(--brand)' : 'var(--text-muted)', flexShrink:0, marginLeft:8, fontWeight: conv.unreadCount > 0 ? 750 : 500 }}>{timeStr}</span>
