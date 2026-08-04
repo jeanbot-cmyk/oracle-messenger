@@ -6,6 +6,8 @@ export class ChatService {
   constructor(private prisma: PrismaService) {}
 
   private readonly allowedReactions = new Set(['👍', '❤️', '😂', '😮', '😢', '🙏', '😡']);
+  private readonly allowedMessageTypes = new Set(['text', 'image', 'video', 'audio', 'voice', 'file', 'document']);
+  private readonly maxMessageContentLength = 20_000;
   private readonly officialConversationType = 'official';
   private readonly officialConversationName = 'Aura Messenger';
   private readonly officialConversationAvatar = '/icons/icon-192.png';
@@ -13,6 +15,23 @@ export class ChatService {
 
   private isMediaType(type?: string | null) {
     return ['image', 'video', 'audio', 'voice', 'file', 'document'].includes(String(type ?? '').toLowerCase());
+  }
+
+  private normalizeMessageType(type?: string | null) {
+    const normalized = String(type || 'text').toLowerCase().trim();
+    if (!this.allowedMessageTypes.has(normalized)) {
+      throw new BadRequestException('Type de message invalide');
+    }
+    return normalized;
+  }
+
+  private normalizeMessageContent(content?: string | null) {
+    const value = String(content ?? '').trim();
+    if (!value) throw new BadRequestException('Message vide');
+    if (value.length > this.maxMessageContentLength) {
+      throw new BadRequestException('Message trop long');
+    }
+    return value;
   }
 
   private unreadWhere(conversationId: string, userId: string, lastReadAt?: Date | null) {
@@ -188,6 +207,8 @@ export class ChatService {
       where: { userId_conversationId: { userId: senderId, conversationId } },
     });
     if (!participant) throw new ForbiddenException();
+    const normalizedType = this.normalizeMessageType(type);
+    const normalizedContent = this.normalizeMessageContent(content);
 
     const convMeta = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
@@ -203,8 +224,18 @@ export class ChatService {
       }
     }
 
+    if (replyToId) {
+      const replyTo = await this.prisma.message.findUnique({
+        where: { id: replyToId },
+        select: { conversationId: true, isDeleted: true },
+      });
+      if (!replyTo || replyTo.conversationId !== conversationId || replyTo.isDeleted) {
+        throw new BadRequestException('Réponse invalide');
+      }
+    }
+
     const msg = await this.prisma.message.create({
-      data: { conversationId, senderId, content, type, replyToId },
+      data: { conversationId, senderId, content: normalizedContent, type: normalizedType, replyToId },
       include: {
         sender: { select: { id: true, name: true, username: true, avatar: true } },
         replyTo: true,
@@ -332,7 +363,10 @@ export class ChatService {
     const msg = await this.prisma.message.findUnique({ where: { id: messageId } });
     if (!msg) throw new NotFoundException();
     if (msg.senderId !== userId) throw new ForbiddenException();
-    return this.prisma.message.update({ where: { id: messageId }, data: { content, isEdited: true } });
+    if (msg.isDeleted) throw new ForbiddenException('Message supprimé');
+    if (msg.type !== 'text') throw new BadRequestException('Seuls les messages texte peuvent être modifiés');
+    const normalizedContent = this.normalizeMessageContent(content);
+    return this.prisma.message.update({ where: { id: messageId }, data: { content: normalizedContent, isEdited: true } });
   }
 
   async markRead(conversationId: string, userId: string) {

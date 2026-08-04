@@ -88,8 +88,15 @@ L'application déclare des permissions liées à la messagerie et aux appels :
 - Wake lock : maintenir certains flux actifs pendant les appels.
 - Micro/caméra en foreground service : appels audio/vidéo.
 - Full screen intent : écran d'appel entrant, si accepté par Android/Google Play.
+- Contacts : retrouver automatiquement les personnes du carnet d'adresses qui utilisent déjà Oracle Messenger.
 
-Google peut demander une justification pour les appels entrants et les notifications. La justification doit rester stricte : messagerie, appel audio, appel vidéo, notification d'appel entrant.
+Google peut demander une justification pour les contacts, les appels entrants et les notifications. La justification doit rester stricte : messagerie, synchronisation de contacts demandée par l'utilisateur, appel audio, appel vidéo, notification d'appel entrant.
+
+Avant la demande système Android pour les contacts, l'application affiche une explication dans l'écran Contacts. Ne pas remplacer ce flux par une lecture silencieuse : Android et Google Play exigent le consentement utilisateur.
+
+## Cible Android
+
+Le projet cible actuellement Android API 35. Pour une soumission après la limite Google Play du 31 août 2026, prévoir le passage à API 36 avec Android Gradle Plugin/SDK compatibles.
 
 ## Validation avant publication
 
@@ -105,6 +112,32 @@ Tester avant envoi production :
 8. Notification téléphone verrouillé.
 9. Ouverture d'un lien d'invitation.
 10. Désinstallation puis réinstallation.
+11. Import contacts Android : accepter l'autorisation, vérifier que seuls les contacts du téléphone inscrits apparaissent.
+12. Import contacts refusé : vérifier que l'ajout manuel et les invitations restent disponibles.
+13. Médias sur réseau lent : envoyer une photo > 8 Mo et vérifier que la compression réduit le temps d'envoi.
+14. Médias hors ligne : ouvrir une image/vidéo reçue après fermeture puis réouverture de l'application.
+15. Appels : vérifier que l'historique ne compte une durée qu'après acceptation réelle.
+
+## Matrice minimale de test réel
+
+Avant production, tester au minimum :
+
+- 2 comptes Google différents.
+- 2 téléphones Android physiques.
+- 1 Samsung récent.
+- 1 téléphone Android milieu/bas de gamme si possible.
+- Chrome/PWA installée et APK Capacitor.
+- Wi-Fi stable, données mobiles, réseau lent simulé.
+- Application ouverte, arrière-plan, écran verrouillé.
+
+Points qui ne peuvent pas être validés uniquement par build :
+
+- sonnerie fiable écran verrouillé ;
+- vibration réelle ;
+- permissions contacts Android ;
+- comportement batterie/économie d'énergie constructeur ;
+- stabilité WebRTC selon NAT/opérateur ;
+- qualité audio/vidéo réelle.
 
 ## Limite importante
 

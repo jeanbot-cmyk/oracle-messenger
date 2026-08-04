@@ -9,6 +9,7 @@ import { useChatStore } from '../../store/chat';
 import { buildChromeIntentUrl, shouldOpenAndroidLinkInChrome } from '../../lib/androidChrome';
 import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
+import { importNativeDeviceContacts, isCapacitorNativeRuntime } from '../../lib/nativeContacts';
 
 interface LocalContact { name: string; phones: string[]; emails: string[]; avatar?: string | null }
 interface AppUser { id: string; name: string; username: string; avatar?: string; phone?: string }
@@ -119,6 +120,10 @@ async function normalizeNativeContact(c: any): Promise<LocalContact> {
 
 function canUseContactPicker() {
   return typeof navigator !== 'undefined' && typeof (navigator as any).contacts?.select === 'function';
+}
+
+function canUseNativeContacts() {
+  return isCapacitorNativeRuntime();
 }
 
 function scopedStorageKey(base: string, userId?: string) {
@@ -346,10 +351,28 @@ export default function ContactsPage() {
     setLoading(true);
     setPermDenied(false);
     setNotice('');
-    setActionNotice(canUseContactPicker() ? 'Ouverture du sélecteur de contacts...' : 'Ce navigateur ne donne pas accès aux contacts.');
+    setActionNotice(canUseNativeContacts()
+      ? 'Demande d’autorisation Android pour synchroniser vos contacts...'
+      : canUseContactPicker()
+        ? 'Ouverture du sélecteur de contacts...'
+        : 'Ce navigateur ne donne pas accès aux contacts.'
+    );
     let locals: LocalContact[] = [];
     try {
-      if (canUseContactPicker()) {
+      const nativeImport = await importNativeDeviceContacts();
+      if (nativeImport.supported) {
+        if (nativeImport.denied) {
+          setPermDenied(true);
+          setNotice('Autorisez les contacts dans Android pour retrouver automatiquement vos proches inscrits sur Oracle Messenger.');
+        }
+        locals = nativeImport.contacts;
+        if (locals.length > 0) {
+          writeLocalContacts(cacheKey, locals);
+          setNotice('Contacts synchronisés. Oracle Messenger affiche seulement ceux qui sont dans votre téléphone.');
+        } else if (!nativeImport.denied) {
+          setNotice('Aucun contact avec numéro ou email n’a été trouvé dans ce téléphone.');
+        }
+      } else if (canUseContactPicker()) {
         // Contact Picker API — le navigateur affiche sa propre UI de sélection
         const props = await getSupportedContactProps();
         const raw = await (navigator as any).contacts.select(props, { multiple: true });
@@ -515,7 +538,8 @@ export default function ContactsPage() {
   );
   const oracleContacts = filtered.filter(c => c.appUser);
   const inviteContacts = filtered.filter(c => !c.appUser);
-  const hasNative     = canUseContactPicker();
+  const isNativeApp   = canUseNativeContacts();
+  const hasNative     = isNativeApp || canUseContactPicker();
 
   if (!mounted || status === 'loading') return <Spinner />;
 
@@ -667,9 +691,11 @@ export default function ContactsPage() {
             </div>
               <p style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px' }}>{t(lang, 'contacts.importTitle')}</p>
               <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0, fontWeight: 650 }}>
-                {hasNative
-                  ? t(lang, 'contacts.importNativeHelp')
-                  : t(lang, 'contacts.manualHelp')}
+                {isNativeApp
+                  ? 'Appuyez sur “Importer mes contacts”, puis autorisez l’accès Android. Oracle Messenger synchronisera votre carnet d’adresses et affichera uniquement les personnes déjà inscrites. Les autres contacts pourront recevoir votre invitation.'
+                  : hasNative
+                    ? t(lang, 'contacts.importNativeHelp')
+                    : t(lang, 'contacts.manualHelp')}
               </p>
             </div>
             {hasNative && (

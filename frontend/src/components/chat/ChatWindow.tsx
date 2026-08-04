@@ -478,6 +478,55 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     return uploaded.url;
   }
 
+  function readFileAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function imageToElement(dataUrl: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = dataUrl;
+    });
+  }
+
+  async function prepareImageForUpload(file: File) {
+    if (file.type === 'image/gif') {
+      return { dataUrl: await readFileAsDataUrl(file), mime: file.type, size: file.size };
+    }
+
+    const source = await readFileAsDataUrl(file);
+    const img = await imageToElement(source);
+    const maxSide = 1600;
+    const scale = Math.min(1, maxSide / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+    const width = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
+    const height = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
+
+    if (scale >= 1 && file.size <= 850 * 1024) {
+      return { dataUrl: source, mime: file.type || 'image/jpeg', size: file.size };
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return { dataUrl: source, mime: file.type || 'image/jpeg', size: file.size };
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+    const quality = mime === 'image/jpeg' ? 0.82 : undefined;
+    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, mime, quality));
+    if (!blob) return { dataUrl: source, mime: file.type || 'image/jpeg', size: file.size };
+    const dataUrl = await readFileAsDataUrl(new File([blob], file.name, { type: mime }));
+    return { dataUrl, mime, size: blob.size };
+  }
+
   function startConversationCall(type: 'audio' | 'video') {
     if (!conv || !onStartCall) return;
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -504,26 +553,27 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !activeConvId) return;
-    const maxBytes = 18 * 1024 * 1024;
-    if (file.size > maxBytes) {
-      alert('Fichier trop lourd. Limite actuelle : 18 Mo.');
-      e.target.value = '';
-      return;
-    }
     const isImage = file.type.startsWith('image/');
     const isVideo = file.type.startsWith('video/');
     const isAudio = file.type.startsWith('audio/');
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const b64 = reader.result as string;
+    const maxBytes = (isImage ? 32 : 18) * 1024 * 1024;
+    if (file.size > maxBytes) {
+      alert(isImage ? 'Image trop lourde. Limite actuelle : 32 Mo avant compression.' : 'Fichier trop lourd. Limite actuelle : 18 Mo.');
+      e.target.value = '';
+      return;
+    }
+    (async () => {
       const type = isImage ? 'image' : isVideo ? 'video' : isAudio ? 'audio' : 'file';
       setMediaUploading(true);
       setCallNotice(t(lang, 'common.sending'));
       try {
-        const content = await uploadMediaForMessage(b64, type, {
+        const prepared = isImage
+          ? await prepareImageForUpload(file)
+          : { dataUrl: await readFileAsDataUrl(file), mime: file.type || 'application/octet-stream', size: file.size };
+        const content = await uploadMediaForMessage(prepared.dataUrl, type, {
           name: file.name,
-          size: file.size,
-          mime: file.type || 'application/octet-stream',
+          size: prepared.size,
+          mime: prepared.mime,
         });
         sendMessage(activeConvId, content, type);
       } catch {
@@ -532,8 +582,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         setMediaUploading(false);
         setCallNotice('');
       }
-    };
-    reader.readAsDataURL(file);
+    })();
     e.target.value = '';
   }
 

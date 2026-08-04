@@ -49,6 +49,10 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android platform
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        working-directory: .
+
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
 

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Delete, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
 import { CallsService } from './calls.service';
 
@@ -17,22 +17,6 @@ export class CallsController {
   @Get('ice-servers')
   getIceServers() {
     return this.calls.getIceServers();
-  }
-
-  /** POST /calls/log — enregistrer un appel depuis le client */
-  @Post('log')
-  logCall(
-    @Request() req: any,
-    @Body() body: {
-      callId: string;
-      peerId: string;
-      peerName: string;
-      type: 'audio' | 'video';
-      direction: 'incoming' | 'outgoing' | 'missed' | 'refused' | 'cancelled';
-      duration?: number;
-    },
-  ) {
-    return this.calls.logCall({ ...body, userId: req.user.id });
   }
 
   /** DELETE /calls/history — vider tout l'historique */

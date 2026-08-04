@@ -14,24 +14,50 @@ const SAFE_MIME = new Set([
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/octet-stream',
 ]);
 
 function extensionFor(mime: string, originalName = '') {
   const original = extname(originalName).toLowerCase().replace(/[^a-z0-9.]/g, '');
-  if (original && original.length <= 12) return original;
+  const allowedByMime: Record<string, string[]> = {
+    'image/jpeg': ['.jpg', '.jpeg'],
+    'image/png': ['.png'],
+    'image/webp': ['.webp'],
+    'image/gif': ['.gif'],
+    'video/mp4': ['.mp4'],
+    'video/webm': ['.webm'],
+    'video/quicktime': ['.mov'],
+    'audio/mpeg': ['.mp3'],
+    'audio/mp3': ['.mp3'],
+    'audio/mp4': ['.m4a', '.mp4'],
+    'audio/aac': ['.aac', '.m4a'],
+    'audio/webm': ['.webm'],
+    'audio/ogg': ['.ogg'],
+    'audio/wav': ['.wav'],
+    'application/pdf': ['.pdf'],
+    'application/msword': ['.doc'],
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+    'application/vnd.ms-excel': ['.xls'],
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+  };
+  const allowed = allowedByMime[mime] ?? [];
+  if (original && allowed.includes(original)) return original;
   if (mime === 'image/jpeg') return '.jpg';
   if (mime === 'image/png') return '.png';
   if (mime === 'image/webp') return '.webp';
   if (mime === 'image/gif') return '.gif';
   if (mime === 'video/mp4') return '.mp4';
   if (mime === 'video/webm') return '.webm';
+  if (mime === 'video/quicktime') return '.mov';
   if (mime === 'audio/mpeg' || mime === 'audio/mp3') return '.mp3';
   if (mime === 'audio/mp4' || mime === 'audio/aac') return '.m4a';
   if (mime === 'audio/webm') return '.webm';
   if (mime === 'audio/ogg') return '.ogg';
   if (mime === 'audio/wav') return '.wav';
   if (mime === 'application/pdf') return '.pdf';
+  if (mime === 'application/msword') return '.doc';
+  if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return '.docx';
+  if (mime === 'application/vnd.ms-excel') return '.xls';
+  if (mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return '.xlsx';
   return '.bin';
 }
 
