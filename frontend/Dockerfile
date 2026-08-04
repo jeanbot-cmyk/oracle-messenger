@@ -4,6 +4,7 @@ ENV NODE_ENV=development
 ARG NEXT_PUBLIC_BACKEND_URL
 ENV NEXT_PUBLIC_BACKEND_URL=$NEXT_PUBLIC_BACKEND_URL
 COPY package*.json ./
+COPY scripts ./scripts
 RUN npm install --legacy-peer-deps
 COPY . .
 RUN npm run build
