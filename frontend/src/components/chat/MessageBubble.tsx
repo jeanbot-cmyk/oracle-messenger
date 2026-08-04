@@ -58,7 +58,7 @@ function looksLikeRawEncodedMedia(s: string) {
 
 function detectType(content: string, declaredType: string): 'image' | 'video' | 'audio' | 'file' | 'text' {
   const src = attachmentUrl(content);
-  if (declaredType === 'image' || (isDataUrl(src) && src.startsWith('data:image'))) return 'image';
+  if (declaredType === 'image' || declaredType === 'gif' || declaredType === 'sticker' || (isDataUrl(src) && src.startsWith('data:image'))) return 'image';
   if (declaredType === 'video' || (isDataUrl(src) && src.startsWith('data:video'))) return 'video';
   if (declaredType === 'audio' || declaredType === 'voice' || (isDataUrl(src) && src.startsWith('data:audio'))) return 'audio';
   if (declaredType === 'file' || declaredType === 'document') return 'file';
@@ -95,14 +95,27 @@ function parseFilePayload(content: string) {
         size: typeof parsed.size === 'number' ? parsed.size : undefined,
         mime: typeof parsed.mime === 'string' ? parsed.mime : '',
         caption: typeof parsed.caption === 'string' ? parsed.caption.trim() : '',
+        thumbnail: typeof parsed.thumbnail === 'string' ? parsed.thumbnail : '',
+        duration: typeof parsed.duration === 'number' ? parsed.duration : undefined,
+        width: typeof parsed.width === 'number' ? parsed.width : undefined,
+        height: typeof parsed.height === 'number' ? parsed.height : undefined,
+        waveform: Array.isArray(parsed.waveform) ? parsed.waveform.filter((value: unknown): value is number => typeof value === 'number') : undefined,
       };
     }
   } catch {}
-  return { url: attachmentUrl(content), name: t(useSettings.getState().lang, 'chat.attachedFile'), size: undefined as number | undefined, mime: '', caption: '' };
+  return { url: attachmentUrl(content), name: t(useSettings.getState().lang, 'chat.attachedFile'), size: undefined as number | undefined, mime: '', caption: '', thumbnail: '', duration: undefined as number | undefined, width: undefined as number | undefined, height: undefined as number | undefined, waveform: undefined as number[] | undefined };
 }
 
 function attachmentCaption(content: string) {
   return parseFilePayload(content).caption;
+}
+
+function formatDuration(seconds?: number) {
+  if (!seconds || !Number.isFinite(seconds)) return '';
+  const total = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
 }
 
 function formatBytes(size?: number) {
@@ -141,13 +154,14 @@ function linkifyText(text: string) {
   });
 }
 
-function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }) {
+function AudioPlayer({ src, timeRow, waveform, declaredDuration }: { src: string; timeRow: React.ReactNode; waveform?: number[]; declaredDuration?: number }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const normalizedSrc = src.replace(/^data:(audio\/[^;]+);codecs=[^;]+;base64,/i, 'data:$1;base64,');
   const [playing, setPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(declaredDuration ?? 0);
   const [current, setCurrent] = useState(0);
   const [error, setError] = useState(false);
+  const [speed, setSpeed] = useState<1 | 1.5 | 2>(1);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -155,7 +169,7 @@ function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }
     if (audio.src !== normalizedSrc) audio.src = normalizedSrc;
     audio.defaultPlaybackRate = 1;
     audio.playbackRate = 1;
-    const onLoaded = () => setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+    const onLoaded = () => setDuration(Number.isFinite(audio.duration) ? audio.duration : declaredDuration ?? 0);
     const onTime = () => setCurrent(audio.currentTime || 0);
     const onEnded = () => setPlaying(false);
     const onError = () => setError(true);
@@ -169,7 +183,11 @@ function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('error', onError);
     };
-  }, [normalizedSrc]);
+  }, [normalizedSrc, declaredDuration]);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.playbackRate = speed;
+  }, [speed]);
 
   function fmt(seconds: number) {
     if (!Number.isFinite(seconds) || seconds <= 0) return '00:00';
@@ -184,6 +202,7 @@ function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }
     try {
       if (audio.paused) {
         await audio.play();
+        audio.playbackRate = speed;
         setPlaying(true);
       } else {
         audio.pause();
@@ -195,6 +214,8 @@ function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }
   }
 
   const pct = duration > 0 ? Math.min(100, (current / duration) * 100) : 0;
+  const bars = waveform?.length ? waveform.slice(0, 48) : Array.from({ length: 36 }, (_, index) => 24 + ((index * 17) % 64));
+  const nextSpeed = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1;
 
   return (
     <div style={{ padding: '7px 9px', minWidth: 244, maxWidth: 340 }}>
@@ -209,11 +230,33 @@ function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }
           )}
         </button>
         <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ height:4, borderRadius:999, background:'rgba(16,42,42,0.18)', overflow:'hidden', marginBottom:5 }}>
-            <div style={{ width:`${pct}%`, height:'100%', background:'#5F6B70', borderRadius:999 }} />
+          <div style={{ height:30, display:'flex', alignItems:'center', gap:2, marginBottom:4, overflow:'hidden' }}>
+            {bars.map((height, index) => {
+              const active = (index / Math.max(1, bars.length - 1)) * 100 <= pct;
+              return (
+                <span
+                  key={index}
+                  style={{
+                    width:3,
+                    height:`${Math.max(5, Math.min(26, Math.round((height / 100) * 26)))}px`,
+                    borderRadius:999,
+                    background: active ? '#5F6B70' : 'rgba(16,42,42,0.18)',
+                    flex:'0 0 3px',
+                    transition:'background .12s ease',
+                  }}
+                />
+              );
+            })}
           </div>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
             <span style={{ fontSize:12, color:'var(--text-secondary)', fontWeight:600 }}>{fmt(current)}</span>
+            <button
+              type="button"
+              onClick={() => setSpeed(nextSpeed)}
+              style={{ border:'none', borderRadius:999, background:'rgba(16,42,42,0.08)', color:'#5F6B70', fontSize:11, lineHeight:1, fontWeight:900, padding:'4px 7px', cursor:'pointer' }}
+            >
+              {speed}x
+            </button>
             <span style={{ fontSize:12, color:'var(--text-muted)' }}>{duration ? fmt(duration) : t(useSettings.getState().lang, 'chat.voiceMessage')}</span>
           </div>
         </div>
@@ -423,6 +466,8 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
 
   const effectiveType = detectType(message.content, message.type ?? 'text');
   const mediaSrc = attachmentUrl(message.content);
+  const mediaMeta = parseFilePayload(message.content);
+  const mediaPreviewSrc = mediaMeta.thumbnail || mediaSrc;
   const caption = attachmentCaption(message.content);
   const missingLocalMedia = effectiveType !== 'text' && !mediaSrc;
   const timeStr = (() => { try { return format(new Date(message.createdAt), 'HH:mm'); } catch { return ''; } })();
@@ -463,6 +508,7 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
 
   const MediaTimeOverlay = () => (
     <div className="om-media-time-overlay">
+      {effectiveType === 'video' && mediaMeta.duration && <span>{formatDuration(mediaMeta.duration)}</span>}
       <span>{timeStr}</span>
       {isOwn && <StatusIcon status={message.status} tone="light" />}
     </div>
@@ -574,7 +620,7 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
           {/* IMAGE */}
           {effectiveType === 'image' && !missingLocalMedia && !imgError && (
             <div className="om-media-card">
-              <img src={mediaSrc} alt="image" onError={() => setImgError(true)}
+              <img src={mediaPreviewSrc} alt="image" onError={() => setImgError(true)}
                 className="om-media-content"
                 style={{ cursor: 'zoom-in' }}
                 onLoad={onMediaLoad}
@@ -606,7 +652,7 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
                 }
                 setLightbox(true);
               }}>
-                <video src={mediaSrc} playsInline muted onLoadedMetadata={onMediaLoad}
+                <video src={mediaSrc} playsInline muted poster={mediaMeta.thumbnail || undefined} onLoadedMetadata={onMediaLoad}
                   className="om-media-content"
                   style={{ pointerEvents: 'none' }} />
                 {/* Bouton play overlay */}
@@ -627,7 +673,7 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
           {/* AUDIO */}
           {effectiveType === 'audio' && !missingLocalMedia && (
             <div>
-              <AudioPlayer src={mediaSrc} timeRow={caption ? null : <TimeRow />} />
+              <AudioPlayer src={mediaSrc} timeRow={caption ? null : <TimeRow />} waveform={mediaMeta.waveform} declaredDuration={mediaMeta.duration} />
               <CaptionBlock />
             </div>
           )}

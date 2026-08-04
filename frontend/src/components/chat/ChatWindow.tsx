@@ -22,13 +22,21 @@ const EMOJI_CATEGORIES: { label: string; emojis: string[] }[] = [
   { label: '🚗', emojis: ['🚗','🚕','🚙','🚌','🚎','🏎️','🚓','🚑','🚒','🚐','🛻','🚚','🚛','🚜','🏍️','🛵','🛺','🚲','🛴','🛹','🛼','🚏','🛣️','🛤️','⛽','🚨','🚥','🚦','🛑','🚧','⚓','🛟','⛵','🚤','🛥️','🛳️','⛴️','🚢','✈️','🛩️','🛫','🛬','🪂','💺','🚁','🚟','🚠','🚡','🛰️','🚀','🛸','🪐','🌍','🌎','🌏','🌐','🗺️','🧭','🏔️','⛰️','🌋','🗻','🏕️','🏖️','🏜️','🏝️','🏞️','🏟️','🏛️','🏗️','🧱','🪨','🪵','🛖','🏘️','🏚️','🏠','🏡','🏢','🏣','🏤','🏥','🏦','🏨','🏩','🏪','🏫','🏬','🏭','🏯','🏰','💒','🗼','🗽','⛪','🕌','🛕','🕍','⛩️','🕋','⛲','⛺','🌁','🌃','🏙️','🌄','🌅','🌆','🌇','🌉','♨️','🎠','🛝','🎡','🎢','💈','🎪'] },
 ];
 
+function parseAttachmentPayload(content?: string) {
+  const trimmed = typeof content === 'string' ? content.trim() : '';
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object' && typeof parsed.url === 'string') return parsed;
+  } catch {}
+  return null;
+}
+
 function attachmentUrl(content?: string) {
   const trimmed = typeof content === 'string' ? content.trim() : '';
   if (!trimmed) return '';
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (parsed && typeof parsed === 'object' && typeof parsed.url === 'string') return parsed.url.trim();
-  } catch {}
+  const parsed = parseAttachmentPayload(trimmed);
+  if (parsed?.url) return String(parsed.url).trim();
   return trimmed;
 }
 
@@ -463,7 +471,11 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     setSending(false);
   }
 
-  async function uploadMediaForMessage(dataUrl: string, type: 'image' | 'video' | 'audio' | 'file', meta?: { name?: string; size?: number; mime?: string }) {
+  async function uploadMediaForMessage(
+    dataUrl: string,
+    type: 'image' | 'video' | 'audio' | 'file',
+    meta?: { name?: string; size?: number; mime?: string; width?: number; height?: number; duration?: number; thumbnail?: string; waveform?: number[] },
+  ) {
     if (!token) throw new Error('Session expirée');
     const uploaded = await api.media.upload(token, {
       dataUrl,
@@ -471,15 +483,17 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       mime: meta?.mime,
       kind: type,
     });
-    if (type === 'file') {
-      return JSON.stringify({
-        url: uploaded.url,
-        name: meta?.name || uploaded.name,
-        size: meta?.size ?? uploaded.size,
-        mime: meta?.mime || uploaded.mime,
-      });
-    }
-    return uploaded.url;
+    return JSON.stringify({
+      url: uploaded.url,
+      name: meta?.name || uploaded.name,
+      size: meta?.size ?? uploaded.size,
+      mime: meta?.mime || uploaded.mime,
+      width: meta?.width,
+      height: meta?.height,
+      duration: meta?.duration,
+      thumbnail: meta?.thumbnail && meta.thumbnail.length < 12_000 ? meta.thumbnail : undefined,
+      waveform: meta?.waveform,
+    });
   }
 
   function readFileAsDataUrl(file: File): Promise<string> {
@@ -500,9 +514,74 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     });
   }
 
+  async function imageThumbnail(dataUrl: string, maxSide = 220) {
+    const img = await imageToElement(dataUrl);
+    const scale = Math.min(1, maxSide / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+    const width = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
+    const height = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return undefined;
+    ctx.drawImage(img, 0, 0, width, height);
+    return canvas.toDataURL('image/jpeg', 0.58);
+  }
+
+  function mediaElementMetadata(file: File): Promise<{ duration?: number; width?: number; height?: number; thumbnail?: string }> {
+    return new Promise(resolve => {
+      const url = URL.createObjectURL(file);
+      const isVideo = file.type.startsWith('video/');
+      const el = document.createElement(isVideo ? 'video' : 'audio') as HTMLMediaElement;
+      el.preload = 'metadata';
+      el.muted = true;
+      const done = (value: { duration?: number; width?: number; height?: number; thumbnail?: string }) => {
+        URL.revokeObjectURL(url);
+        resolve(value);
+      };
+      el.onerror = () => done({});
+      el.onloadedmetadata = () => {
+        const duration = Number.isFinite(el.duration) ? Math.max(1, Math.round(el.duration)) : undefined;
+        if (!isVideo) return done({ duration });
+        const video = el as HTMLVideoElement;
+        const capture = () => {
+          try {
+            const width = video.videoWidth || undefined;
+            const height = video.videoHeight || undefined;
+            const canvas = document.createElement('canvas');
+            const scale = Math.min(1, 240 / Math.max(width || 1, height || 1));
+            canvas.width = Math.max(1, Math.round((width || 1) * scale));
+            canvas.height = Math.max(1, Math.round((height || 1) * scale));
+            canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
+            done({ duration, width, height, thumbnail: canvas.toDataURL('image/jpeg', 0.55) });
+          } catch {
+            done({ duration, width: video.videoWidth || undefined, height: video.videoHeight || undefined });
+          }
+        };
+        video.onseeked = capture;
+        try {
+          video.currentTime = Math.min(0.25, Math.max(0, (duration || 1) / 4));
+        } catch {
+          capture();
+        }
+      };
+      el.src = url;
+    });
+  }
+
+  function simpleWaveform(seed: string, bars = 36) {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i += 1) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+    return Array.from({ length: bars }, (_, index) => {
+      hash = (hash * 1664525 + 1013904223 + index) >>> 0;
+      return 18 + (hash % 78);
+    });
+  }
+
   async function prepareImageForUpload(file: File) {
     if (file.type === 'image/gif') {
-      return { dataUrl: await readFileAsDataUrl(file), mime: file.type, size: file.size };
+      const dataUrl = await readFileAsDataUrl(file);
+      return { dataUrl, mime: file.type, size: file.size, thumbnail: dataUrl.length < 12_000 ? dataUrl : undefined };
     }
 
     const source = await readFileAsDataUrl(file);
@@ -513,22 +592,29 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     const height = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
 
     if (scale >= 1 && file.size <= 850 * 1024) {
-      return { dataUrl: source, mime: file.type || 'image/jpeg', size: file.size };
+      return {
+        dataUrl: source,
+        mime: file.type || 'image/jpeg',
+        size: file.size,
+        width,
+        height,
+        thumbnail: await imageThumbnail(source).catch(() => undefined),
+      };
     }
 
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
-    if (!ctx) return { dataUrl: source, mime: file.type || 'image/jpeg', size: file.size };
+    if (!ctx) return { dataUrl: source, mime: file.type || 'image/jpeg', size: file.size, width, height };
     ctx.drawImage(img, 0, 0, width, height);
 
     const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
     const quality = mime === 'image/jpeg' ? 0.82 : undefined;
     const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, mime, quality));
-    if (!blob) return { dataUrl: source, mime: file.type || 'image/jpeg', size: file.size };
+    if (!blob) return { dataUrl: source, mime: file.type || 'image/jpeg', size: file.size, width, height };
     const dataUrl = await readFileAsDataUrl(new File([blob], file.name, { type: mime }));
-    return { dataUrl, mime, size: blob.size };
+    return { dataUrl, mime, size: blob.size, width, height, thumbnail: await imageThumbnail(dataUrl).catch(() => undefined) };
   }
 
   function startConversationCall(type: 'audio' | 'video') {
@@ -574,10 +660,18 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         const prepared = isImage
           ? await prepareImageForUpload(file)
           : { dataUrl: await readFileAsDataUrl(file), mime: file.type || 'application/octet-stream', size: file.size };
+        const mediaMeta: { duration?: number; width?: number; height?: number; thumbnail?: string } = !isImage && (isVideo || isAudio)
+          ? await mediaElementMetadata(file).catch(() => ({}))
+          : {};
         const content = await uploadMediaForMessage(prepared.dataUrl, type, {
           name: file.name,
           size: prepared.size,
           mime: prepared.mime,
+          width: (prepared as any).width ?? mediaMeta.width,
+          height: (prepared as any).height ?? mediaMeta.height,
+          duration: mediaMeta.duration,
+          thumbnail: (prepared as any).thumbnail ?? mediaMeta.thumbnail,
+          waveform: isAudio ? simpleWaveform(`${file.name}:${file.size}:${file.lastModified}`) : undefined,
         });
         sendMessage(activeConvId, content, type);
       } catch {
@@ -663,6 +757,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       const content = await uploadMediaForMessage(voiceDraft.dataUrl, 'audio', {
         name: `vocal-${Date.now()}.webm`,
         mime: voiceDraft.dataUrl.match(/^data:([^;,]+)/)?.[1] || 'audio/webm',
+        duration: voiceDraft.seconds,
+        waveform: simpleWaveform(`${voiceDraft.dataUrl.length}:${voiceDraft.seconds}`),
       });
       sendMessage(activeConvId, content, 'audio');
       setVoiceDraft(null);

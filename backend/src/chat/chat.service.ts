@@ -6,7 +6,7 @@ export class ChatService {
   constructor(private prisma: PrismaService) {}
 
   private readonly allowedReactions = new Set(['👍', '❤️', '😂', '😮', '😢', '🙏', '😡']);
-  private readonly allowedMessageTypes = new Set(['text', 'image', 'video', 'audio', 'voice', 'file', 'document']);
+  private readonly allowedMessageTypes = new Set(['text', 'image', 'video', 'audio', 'voice', 'file', 'document', 'contact', 'location', 'gif', 'sticker']);
   private readonly maxMessageContentLength = 20_000;
   private readonly officialConversationType = 'official';
   private readonly officialConversationName = 'Aura Messenger';
@@ -14,7 +14,7 @@ export class ChatService {
   private readonly officialSystemEmail = 'system-aura@oracle-messenger.local';
 
   private isMediaType(type?: string | null) {
-    return ['image', 'video', 'audio', 'voice', 'file', 'document'].includes(String(type ?? '').toLowerCase());
+    return ['image', 'video', 'audio', 'voice', 'file', 'document', 'gif', 'sticker'].includes(String(type ?? '').toLowerCase());
   }
 
   private normalizeMessageType(type?: string | null) {

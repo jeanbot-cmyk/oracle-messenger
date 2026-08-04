@@ -33,7 +33,7 @@ export interface Message {
   senderId: string;
   sender?: User;
   content: string;
-  type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'file' | 'location' | 'sticker';
+  type: 'text' | 'image' | 'video' | 'audio' | 'voice' | 'document' | 'file' | 'contact' | 'location' | 'gif' | 'sticker';
   status: 'sending' | 'sent' | 'delivered' | 'read';
   replyTo?: Message;
   reactions?: { emoji: string; userId: string; updatedAt?: string }[];
