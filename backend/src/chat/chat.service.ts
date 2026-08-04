@@ -194,21 +194,22 @@ export class ChatService {
     return msg;
   }
 
-  async markMediaSavedLocally(messageId: string, userId: string) {
+  async markMediaSavedLocally(messageId: string, userId: string, checksum?: string, size?: number) {
     const msg = await this.prisma.message.findUnique({
       where: { id: messageId },
       include: { conversation: { include: { participants: { select: { userId: true } } } } },
     });
     if (!msg) throw new NotFoundException();
     if (!this.isMediaType(msg.type)) return { cleared: false, message: msg };
+    if (!checksum || !/^[a-f0-9]{64}$/i.test(checksum)) return { cleared: false, message: msg };
 
     const participantIds = msg.conversation.participants.map(p => p.userId);
     if (!participantIds.includes(userId)) throw new ForbiddenException();
 
     await this.prisma.messageLocalSave.upsert({
       where: { messageId_userId: { messageId, userId } },
-      create: { messageId, userId },
-      update: {},
+      create: { messageId, userId, checksum, size: Number.isFinite(size) ? Math.max(0, Math.floor(size ?? 0)) : undefined },
+      update: { checksum, size: Number.isFinite(size) ? Math.max(0, Math.floor(size ?? 0)) : undefined },
     });
 
     const savedCount = await this.prisma.messageLocalSave.count({

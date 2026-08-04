@@ -378,10 +378,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('message:media-saved')
   async handleMediaSaved(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { messageId: string },
+    @MessageBody() data: { messageId: string; checksum?: string; size?: number },
   ) {
     try {
-      const result = await this.chat.markMediaSavedLocally(data.messageId, client.data.userId);
+      const result = await this.chat.markMediaSavedLocally(data.messageId, client.data.userId, data.checksum, data.size);
       if (!result.cleared) return;
 
       const msg: any = result.message;

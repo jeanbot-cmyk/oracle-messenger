@@ -140,7 +140,7 @@ model MessageReaction {
   userId    String
   emoji     String
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
 
   message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
   user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -154,7 +154,10 @@ model MessageLocalSave {
   id        String   @id @default(uuid())
   messageId String
   userId    String
+  checksum  String?
+  size      Int?
   createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 

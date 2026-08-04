@@ -5,7 +5,7 @@ import { getSocket } from '../lib/socket';
 import { useChatStore } from '../store/chat';
 import { useNotifications } from './useNotifications';
 import type { Conversation, Message } from '../types';
-import { isMediaMessage } from '../lib/db';
+import { isMediaMessage, persistMessageMedia } from '../lib/db';
 
 function attachmentPreview(msg: Message) {
   if (msg.isDeleted) return 'Message supprimé';
@@ -25,6 +25,26 @@ function attachmentPreview(msg: Message) {
 
 function hasMediaPayload(msg: Message) {
   return isMediaMessage(msg.type) && typeof msg.content === 'string' && msg.content.trim().length > 0;
+}
+
+async function persistMediaThenConfirm(socket: any, msg: Message) {
+  if (!hasMediaPayload(msg)) return;
+  try {
+    const saved = await persistMessageMedia(msg);
+    if (!saved?.checksum) return;
+    useChatStore.getState().updateMessage(msg.id, { content: saved.content });
+    socket.emit('message:media-saved', {
+      messageId: msg.id,
+      checksum: saved.checksum,
+      size: saved.size,
+      opfsPath: saved.opfsPath,
+    });
+  } catch (error) {
+    console.warn('[media] local persistence failed; server cleanup blocked', {
+      messageId: msg.id,
+      error,
+    });
+  }
 }
 
 export function useSocket() {
@@ -47,9 +67,7 @@ export function useSocket() {
 
     socket.on('message:new', (msg: Message) => {
       store.addMessage(msg);
-      if (hasMediaPayload(msg)) {
-        window.setTimeout(() => socket.emit('message:media-saved', { messageId: msg.id }), 150);
-      }
+      persistMediaThenConfirm(socket, msg);
       // Notifier seulement si le message vient de quelqu'un d'autre
       if (msg.senderId !== userId) {
         socket.emit('message:delivered', { messageId: msg.id });
@@ -156,9 +174,7 @@ export function useSocket() {
       if (ack?.id) {
         useChatStore.getState().deleteMessage(convId, tempId);
         useChatStore.getState().addMessage({ ...ack, status: ack.status ?? 'sent' });
-        if (hasMediaPayload(ack)) {
-          window.setTimeout(() => socket.emit('message:media-saved', { messageId: ack.id }), 150);
-        }
+        persistMediaThenConfirm(socket, { ...ack, status: ack.status ?? 'sent' });
       }
     });
   }
