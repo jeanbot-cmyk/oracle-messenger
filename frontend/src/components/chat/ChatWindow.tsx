@@ -192,7 +192,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const { lang } = useSettings();
 
   const { activeConvId, conversations, messages, typingUsers, typingNames: typingNamesStore, onlineUsers, setConversations, setMessages, markRead, loadLocalMessages } = useChatStore();
-  const { joinConversation, sendTyping, sendMessage, deleteMessage: deleteSocketMessage, editMessage: editSocketMessage, markRead: emitRead } = useSocket();
+  const { joinConversation, sendTyping, sendMessage, deleteMessage: deleteSocketMessage, editMessage: editSocketMessage, markRead: emitRead, reactToMessage } = useSocket();
 
   const [input, setInput]         = useState('');
   const [replyTo, setReplyTo]     = useState<Message | null>(null);
@@ -1080,11 +1080,13 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               <MessageBubble
                 message={msg}
                 isOwn={msg.senderId === userId}
+                currentUserId={userId}
                 onReply={setReplyTo}
                 onDelete={handleDelete}
                 onEdit={setEditMsg}
                 onForward={openForwardSheet}
                 onSelect={toggleMessageSelection}
+                onReact={reactToMessage}
                 selectionMode={selectionMode}
                 selected={selectedMessageIds.includes(msg.id)}
                 onMediaLoad={() => {

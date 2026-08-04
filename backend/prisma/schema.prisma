@@ -37,6 +37,7 @@ model User {
   pwaInstall       PwaInstall?
   contacts         Contact[]     @relation("ContactOwner")
   contactedBy      Contact[]     @relation("ContactTarget")
+  messageReactions MessageReaction[]
 
   @@index([phoneDigitsHash])
   @@index([phoneLast8Hash])
@@ -130,6 +131,23 @@ model Message {
   replyTo        Message?     @relation("Replies", fields: [replyToId], references: [id])
   replies        Message[]    @relation("Replies")
   localSaves     MessageLocalSave[]
+  reactions      MessageReaction[]
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([messageId])
+  @@index([userId])
 }
 
 model MessageLocalSave {

@@ -186,5 +186,12 @@ export function useSocket() {
     socket.emit('message:read', { conversationId: convId, messageId });
   }
 
-  return { joinConversation, sendTyping, sendMessage, deleteMessage, editMessage, markRead };
+  function reactToMessage(messageId: string, emoji?: string | null) {
+    if (!token) return;
+    const socket = getSocket(token);
+    if (!socket) return;
+    socket.emit('message:react', { messageId, emoji: emoji ?? null });
+  }
+
+  return { joinConversation, sendTyping, sendMessage, deleteMessage, editMessage, markRead, reactToMessage };
 }

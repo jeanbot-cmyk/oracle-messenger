@@ -10,16 +10,19 @@ import { saveToGallery } from '../../lib/gallery';
 interface Props {
   message: Message;
   isOwn: boolean;
+  currentUserId: string;
   onReply: (m: Message) => void;
   onDelete: (id: string) => void;
   onEdit: (m: Message) => void;
   onForward: (m: Message) => void;
   onSelect: (m: Message) => void;
+  onReact: (messageId: string, emoji?: string | null) => void;
   selectionMode?: boolean;
   selected?: boolean;
   onMediaLoad?: () => void;
 }
 
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '😡'];
 const LONG_PRESS_MS = 650;
 const LONG_PRESS_CANCEL_PX = 18;
 const SWIPE_REPLY_TRIGGER_PX = 66;
@@ -220,7 +223,7 @@ function AudioPlayer({ src, timeRow }: { src: string; timeRow: React.ReactNode }
   );
 }
 
-export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onForward, onSelect, selectionMode = false, selected = false, onMediaLoad }: Props) {
+export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete, onEdit, onForward, onSelect, onReact, selectionMode = false, selected = false, onMediaLoad }: Props) {
   const [showMenu, setShowMenu]       = useState(false);
   const [imgError, setImgError]       = useState(false);
   const [lightbox, setLightbox]       = useState(false);
@@ -275,11 +278,18 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
     lastTapRef.current = now;
   }
 
-  // Long-press → sélection directe, comme WhatsApp
+  // Long-press → menu de réactions rapide, comme les apps de messagerie modernes.
   function openMenu() {
     longPressFired.current = true;
-    setShowMenu(false);
-    onSelect(message);
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (rect) {
+      const width = Math.min(318, Math.max(250, window.innerWidth - 18));
+      const preferredLeft = isOwn ? rect.right - width : rect.left;
+      const left = Math.max(9, Math.min(preferredLeft, window.innerWidth - width - 9));
+      const top = Math.max(8, rect.top - 72);
+      setMenuPos({ top, left, width });
+    }
+    setShowMenu(true);
     if ('vibrate' in navigator) navigator.vibrate(30);
   }
 
@@ -410,6 +420,17 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
   const mediaSrc = attachmentUrl(message.content);
   const missingLocalMedia = effectiveType !== 'text' && !mediaSrc;
   const timeStr = (() => { try { return format(new Date(message.createdAt), 'HH:mm'); } catch { return ''; } })();
+  const myReaction = message.reactions?.find(reaction => reaction.userId === currentUserId)?.emoji ?? '';
+  const reactionGroups = (message.reactions ?? []).reduce<Array<{ emoji: string; count: number; mine: boolean }>>((acc, reaction) => {
+    const existing = acc.find(item => item.emoji === reaction.emoji);
+    if (existing) {
+      existing.count += 1;
+      if (reaction.userId === currentUserId) existing.mine = true;
+    } else {
+      acc.push({ emoji: reaction.emoji, count: 1, mine: reaction.userId === currentUserId });
+    }
+    return acc;
+  }, []);
 
   const menuStyle: React.CSSProperties = {
     position: 'fixed', zIndex: 1000,
@@ -625,10 +646,92 @@ export function MessageBubble({ message, isOwn, onReply, onDelete, onEdit, onFor
           )}
         </div>
 
+        {reactionGroups.length > 0 && (
+          <div
+            className="om-message-reactions"
+            style={{
+              display:'flex',
+              justifyContent:isOwn ? 'flex-end' : 'flex-start',
+              marginTop:-2,
+              padding:isOwn ? '0 8px 0 0' : '0 0 0 8px',
+              gap:4,
+              flexWrap:'wrap',
+            }}
+          >
+            {reactionGroups.map(group => (
+              <button
+                key={group.emoji}
+                type="button"
+                onClick={event => {
+                  event.stopPropagation();
+                  onReact(message.id, group.mine ? null : group.emoji);
+                }}
+                aria-label={`Réaction ${group.emoji}`}
+                style={{
+                  border:'1px solid rgba(16,42,42,0.10)',
+                  background:group.mine ? '#EAF4F1' : 'var(--bg-surface)',
+                  color:'var(--text-primary)',
+                  borderRadius:999,
+                  minHeight:24,
+                  padding:'2px 7px',
+                  display:'inline-flex',
+                  alignItems:'center',
+                  gap:4,
+                  fontSize:13,
+                  lineHeight:1,
+                  cursor:'pointer',
+                  boxShadow:'0 2px 8px rgba(16,42,42,0.08)',
+                }}
+              >
+                <span>{group.emoji}</span>
+                {group.count > 1 && <span style={{ fontSize:11, fontWeight:800, color:'var(--text-secondary)' }}>{group.count}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+
         {showMenu && (
           <>
             <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setShowMenu(false)} />
             <div style={menuStyle}>
+              <div style={{
+                display:'flex',
+                alignItems:'center',
+                justifyContent:'space-between',
+                gap:2,
+                padding:'8px 8px 7px',
+                background:'var(--bg-surface)',
+                borderBottom:'1px solid var(--border)',
+              }}>
+                {REACTION_EMOJIS.map(emoji => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => {
+                      onReact(message.id, myReaction === emoji ? null : emoji);
+                      setShowMenu(false);
+                    }}
+                    aria-label={`Réagir ${emoji}`}
+                    style={{
+                      width:36,
+                      height:36,
+                      minHeight:36,
+                      borderRadius:'50%',
+                      border:myReaction === emoji ? '2px solid var(--brand)' : '1px solid transparent',
+                      background:myReaction === emoji ? 'var(--brand-soft)' : 'transparent',
+                      cursor:'pointer',
+                      display:'flex',
+                      alignItems:'center',
+                      justifyContent:'center',
+                      fontSize:22,
+                      transform:myReaction === emoji ? 'scale(1.06)' : 'scale(1)',
+                      transition:'transform .12s ease, background .12s ease, border-color .12s ease',
+                    }}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
               <button style={menuItemStyle} onClick={() => { onReply(message); setShowMenu(false); }}>
                 ↩️ {t(lang, 'chat.reply')}
               </button>

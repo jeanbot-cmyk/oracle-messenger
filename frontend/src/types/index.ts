@@ -35,7 +35,7 @@ export interface Message {
   type: 'text' | 'image' | 'video' | 'audio' | 'document' | 'file' | 'location' | 'sticker';
   status: 'sending' | 'sent' | 'delivered' | 'read';
   replyTo?: Message;
-  reactions?: { emoji: string; userId: string }[];
+  reactions?: { emoji: string; userId: string; updatedAt?: string }[];
   isDeleted: boolean;
   isEdited: boolean;
   createdAt: string;

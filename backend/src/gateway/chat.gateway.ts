@@ -349,6 +349,32 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch {}
   }
 
+  @SubscribeMessage('message:react')
+  async handleReaction(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { messageId: string; emoji?: string | null },
+  ) {
+    try {
+      const msg = await this.chat.reactToMessage(data.messageId, client.data.userId, data.emoji);
+      if (!msg) return;
+      const payload = {
+        id: msg.id,
+        patch: {
+          reactions: msg.reactions,
+          updatedAt: msg.updatedAt,
+        },
+      };
+      const participantIds = await this.chat.getParticipantIds(msg.conversationId);
+      for (const uid of participantIds) {
+        for (const sid of this.socketState.getSocketIds(uid)) {
+          this.server.to(sid).emit('message:update', payload);
+        }
+      }
+    } catch (err: any) {
+      client.emit('message:error', { message: err?.message ?? 'Erreur réaction' });
+    }
+  }
+
   @SubscribeMessage('message:media-saved')
   async handleMediaSaved(
     @ConnectedSocket() client: Socket,

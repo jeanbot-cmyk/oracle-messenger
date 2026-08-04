@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 export class ChatService {
   constructor(private prisma: PrismaService) {}
 
+  private readonly allowedReactions = new Set(['👍', '❤️', '😂', '😮', '😢', '🙏', '😡']);
   private readonly officialConversationType = 'official';
   private readonly officialConversationName = 'Oracle Messenger';
   private readonly officialConversationAvatar = '/icons/icon-192.png';
@@ -48,7 +49,7 @@ export class ChatService {
         conversation: {
           include: {
             participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
-            messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+            messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
           },
         },
       },
@@ -78,7 +79,7 @@ export class ChatService {
       where: { id: conversationId },
       include: {
         participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
-        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+            messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
       },
     });
     if (!conv) throw new NotFoundException();
@@ -126,7 +127,7 @@ export class ChatService {
       },
       include: {
         participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
-        messages: { take: 1, orderBy: { createdAt: 'desc' } },
+        messages: { take: 1, orderBy: { createdAt: 'desc' }, include: { reactions: true } },
       },
     });
 
@@ -138,7 +139,7 @@ export class ChatService {
         },
         include: {
           participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
-          messages: { take: 1, orderBy: { createdAt: 'desc' } },
+          messages: { take: 1, orderBy: { createdAt: 'desc' }, include: { reactions: true } },
         },
       });
     }
@@ -162,7 +163,10 @@ export class ChatService {
         conversationId,
         ...(before ? { createdAt: { lt: new Date(before) } } : {}),
       },
-      include: { sender: { select: { id: true, name: true, username: true, avatar: true } } },
+      include: {
+        sender: { select: { id: true, name: true, username: true, avatar: true } },
+        reactions: { select: { emoji: true, userId: true, updatedAt: true } },
+      },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
@@ -177,7 +181,11 @@ export class ChatService {
 
     const msg = await this.prisma.message.create({
       data: { conversationId, senderId, content, type, replyToId },
-      include: { sender: { select: { id: true, name: true, username: true, avatar: true } }, replyTo: true },
+      include: {
+        sender: { select: { id: true, name: true, username: true, avatar: true } },
+        replyTo: true,
+        reactions: { select: { emoji: true, userId: true, updatedAt: true } },
+      },
     });
 
     // Mettre à jour updatedAt de la conversation
@@ -255,6 +263,36 @@ export class ChatService {
     return this.prisma.message.update({
       where: { id: messageId },
       data: { status: 'delivered' },
+    });
+  }
+
+  async reactToMessage(messageId: string, userId: string, emoji?: string | null) {
+    const msg = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      include: { conversation: { include: { participants: { select: { userId: true } } } } },
+    });
+    if (!msg) throw new NotFoundException();
+    const participantIds = msg.conversation.participants.map(p => p.userId);
+    if (!participantIds.includes(userId)) throw new ForbiddenException();
+    if (msg.isDeleted) throw new ForbiddenException('Message supprimé');
+
+    const normalizedEmoji = String(emoji ?? '').trim();
+    if (!normalizedEmoji) {
+      await this.prisma.messageReaction.deleteMany({ where: { messageId, userId } });
+    } else {
+      if (!this.allowedReactions.has(normalizedEmoji)) throw new ForbiddenException('Réaction non autorisée');
+      await this.prisma.messageReaction.upsert({
+        where: { messageId_userId: { messageId, userId } },
+        create: { messageId, userId, emoji: normalizedEmoji },
+        update: { emoji: normalizedEmoji },
+      });
+    }
+
+    return this.prisma.message.findUnique({
+      where: { id: messageId },
+      include: {
+        reactions: { select: { emoji: true, userId: true, updatedAt: true } },
+      },
     });
   }
 
