@@ -269,6 +269,7 @@ export function useWebRTC(userId: string, token = '') {
 
       // Nettoyer les anciens listeners
       socket.off('call:incoming');
+      socket.off('call:incoming:received');
       socket.off('call:answered');
       socket.off('call:ended');
       socket.off('call:error');
@@ -279,7 +280,16 @@ export function useWebRTC(userId: string, token = '') {
       socket.on('call:incoming', (data: CallInfo) => {
         _setInfo(data);
         _setState('incoming');
+        socket.emit('call:incoming:received', {
+          callId: data.callId,
+          conversationId: data.conversationId,
+        });
         notifyIncomingCall(data.callerName ?? 'Quelqu\'un', data.type, data.conversationId);
+      });
+
+      socket.on('call:incoming:received', (data: { callId: string; userId: string; receivedAt?: string }) => {
+        if (data.callId !== callInfoRef.current?.callId) return;
+        console.info('[WebRTC] incoming call received by peer:', data.userId, data.receivedAt ?? '');
       });
 
       socket.on('call:answered', (data: { callId: string; userId: string; accepted: boolean }) => {
@@ -351,6 +361,7 @@ export function useWebRTC(userId: string, token = '') {
       const socket = getExistingSocket();
       if (socket) {
         socket.off('call:incoming');
+        socket.off('call:incoming:received');
         socket.off('call:answered');
         socket.off('call:ended');
         socket.off('call:error');

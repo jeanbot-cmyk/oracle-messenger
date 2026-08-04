@@ -274,7 +274,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // 2. Notifier les participants connectés mais pas dans la room
       const participantIds = await this.chat.getParticipantIds(data.conversationId);
-      let deliveredToAny = false;
       const senderName = msg.sender?.name ?? 'Oracle Messenger';
       const preview = msg.type === 'text'
         ? (msg.content.length > 80 ? msg.content.slice(0, 80) + '…' : msg.content)
@@ -292,7 +291,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             if (this.isSocketInRoom(sid, conversationRoom)) continue;
             this.server.to(sid).emit('message:new', msg);
           }
-          deliveredToAny = true;
         } else {
           // Hors ligne → Push Notification (son géré par l'OS)
           this.notif.sendPush(pid, {
@@ -305,17 +303,29 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       }
 
-      // 3. Si au moins un destinataire est connecté → marquer delivered
-      if (deliveredToAny) {
-        await this.chat.updateMessageStatus(msg.id, 'delivered').catch(() => null);
-        client.emit('message:update', { id: msg.id, patch: { status: 'delivered' } });
-      }
-
-      // Return msg as acknowledgement to sender
-      return { ...msg, status: deliveredToAny ? 'delivered' : 'sent' };
+      // Return msg as acknowledgement to sender. "Delivered" is now confirmed
+      // only by the receiver device through message:delivered.
+      return { ...msg, status: 'sent' };
     } catch (err: any) {
       client.emit('message:error', { message: err?.message ?? 'Erreur envoi' });
     }
+  }
+
+  @SubscribeMessage('message:delivered')
+  async handleDelivered(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { messageId: string },
+  ) {
+    try {
+      const msg = await this.chat.markMessageDelivered(data.messageId, client.data.userId);
+      const payload = { id: msg.id, patch: { status: msg.status, updatedAt: msg.updatedAt } };
+      const participantIds = await this.chat.getParticipantIds(msg.conversationId);
+      for (const uid of participantIds) {
+        for (const sid of this.socketState.getSocketIds(uid)) {
+          this.server.to(sid).emit('message:update', payload);
+        }
+      }
+    } catch {}
   }
 
   @SubscribeMessage('message:read')
@@ -395,25 +405,49 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // ── Typing ────────────────────────────────────────────────────────────────
 
   @SubscribeMessage('typing:start')
-  handleTypingStart(
+  async handleTypingStart(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { conversationId: string },
   ) {
-    client.to(`conv:${data.conversationId}`).emit('typing:start', {
-      conversationId: data.conversationId,
-      userId: client.data.userId,
-    });
+    try {
+      const allowed = await this.chat.isParticipant(data.conversationId, client.data.userId);
+      if (!allowed) return;
+      const participantIds = await this.chat.getParticipantIds(data.conversationId);
+      const user = await this.users.findById(client.data.userId).catch(() => null);
+      const payload = {
+        conversationId: data.conversationId,
+        userId: client.data.userId,
+        userName: user?.name ?? '',
+      };
+      for (const uid of participantIds) {
+        if (uid === client.data.userId) continue;
+        for (const sid of this.socketState.getSocketIds(uid)) {
+          this.server.to(sid).emit('typing:start', payload);
+        }
+      }
+    } catch {}
   }
 
   @SubscribeMessage('typing:stop')
-  handleTypingStop(
+  async handleTypingStop(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { conversationId: string },
   ) {
-    client.to(`conv:${data.conversationId}`).emit('typing:stop', {
-      conversationId: data.conversationId,
-      userId: client.data.userId,
-    });
+    try {
+      const allowed = await this.chat.isParticipant(data.conversationId, client.data.userId);
+      if (!allowed) return;
+      const participantIds = await this.chat.getParticipantIds(data.conversationId);
+      const payload = {
+        conversationId: data.conversationId,
+        userId: client.data.userId,
+      };
+      for (const uid of participantIds) {
+        if (uid === client.data.userId) continue;
+        for (const sid of this.socketState.getSocketIds(uid)) {
+          this.server.to(sid).emit('typing:stop', payload);
+        }
+      }
+    } catch {}
   }
 
   // ── Appels WebRTC ─────────────────────────────────────────────────────────
@@ -517,6 +551,23 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.logCallFinalState(data.callId, call, responderId, 'refused').catch(() => {});
       this.clearCallTimeout(data.callId);
       this.activeCalls.delete(data.callId);
+    }
+  }
+
+  @SubscribeMessage('call:incoming:received')
+  handleCallIncomingReceived(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { callId: string; conversationId?: string },
+  ) {
+    const call = this.activeCalls.get(data.callId);
+    if (!call || !call.participants.has(client.data.userId)) return;
+    for (const sid of this.socketState.getSocketIds(call.callerId)) {
+      this.server.to(sid).emit('call:incoming:received', {
+        callId: data.callId,
+        userId: client.data.userId,
+        conversationId: call.conversationId,
+        receivedAt: new Date().toISOString(),
+      });
     }
   }
 

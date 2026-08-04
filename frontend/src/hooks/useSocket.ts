@@ -52,6 +52,7 @@ export function useSocket() {
       }
       // Notifier seulement si le message vient de quelqu'un d'autre
       if (msg.senderId !== userId) {
+        socket.emit('message:delivered', { messageId: msg.id });
         const senderName = msg.sender?.name ?? 'Nouveau message';
         const content = attachmentPreview(msg);
         notifyMessage(senderName, content, msg.conversationId);
@@ -95,6 +96,7 @@ export function useSocket() {
       socket.off('message:update');
       socket.off('conversation:read');
       socket.off('message:delete');
+      socket.off('message:error');
       socket.off('typing:start');
       socket.off('typing:stop');
       socket.off('user:online');

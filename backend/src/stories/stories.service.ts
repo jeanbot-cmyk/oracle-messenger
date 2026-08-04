@@ -46,7 +46,17 @@ export class StoriesService {
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     return this.prisma.story.create({
       data: { authorId, content, caption, type, bg, expiresAt },
-      include: { author: { select: { id: true, name: true, avatar: true } }, views: true },
+      include: {
+        author: { select: { id: true, name: true, avatar: true } },
+        views: {
+          select: {
+            userId: true,
+            viewedAt: true,
+            user: { select: { id: true, name: true, username: true, avatar: true } },
+          },
+          orderBy: { viewedAt: 'desc' },
+        },
+      },
     });
   }
 
@@ -61,12 +71,29 @@ export class StoriesService {
       orderBy: { createdAt: 'desc' },
       include: {
         author: { select: { id: true, name: true, avatar: true } },
-        views: { select: { userId: true } },
+        views: {
+          select: {
+            userId: true,
+            viewedAt: true,
+            user: { select: { id: true, name: true, username: true, avatar: true } },
+          },
+          orderBy: { viewedAt: 'desc' },
+        },
       },
     });
     return stories.map(s => ({
       ...s,
       views: s.views.map(v => v.userId),
+      viewCount: s.views.length,
+      viewers: s.authorId === requesterId
+        ? s.views.map(v => ({
+            id: v.user.id,
+            name: v.user.name,
+            username: v.user.username,
+            avatar: v.user.avatar,
+            viewedAt: v.viewedAt,
+          }))
+        : [],
       seen: s.views.some(v => v.userId === requesterId),
     }));
   }

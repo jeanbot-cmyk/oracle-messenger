@@ -212,95 +212,6 @@ function openDiscussionWithInviter(inviter: Inviter | null) {
   goToAppEntry();
 }
 
-const IOS_STEPS = [
-  {
-    title: 'Appuyez sur Partager',
-    desc: 'En bas de Safari, appuyez sur le bouton Partager (carré avec une flèche vers le haut).',
-    svg: (
-      <svg viewBox="0 0 280 200" fill="none" style={{ width: '100%', maxWidth: 260 }}>
-        <rect x="60" y="10" width="160" height="180" rx="18" fill="var(--bg-input)" stroke="var(--border)" strokeWidth="2"/>
-        <rect x="68" y="20" width="144" height="160" rx="12" fill="#fff"/>
-        <rect x="68" y="20" width="144" height="28" rx="12" fill="#f8f9fa"/>
-        <rect x="80" y="28" width="100" height="12" rx="6" fill="var(--border)"/>
-        <rect x="68" y="158" width="144" height="22" rx="0" fill="#f8f9fa"/>
-        {/* Share button */}
-        <rect x="128" y="161" width="24" height="16" rx="4" fill={ACCENT} opacity="0.2"/>
-        <rect x="134" y="163" width="12" height="8" rx="2" fill={ACCENT} opacity="0.5"/>
-        <path d="M140 163 L140 158 M137 160 L140 157 L143 160" stroke={ACCENT} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-        {/* Arrow */}
-        <path d="M140 140 L140 152" stroke={ACCENT} strokeWidth="2.5" strokeLinecap="round"/>
-        <path d="M135 147 L140 152 L145 147" stroke={ACCENT} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-        <circle cx="140" cy="169" r="14" stroke={ACCENT} strokeWidth="1.5" opacity="0.3"/>
-      </svg>
-    ),
-  },
-  {
-    title: '"Sur l\'écran d\'accueil"',
-    desc: 'Dans le menu Partager, faites défiler vers le bas et appuyez sur "Sur l\'écran d\'accueil".',
-    svg: (
-      <svg viewBox="0 0 280 200" fill="none" style={{ width: '100%', maxWidth: 260 }}>
-        <rect x="20" y="80" width="240" height="110" rx="16" fill="#fff" stroke="var(--border)" strokeWidth="1.5"/>
-        <rect x="20" y="80" width="240" height="32" rx="16" fill="#f8f9fa"/>
-        <rect x="100" y="90" width="80" height="10" rx="5" fill="var(--border)"/>
-        {/* Highlighted row */}
-        <rect x="36" y="122" width="208" height="36" rx="10" fill={ACCENT} opacity="0.1"/>
-        <rect x="36" y="122" width="208" height="36" rx="10" stroke={ACCENT} strokeWidth="1.5"/>
-        <path d="M56 140 L62 133 L68 140 L68 147 L64 147 L64 143 L60 143 L60 147 L56 147 Z" fill={ACCENT}/>
-        <rect x="76" y="136" width="90" height="8" rx="4" fill={ACCENT}/>
-        {/* Other rows */}
-        <rect x="36" y="166" width="208" height="18" rx="8" fill="var(--bg-input)"/>
-        <rect x="52" y="172" width="100" height="6" rx="3" fill="var(--border)"/>
-      </svg>
-    ),
-  },
-  {
-    title: 'Appuyez sur "Ajouter"',
-    desc: 'En haut à droite de la fenêtre qui s\'ouvre, appuyez sur "Ajouter".',
-    svg: (
-      <svg viewBox="0 0 280 200" fill="none" style={{ width: '100%', maxWidth: 260 }}>
-        <rect x="30" y="40" width="220" height="130" rx="16" fill="#fff" stroke="var(--border)" strokeWidth="1.5"/>
-        <rect x="30" y="40" width="220" height="38" rx="16" fill="#f8f9fa"/>
-        <rect x="46" y="52" width="60" height="10" rx="5" fill="var(--border)"/>
-        {/* Ajouter button */}
-        <rect x="188" y="46" width="48" height="26" rx="8" fill={ACCENT}/>
-        <rect x="196" y="54" width="32" height="8" rx="4" fill="#fff"/>
-        {/* App icon */}
-        <rect x="110" y="95" width="60" height="60" rx="14" fill={ACCENT} opacity="0.15"/>
-        <rect x="118" y="103" width="44" height="44" rx="10" fill={ACCENT} opacity="0.3"/>
-        <circle cx="140" cy="125" r="11" stroke={ACCENT} strokeWidth="2.5" fill="none"/>
-        <circle cx="140" cy="125" r="4" fill={ACCENT}/>
-        {/* Arrow to button */}
-        <path d="M200 72 L212 56" stroke={ACCENT} strokeWidth="2" strokeLinecap="round"/>
-        <circle cx="213" cy="54" r="5" fill={ACCENT}/>
-      </svg>
-    ),
-  },
-  {
-    title: 'C\'est installé !',
-    desc: 'Oracle Messenger est maintenant sur votre écran d\'accueil. Appuyez sur l\'icône pour l\'ouvrir.',
-    svg: (
-      <svg viewBox="0 0 280 200" fill="none" style={{ width: '100%', maxWidth: 260 }}>
-        <rect x="60" y="10" width="160" height="180" rx="18" fill="#1a1a2e" stroke="#333" strokeWidth="2"/>
-        <rect x="68" y="20" width="144" height="160" rx="12" fill="#1a1a2e"/>
-        {[0,1,2,3,4,5,6,7,8,9,10,11].map(i => (
-          <rect key={i} x={82+(i%4)*34} y={38+Math.floor(i/4)*44} width="26" height="26" rx="6"
-            fill={i===8 ? ACCENT : '#ffffff18'}/>
-        ))}
-        <circle cx="95" cy="173" r="4" fill="#ffffff44"/>
-        <circle cx="140" cy="173" r="5" fill="#fff"/>
-        <circle cx="185" cy="173" r="4" fill="#ffffff44"/>
-        {/* Oracle icon */}
-        <circle cx="95" cy="173" r="0" fill="none"/>
-        <circle cx="140" cy="51" r="8" stroke="#fff" strokeWidth="2" fill="none"/>
-        <circle cx="140" cy="51" r="3" fill="#fff"/>
-        {/* Big checkmark */}
-        <circle cx="196" cy="56" r="24" fill={ACCENT}/>
-        <path d="M185 56 L193 64 L209 48" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
-      </svg>
-    ),
-  },
-];
-
 export default function InstallPage() {
   const { lang } = useSettings();
   const [device,     setDevice]     = useState<Device>('android');
@@ -308,7 +219,6 @@ export default function InstallPage() {
   const [installMessage, setInstallMessage] = useState('');
   const [installed,  setInstalled]  = useState(false);
   const [mounted,    setMounted]    = useState(false);
-  const [iosStep,    setIosStep]    = useState(0);
   const [manualInstall, setManualInstall] = useState(false);
   const [inviter, setInviter] = useState<Inviter | null>(null);
   const [contactSaved, setContactSaved] = useState(false);
@@ -459,57 +369,24 @@ export default function InstallPage() {
     </div>
   );
 
-  // ── iOS step-by-step ──
+  // ── iOS — Safari ne permet pas l'invite native PWA, donc on affiche
+  // uniquement l'instruction utile.
   if (device === 'ios') {
-    const step = IOS_STEPS[iosStep];
-    const isLast = iosStep === IOS_STEPS.length - 1;
     return (
-      <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: '#fff', fontFamily: 'system-ui,-apple-system,sans-serif' }}>
-        <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}`}</style>
-
-        {/* Header */}
-        <div style={{ padding: '20px 24px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
-          {iosStep > 0 && (
-            <button onClick={() => setIosStep(s => s - 1)}
-              style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: 'var(--bg-input)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: 'var(--text-primary)', flexShrink: 0 }}>
-              ←
-            </button>
-          )}
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            iPhone / iPad · Étape {iosStep + 1} / {IOS_STEPS.length}
+      <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', justifyContent:'center', background: '#fff', fontFamily: 'system-ui,-apple-system,sans-serif', padding:'28px 24px', boxSizing:'border-box' }}>
+        <div style={{ maxWidth:420, margin:'0 auto', width:'100%', textAlign:'center' }}>
+          <img src="/icons/icon-192-v20260803.png" alt="" style={{ width:82, height:82, borderRadius:22, marginBottom:18 }} />
+          <h1 style={{ fontSize:26, lineHeight:1.15, margin:'0 0 10px', color:'var(--text-primary)', fontWeight:900 }}>Installer Oracle Messenger</h1>
+          <p style={{ fontSize:15, lineHeight:1.55, margin:'0 0 24px', color:'var(--text-secondary)', fontWeight:600 }}>
+            Sur iPhone, ouvrez ce lien avec Safari, appuyez sur Partager, puis choisissez “Sur l’écran d’accueil”.
           </p>
-        </div>
-
-        {/* Progress */}
-        <div style={{ margin: '12px 24px 0', height: 4, background: 'var(--bg-input)', borderRadius: 2 }}>
-          <div style={{ height: '100%', background: ACCENT, borderRadius: 2, width: `${((iosStep + 1) / IOS_STEPS.length) * 100}%`, transition: 'width 0.3s ease' }}/>
-        </div>
-
-        {/* Content */}
-        <div key={iosStep} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 32px', animation: 'fadeIn 0.25s ease', gap: 24 }}>
-          {step.svg}
-          <div style={{ textAlign: 'center' }}>
-            <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 12px' }}>{step.title}</h2>
-            <p style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{step.desc}</p>
-          </div>
-        </div>
-
-        {/* Buttons */}
-        <div style={{ padding: '0 24px 44px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {isLast ? (
-            <button onClick={goToAppEntry}
-              style={{ width: '100%', background: ACCENT, color: ACCENT_TEXT, border: 'none', borderRadius: 28, padding: '18px 24px', fontSize: 17, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-              Ouvrir Oracle Messenger →
-            </button>
-          ) : (
-            <button onClick={() => setIosStep(s => s + 1)}
-              style={{ width: '100%', background: ACCENT, color: ACCENT_TEXT, border: 'none', borderRadius: 28, padding: '18px 24px', fontSize: 17, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-              Suivant →
-            </button>
-          )}
           <button onClick={goToAppEntry}
-            style={{ width: '100%', background: 'transparent', color: 'var(--text-muted)', border: '1.5px solid var(--border)', borderRadius: 28, padding: '14px 24px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
-            Accéder sans installer
+            style={{ width: '100%', background: ACCENT, color: ACCENT_TEXT, border: 'none', borderRadius: 28, padding: '18px 24px', fontSize: 17, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            Ouvrir Oracle Messenger
+          </button>
+          <button onClick={goToAppEntry}
+            style={{ width: '100%', background: 'transparent', color: 'var(--text-muted)', border: 'none', borderRadius: 28, padding: '14px 24px', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop:8 }}>
+            Continuer sans installer
           </button>
         </div>
       </div>
@@ -549,17 +426,6 @@ export default function InstallPage() {
       <p style={{ fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.6, margin: '0 0 6px', maxWidth: 300 }}>
         Messagerie rapide et sécurisée.
       </p>
-      {needsChrome && (
-        <div style={{ width: '100%', maxWidth: 380, background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 18, padding: 14, margin: '8px 0 14px', color: '#102A2A' }}>
-          <p style={{ margin: '0 0 10px', fontSize: 13, lineHeight: 1.45, fontWeight: 800 }}>
-            Ouvre ce lien dans Chrome pour installer sans alerte Samsung Internet.
-          </p>
-          <a href={chromeInstallHref}
-            style={{ width: '100%', border: 'none', borderRadius: 999, background: 'var(--header-bg)', color: '#fff', padding: '11px 12px', fontSize: 13, fontWeight: 900, cursor: 'pointer', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none', boxSizing:'border-box' }}>
-            Ouvrir avec Chrome
-          </a>
-        </div>
-      )}
       {inviter && (
         <div style={{ width: '100%', maxWidth: 380, background: '#f8fbfa', border: '1px solid var(--border)', borderRadius: 22, padding: 14, margin: '8px 0 18px', boxShadow: '0 8px 22px rgba(16,42,42,0.06)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
@@ -662,55 +528,33 @@ export default function InstallPage() {
         </div>
       )}
 
-      <button
-        onClick={() => {
-          setInstallMessage(t(lang, 'install.cleaning'));
-          resetInstallCacheState()
-            .then(() => {
-              setManualInstall(true);
-              setInstallMessage(t(lang, 'install.cacheCleaned'));
-              refreshDiagnostic().catch(() => {});
-            })
-            .catch(() => {
-              setManualInstall(true);
-              setInstallMessage(t(lang, 'install.partialClean'));
-              refreshDiagnostic().catch(() => {});
-            });
-        }}
-        style={{
-          width: '100%', maxWidth: 380,
-          background: '#fff', color: 'var(--header-bg)',
-          border: '1.5px solid rgba(16,42,42,0.18)', borderRadius: 28,
-          padding: '13px 20px', fontSize: 13.5, fontWeight: 850,
-          cursor: 'pointer',
-          marginBottom: 10,
-        }}
-      >
-        {t(lang, 'install.reset')}
-      </button>
-
-      <a
-        href="/reset-pwa.html?next=/install"
-        style={{
-          width: '100%', maxWidth: 380,
-          background: '#fff', color: 'var(--header-bg)',
-          border: '1.5px solid rgba(16,42,42,0.18)', borderRadius: 28,
-          padding: '13px 20px', fontSize: 13.5, fontWeight: 850,
-          cursor: 'pointer',
-          marginBottom: 10,
-          textAlign: 'center',
-          textDecoration: 'none',
-          boxSizing: 'border-box',
-        }}
-      >
-        Page blanche ? Réparer Chrome
-      </a>
-
       <details style={{ width:'100%', maxWidth:380, border:'1px solid var(--border)', borderRadius:18, padding:14, marginBottom:10, background:'#F8FAFC', color:'var(--text-primary)' }}>
         <summary style={{ cursor:'pointer', fontSize:13, fontWeight:900 }}>
-          Diagnostic technique installation {diagnostic?.ok ? '✓' : diagnostic ? '⚠' : ''}
+          Aide installation {diagnostic?.ok ? '✓' : diagnostic ? '⚠' : ''}
         </summary>
         <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:10 }}>
+          <button
+            onClick={() => {
+              setInstallMessage(t(lang, 'install.cleaning'));
+              resetInstallCacheState()
+                .then(() => {
+                  setManualInstall(true);
+                  setInstallMessage(t(lang, 'install.cacheCleaned'));
+                  refreshDiagnostic().catch(() => {});
+                })
+                .catch(() => {
+                  setManualInstall(true);
+                  setInstallMessage(t(lang, 'install.partialClean'));
+                  refreshDiagnostic().catch(() => {});
+                });
+            }}
+            style={{ border:'none', borderRadius:999, background:'var(--header-bg)', color:'#fff', padding:'10px 12px', fontSize:12, fontWeight:900, cursor:'pointer' }}
+          >
+            Nettoyer le cache et réessayer
+          </button>
+          <a href="/reset-pwa.html?next=/install" style={{ border:'1px solid var(--border)', borderRadius:999, background:'#fff', color:'var(--header-bg)', padding:'10px 12px', fontSize:12, fontWeight:900, cursor:'pointer', textAlign:'center', textDecoration:'none' }}>
+            Réparer une page blanche
+          </a>
           {diagnostic?.errors?.length ? (
             <div style={{ background:'#FEF2F2', color:'#991B1B', borderRadius:12, padding:10, fontSize:12, lineHeight:1.45, fontWeight:750 }}>
               {diagnostic.errors.map((err, index) => <div key={index}>{err}</div>)}

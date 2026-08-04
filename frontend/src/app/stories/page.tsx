@@ -18,6 +18,8 @@ interface Story {
   createdAt: string;
   expiresAt: string;         // 24h
   views: string[];           // userIds
+  viewCount?: number;
+  viewers?: Array<{ id: string; name: string; username?: string; avatar?: string; viewedAt?: string }>;
 }
 
 const BG_COLORS = ['var(--brand)','#25D366','var(--header-bg)','#34B7F1','#ECE5DD','#FF6B6B','#4ECDC4','#45B7D1','#96CEB4','#FFEAA7'];
@@ -81,6 +83,8 @@ export default function StoriesPage() {
         createdAt: s.createdAt,
         expiresAt: s.expiresAt,
         views: s.views ?? [],
+        viewCount: typeof s.viewCount === 'number' ? s.viewCount : (s.views ?? []).length,
+        viewers: Array.isArray(s.viewers) ? s.viewers : [],
       }));
       setStories(normalized);
     } catch {}
@@ -124,6 +128,28 @@ export default function StoriesPage() {
     }
   }, [mounted]);
 
+  function nextStoryAfter(story: Story) {
+    const authorStories = byAuthor[story.authorId] ?? [];
+    const idx = authorStories.findIndex(s => s.id === story.id);
+    if (idx >= 0 && idx < authorStories.length - 1) return authorStories[idx + 1];
+    const rowIndex = authorRows.findIndex(row => row.authorId === story.authorId);
+    if (rowIndex >= 0 && rowIndex < authorRows.length - 1) return authorRows[rowIndex + 1].firstUnread;
+    if (story.authorId !== myId && myStories.length) return myStories[myStories.length - 1];
+    return null;
+  }
+
+  function previousStoryBefore(story: Story) {
+    const authorStories = byAuthor[story.authorId] ?? [];
+    const idx = authorStories.findIndex(s => s.id === story.id);
+    if (idx > 0) return authorStories[idx - 1];
+    const rowIndex = authorRows.findIndex(row => row.authorId === story.authorId);
+    if (rowIndex > 0) {
+      const previousAuthorStories = authorRows[rowIndex - 1].authorStories;
+      return previousAuthorStories[previousAuthorStories.length - 1] ?? null;
+    }
+    return null;
+  }
+
   // Auto-avance story toutes les 5s — pause on press-and-hold
   useEffect(() => {
     if (!viewing) { setProgress(0); return; }
@@ -140,13 +166,7 @@ export default function StoriesPage() {
       setProgress(pct);
       if (pct >= 100) {
         clearInterval(progressRef.current!);
-        const authorStories = stories.filter(s => s.authorId === viewing.authorId);
-        const idx = authorStories.findIndex(s => s.id === viewing.id);
-        if (idx < authorStories.length - 1) {
-          setViewing(authorStories[idx + 1]);
-        } else {
-          setViewing(null);
-        }
+        setViewing(nextStoryAfter(viewing));
       }
     }, tick);
     return () => { if (progressRef.current) clearInterval(progressRef.current); };
@@ -159,8 +179,8 @@ export default function StoriesPage() {
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => {});
     if (myId && !story.views.includes(myId)) {
-      setStories(prev => prev.map(s => s.id === story.id ? { ...s, views: [...s.views, myId] } : s));
-      story = { ...story, views: [...story.views, myId] };
+      setStories(prev => prev.map(s => s.id === story.id ? { ...s, views: [...s.views, myId], viewCount: (s.viewCount ?? s.views.length) + 1 } : s));
+      story = { ...story, views: [...story.views, myId], viewCount: (story.viewCount ?? story.views.length) + 1 };
     }
     setViewing(story);
   }
@@ -175,12 +195,12 @@ export default function StoriesPage() {
     const idx = authorStories.findIndex(s => s.id === viewing.id);
     if (idx < 0) return;
     if (direction === 'prev') {
-      if (idx > 0) setViewing(authorStories[idx - 1]);
+      const previous = previousStoryBefore(viewing);
+      if (previous) setViewing(previous);
       else setProgress(0);
       return;
     }
-    if (idx < authorStories.length - 1) setViewing(authorStories[idx + 1]);
-    else setViewing(null);
+    setViewing(nextStoryAfter(viewing));
   }
 
   function pauseStory() {
@@ -439,10 +459,18 @@ export default function StoriesPage() {
           </div>
 
           {/* Vues */}
-          <div style={{ position:'absolute', bottom:24, left:0, right:0, display:'flex', justifyContent:'center' }}>
-            <div style={{ background:'rgba(0,0,0,.5)', borderRadius:20, padding:'6px 16px', display:'flex', alignItems:'center', gap:6 }}>
+          <div style={{ position:'absolute', bottom:24, left:0, right:0, display:'flex', justifyContent:'center', padding:'0 18px', pointerEvents:'none' }}>
+            <div style={{ background:'rgba(0,0,0,.58)', borderRadius:20, padding:'7px 16px', display:'flex', flexDirection:'column', alignItems:'center', gap:6, maxWidth:360 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:6 }}>
               <span style={{ fontSize:16 }}>👁</span>
-              <span style={{ color:'#fff', fontSize:13 }}>{viewing.views.length} vue{viewing.views.length !== 1 ? 's' : ''}</span>
+                <span style={{ color:'#fff', fontSize:13, fontWeight:800 }}>{viewing.viewCount ?? viewing.views.length} vue{(viewing.viewCount ?? viewing.views.length) !== 1 ? 's' : ''}</span>
+              </div>
+              {viewing.authorId === myId && Boolean(viewing.viewers?.length) && (
+                <p style={{ margin:0, color:'rgba(255,255,255,.82)', fontSize:11.5, lineHeight:1.35, textAlign:'center', maxWidth:300, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  {viewing.viewers!.slice(0, 4).map(v => v.name || v.username || 'Contact').join(', ')}
+                  {viewing.viewers!.length > 4 ? ` +${viewing.viewers!.length - 4}` : ''}
+                </p>
+              )}
             </div>
           </div>
         </div>

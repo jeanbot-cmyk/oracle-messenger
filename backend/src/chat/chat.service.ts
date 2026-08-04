@@ -242,6 +242,22 @@ export class ChatService {
     });
   }
 
+  async markMessageDelivered(messageId: string, receiverId: string) {
+    const msg = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      include: { conversation: { include: { participants: { select: { userId: true } } } } },
+    });
+    if (!msg) throw new NotFoundException();
+    const participantIds = msg.conversation.participants.map(p => p.userId);
+    if (!participantIds.includes(receiverId)) throw new ForbiddenException();
+    if (msg.senderId === receiverId) return msg;
+    if (msg.status === 'read' || msg.status === 'delivered') return msg;
+    return this.prisma.message.update({
+      where: { id: messageId },
+      data: { status: 'delivered' },
+    });
+  }
+
   async markConversationRead(conversationId: string, readerId: string) {
     await this.markRead(conversationId, readerId);
     return this.prisma.message.updateMany({
