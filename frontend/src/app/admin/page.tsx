@@ -5,9 +5,9 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { getSocket } from '../../lib/socket';
 
-const ADMIN_EMAIL  = 'tchingankonggeorges@gmail.com';
-const ADMIN_PHONE  = '+2250504673829';
-const isAdminUser  = (s: any) => s?.user?.email === ADMIN_EMAIL || s?.user?.phone === ADMIN_PHONE;
+const ADMIN_EMAILS = ['tchingankonggeorges@gmail.com', 'tchingangankonggeorges@gmail.com'];
+const ADMIN_PHONES = ['+2250504673829', '+2250700508618'];
+const isAdminUser  = (s: any) => ADMIN_EMAILS.includes(s?.user?.email) || ADMIN_PHONES.includes(s?.user?.phone);
 
 interface Stats { totalUsers:number; onlineUsers:number; pwaInstalls:number; totalMessages:number; totalConversations:number; premiumUsers?:number; }
 interface Metrics { cpu:number; ramPct:number; ramUsed:number; ramTotal:number; uptime:number; loadAvg1m?:number; platform?:string; }
@@ -123,7 +123,11 @@ export default function AdminPage() {
         body: JSON.stringify({ content: broadcast }),
       });
       const d = await r.json();
-      setBroadcastMsg(d.success ? `✓ Envoyé à ${d.sent} utilisateurs` : 'Erreur');
+      if (!r.ok || (!d.success && !d.sent)) {
+        setBroadcastMsg(d.message || 'Erreur pendant l’envoi');
+        return;
+      }
+      setBroadcastMsg(d.failed ? `✓ Envoyé à ${d.sent} utilisateurs · ${d.failed} échec(s)` : `✓ Envoyé à ${d.sent} utilisateurs`);
       setBroadcast('');
     } catch { setBroadcastMsg('Erreur réseau'); }
     setBroadcasting(false);

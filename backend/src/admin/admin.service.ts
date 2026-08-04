@@ -1,4 +1,4 @@
-import { Injectable, Inject, Optional } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SocketStateService } from '../gateway/socket-state.service';
@@ -6,6 +6,7 @@ import * as os from 'os';
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
   private lastCpuSnapshot: { idle: number; total: number } | null = null;
   private readonly officialConversationName = 'Oracle Messenger';
   private readonly officialConversationAvatar = '/icons/icon-192.png';
@@ -124,6 +125,7 @@ export class AdminService {
     });
 
     let sent = 0;
+    let failed = 0;
     for (const user of users) {
       try {
         let conv = await this.prisma.conversation.findFirst({
@@ -188,13 +190,16 @@ export class AdminService {
         this.socketState.server?.to(`conv:${conv.id}`).emit('message:new', msg);
 
         sent++;
-      } catch {}
+      } catch (error) {
+        failed++;
+        this.logger.warn(`Official broadcast failed for user ${user.id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
 
     // Push notification pour les utilisateurs hors ligne
     await this.notifications.sendToAll({ title: 'Oracle Messenger', body: content }).catch(() => {});
 
-    return { success: true, sent, total: users.length };
+    return { success: failed === 0, sent, failed, total: users.length };
   }
 
   // ── Statistiques par pays (basé sur l'indicatif du numéro de téléphone) ────
