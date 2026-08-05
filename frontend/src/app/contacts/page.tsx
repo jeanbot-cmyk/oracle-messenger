@@ -10,6 +10,8 @@ import { buildChromeIntentUrl, shouldOpenAndroidLinkInChrome } from '../../lib/a
 import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
 import { importNativeDeviceContacts, isCapacitorNativeRuntime } from '../../lib/nativeContacts';
+import { MediaLightbox } from '../../components/ui/MediaLightbox';
+import { matchesSearch } from '../../lib/search';
 
 interface LocalContact { name: string; phones: string[]; emails: string[]; avatar?: string | null }
 interface AppUser { id: string; name: string; username: string; avatar?: string; phone?: string }
@@ -206,6 +208,7 @@ export default function ContactsPage() {
   const [inviteUser, setInviteUser] = useState<AppUser | null>(null);
   const [inviteOpening, setInviteOpening] = useState(false);
   const [actionNotice, setActionNotice] = useState('');
+  const [photoPreview, setPhotoPreview] = useState<{ src: string; name: string } | null>(null);
   const cacheKey = scopedStorageKey(LEGACY_CACHE_KEY, userId);
   const manualKey = scopedStorageKey(LEGACY_MANUAL_KEY, userId);
 
@@ -532,10 +535,14 @@ export default function ContactsPage() {
     matchWithBackend(mergeContacts(readLocalContacts(cacheKey), nextManual));
   }
 
-  const filtered      = contacts.filter(c =>
-    c.local.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.local.phones.some(p => p.includes(search))
-  );
+  const filtered      = contacts.filter(c => matchesSearch([
+    c.local.name,
+    ...c.local.phones,
+    ...c.local.emails,
+    c.appUser?.name,
+    c.appUser?.username,
+    c.appUser?.phone,
+  ], search));
   const oracleContacts = filtered.filter(c => c.appUser);
   const inviteContacts = filtered.filter(c => !c.appUser);
   const isNativeApp   = canUseNativeContacts();
@@ -595,7 +602,7 @@ export default function ContactsPage() {
         <div style={{ flexShrink: 0, margin: '10px 14px 0', background: pendingInvite ? '#ecfdf5' : '#EAF4F1', border: `1px solid ${pendingInvite ? '#a7f3d0' : 'rgba(16,42,42,0.14)'}`, borderRadius: 14, padding: '12px 14px', color: pendingInvite ? '#065f46' : '#102A2A' }}>
           {inviteUser && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <Avatar name={inviteUser.name} avatar={inviteUser.avatar} size={42} />
+              <Avatar name={inviteUser.name} avatar={inviteUser.avatar} size={42} onOpen={inviteUser.avatar ? () => setPhotoPreview({ src: inviteUser.avatar!, name: inviteUser.name }) : undefined} />
               <div style={{ minWidth: 0, flex: 1 }}>
                 <p style={{ margin: 0, fontSize: 14, lineHeight: 1.25, fontWeight: 900, color: '#064e3b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inviteUser.name}</p>
                 <p style={{ margin: '2px 0 0', fontSize: 12, lineHeight: 1.25, fontWeight: 700, color: '#047857', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{inviteUser.username}</p>
@@ -682,17 +689,17 @@ export default function ContactsPage() {
 
         {/* Empty state — first visit */}
         {!imported && !loading && (
-          <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center', gap: 18, padding: 20 }}>
+          <div style={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center', gap: 14, padding: 20 }}>
             <div style={{ background: SURFACE, border:`1px solid ${BORDER}`, borderRadius:22, padding:22, boxShadow:'var(--shadow)', textAlign:'center' }}>
-            <div style={{ width: 82, height: 82, borderRadius: '50%', background: 'rgba(16,42,42,0.08)', border: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin:'0 auto 16px' }}>
-              <svg width="40" height="40" fill="none" stroke="var(--header-bg)" strokeWidth="1.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
-              </svg>
-            </div>
+              <div style={{ width: 82, height: 82, borderRadius: '50%', background: 'linear-gradient(145deg, rgba(16,42,42,0.12), rgba(18,140,126,0.08))', border: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin:'0 auto 16px' }}>
+                <svg width="40" height="40" fill="none" stroke="var(--header-bg)" strokeWidth="1.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+              </div>
               <p style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px' }}>{t(lang, 'contacts.importTitle')}</p>
-              <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0, fontWeight: 650 }}>
+              <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.52, margin: 0, fontWeight: 650 }}>
                 {isNativeApp
-                  ? 'Appuyez sur “Importer mes contacts”, puis autorisez l’accès Android. Oracle Messenger synchronisera votre carnet d’adresses et affichera uniquement les personnes déjà inscrites. Les autres contacts pourront recevoir votre invitation.'
+                  ? 'Retrouvez vos proches sur Oracle Messenger. Vos contacts servent uniquement à afficher les personnes déjà inscrites.'
                   : hasNative
                     ? t(lang, 'contacts.importNativeHelp')
                     : t(lang, 'contacts.manualHelp')}
@@ -737,14 +744,14 @@ export default function ContactsPage() {
               <div style={{ padding: '8px 0 18px', background: '#FFFFFF' }}>
                 {oracleContacts.length > 0 && (
                   <>
-                    <SectionTitle>Contacts sur Oracle Messenger</SectionTitle>
-                    {oracleContacts.map((c, i) => <ContactRow key={`oracle-${c.local.name}-${i}`} c={c} onTap={() => handleTap(c)} onRemove={() => removeContact(c.local)} creating={creating} />)}
+                    <SectionTitle>Déjà sur Oracle Messenger</SectionTitle>
+                    {oracleContacts.map((c, i) => <ContactRow key={`oracle-${c.local.name}-${i}`} c={c} onTap={() => handleTap(c)} onRemove={() => removeContact(c.local)} creating={creating} onAvatarOpen={(src, name) => setPhotoPreview({ src, name })} />)}
                   </>
                 )}
                 {inviteContacts.length > 0 && (
                   <>
-                    <SectionTitle>Inviter sur Oracle Messenger</SectionTitle>
-                    {inviteContacts.map((c, i) => <ContactRow key={`invite-${c.local.name}-${i}`} c={c} onTap={() => handleTap(c)} onRemove={() => removeContact(c.local)} creating={creating} />)}
+                    <SectionTitle>À inviter</SectionTitle>
+                    {inviteContacts.map((c, i) => <ContactRow key={`invite-${c.local.name}-${i}`} c={c} onTap={() => handleTap(c)} onRemove={() => removeContact(c.local)} creating={creating} onAvatarOpen={(src, name) => setPhotoPreview({ src, name })} />)}
                   </>
                 )}
               </div>
@@ -820,17 +827,48 @@ export default function ContactsPage() {
           </div>
         </div>
       )}
+      {photoPreview && (
+        <MediaLightbox
+          src={photoPreview.src}
+          type="image"
+          title={photoPreview.name}
+          subtitle="Photo de profil"
+          qualityMode="profile"
+          onClose={() => setPhotoPreview(null)}
+        />
+      )}
     </div>
   );
 }
 
-function Avatar({ name, avatar, size = 48 }: { name: string; avatar?: string | null; size?: number }) {
-  return (
-    <div style={{ width: size, height: size, borderRadius: '50%', background: avatar ? 'transparent' : 'rgba(16,42,42,0.08)', border: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+function Avatar({ name, avatar, size = 48, onOpen }: { name: string; avatar?: string | null; size?: number; onOpen?: () => void }) {
+  const content = (
+    <>
       {avatar
         ? <img src={avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }}/>
         : <span style={{ fontSize: size * 0.42, fontWeight: 900, color: 'var(--accent-text)' }}>{name[0]?.toUpperCase()}</span>
       }
+    </>
+  );
+  if (avatar && onOpen) {
+    return (
+      <button
+        type="button"
+        onClick={event => {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpen();
+        }}
+        aria-label={`Voir la photo de ${name}`}
+        style={{ width: size, height: size, minHeight: size, borderRadius: '50%', background: 'transparent', border: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden', padding: 0, cursor: 'zoom-in' }}
+      >
+        {content}
+      </button>
+    );
+  }
+  return (
+    <div style={{ width: size, height: size, borderRadius: '50%', background: avatar ? 'transparent' : 'rgba(16,42,42,0.08)', border: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+      {content}
     </div>
   );
 }
@@ -843,14 +881,15 @@ function SectionTitle({ children }: { children: ReactNode }) {
   );
 }
 
-function ContactRow({ c, onTap, onRemove, creating }: { c: EnrichedContact; onTap: () => void; onRemove: () => void; creating: boolean }) {
+function ContactRow({ c, onTap, onRemove, creating, onAvatarOpen }: { c: EnrichedContact; onTap: () => void; onRemove: () => void; creating: boolean; onAvatarOpen: (src: string, name: string) => void }) {
   const { local, appUser } = c;
+  const avatar = appUser?.avatar ?? local.avatar;
   return (
     <div style={{ background: '#FFFFFF', overflow: 'hidden', display:'flex', alignItems:'center', paddingRight:10 }}>
       <button onClick={onTap} disabled={creating}
         style={{ flex:1, minWidth:0, display: 'flex', alignItems: 'center', gap: 14, padding: '12px 10px 12px 18px', minHeight: 72, border: 'none', background: 'transparent', cursor: creating ? 'wait' : 'pointer', textAlign: 'left' }}>
         <div style={{ position: 'relative', flexShrink: 0 }}>
-          <Avatar name={local.name} avatar={appUser?.avatar ?? local.avatar} size={52} />
+          <Avatar name={local.name} avatar={avatar} size={52} onOpen={avatar ? () => onAvatarOpen(avatar, local.name) : undefined} />
           {appUser && (
             <div style={{ position: 'absolute', bottom: 0, right: 0, width: 14, height: 14, borderRadius: '50%', background: 'var(--online-dot)', border: '2px solid var(--bg-surface)' }}/>
           )}

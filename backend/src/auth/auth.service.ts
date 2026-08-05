@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
+import { createHash } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -68,5 +69,63 @@ export class AuthService {
 
   async validateUser(userId: string) {
     return this.prisma.user.findUnique({ where: { id: userId } });
+  }
+
+  async recoverByPhone(phone: string) {
+    const lookup = this.phoneRecoveryLookup(phone);
+    if (!lookup) throw new BadRequestException('Numéro de téléphone invalide');
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { phone: lookup.normalized },
+          { phoneHash: lookup.normalizedHash },
+          { phoneDigitsHash: lookup.digitsHash },
+        ],
+      },
+      select: { email: true, name: true },
+    });
+
+    if (!user) {
+      return {
+        found: false,
+        message: 'Aucun compte Oracle Messenger trouvé avec ce numéro.',
+      };
+    }
+
+    return {
+      found: true,
+      name: user.name,
+      emailHint: this.maskEmail(user.email),
+      message: 'Compte trouvé. Connectez-vous avec le compte Google indiqué. Google peut demander un code de vérification.',
+    };
+  }
+
+  private normalizePhone(phone: string) {
+    const cleaned = String(phone ?? '').replace(/[^\d+]/g, '');
+    if (cleaned.startsWith('+')) return `+${cleaned.slice(1).replace(/\D/g, '')}`;
+    return `+${cleaned.replace(/\D/g, '')}`;
+  }
+
+  private sha256(value: string) {
+    return createHash('sha256').update(value).digest('hex');
+  }
+
+  private phoneRecoveryLookup(phone: string) {
+    const normalized = this.normalizePhone(phone);
+    const digits = normalized.replace(/\D/g, '');
+    if (digits.length < 8) return null;
+    return {
+      normalized,
+      normalizedHash: this.sha256(normalized),
+      digitsHash: this.sha256(digits),
+    };
+  }
+
+  private maskEmail(email: string) {
+    const [local, domain] = String(email || '').split('@');
+    if (!local || !domain) return '';
+    const visible = local.length <= 2 ? `${local[0] ?? ''}*` : `${local.slice(0, 2)}***${local.slice(-1)}`;
+    return `${visible}@${domain}`;
   }
 }

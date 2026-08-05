@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { format } from 'date-fns';
 import type { Message } from '../../types';
 import { useSettings } from '../../store/settings';
@@ -20,10 +21,11 @@ interface Props {
   selectionMode?: boolean;
   selected?: boolean;
   onMediaLoad?: () => void;
+  onCallMessageClick?: (type: 'audio' | 'video') => void;
 }
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '😡'];
-const LONG_PRESS_MS = 650;
+const LONG_PRESS_MS = 430;
 const LONG_PRESS_CANCEL_PX = 18;
 const SWIPE_REPLY_TRIGGER_PX = 66;
 const SYNTHETIC_MOUSE_SUPPRESS_MS = 750;
@@ -134,10 +136,29 @@ function fileIcon(mime: string, name: string) {
   return 'FILE';
 }
 
+function linkifyPhones(text: string, keyPrefix: string) {
+  const parts = text.split(/((?:\+?\d[\d\s().-]{6,}\d))/g);
+  return parts.map((part, index) => {
+    const digits = part.replace(/\D+/g, '');
+    if (digits.length < 8 || !/^\+?[\d\s().-]+$/.test(part)) return part;
+    const href = `tel:${part.trim().startsWith('+') ? '+' : ''}${digits}`;
+    return (
+      <a
+        key={`${keyPrefix}-phone-${index}`}
+        href={href}
+        onClick={(event) => event.stopPropagation()}
+        style={{ color: '#0B63CE', textDecoration: 'underline', fontWeight: 600, overflowWrap: 'anywhere' }}
+      >
+        {part}
+      </a>
+    );
+  });
+}
+
 function linkifyText(text: string) {
   const parts = text.split(/((?:https?:\/\/|www\.)[^\s<]+)/gi);
-  return parts.map((part, index) => {
-    if (!/^(https?:\/\/|www\.)/i.test(part)) return part;
+  return parts.flatMap((part, index) => {
+    if (!/^(https?:\/\/|www\.)/i.test(part)) return linkifyPhones(part, `text-${index}`);
     const href = part.startsWith('www.') ? `https://${part}` : part;
     return (
       <a
@@ -152,6 +173,15 @@ function linkifyText(text: string) {
       </a>
     );
   });
+}
+
+function parseCallTraceMessage(content: string): { type: 'audio' | 'video'; label: string } | null {
+  const value = String(content ?? '').trim();
+  const withoutIcon = value.replace(/^[^\p{L}\p{N}]+/u, '').trim();
+  if (!/^Appel\s+(audio|vidéo|video)\s+/i.test(withoutIcon)) return null;
+  const type = /Appel\s+vid[ée]o/i.test(value) ? 'video' : 'audio';
+  const label = withoutIcon;
+  return { type, label };
 }
 
 function AudioPlayer({ src, timeRow, waveform, declaredDuration }: { src: string; timeRow: React.ReactNode; waveform?: number[]; declaredDuration?: number }) {
@@ -271,10 +301,11 @@ function AudioPlayer({ src, timeRow, waveform, declaredDuration }: { src: string
   );
 }
 
-export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete, onEdit, onForward, onSelect, onReact, selectionMode = false, selected = false, onMediaLoad }: Props) {
+export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete, onEdit, onForward, onSelect, onReact, selectionMode = false, selected = false, onMediaLoad, onCallMessageClick }: Props) {
   const [showMenu, setShowMenu]       = useState(false);
   const [imgError, setImgError]       = useState(false);
   const [lightbox, setLightbox]       = useState(false);
+  const [fileViewer, setFileViewer]   = useState<ReturnType<typeof parseFilePayload> | null>(null);
   const [swipeX, setSwipeX]           = useState(0);
   const [swiping, setSwiping]         = useState(false);
   const [copied, setCopied]           = useState(false);
@@ -367,6 +398,41 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
         setTimeout(() => setCopied(false), 1500);
       }).catch(() => {});
     }
+    setShowMenu(false);
+  }
+
+  function addFavorite() {
+    try {
+      const key = 'oracle-favorite-message-ids';
+      const current = JSON.parse(localStorage.getItem(key) || '[]');
+      const ids = Array.isArray(current) ? current.filter((id): id is string => typeof id === 'string') : [];
+      if (!ids.includes(message.id)) ids.unshift(message.id);
+      localStorage.setItem(key, JSON.stringify(ids.slice(0, 500)));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {}
+    setShowMenu(false);
+  }
+
+  async function shareMessage() {
+    const text = effectiveTypeEarly === 'text' ? message.content : mediaSrcEarly;
+    try {
+      if (navigator.share) await navigator.share({ title: 'Oracle Messenger', text });
+      else if (text) await navigator.clipboard?.writeText(text);
+    } catch {}
+    setShowMenu(false);
+  }
+
+  function showInfo() {
+    const file = parseFilePayload(message.content);
+    const lines = [
+      `Type : ${effectiveType}`,
+      `Heure : ${timeStr}`,
+      `Statut : ${message.status ?? '-'}`,
+      file.name && effectiveType !== 'text' ? `Fichier : ${file.name}` : '',
+      file.size ? `Taille : ${formatBytes(file.size)}` : '',
+    ].filter(Boolean);
+    window.alert(lines.join('\n'));
     setShowMenu(false);
   }
   const touchStartX = useRef(0);
@@ -465,9 +531,13 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
   if (message.isDeleted) return null;
 
   const effectiveType = detectType(message.content, message.type ?? 'text');
+  const callTrace = effectiveType === 'text' ? parseCallTraceMessage(message.content) : null;
   const mediaSrc = attachmentUrl(message.content);
   const mediaMeta = parseFilePayload(message.content);
   const mediaPreviewSrc = mediaMeta.thumbnail || mediaSrc;
+  const mediaAspectRatio = mediaMeta.width && mediaMeta.height
+    ? Math.max(0.62, Math.min(1.78, mediaMeta.width / mediaMeta.height))
+    : undefined;
   const caption = attachmentCaption(message.content);
   const missingLocalMedia = effectiveType !== 'text' && !mediaSrc;
   const timeStr = (() => { try { return format(new Date(message.createdAt), 'HH:mm'); } catch { return ''; } })();
@@ -484,13 +554,17 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
   }, []);
 
   const menuStyle: React.CSSProperties = {
-    position: 'fixed', zIndex: 1000,
-    background: 'var(--bg-surface)', border: '1px solid var(--border)',
-    borderRadius: 12, boxShadow: '0 10px 34px rgba(0,0,0,.22)', minWidth: 160,
+    position: 'fixed', zIndex: 2147483001,
+    background: '#FFFFFF', border: '1px solid rgba(16,42,42,0.10)',
+    borderRadius: 18, boxShadow: '0 22px 70px rgba(15,23,42,.28)', minWidth: 160,
     width: menuPos?.width ?? 230,
     left: menuPos?.left ?? 8,
     top: menuPos?.top ?? 80,
-    overflow: 'hidden',
+    overflowX: 'hidden',
+    overflowY: 'auto',
+    maxHeight: 'min(76dvh, 620px)',
+    overscrollBehavior: 'contain',
+    isolation: 'isolate',
   };
   const menuItemStyle: React.CSSProperties = {
     width: '100%', display: 'flex', alignItems: 'center', gap: 10,
@@ -499,8 +573,8 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
   };
 
   const TimeRow = () => (
-    <div className="om-message-time-row" style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', marginTop: 1, minHeight: 14 }}>
-      <span style={{ fontSize: 10.8, color: isOwn ? 'rgba(0,0,0,.46)' : 'var(--text-muted)', lineHeight: 1 }}>{timeStr}</span>
+    <div className="om-message-time-row" style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', marginTop: 1, minHeight: 13 }}>
+      <span style={{ fontSize: 10.4, color: isOwn ? 'rgba(0,0,0,.46)' : 'var(--text-muted)', lineHeight: 1 }}>{timeStr}</span>
       {message.isEdited && <span style={{ fontSize: 12, color: isOwn ? 'rgba(0,0,0,.4)' : 'var(--text-muted)' }}>modifié</span>}
       {isOwn && <StatusIcon status={message.status} />}
     </div>
@@ -513,6 +587,17 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
       {isOwn && <StatusIcon status={message.status} tone="light" />}
     </div>
   );
+
+  function openFileViewer(file = mediaMeta) {
+    if (!file.url) return;
+    setFileViewer(file);
+  }
+
+  function handleCallTraceClick(event: React.MouseEvent) {
+    event.stopPropagation();
+    if (!callTrace || selectionMode || !onCallMessageClick) return;
+    onCallMessageClick(callTrace.type);
+  }
 
   const CaptionBlock = () => caption ? (
     <div style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? '7px 9px 4px' : '6px 0 0' }}>
@@ -528,7 +613,7 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
   return (
     <div
       className={`om-message-row ${isOwn ? 'om-message-row-own' : 'om-message-row-in'} ${selectionMode ? 'om-message-row-selecting' : ''} ${selected ? 'om-message-row-selected' : ''}`}
-      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative', padding: '1px 0', background: 'transparent', borderRadius: 0 }}
+      style={{ display: 'flex', justifyContent: isOwn ? 'flex-end' : 'flex-start', position: 'relative', padding: '1.5px 0', background: 'transparent', borderRadius: 0 }}
       ref={wrapRef}
       onContextMenu={e => {
         e.preventDefault();
@@ -544,7 +629,7 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
       onMouseUp={onPointerPressEnd}
       onMouseLeave={handlePressEnd}
     >
-      {selectionMode && selected && (
+      {selectionMode && (
         <button
           type="button"
           aria-label={selected ? t(lang, 'chat.messageSelected') : t(lang, 'chat.selectThisMessage')}
@@ -557,9 +642,9 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
             width:22,
             height:22,
             borderRadius:'50%',
-            border:'2px solid #fff',
-            background:'var(--header-bg)',
-            color:'#fff',
+            border:selected ? '2px solid #fff' : '2px solid rgba(16,42,42,0.28)',
+            background:selected ? 'var(--header-bg)' : 'var(--bg-surface)',
+            color:selected ? '#fff' : 'transparent',
             display:'flex',
             alignItems:'center',
             justifyContent:'center',
@@ -590,7 +675,7 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
 
       <div style={{
         position: 'relative',
-        maxWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(74vw, 360px)' : 'min(76vw, 560px)',
+        maxWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(72vw, 350px)' : 'min(73vw, 520px)',
         minWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(54vw, 232px)' : effectiveType === 'text' ? 48 : undefined,
         transform: swipeX ? `translateX(${swipeX}px)` : undefined,
         transition: swiping ? 'none' : 'transform 0.2s ease',
@@ -605,7 +690,7 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
 
         <div
           className={`om-message-bubble ${isOwn ? 'bubble-out' : 'bubble-in'}`}
-          style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? 2 : '6px 9px 4px 9px', overflow: 'hidden' }}
+          style={{ padding: effectiveType === 'image' || effectiveType === 'video' ? 2 : '7px 10px 4px 10px', overflow: 'hidden' }}
           onDoubleClick={() => onReply(message)}
         >
           {missingLocalMedia && (
@@ -619,12 +704,13 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
 
           {/* IMAGE */}
           {effectiveType === 'image' && !missingLocalMedia && !imgError && (
-            <div className="om-media-card">
+            <div className="om-media-card" style={mediaAspectRatio ? { aspectRatio: `${mediaAspectRatio}` } : undefined}>
               <img src={mediaPreviewSrc} alt="image" onError={() => setImgError(true)}
                 className="om-media-content"
-                style={{ cursor: 'zoom-in' }}
+                style={{ cursor: 'zoom-in', objectFit: mediaAspectRatio && mediaAspectRatio > 1.15 ? 'contain' : 'cover' }}
                 onLoad={onMediaLoad}
                 onClick={event => {
+                  event.stopPropagation();
                   if (selectionMode) {
                     event.preventDefault();
                     return;
@@ -644,8 +730,9 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
 
           {/* VIDEO */}
           {effectiveType === 'video' && !missingLocalMedia && (
-            <div className="om-media-card">
+            <div className="om-media-card" style={mediaAspectRatio ? { aspectRatio: `${mediaAspectRatio}` } : undefined}>
               <div style={{ position: 'relative', cursor: 'pointer', width: '100%', height: '100%' }} onClick={event => {
+                event.stopPropagation();
                 if (selectionMode) {
                   event.preventDefault();
                   return;
@@ -684,17 +771,28 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
               {(() => {
                 const file = parseFilePayload(message.content);
                 return (
-              <a href={file.url} download={file.name} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit', minWidth:220 }}>
+              <button
+                type="button"
+                onClick={event => {
+                  event.stopPropagation();
+                  if (selectionMode) return;
+                  openFileViewer(file);
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit', minWidth:220, width:'100%', border:'none', background:'transparent', padding:0, cursor:'pointer', textAlign:'left' }}
+              >
                 <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(16,42,42,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color:'var(--header-bg)', fontSize:10, fontWeight:900 }}>
                   {fileIcon(file.mime, file.name)}
                 </div>
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, flex:1 }}>
                   <p style={{ fontSize: 13, fontWeight: 800, margin: 0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:210 }}>{file.name}</p>
                   <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
                     {[file.mime || t(lang, 'common.document'), formatBytes(file.size)].filter(Boolean).join(' · ')}
                   </p>
                 </div>
-              </a>
+                <span aria-hidden="true" style={{ width:28, height:28, borderRadius:'50%', background:'rgba(16,42,42,0.06)', color:'var(--text-secondary)', display:'inline-flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                  <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.1" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 18l6-6-6-6"/></svg>
+                </span>
+              </button>
                 );
               })()}
               {caption ? <CaptionBlock /> : <TimeRow />}
@@ -702,9 +800,58 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
           )}
 
           {/* TEXT */}
-          {effectiveType === 'text' && (
+          {effectiveType === 'text' && callTrace && (
             <>
-              <p className="om-message-text" style={{ fontSize: 15, lineHeight: 1.34, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere', margin: 0, letterSpacing: 0 }}>
+              <button
+                type="button"
+                onClick={handleCallTraceClick}
+                title={callTrace.type === 'video' ? 'Relancer l’appel vidéo' : 'Relancer l’appel audio'}
+                style={{
+                  width: '100%',
+                  border: 'none',
+                  background: onCallMessageClick && !selectionMode ? (isOwn ? 'rgba(16,42,42,.045)' : 'rgba(16,42,42,.035)') : 'transparent',
+                  color: 'inherit',
+                  padding: onCallMessageClick && !selectionMode ? '8px 10px' : 0,
+                  margin: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 9,
+                  minWidth: 220,
+                  textAlign: 'left',
+                  cursor: onCallMessageClick && !selectionMode ? 'pointer' : 'default',
+                  borderRadius: 14,
+                }}
+              >
+                <span style={{ fontSize: 20, lineHeight: 1, flexShrink: 0 }}>
+                  {message.content.trim().startsWith('📵') ? '📵' : callTrace.type === 'video' ? '📹' : '📞'}
+                </span>
+                <span style={{ minWidth: 0, flex: 1 }}>
+                  <span style={{ display: 'block', fontSize: 16.2, lineHeight: 1.2, fontWeight: 850, letterSpacing: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {callTrace.label}
+                  </span>
+                  {onCallMessageClick && !selectionMode && (
+                    <span style={{ display: 'block', marginTop: 3, fontSize: 12, lineHeight: 1.15, color: isOwn ? 'rgba(0,0,0,.54)' : 'var(--text-muted)', fontWeight: 820 }}>
+                      Appuyer pour rappeler
+                    </span>
+                  )}
+                </span>
+                {onCallMessageClick && !selectionMode && (
+                  <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: '50%', background: isOwn ? 'rgba(16,42,42,0.08)' : 'rgba(16,42,42,0.07)', color: 'var(--header-bg)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24">
+                      {callTrace.type === 'video'
+                        ? <path d="M3 7a3 3 0 013-3h8a3 3 0 013 3v10a3 3 0 01-3 3H6a3 3 0 01-3-3V7zm15 3.2l3.2-2A.5.5 0 0122 8.6v6.8a.5.5 0 01-.8.4L18 13.8v-3.6z"/>
+                        : <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/>}
+                    </svg>
+                  </span>
+                )}
+              </button>
+              <TimeRow />
+            </>
+          )}
+
+          {effectiveType === 'text' && !callTrace && (
+            <>
+              <p className="om-message-text" style={{ fontSize: 14.8, lineHeight: 1.36, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere', margin: 0, letterSpacing: 0 }}>
                 {linkifyText(message.content)}
               </p>
               <TimeRow />
@@ -756,9 +903,18 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
           </div>
         )}
 
-        {showMenu && (
+      {showMenu && typeof document !== 'undefined' && createPortal(
           <>
-            <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setShowMenu(false)} />
+            <div
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 2147483000,
+                background: 'rgba(15,23,42,0.10)',
+                backdropFilter: 'blur(1.5px)',
+              }}
+              onClick={() => setShowMenu(false)}
+            />
             <div style={menuStyle}>
               <div style={{
                 display:'flex',
@@ -798,14 +954,17 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
                   </button>
                 ))}
               </div>
+              <button style={menuItemStyle} onClick={() => { onSelect(message); setShowMenu(false); }}>
+                ☑️ {t(lang, 'chat.selectMessage')}
+              </button>
               <button style={menuItemStyle} onClick={() => { onReply(message); setShowMenu(false); }}>
                 ↩️ {t(lang, 'chat.reply')}
               </button>
               <button style={menuItemStyle} onClick={() => { onForward(message); setShowMenu(false); }}>
                 ↪️ {t(lang, 'chat.forward')}
               </button>
-              <button style={menuItemStyle} onClick={() => { onSelect(message); setShowMenu(false); }}>
-                ☑️ {t(lang, 'chat.selectMessage')}
+              <button style={menuItemStyle} onClick={shareMessage}>
+                📤 Partager
               </button>
               {/* Copier le texte */}
               {effectiveType === 'text' && (
@@ -819,6 +978,17 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
                   🔍 {t(lang, 'chat.viewFullscreen')}
                 </button>
               )}
+              {effectiveType === 'file' && (
+                <button style={menuItemStyle} onClick={() => { openFileViewer(); setShowMenu(false); }}>
+                  🔍 Ouvrir le document
+                </button>
+              )}
+              <button style={menuItemStyle} onClick={addFavorite}>
+                ⭐ Ajouter aux favoris
+              </button>
+              <button style={menuItemStyle} onClick={showInfo}>
+                ℹ️ Informations du message
+              </button>
               {isOwn && (
                 <>
                   {effectiveType === 'text' && (
@@ -828,25 +998,49 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
                   )}
                   <div style={{ height: 1, background: 'var(--border)', margin: '0 12px' }} />
                   <button style={{ ...menuItemStyle, color: '#dc2626' }} onClick={() => { onDelete(message.id); setShowMenu(false); }}>
-                    🗑️ {t(lang, 'chat.delete')}
+                    🗑️ Supprimer pour tous
+                  </button>
+                </>
+              )}
+              {!isOwn && (
+                <>
+                  <div style={{ height: 1, background: 'var(--border)', margin: '0 12px' }} />
+                  <button style={{ ...menuItemStyle, color: '#dc2626' }} onClick={() => { onDelete(message.id); setShowMenu(false); }}>
+                    🗑️ Supprimer pour moi
                   </button>
                 </>
               )}
             </div>
-          </>
+          </>,
+          document.body
         )}
       </div>
 
       {/* Lightbox plein écran */}
-      {lightbox && (effectiveType === 'image' || effectiveType === 'video') && (
+      {lightbox && (effectiveType === 'image' || effectiveType === 'video') && typeof document !== 'undefined' && createPortal(
         <MediaLightbox
           src={mediaSrc}
           type={effectiveType}
+          title={caption || (effectiveType === 'video' ? t(lang, 'common.video') : t(lang, 'common.photo'))}
+          subtitle={timeStr}
           onClose={() => setLightbox(false)}
           onSave={() => {
             saveToGallery(mediaSrc, effectiveType as 'image' | 'video');
           }}
-        />
+        />,
+        document.body
+      )}
+      {fileViewer && typeof document !== 'undefined' && createPortal(
+        <MediaLightbox
+          src={fileViewer.url}
+          type="document"
+          title={fileViewer.name}
+          subtitle={[fileViewer.mime || t(lang, 'common.document'), formatBytes(fileViewer.size)].filter(Boolean).join(' · ')}
+          fileName={fileViewer.name}
+          mime={fileViewer.mime}
+          onClose={() => setFileViewer(null)}
+        />,
+        document.body
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 # OpenSSL requis par Prisma sur Alpine
 RUN apk add --no-cache openssl
@@ -9,7 +9,7 @@ COPY . .
 RUN npx prisma generate
 RUN npm run build
 
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 # OpenSSL requis par Prisma au runtime
 RUN apk add --no-cache openssl

@@ -1,5 +1,7 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 import {
   playMessageSound as playCentralMessageSound,
   playMissedCallSound as playCentralMissedCallSound,
@@ -11,11 +13,24 @@ import {
 export function useNotifications() {
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [supported, setSupported] = useState(false);
+  const nativePushRegisteredRef = useRef(false);
+  const activeCallNotificationRef = useRef<Notification | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    setSupported('Notification' in window);
-    if ('Notification' in window) setPermission(Notification.permission);
+    setSupported('Notification' in window || Capacitor.isNativePlatform());
+    if (Capacitor.isNativePlatform()) {
+      PushNotifications.checkPermissions()
+        .then(result => {
+          const granted = result.receive === 'granted';
+          setPermission(granted ? 'granted' : 'default');
+          if (granted) subscribeToNativePush().catch(() => {});
+        })
+        .catch(() => {});
+    } else if ('Notification' in window) {
+      setPermission(Notification.permission);
+      if (Notification.permission === 'granted') subscribeToPush().catch(() => {});
+    }
 
     // Unlock AudioContext on first user gesture (required by mobile browsers)
     const unlock = () => {
@@ -39,7 +54,19 @@ export function useNotifications() {
   }, []);
 
   async function requestPermission(): Promise<boolean> {
-    if (!supported) return false;
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const result = await PushNotifications.requestPermissions();
+        const granted = result.receive === 'granted';
+        setPermission(granted ? 'granted' : 'denied');
+        if (granted) await subscribeToNativePush();
+        return granted;
+      } catch (error) {
+        console.warn('[Push] native permission failed:', error);
+        return false;
+      }
+    }
+    if (!supported || !('Notification' in window)) return false;
     const r = await Notification.requestPermission();
     setPermission(r);
     if (r === 'granted') {
@@ -47,6 +74,38 @@ export function useNotifications() {
       subscribeToPush().catch(() => {});
     }
     return r === 'granted';
+  }
+
+  async function subscribeToNativePush() {
+    if (!Capacitor.isNativePlatform()) return;
+    if (nativePushRegisteredRef.current) return;
+    nativePushRegisteredRef.current = true;
+    try {
+      await PushNotifications.addListener('registration', async token => {
+        await fetch('/api/push-subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'fcm',
+            token: token.value,
+            platform: Capacitor.getPlatform(),
+          }),
+        }).catch(error => {
+          console.warn('[Push] native token backend save failed:', error);
+        });
+      });
+      await PushNotifications.addListener('registrationError', error => {
+        console.warn('[Push] native registration error:', error);
+      });
+      await PushNotifications.addListener('pushNotificationActionPerformed', action => {
+        const url = action.notification.data?.url;
+        if (typeof url === 'string' && url) window.location.href = url;
+      });
+      await PushNotifications.register();
+    } catch (error) {
+      nativePushRegisteredRef.current = false;
+      console.warn('[Push] native subscription failed:', error);
+    }
   }
 
   async function subscribeToPush() {
@@ -100,6 +159,16 @@ export function useNotifications() {
 
   function stopRingtone() {
     stopCentralRingtone();
+    activeCallNotificationRef.current?.close();
+    activeCallNotificationRef.current = null;
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready
+        .then(reg => reg.getNotifications())
+        .then(notifications => notifications
+          .filter(notification => String(notification.tag || '').startsWith('incoming-call-'))
+          .forEach(notification => notification.close()))
+        .catch(() => {});
+    }
   }
 
   // ── Sons courts ──────────────────────────────────────────────────────────
@@ -119,8 +188,8 @@ export function useNotifications() {
     if (!supported || permission !== 'granted') return;
     try {
       const notificationOptions = {
-        icon: opts?.icon ?? '/icons/icon-192-v20260803.png',
-        badge: '/icons/icon-72-v20260803.png',
+        icon: opts?.icon ?? '/icons/icon-192-v20260804.png',
+        badge: '/icons/icon-72-v20260804.png',
         body: opts?.body,
         tag: opts?.tag,
         data: opts?.data,
@@ -150,16 +219,18 @@ export function useNotifications() {
   }
 
   function notifyIncomingCall(callerName: string, type: 'audio' | 'video', convId?: string) {
+    activeCallNotificationRef.current?.close();
+    activeCallNotificationRef.current = null;
     startRingtone();
     if (document.visibilityState !== 'visible') {
       const url = convId ? `/chat?conv=${encodeURIComponent(convId)}&call=incoming` : '/chat?call=incoming';
-      notify(`📞 Appel ${type === 'video' ? 'vidéo' : 'audio'} — ${callerName}`, {
+      activeCallNotificationRef.current = notify(`📞 Appel ${type === 'video' ? 'vidéo' : 'audio'} — ${callerName}`, {
         body: 'Ouvrez Oracle Messenger pour répondre.',
         tag: `incoming-call-${convId ?? 'chat'}`,
         requireInteraction: true,
         vibrate: [1000, 300, 1000, 300, 1000, 700, 1000, 300, 1000],
         data: { url },
-      });
+      }) ?? null;
     }
   }
 

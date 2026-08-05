@@ -9,6 +9,7 @@ import { useSocket } from '../../hooks/useSocket';
 import { useWebRTC } from '../../hooks/useWebRTC';
 import { useNotifications } from '../../hooks/useNotifications';
 import { api } from '../../lib/api';
+import { getConversations } from '../../lib/db';
 
 export function ChatLayout() {
   const { data: session, status } = useSession();
@@ -19,21 +20,45 @@ export function ChatLayout() {
   const { setConversations, setCurrentUser, setActiveConv, conversations } = useChatStore();
   const { requestPermission, permission } = useNotifications();
   const [showNotifBanner, setShowNotifBanner] = useState(false);
+  const [conversationsLoading, setConversationsLoading] = useState(true);
   const viewportRaf = useRef<number | null>(null);
   const lastViewport = useRef({ height: 0, top: 0 });
   useSocket();
 
   const {
-    callState, callInfo, localStream, remoteStreams,
+    callState, callInfo, callError, localStream, remoteStreams,
     isMuted, isCamOff,
-    startCall, answerCall, endCall, toggleMute, toggleCamera, switchCamera,
+    startCall, answerCall, endCall, addParticipants, toggleMute, toggleCamera, switchCamera, startScreenShare,
   } = useWebRTC(userId, token);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      setConversationsLoading(status === 'loading');
+      return;
+    }
+    let cancelled = false;
+    setConversationsLoading(true);
     api.users.me(token).then(setCurrentUser).catch(() => {});
-    api.conversations.list(token).then(setConversations).catch(() => {});
-  }, [token]);
+    getConversations()
+      .then(localConversations => {
+        if (!cancelled && localConversations.length > 0) setConversations(localConversations);
+      })
+      .catch(() => {});
+    api.conversations.list(token)
+      .then(remoteConversations => {
+        if (cancelled) return;
+        const list = Array.isArray(remoteConversations) ? remoteConversations : [];
+        const current = useChatStore.getState().conversations;
+        if (list.length > 0 || current.length === 0) {
+          setConversations(list);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setConversationsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [token, status, setCurrentUser, setConversations]);
 
   useEffect(() => {
     const convId = searchParams?.get('conv');
@@ -94,6 +119,30 @@ export function ChatLayout() {
   const callerName = callInfo?.callerName
     ?? (callerConv?.type === 'group' ? callerConv.name : callerConv?.participants?.[0]?.name)
     ?? 'Inconnu';
+  const callerAvatar = callerConv?.type === 'group'
+    ? callerConv.avatar
+    : callerConv?.participants?.find(p => p.id === callInfo?.callerId)?.avatar
+      ?? callerConv?.participants?.find(p => p.id !== userId)?.avatar
+      ?? callerConv?.participants?.[0]?.avatar;
+  const currentCallParticipantIds = new Set([
+    userId,
+    callInfo?.callerId ?? '',
+    ...(callInfo?.participants ?? []),
+    ...Array.from(remoteStreams.keys()),
+  ].filter(Boolean));
+  const knownCallContacts = new Map<string, { id: string; name: string; avatar?: string }>();
+  conversations.forEach(conversation => {
+    (conversation.participants ?? []).forEach(participant => {
+      if (!participant?.id || currentCallParticipantIds.has(participant.id)) return;
+      knownCallContacts.set(participant.id, {
+        id: participant.id,
+        name: participant.name || participant.username || 'Contact',
+        avatar: participant.avatar,
+      });
+    });
+  });
+  const addableCallParticipants = Array.from(knownCallContacts.values())
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   if (status === 'loading') {
     return (
@@ -127,21 +176,50 @@ export function ChatLayout() {
         </div>
       )}
 
-      <MainLayout onStartCall={startCall} />
+      <MainLayout onStartCall={startCall} conversationsLoading={conversationsLoading} />
+
+      {callError && (
+        <div
+          role="status"
+          style={{
+            position: 'fixed',
+            left: '50%',
+            bottom: 'calc(84px + env(safe-area-inset-bottom, 0px))',
+            transform: 'translateX(-50%)',
+            zIndex: 1800,
+            maxWidth: 'min(92vw, 420px)',
+            borderRadius: 18,
+            background: 'rgba(15,23,42,.94)',
+            color: '#fff',
+            boxShadow: '0 18px 46px rgba(0,0,0,.24)',
+            padding: '12px 15px',
+            fontSize: 13,
+            lineHeight: 1.35,
+            fontWeight: 760,
+            textAlign: 'center',
+          }}
+        >
+          {callError}
+        </div>
+      )}
 
       <CallOverlay
         callState={callState}
         callInfo={callInfo}
         localStream={localStream}
         remoteStreams={remoteStreams}
+        addableParticipants={addableCallParticipants}
         isMuted={isMuted}
         isCamOff={isCamOff}
         callerName={callerName}
+        callerAvatar={callerAvatar}
         onAnswer={answerCall}
         onEnd={endCall}
+        onAddParticipants={addParticipants}
         onToggleMute={toggleMute}
         onToggleCamera={toggleCamera}
         onSwitchCamera={switchCamera}
+        onStartScreenShare={startScreenShare}
       />
     </div>
   );

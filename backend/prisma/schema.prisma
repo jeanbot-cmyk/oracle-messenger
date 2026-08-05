@@ -111,6 +111,8 @@ model Participant {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@unique([userId, conversationId])
+  @@index([conversationId])
+  @@index([userId, lastReadAt])
 }
 
 model Message {
@@ -132,6 +134,11 @@ model Message {
   replies        Message[]    @relation("Replies")
   localSaves     MessageLocalSave[]
   reactions      MessageReaction[]
+
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@index([conversationId, senderId, createdAt(sort: Desc)])
+  @@index([senderId, createdAt(sort: Desc)])
+  @@index([replyToId])
 }
 
 model MessageReaction {

@@ -135,6 +135,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     for (const [callId, call] of this.activeCalls.entries()) {
       if (!call.participants.has(userId) || call.callerId === userId) continue;
       client.join(`call:${callId}`);
+      console.info('[call:pending:deliver]', {
+        callId,
+        userId,
+        callerId: call.callerId,
+      });
       client.emit('call:incoming', {
         callId,
         conversationId: call.conversationId,
@@ -258,7 +263,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
       client.join(`conv:${data.conversationId}`);
       await this.chat.markRead(data.conversationId, client.data.userId);
-    } catch {}
+    } catch {
+      client.emit('conversation:error', { message: 'Ouverture de conversation impossible' });
+    }
   }
 
   // ── Messages ──────────────────────────────────────────────────────────────
@@ -512,17 +519,35 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         client.emit('call:error', { message: 'Accès refusé à cette conversation' });
         return;
       }
+      if (await this.chat.isOfficialConversation(data.conversationId)) {
+        const message = 'Le compte système ne peut pas être appelé';
+        client.emit('call:error', { message });
+        return { ok: false, message };
+      }
 
-      const participantIds = await this.chat.getParticipantIds(data.conversationId);
+      const [participantIds, knownCallableIds] = await Promise.all([
+        this.chat.getParticipantIds(data.conversationId),
+        this.chat.getKnownCallableUserIds(callerId),
+      ]);
+      const allowedTargets = new Set([...participantIds, ...knownCallableIds]);
       const validTargets = [...new Set(data.targetUserIds ?? [])]
-        .filter(targetId => targetId !== callerId && participantIds.includes(targetId));
+        .filter(targetId => targetId !== callerId && allowedTargets.has(targetId));
       if (!validTargets.length) {
         client.emit('call:error', { message: 'Aucun destinataire valide pour cet appel' });
-        return;
+        return { ok: false, message: 'Aucun destinataire valide pour cet appel' };
       }
 
       const caller = await this.users.findById(callerId);
       const callerName = caller?.name ?? 'Quelqu\'un';
+      console.info('[call:start]', {
+        callId: data.callId,
+        callerId,
+        conversationId: data.conversationId,
+        type: data.type,
+        targets: validTargets.length,
+        conversationParticipants: participantIds.length,
+        knownCallable: knownCallableIds.length,
+      });
 
       client.join(`call:${data.callId}`);
 
@@ -552,22 +577,32 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }).catch(() => {});
 
         const socketIds = this.socketState.getSocketIds(targetId);
+        console.info('[call:incoming:target]', {
+          callId: data.callId,
+          targetId,
+          sockets: socketIds.length,
+          pushQueued: true,
+        });
         if (socketIds.length) {
           for (const sid of socketIds) {
             const targetSocket = this.server.sockets.sockets.get(sid);
             targetSocket?.join(`call:${data.callId}`);
             this.server.to(sid).emit('call:incoming', {
-            callId: data.callId,
-            conversationId: data.conversationId,
-            callerId,
-            callerName,
-            type: data.type,
-            participants: validTargets,
+              callId: data.callId,
+              conversationId: data.conversationId,
+              callerId,
+              callerName,
+              type: data.type,
+              participants: validTargets,
             });
           }
         }
       }
-    } catch {}
+      return { ok: true, callId: data.callId, targets: validTargets.length };
+    } catch (err: any) {
+      client.emit('call:error', { message: err?.message ?? 'Erreur de démarrage d’appel' });
+      return { ok: false, message: err?.message ?? 'Erreur de démarrage d’appel' };
+    }
   }
 
   @SubscribeMessage('call:answer')
@@ -582,23 +617,59 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
     client.join(`call:${data.callId}`);
-    this.server.to(`call:${data.callId}`).emit('call:answered', {
-      callId: data.callId,
-      userId: responderId,
-      accepted: data.accepted,
-    });
 
     if (call && data.accepted) {
       call.answered = true;
       call.answeredAt = Date.now();
       this.clearCallTimeout(data.callId);
+      console.info('[call:answer]', { callId: data.callId, responderId, accepted: true });
+      this.server.to(`call:${data.callId}`).emit('call:answered', {
+        callId: data.callId,
+        userId: responderId,
+        accepted: true,
+      });
+      return { ok: true, accepted: true };
     }
     if (!data.accepted && call) {
+      const shouldEndCall = call.participants.size <= 2;
+      console.info('[call:answer]', { callId: data.callId, responderId, accepted: false, ended: shouldEndCall });
+      this.server.to(`call:${data.callId}`).emit('call:answered', {
+        callId: data.callId,
+        userId: responderId,
+        accepted: false,
+        ended: shouldEndCall,
+      });
       this.publishCallTrace(call.conversationId, responderId, call.type, 'refused').catch(() => {});
-      this.logCallFinalState(data.callId, call, responderId, 'refused').catch(() => {});
+      if (shouldEndCall) {
+        this.logCallFinalState(data.callId, call, responderId, 'refused').catch(() => {});
+      } else {
+        this.callsSvc.logCall({
+          callId: data.callId,
+          userId: responderId,
+          peerId: call.callerId,
+          peerName: call.callerName,
+          type: call.type,
+          direction: 'refused',
+        }).catch(() => {});
+      }
+      for (const sid of this.socketState.getSocketIds(responderId)) {
+        const responderSocket = this.server.sockets.sockets.get(sid);
+        responderSocket?.leave(`call:${data.callId}`);
+      }
       this.clearCallTimeout(data.callId);
-      this.activeCalls.delete(data.callId);
+      if (shouldEndCall) {
+        this.activeCalls.delete(data.callId);
+      } else {
+        call.participants.delete(responderId);
+        if (!call.participants.size || [...call.participants].every(id => id === call.callerId)) {
+          this.activeCalls.delete(data.callId);
+        } else {
+          this.scheduleNoAnswerTimeout(data.callId);
+        }
+      }
+      return { ok: true, accepted: false, ended: shouldEndCall };
     }
+    return { ok: false, message: 'Réponse appel invalide' };
   }
 
   @SubscribeMessage('call:incoming:received')
@@ -616,6 +687,110 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         receivedAt: new Date().toISOString(),
       });
     }
+  }
+
+  @SubscribeMessage('call:diagnostic')
+  handleCallDiagnostic(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: {
+      callId?: string;
+      conversationId?: string;
+      state?: string;
+      event?: string;
+      details?: Record<string, unknown>;
+      at?: string;
+    },
+  ) {
+    const event = typeof data?.event === 'string' ? data.event.slice(0, 80) : 'unknown';
+    const callId = typeof data?.callId === 'string' ? data.callId.slice(0, 120) : undefined;
+    const call = callId ? this.activeCalls.get(callId) : null;
+    if (callId && (!call || !call.participants.has(client.data.userId))) return;
+    const details = data?.details && typeof data.details === 'object'
+      ? JSON.stringify(data.details).slice(0, 1200)
+      : undefined;
+    console.info('[call:diagnostic]', {
+      callId,
+      userId: client.data.userId,
+      conversationId: data?.conversationId,
+      state: data?.state,
+      event,
+      details,
+      at: data?.at,
+    });
+  }
+
+  @SubscribeMessage('call:add-participants')
+  async handleCallAddParticipants(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { callId: string; targetUserIds: string[] },
+  ) {
+    const inviterId = client.data.userId;
+    const call = this.activeCalls.get(data.callId);
+    if (!call || !call.participants.has(inviterId)) {
+      client.emit('call:error', { message: 'Appel introuvable ou non autorisé' });
+      return;
+    }
+    if (await this.chat.isOfficialConversation(call.conversationId)) {
+      const message = 'Le compte système ne peut pas être appelé';
+      client.emit('call:error', { message });
+      return { ok: false, message };
+    }
+
+    const [conversationParticipants, knownCallableIds] = await Promise.all([
+      this.chat.getParticipantIds(call.conversationId),
+      this.chat.getKnownCallableUserIds(inviterId),
+    ]);
+    const allowedTargets = new Set([...conversationParticipants, ...knownCallableIds]);
+    const targets = [...new Set(data.targetUserIds ?? [])]
+      .filter(targetId =>
+        targetId !== inviterId &&
+        !call.participants.has(targetId) &&
+        allowedTargets.has(targetId),
+      );
+
+    if (!targets.length) {
+      client.emit('call:error', { message: 'Aucun contact disponible à ajouter à cet appel' });
+      return { ok: false, message: 'Aucun contact disponible à ajouter à cet appel' };
+    }
+    console.info('[call:add-participants]', {
+      callId: data.callId,
+      inviterId,
+      targets: targets.length,
+    });
+
+    for (const targetId of targets) {
+      call.participants.add(targetId);
+      this.notif.sendPush(targetId, {
+        title: `📞 Appel ${call.type === 'video' ? 'vidéo' : 'audio'} — ${call.callerName}`,
+        body: 'Vous êtes invité à rejoindre un appel Oracle Messenger.',
+        url: `/chat?call=${encodeURIComponent(data.callId)}`,
+        tag: `incoming-call-${data.callId}`,
+        type: 'call',
+        callId: data.callId,
+        conversationId: call.conversationId,
+        requireInteraction: true,
+        vibrate: [1000, 300, 1000, 300, 1000, 700, 1000, 300, 1000],
+      }).catch(() => {});
+
+      for (const sid of this.socketState.getSocketIds(targetId)) {
+        const targetSocket = this.server.sockets.sockets.get(sid);
+        targetSocket?.join(`call:${data.callId}`);
+        this.server.to(sid).emit('call:incoming', {
+          callId: data.callId,
+          conversationId: call.conversationId,
+          callerId: call.callerId,
+          callerName: call.callerName,
+          type: call.type,
+          participants: [...call.participants].filter(id => id !== call.callerId),
+        });
+      }
+    }
+
+    this.server.to(`call:${data.callId}`).emit('call:participants-added', {
+      callId: data.callId,
+      userIds: targets,
+    });
+    return { ok: true, targets: targets.length };
   }
 
   @SubscribeMessage('call:end')
@@ -639,6 +814,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         client.emit('call:error', { message: 'Appel non autorisé' });
         return;
       }
+
+      if (call.answered && enderId !== call.callerId && call.participants.size > 2) {
+        const duration = call.answeredAt ? Math.max(1, Math.round((Date.now() - call.answeredAt) / 1000)) : undefined;
+        await this.callsSvc.logCall({
+          callId: data.callId,
+          userId: enderId,
+          peerId: call.callerId,
+          peerName: call.callerName,
+          type: call.type,
+          direction: 'incoming',
+          duration,
+        }).catch(() => {});
+
+        call.participants.delete(enderId);
+        for (const sid of this.socketState.getSocketIds(enderId)) {
+          const participantSocket = this.server.sockets.sockets.get(sid);
+          participantSocket?.leave(`call:${data.callId}`);
+        }
+        this.server.to(`call:${data.callId}`).emit('call:participant-left', {
+          callId: data.callId,
+          userId: enderId,
+        });
+        return;
+      }
+
       this.clearCallTimeout(data.callId);
       for (const uid of call.participants) {
         const socketIds = this.socketState.getSocketIds(uid);
@@ -683,6 +883,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
     const socketIds = this.socketState.getSocketIds(data.targetUserId);
+    console.info('[webrtc:offer]', { callId: data.callId, from: client.data.userId, to: data.targetUserId, sockets: socketIds.length });
     for (const sid of socketIds) {
       this.server.to(sid).emit('webrtc:offer', {
         callId: data.callId,
@@ -702,6 +903,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
     const socketIds = this.socketState.getSocketIds(data.targetUserId);
+    console.info('[webrtc:answer]', { callId: data.callId, from: client.data.userId, to: data.targetUserId, sockets: socketIds.length });
     for (const sid of socketIds) {
       this.server.to(sid).emit('webrtc:answer', {
         callId: data.callId,
@@ -721,6 +923,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
     const socketIds = this.socketState.getSocketIds(data.targetUserId);
+    if (socketIds.length === 0) {
+      console.info('[webrtc:ice:offline-target]', { callId: data.callId, from: client.data.userId, to: data.targetUserId });
+    }
     for (const sid of socketIds) {
       this.server.to(sid).emit('webrtc:ice', {
         callId: data.callId,

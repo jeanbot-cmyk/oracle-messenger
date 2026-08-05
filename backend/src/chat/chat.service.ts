@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -9,9 +10,10 @@ export class ChatService {
   private readonly allowedMessageTypes = new Set(['text', 'image', 'video', 'audio', 'voice', 'file', 'document', 'contact', 'location', 'gif', 'sticker']);
   private readonly maxMessageContentLength = 20_000;
   private readonly officialConversationType = 'official';
-  private readonly officialConversationName = 'Aura Messenger';
-  private readonly officialConversationAvatar = '/icons/icon-192.png';
+  private readonly officialConversationName = 'O.messenger';
+  private readonly officialConversationAvatar = '/icons/oracle-system-avatar.svg';
   private readonly officialSystemEmail = 'system-aura@oracle-messenger.local';
+  private readonly officialMessageTtlMs = 24 * 60 * 60 * 1000;
 
   private isMediaType(type?: string | null) {
     return ['image', 'video', 'audio', 'voice', 'file', 'document', 'gif', 'sticker'].includes(String(type ?? '').toLowerCase());
@@ -43,13 +45,34 @@ export class ChatService {
     };
   }
 
+  private getOfficialExpiresAt(conv: any) {
+    const lastMessage = conv.messages?.[0] ?? null;
+    if (conv.type !== this.officialConversationType || !conv.viewerLastReadAt || !lastMessage?.createdAt) return undefined;
+    const readAt = new Date(conv.viewerLastReadAt);
+    const messageAt = new Date(lastMessage.createdAt);
+    if (Number.isNaN(readAt.getTime()) || Number.isNaN(messageAt.getTime())) return undefined;
+    if (readAt.getTime() < messageAt.getTime()) return undefined;
+    return new Date(readAt.getTime() + this.officialMessageTtlMs);
+  }
+
+  private isOfficialExpired(conv: any) {
+    const expiresAt = this.getOfficialExpiresAt(conv);
+    return Boolean(expiresAt && expiresAt.getTime() <= Date.now());
+  }
+
+  async isOfficialConversation(conversationId: string) {
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { type: true },
+    });
+    return conv?.type === this.officialConversationType;
+  }
+
   private toConversationSummary(conv: any, userId: string, unreadCount: number) {
     const isOfficial = conv.type === this.officialConversationType;
     const others = conv.participants.filter((pt: any) => pt.userId !== userId).map((pt: any) => pt.user);
     const lastMessage = conv.messages?.[0] ?? null;
-    const officialExpiresAt = isOfficial && conv.viewerLastReadAt && lastMessage
-      ? new Date(new Date(conv.viewerLastReadAt).getTime() + 24 * 60 * 60 * 1000).toISOString()
-      : undefined;
+    const officialExpiresAt = this.getOfficialExpiresAt(conv)?.toISOString();
     return {
       id: conv.id,
       type: conv.type,
@@ -66,15 +89,24 @@ export class ChatService {
     };
   }
 
-  private officialConversationHasExpired(conv: any, lastReadAt?: Date | null) {
-    if (conv.type !== this.officialConversationType) return false;
-    const lastMessage = conv.messages?.[0];
-    if (!lastMessage || !lastReadAt) return false;
-    const messageCreatedAt = new Date(lastMessage.createdAt).getTime();
-    const readAt = new Date(lastReadAt).getTime();
-    if (!Number.isFinite(messageCreatedAt) || !Number.isFinite(readAt)) return false;
-    if (readAt < messageCreatedAt) return false;
-    return Date.now() - readAt >= 24 * 60 * 60 * 1000;
+  private async getUnreadCountsForUser(userId: string, conversationIds: string[]) {
+    const ids = [...new Set(conversationIds.filter(Boolean))];
+    if (!ids.length) return new Map<string, number>();
+
+    const rows = await this.prisma.$queryRaw<Array<{ conversationId: string; unreadCount: bigint | number }>>(Prisma.sql`
+      SELECT m."conversationId", COUNT(*) AS "unreadCount"
+      FROM "Message" m
+      INNER JOIN "Participant" p
+        ON p."conversationId" = m."conversationId"
+       AND p."userId" = ${userId}
+      WHERE m."conversationId" IN (${Prisma.join(ids)})
+        AND m."senderId" <> ${userId}
+        AND m."isDeleted" = false
+        AND (p."lastReadAt" IS NULL OR m."createdAt" > p."lastReadAt")
+      GROUP BY m."conversationId"
+    `);
+
+    return new Map(rows.map(row => [row.conversationId, Number(row.unreadCount)]));
   }
 
   // ── Conversations ──────────────────────────────────────────────────────────
@@ -84,7 +116,7 @@ export class ChatService {
       include: {
         conversation: {
           include: {
-            participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+            participants: { include: { user: { select: { id: true, name: true, username: true, email: true, phone: true, avatar: true, status: true } } } },
             messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
           },
         },
@@ -92,14 +124,77 @@ export class ChatService {
       orderBy: { conversation: { updatedAt: 'desc' } },
     });
 
-    const summaries = await Promise.all(participations.map(async p => {
+    const unreadByConversation = await this.getUnreadCountsForUser(
+      userId,
+      participations.map(p => p.conversation.id),
+    );
+
+    const summaries = participations.map(p => {
       const conv = p.conversation;
-      const unread = await this.prisma.message.count({
-        where: this.unreadWhere(conv.id, userId, p.lastReadAt),
-      });
-      if (unread === 0 && this.officialConversationHasExpired(conv, p.lastReadAt)) return null;
-      return this.toConversationSummary({ ...conv, viewerLastReadAt: p.lastReadAt }, userId, unread);
-    }));
+      const convWithViewer = { ...conv, viewerLastReadAt: p.lastReadAt };
+      if (this.isOfficialExpired(convWithViewer)) return null;
+      const unread = unreadByConversation.get(conv.id) ?? 0;
+      return this.toConversationSummary(convWithViewer, userId, unread);
+    });
+    return summaries.filter(Boolean).sort((a: any, b: any) => {
+      if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+  }
+
+  async searchConversations(userId: string, query: string) {
+    const q = String(query ?? '').trim();
+    if (!q) return [];
+    const conversations = await this.prisma.conversation.findMany({
+      where: {
+        participants: { some: { userId } },
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          {
+            participants: {
+              some: {
+                userId: { not: userId },
+                user: {
+                  OR: [
+                    { name: { contains: q, mode: 'insensitive' } },
+                    { username: { contains: q, mode: 'insensitive' } },
+                    { email: { contains: q, mode: 'insensitive' } },
+                    { phone: { contains: q, mode: 'insensitive' } },
+                  ],
+                },
+              },
+            },
+          },
+          {
+            messages: {
+              some: {
+                isDeleted: false,
+                content: { contains: q, mode: 'insensitive' },
+              },
+            },
+          },
+        ],
+      },
+      include: {
+        participants: { include: { user: { select: { id: true, name: true, username: true, email: true, phone: true, avatar: true, status: true } } } },
+        messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 80,
+    });
+
+    const unreadByConversation = await this.getUnreadCountsForUser(
+      userId,
+      conversations.map(conv => conv.id),
+    );
+
+    const summaries = conversations.map(conv => {
+      const participant = conv.participants.find((item: any) => item.userId === userId);
+      const convWithViewer = { ...conv, viewerLastReadAt: participant?.lastReadAt };
+      if (this.isOfficialExpired(convWithViewer)) return null;
+      const unread = unreadByConversation.get(conv.id) ?? 0;
+      return this.toConversationSummary(convWithViewer, userId, unread);
+    });
     return summaries.filter(Boolean).sort((a: any, b: any) => {
       if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
       return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
@@ -115,19 +210,17 @@ export class ChatService {
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: {
-        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+        participants: { include: { user: { select: { id: true, name: true, username: true, email: true, phone: true, avatar: true, status: true } } } },
             messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
       },
     });
     if (!conv) throw new NotFoundException();
-    if (this.officialConversationHasExpired(conv, participant.lastReadAt)) {
-      throw new NotFoundException('Message officiel expiré');
-    }
-
+    const convWithViewer = { ...conv, viewerLastReadAt: participant.lastReadAt };
+    if (this.isOfficialExpired(convWithViewer)) throw new NotFoundException();
     const unread = await this.prisma.message.count({
       where: this.unreadWhere(conv.id, userId, participant.lastReadAt),
     });
-    return this.toConversationSummary({ ...conv, viewerLastReadAt: participant.lastReadAt }, userId, unread);
+    return this.toConversationSummary(convWithViewer, userId, unread);
   }
 
   async deleteConversationForUser(conversationId: string, userId: string) {
@@ -161,9 +254,12 @@ export class ChatService {
     }
     const target = await this.prisma.user.findUnique({
       where: { id: participantId },
-      select: { id: true },
+      select: { id: true, email: true },
     });
     if (!target) throw new NotFoundException('Contact introuvable');
+    if (target.email === this.officialSystemEmail) {
+      throw new ForbiddenException('Le compte système ne peut pas être appelé');
+    }
 
     // Chercher une conversation directe existante
     let conv = await this.prisma.conversation.findFirst({
@@ -175,7 +271,7 @@ export class ChatService {
         ],
       },
       include: {
-        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+        participants: { include: { user: { select: { id: true, name: true, username: true, email: true, phone: true, avatar: true, status: true } } } },
         messages: { take: 1, orderBy: { createdAt: 'desc' }, include: { reactions: true } },
       },
     });
@@ -187,7 +283,7 @@ export class ChatService {
           participants: { create: [{ userId }, { userId: participantId }] },
         },
         include: {
-          participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+          participants: { include: { user: { select: { id: true, name: true, username: true, email: true, phone: true, avatar: true, status: true } } } },
           messages: { take: 1, orderBy: { createdAt: 'desc' }, include: { reactions: true } },
         },
       });
@@ -215,10 +311,9 @@ export class ChatService {
       },
     });
     if (!conv) throw new NotFoundException();
-    if (this.officialConversationHasExpired(conv, participant.lastReadAt)) {
-      throw new NotFoundException('Message officiel expiré');
+    if (this.isOfficialExpired({ ...conv, viewerLastReadAt: participant.lastReadAt })) {
+      throw new NotFoundException();
     }
-
     const messages = await this.prisma.message.findMany({
       where: {
         conversationId,
@@ -402,6 +497,29 @@ export class ChatService {
   }
 
   async markRead(conversationId: string, userId: string) {
+    const participant = await this.prisma.participant.findUnique({
+      where: { userId_conversationId: { userId, conversationId } },
+      select: {
+        id: true,
+        lastReadAt: true,
+        conversation: {
+          select: {
+            type: true,
+            messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true } },
+          },
+        },
+      },
+    });
+    if (!participant) throw new ForbiddenException();
+
+    if (participant.conversation.type === this.officialConversationType) {
+      const latest = participant.conversation.messages?.[0];
+      if (!latest) return participant;
+      if (participant.lastReadAt && participant.lastReadAt.getTime() >= latest.createdAt.getTime()) {
+        return participant;
+      }
+    }
+
     return this.prisma.participant.update({
       where: { userId_conversationId: { userId, conversationId } },
       data: { lastReadAt: new Date() },
@@ -419,6 +537,43 @@ export class ChatService {
   async getParticipantIds(conversationId: string): Promise<string[]> {
     const parts = await this.prisma.participant.findMany({ where: { conversationId } });
     return parts.map(p => p.userId);
+  }
+
+  async getKnownCallableUserIds(userId: string): Promise<string[]> {
+    const [contacts, participations] = await Promise.all([
+      this.prisma.contact.findMany({
+        where: {
+          ownerId: userId,
+          contactUser: { email: { not: this.officialSystemEmail } },
+        },
+        select: { contactUserId: true },
+      }),
+      this.prisma.participant.findMany({
+        where: { userId },
+        select: {
+          conversation: {
+            select: {
+              type: true,
+              participants: {
+                select: {
+                  userId: true,
+                  user: { select: { email: true } },
+                },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+    return [...new Set([
+      ...contacts.map(contact => contact.contactUserId),
+      ...participations.flatMap(item => {
+        if (item.conversation.type === this.officialConversationType) return [];
+        return item.conversation.participants
+          .filter(participant => participant.user.email !== this.officialSystemEmail)
+          .map(participant => participant.userId);
+      }),
+    ].filter(id => id && id !== userId))];
   }
 
   private async rememberConversationContacts(userId: string, participantId: string) {

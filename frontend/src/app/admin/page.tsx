@@ -57,19 +57,24 @@ export default function AdminPage() {
   const systemMessageRef = useRef<HTMLDivElement | null>(null);
 
   const token = session?.user?.backendToken;
-  const api = process.env.NEXT_PUBLIC_BACKEND_URL;
+  const api = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 
   useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     if (status === 'unauthenticated') { router.replace('/login'); return; }
     if (status === 'authenticated' && !isAdminUser(session)) { router.replace('/chat'); return; }
-    if (status !== 'authenticated' || !token) return;
+    if (status !== 'authenticated') return;
+    if (!token) {
+      setLoadingData(false);
+      setLoadError('Session admin incomplète. Déconnectez-vous puis reconnectez-vous.');
+      return;
+    }
 
-    loadData();
-    const interval = setInterval(loadData, 10_000);
+    loadData(false);
+    const interval = setInterval(() => loadData(true), 10_000);
     const refreshOnFocus = () => {
-      if (document.visibilityState !== 'hidden') loadData();
+      if (document.visibilityState !== 'hidden') loadData(true);
     };
     window.addEventListener('focus', refreshOnFocus);
     document.addEventListener('visibilitychange', refreshOnFocus);
@@ -97,28 +102,47 @@ export default function AdminPage() {
     };
   }, [status, token]);
 
-  async function loadData() {
-    if (!api || !token) return;
-    setLoadingData(true);
+  async function loadData(silent = false) {
+    if (!api || !token) {
+      if (!silent) {
+        setLoadError(!token ? 'Session admin incomplète. Déconnectez-vous puis reconnectez-vous.' : 'URL API backend absente.');
+      }
+      setLoadingData(false);
+      return;
+    }
+    if (!silent) setLoadingData(true);
     setLoadError('');
     try {
       const fetchJson = async (path: string) => {
-        const res = await fetch(`${api}${path}`, { headers:{ Authorization:`Bearer ${token}` }, cache:'no-store' });
-        if (!res.ok) throw new Error(`${path} HTTP ${res.status}`);
-        return res.json();
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 8000);
+        try {
+          const res = await fetch(`${api}${path}`, {
+            headers:{ Authorization:`Bearer ${token}` },
+            cache:'no-store',
+            signal: controller.signal,
+          });
+          if (!res.ok) throw new Error(`${path} HTTP ${res.status}`);
+          return res.json();
+        } finally {
+          window.clearTimeout(timeout);
+        }
       };
-      const [s, m, u, c] = await Promise.all([
+      const [s, m, u, c] = await Promise.allSettled([
         fetchJson('/admin/stats'),
         fetchJson('/admin/metrics'),
         fetchJson('/admin/users'),
-        fetchJson('/admin/countries').catch(()=>[]),
+        fetchJson('/admin/countries'),
       ]);
-      setStats(s); setMetrics(m);
-      setUsers(Array.isArray(u) ? u : []);
-      setCountries(Array.isArray(c) ? c : []);
-      setLastRefresh(new Date());
+      const errors: string[] = [];
+      if (s.status === 'fulfilled') setStats(s.value as Stats); else errors.push('stats');
+      if (m.status === 'fulfilled') setMetrics(m.value as Metrics); else errors.push('serveur');
+      if (u.status === 'fulfilled') setUsers(Array.isArray(u.value) ? u.value : []); else errors.push('utilisateurs');
+      if (c.status === 'fulfilled') setCountries(Array.isArray(c.value) ? c.value : []); else setCountries([]);
+      if (s.status === 'fulfilled' || m.status === 'fulfilled' || u.status === 'fulfilled') setLastRefresh(new Date());
+      if (errors.length) setLoadError(`Données partielles : ${errors.join(', ')} indisponible${errors.length > 1 ? 's' : ''}.`);
     } catch (e: any) {
-      setLoadError(e?.message || 'Impossible de charger les données admin.');
+      setLoadError(e?.name === 'AbortError' ? 'API admin trop lente. Réessayez dans quelques secondes.' : (e?.message || 'Impossible de charger les données admin.'));
     } finally {
       setLoadingData(false);
     }
@@ -230,7 +254,7 @@ export default function AdminPage() {
     setTimeout(() => setMsg(''), 4000);
   }
 
-  if (!mounted || status === 'loading') return (
+  if (!mounted || status === 'loading' || status === 'unauthenticated' || (status === 'authenticated' && !isAdminUser(session))) return (
     <div style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg-app)' }}>
       <div style={{ width:32, height:32, border:'3px solid var(--accent)', borderTopColor:'transparent', borderRadius:'50%', animation:'spin .8s linear infinite' }} />
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
@@ -276,7 +300,7 @@ export default function AdminPage() {
               {loadError || `Rafraîchissement automatique toutes les 10s${lastRefresh ? ` · dernière mise à jour ${lastRefresh.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}` : ''}`}
             </p>
           </div>
-          <button onClick={loadData} disabled={loadingData} style={{ border:'none', background:'#fff', color:'var(--brand)', borderRadius:12, padding:'9px 12px', fontSize:13, fontWeight:900, cursor:loadingData ? 'wait' : 'pointer', flexShrink:0 }}>
+          <button onClick={() => loadData(false)} disabled={loadingData} style={{ border:'none', background:'#fff', color:'var(--brand)', borderRadius:12, padding:'9px 12px', fontSize:13, fontWeight:900, cursor:loadingData ? 'wait' : 'pointer', flexShrink:0 }}>
             {loadingData ? '...' : 'Actualiser'}
           </button>
         </div>
@@ -314,7 +338,7 @@ export default function AdminPage() {
         <div ref={systemMessageRef} style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, marginBottom:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)', border:'2px solid rgba(16,42,42,0.14)' }}>
           <h2 style={{ fontSize:20, fontWeight:900, color:'var(--text-primary)', margin:'0 0 6px' }}>📢 Message système à tous les utilisateurs</h2>
           <p style={{ fontSize:13, color:'var(--text-muted)', margin:'0 0 16px' }}>
-            Ce message arrive chez chaque utilisateur comme une conversation normale, épinglée en haut, envoyée par Aura Messenger avec le logo officiel et le badge certifié. Vous pouvez envoyer un texte seul, un fichier seul, ou un texte avec image, vidéo, audio ou document dans la même bulle.
+            Ce message arrive chez chaque utilisateur comme une conversation normale, épinglée en haut, envoyée par O.messenger avec le logo officiel et le badge certifié. Vous pouvez envoyer un texte seul, un fichier seul, ou un texte avec image, vidéo, audio ou document dans la même bulle.
           </p>
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
             <textarea value={broadcast} onChange={e => setBroadcast(e.target.value)}
@@ -373,7 +397,7 @@ export default function AdminPage() {
         <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)' }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
             <h2 style={{ fontSize:18, fontWeight:600, color:'var(--text-primary)', margin:0 }}>👤 Utilisateurs récents</h2>
-            <button onClick={loadData} style={{ background:'var(--bg-input)', border:'1px solid var(--border)', borderRadius:8, padding:'6px 12px', cursor:'pointer', color:'var(--text-primary)', fontSize:13 }}>↻ Actualiser</button>
+            <button onClick={() => loadData(false)} style={{ background:'var(--bg-input)', border:'1px solid var(--border)', borderRadius:8, padding:'6px 12px', cursor:'pointer', color:'var(--text-primary)', fontSize:13 }}>↻ Actualiser</button>
           </div>
           <div style={{ overflowX:'auto' }}>
             <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>

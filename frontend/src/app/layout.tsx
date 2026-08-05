@@ -11,8 +11,8 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: '192x192' },
-      { url: '/icons/icon.svg?v=20260803-crisp-icon', type: 'image/svg+xml' },
-      { url: '/icons/icon-192-v20260803.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/icon.svg?v=20260804-logo', type: 'image/svg+xml' },
+      { url: '/icons/icon-192-v20260804.png', sizes: '192x192', type: 'image/png' },
     ],
     apple: [{ url: '/apple-touch-icon.png', sizes: '192x192', type: 'image/png' }],
   },
@@ -22,14 +22,14 @@ export const metadata: Metadata = {
     description: 'Application de messagerie instantanée — chat, appels audio/vidéo, stories.',
     url: 'https://messenger.oracle-plus.online',
     siteName: 'Oracle Messenger',
-    images: [{ url: 'https://messenger.oracle-plus.online/icons/icon-1024-v20260803.png', width: 1024, height: 1024 }],
+    images: [{ url: 'https://messenger.oracle-plus.online/icons/icon-1024-v20260804.png', width: 1024, height: 1024 }],
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Oracle Messenger',
     description: 'Application de messagerie instantanée.',
-    images: ['https://messenger.oracle-plus.online/icons/icon-1024-v20260803.png'],
+    images: ['https://messenger.oracle-plus.online/icons/icon-1024-v20260804.png'],
   },
 };
 

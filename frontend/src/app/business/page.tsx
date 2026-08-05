@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic';
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { matchesSearch } from '../../lib/search';
 
 type Tag = 'chaud'|'froid'|'payé'|'relancer'|'prospect'|'vip'|'perdu';
 interface Client {
@@ -11,6 +12,7 @@ interface Client {
   autoMessage?:string; value:number; createdAt:string;
 }
 interface Reminder { id:string; clientId:string; clientName:string; date:string; note:string; done:boolean; }
+interface AutoSettings { welcomeMessage:string; paymentProvider:string; paymentLink:string; }
 
 const TAG_META:Record<Tag,{bg:string;color:string;label:string}> = {
   chaud:   {bg:'#fff3e0',color:'#e65100',label:'🔥 Chaud'},
@@ -33,6 +35,16 @@ const filterOrder = ['all', 'chaud', 'froid', 'payé', 'relancer', 'prospect', '
 
 function ld<T>(k:string,d:T):T{if(typeof window==='undefined')return d;try{return JSON.parse(localStorage.getItem(k)??'null')??d;}catch{return d;}}
 function sv(k:string,v:any){if(typeof window!=='undefined')localStorage.setItem(k,JSON.stringify(v));}
+function csvCell(value:any){return `"${String(value??'').replace(/"/g,'""')}"`;}
+function downloadTextFile(name:string, content:string, type:string){
+  const blob=new Blob([content],{type});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=name;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
 
 export default function BusinessPage() {
   const {data:session,status}=useSession();
@@ -49,13 +61,14 @@ export default function BusinessPage() {
   const [remDate,setRemDate]=useState('');
   const [remNote,setRemNote]=useState('');
   const [guideOpen,setGuideOpen]=useState(true);
+  const [autoSettings,setAutoSettings]=useState<AutoSettings>({welcomeMessage:'Bonjour {nom}, merci pour votre intérêt. Je reviens vers vous rapidement.',paymentProvider:'Flutterwave',paymentLink:''});
   const username=(session?.user as any)?.username ?? '';
   const businessLink=username
     ? `https://messenger.oracle-plus.online/u/${encodeURIComponent(username)}`
     : 'https://messenger.oracle-plus.online/install';
 
   useEffect(()=>{setMounted(true);if(status==='unauthenticated')router.replace('/login');},[status]);
-  useEffect(()=>{if(!mounted)return;setClients(ld('oracle-crm',[]) );setReminders(ld('oracle-rem',[]));checkReminders();},[mounted]);
+  useEffect(()=>{if(!mounted)return;setClients(ld('oracle-crm',[]) );setReminders(ld('oracle-rem',[]));setAutoSettings(ld('oracle-crm-auto',{welcomeMessage:'Bonjour {nom}, merci pour votre intérêt. Je reviens vers vous rapidement.',paymentProvider:'Flutterwave',paymentLink:''}));checkReminders();},[mounted]);
 
   function checkReminders(){
     const rems:Reminder[]=ld('oracle-rem',[]);
@@ -63,23 +76,48 @@ export default function BusinessPage() {
     rems.filter(r=>!r.done).forEach(r=>{
       const diff=(new Date(r.date).getTime()-now.getTime())/(86400000);
       if(diff<=2&&diff>=0&&'Notification' in window&&Notification.permission==='granted'){
-        new Notification(`⏰ Rappel : ${r.clientName}`,{body:r.note,icon:'/icons/icon-192.png'});
+        new Notification(`⏰ Rappel : ${r.clientName}`,{body:r.note,icon:'/icons/icon-192-v20260804.png'});
       }
     });
   }
 
   function saveC(list:Client[]){setClients(list);sv('oracle-crm',list);}
   function saveR(list:Reminder[]){setReminders(list);sv('oracle-rem',list);}
+  function saveAuto(next:AutoSettings){setAutoSettings(next);sv('oracle-crm-auto',next);}
   function copyBusinessLink(){navigator.clipboard?.writeText(businessLink).then(()=>alert('Lien copié !')).catch(()=>{});}
   function shareBusinessLink(){navigator.share?.({title:'Oracle Messenger',text:'Contactez-moi directement sur Oracle Messenger.',url:businessLink}).catch(()=>copyBusinessLink());}
+  function formatTemplate(template:string, client?:Client){
+    return template
+      .replace(/\{nom\}/gi, client?.name || 'client')
+      .replace(/\{lien\}/gi, businessLink)
+      .replace(/\{montant\}/gi, client?.value ? `${client.value.toLocaleString()}€` : '')
+      .replace(/\{paiement\}/gi, autoSettings.paymentLink || '');
+  }
+  function exportClientsCsv(){
+    const rows=[
+      ['Nom','Téléphone','Email','Tags','Valeur','Notes','Prochain rappel','Message auto','Créé le'],
+      ...clients.map(c=>[c.name,c.phone,c.email,c.tags.join(' | '),c.value,c.notes,c.nextReminder||'',c.autoMessage||'',c.createdAt]),
+    ];
+    downloadTextFile(`oracle-crm-clients-${new Date().toISOString().slice(0,10)}.csv`, rows.map(r=>r.map(csvCell).join(',')).join('\n'), 'text/csv;charset=utf-8');
+  }
+  function exportClientsExcel(){
+    const rows=clients.map(c=>`<tr><td>${c.name}</td><td>${c.phone}</td><td>${c.email}</td><td>${c.tags.join(' | ')}</td><td>${c.value}</td><td>${c.notes}</td><td>${c.nextReminder||''}</td><td>${c.createdAt}</td></tr>`).join('');
+    downloadTextFile(`oracle-crm-clients-${new Date().toISOString().slice(0,10)}.xls`, `<html><meta charset="utf-8"><body><table><thead><tr><th>Nom</th><th>Téléphone</th><th>Email</th><th>Tags</th><th>Valeur</th><th>Notes</th><th>Prochain rappel</th><th>Créé le</th></tr></thead><tbody>${rows}</tbody></table></body></html>`, 'application/vnd.ms-excel;charset=utf-8');
+  }
 
   const filtered=clients.filter(c=>{
-    const ms=c.name.toLowerCase().includes(search.toLowerCase())||c.phone.includes(search);
+    const ms=matchesSearch([c.name,c.phone,c.email,c.notes,c.tags.join(' ')],search);
     const mt=filterTag==='all'||c.tags.includes(filterTag);
     return ms&&mt;
   });
 
   const totalValue=clients.reduce((s,c)=>s+(c.value||0),0);
+  const paidClients=clients.filter(c=>c.tags.includes('payé'));
+  const hotClients=clients.filter(c=>c.tags.includes('chaud'));
+  const paidValue=paidClients.reduce((s,c)=>s+(c.value||0),0);
+  const forecastValue=clients.filter(c=>!c.tags.includes('payé')&&!c.tags.includes('perdu')).reduce((s,c)=>s+(c.value||0),0);
+  const conversionBase=paidClients.length+hotClients.length;
+  const conversionRate=conversionBase?Math.round(paidClients.length/conversionBase*100):0;
   const pending=reminders.filter(r=>!r.done&&new Date(r.date)>=new Date()).length;
 
   if(!mounted||status==='loading')return <Spinner/>;
@@ -121,7 +159,7 @@ export default function BusinessPage() {
               <span style={{width:38,height:38,borderRadius:14,background:'rgba(16,42,42,0.08)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>💼</span>
               <div style={{flex:1,minWidth:0}}>
                 <p style={{margin:0,fontSize:15,fontWeight:900,color:'var(--text-primary)',lineHeight:1.2}}>À quoi sert Business & CRM ?</p>
-                <p style={{margin:'3px 0 0',fontSize:12.5,color:'var(--text-secondary)',fontWeight:650,lineHeight:1.35}}>Suivre clients, rappels, relances, paiements et messages WhatsApp.</p>
+                <p style={{margin:'3px 0 0',fontSize:12.5,color:'var(--text-secondary)',fontWeight:650,lineHeight:1.35}}>Suivre vos clients, rappels, ventes, paiements et relances depuis un seul espace.</p>
               </div>
               <span style={{fontSize:18,color:'var(--text-muted)',transform:guideOpen?'rotate(180deg)':'none',transition:'transform .18s'}}>⌄</span>
             </button>
@@ -129,11 +167,24 @@ export default function BusinessPage() {
               <div style={{marginTop:12,borderTop:'1px solid var(--border)',paddingTop:12}}>
                 <div style={{display:'grid',gap:8,marginBottom:12}}>
                   {[
-                    '1. Ajoutez un client avec son numéro et son statut.',
-                    '2. Programmez un rappel pour ne pas oublier une relance.',
-                    '3. Marquez payé, chaud, froid, VIP ou à relancer.',
-                    '4. Copiez votre lien et publiez-le sur Facebook, WhatsApp, Instagram ou SMS pour que les clients vous écrivent directement.',
+                    '1. Ajoutez chaque prospect ou client avec son numéro, sa valeur et ses notes.',
+                    '2. Classez-le avec un statut : chaud, froid, payé, VIP, perdu ou à relancer.',
+                    '3. Programmez un rappel pour ne jamais oublier une relance importante.',
+                    '4. Préparez un message type, ajoutez votre lien de paiement, puis envoyez la relance quand vous êtes prêt.',
+                    '5. Partagez votre lien client sur vos pages, publicités, SMS ou supports commerciaux.',
                   ].map(line=><p key={line} style={{margin:0,fontSize:12.8,lineHeight:1.45,color:'var(--text-secondary)',fontWeight:650}}>{line}</p>)}
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3, minmax(0, 1fr))',gap:8,marginBottom:12}}>
+                  {[
+                    ['Clients','Ajoutez et qualifiez vos contacts.'],
+                    ['Rappels','Planifiez les relances à faire.'],
+                    ['Stats','Suivez ventes et conversion.'],
+                  ].map(([title,body])=>(
+                    <div key={title} style={{border:'1px solid var(--border)',background:'var(--bg-app)',borderRadius:12,padding:'9px 8px'}}>
+                      <p style={{margin:'0 0 3px',fontSize:12.5,fontWeight:900,color:'var(--text-primary)',lineHeight:1.15}}>{title}</p>
+                      <p style={{margin:0,fontSize:11.2,fontWeight:650,color:'var(--text-muted)',lineHeight:1.25}}>{body}</p>
+                    </div>
+                  ))}
                 </div>
                 <p style={{margin:'0 0 6px',fontSize:12,fontWeight:900,color:'var(--brand)',textTransform:'uppercase',letterSpacing:.4}}>Votre lien à partager</p>
                 <div style={{background:'#F8FAFC',border:'1px solid var(--border)',borderRadius:12,padding:'10px 12px',marginBottom:10}}>
@@ -142,6 +193,10 @@ export default function BusinessPage() {
                 <div style={{display:'flex',gap:8}}>
                   <button onClick={copyBusinessLink} style={{flex:1,border:'1px solid var(--border)',background:'var(--bg-app)',borderRadius:12,padding:'10px 8px',fontSize:13,fontWeight:900,color:'var(--text-primary)',cursor:'pointer'}}>📋 Copier</button>
                   <button onClick={shareBusinessLink} style={{flex:1,border:'none',background:'var(--header-bg)',borderRadius:12,padding:'10px 8px',fontSize:13,fontWeight:900,color:'#fff',cursor:'pointer'}}>📤 Partager</button>
+                </div>
+                <div style={{display:'flex',gap:8,marginTop:8}}>
+                  <button onClick={exportClientsCsv} disabled={!clients.length} style={{flex:1,border:'1px solid var(--border)',background:'var(--bg-app)',borderRadius:12,padding:'10px 8px',fontSize:13,fontWeight:900,color:'var(--text-primary)',cursor:clients.length?'pointer':'default',opacity:clients.length?1:.48}}>CSV</button>
+                  <button onClick={exportClientsExcel} disabled={!clients.length} style={{flex:1,border:'1px solid var(--border)',background:'var(--bg-app)',borderRadius:12,padding:'10px 8px',fontSize:13,fontWeight:900,color:'var(--text-primary)',cursor:clients.length?'pointer':'default',opacity:clients.length?1:.48}}>Excel</button>
                 </div>
               </div>
             )}
@@ -197,7 +252,7 @@ export default function BusinessPage() {
                       <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
                         <button onClick={()=>{setEditClient(c);setShowForm(true);}} style={{fontSize:12,padding:'5px 12px',borderRadius:10,border:'1px solid var(--border)',background:'transparent',cursor:'pointer',color:'var(--text-primary)'}}>✏️ Modifier</button>
                         <button onClick={()=>{setShowRemind(c);setRemDate('');setRemNote('');}} style={{fontSize:12,padding:'5px 12px',borderRadius:10,border:'1px solid var(--border)',background:'transparent',cursor:'pointer',color:'var(--text-primary)'}}>⏰ Rappel</button>
-                        {c.phone&&<button onClick={()=>{const msg=c.autoMessage||`Bonjour ${c.name}, je vous contacte pour faire le point.`;window.open(`https://wa.me/${c.phone.replace(/\s/g,'')}?text=${encodeURIComponent(msg)}`,'_blank');}} style={{fontSize:12,padding:'5px 12px',borderRadius:10,border:'none',background:'#25D366',cursor:'pointer',color:'#fff'}}>💬 WhatsApp</button>}
+                        {c.phone&&<button onClick={()=>{const msg=c.autoMessage||formatTemplate(autoSettings.welcomeMessage,c);window.open(`https://wa.me/${c.phone.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`,'_blank');}} style={{fontSize:12,padding:'5px 12px',borderRadius:10,border:'none',background:'#25D366',cursor:'pointer',color:'#fff'}}>💬 Envoyer</button>}
                         <button onClick={()=>saveC(clients.filter(x=>x.id!==c.id))} style={{fontSize:12,padding:'5px 12px',borderRadius:10,border:'none',background:'#fce4ec',cursor:'pointer',color:'#c62828'}}>🗑</button>
                       </div>
                     </div>
@@ -238,9 +293,10 @@ export default function BusinessPage() {
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
               {[
                 {label:'Total clients',value:clients.length,icon:'👥',color:'var(--accent-text)'},
-                {label:'Valeur totale',value:`${totalValue.toLocaleString()}€`,icon:'💰',color:'#f57f17'},
+                {label:'CA encaissé',value:`${paidValue.toLocaleString()}€`,icon:'💰',color:'#2e7d32'},
+                {label:'Prévisionnel',value:`${forecastValue.toLocaleString()}€`,icon:'📈',color:'#1565c0'},
                 {label:'Rappels actifs',value:pending,icon:'⏰',color:'#e65100'},
-                {label:'Clients actifs',value:clients.filter(c=>c.tags.includes('chaud')||c.tags.includes('vip')).length,icon:'🔥',color:'#c62828'},
+                {label:'Conversion',value:`${conversionRate}%`,icon:'🎯',color:'#c62828'},
               ].map(s=>(
                 <div key={s.label} style={{background:'var(--bg-surface)',borderRadius:16,padding:'16px',boxShadow:'0 1px 3px rgba(0,0,0,0.06)',textAlign:'center'}}>
                   <div style={{fontSize:32,marginBottom:6}}>{s.icon}</div>
@@ -250,7 +306,7 @@ export default function BusinessPage() {
               ))}
             </div>
             <div style={{background:'var(--bg-surface)',borderRadius:16,padding:16,boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
-              <p style={{fontWeight:700,fontSize:15,color:'var(--text-primary)',marginBottom:12}}>Répartition par tag</p>
+              <p style={{fontWeight:700,fontSize:15,color:'var(--text-primary)',marginBottom:12}}>Répartition par statut</p>
               {Object.entries(TAG_META).map(([t,meta])=>{
                 const count=clients.filter(c=>c.tags.includes(t as Tag)).length;
                 const pct=clients.length?Math.round(count/clients.length*100):0;
@@ -267,24 +323,56 @@ export default function BusinessPage() {
                 );
               })}
             </div>
+            <div style={{background:'var(--bg-surface)',borderRadius:16,padding:16,boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+              <p style={{fontWeight:700,fontSize:15,color:'var(--text-primary)',margin:'0 0 10px'}}>Sécurité des données</p>
+              <p style={{fontSize:13,lineHeight:1.5,color:'var(--text-muted)',margin:'0 0 12px'}}>Exportez votre portefeuille clients pour garder une sauvegarde locale.</p>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={exportClientsCsv} disabled={!clients.length} style={{flex:1,border:'1px solid var(--border)',background:'var(--bg-app)',borderRadius:12,padding:'11px 8px',fontSize:13,fontWeight:900,color:'var(--text-primary)',cursor:clients.length?'pointer':'default',opacity:clients.length?1:.48}}>Exporter CSV</button>
+                <button onClick={exportClientsExcel} disabled={!clients.length} style={{flex:1,border:'none',background:'var(--header-bg)',borderRadius:12,padding:'11px 8px',fontSize:13,fontWeight:900,color:'#fff',cursor:clients.length?'pointer':'default',opacity:clients.length?1:.48}}>Exporter Excel</button>
+              </div>
+            </div>
           </div>
         )}
         {tab==='auto'&&(
           <div style={{padding:16,display:'flex',flexDirection:'column',gap:12}}>
             <div style={{background:'var(--bg-surface)',borderRadius:16,padding:16,boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+              <p style={{fontWeight:700,fontSize:15,color:'var(--text-primary)',margin:'0 0 4px'}}>⚙️ Accueil automatique</p>
+              <p style={{fontSize:13,color:'var(--text-muted)',margin:'0 0 12px',lineHeight:1.5}}>Message type utilisé pour accueillir ou relancer un prospect. Variables disponibles : {'{nom}'}, {'{lien}'}, {'{montant}'}, {'{paiement}'}.</p>
+              <textarea
+                value={autoSettings.welcomeMessage}
+                onChange={e=>saveAuto({...autoSettings,welcomeMessage:e.target.value})}
+                rows={3}
+                style={{width:'100%',border:'1px solid var(--border)',borderRadius:12,padding:'10px 12px',fontSize:13,outline:'none',resize:'vertical',boxSizing:'border-box'}}
+              />
+            </div>
+            <div style={{background:'var(--bg-surface)',borderRadius:16,padding:16,boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
               <p style={{fontWeight:700,fontSize:15,color:'var(--text-primary)',marginBottom:4}}>🤖 Messages automatiques</p>
-              <p style={{fontSize:13,color:'var(--text-muted)',marginBottom:16,lineHeight:1.5}}>Configurez un message personnalisé par client. Envoyez-le en 1 clic via WhatsApp.</p>
+              <p style={{fontSize:13,color:'var(--text-muted)',marginBottom:16,lineHeight:1.5}}>Configurez un message personnalisé par client. Vous gardez toujours la main : le message s’ouvre prêt à envoyer.</p>
               {clients.map(c=>(
                 <div key={c.id} style={{borderBottom:'1px solid var(--bg-app)',paddingBottom:12,marginBottom:12}}>
                   <p style={{fontWeight:600,fontSize:14,color:'var(--text-primary)',marginBottom:6}}>{c.name}</p>
                   <textarea
-                    defaultValue={c.autoMessage||`Bonjour ${c.name}, je vous contacte pour faire le point sur notre collaboration.`}
+                    defaultValue={c.autoMessage||formatTemplate(autoSettings.welcomeMessage,c)}
                     onBlur={e=>{const updated=clients.map(x=>x.id===c.id?{...x,autoMessage:e.target.value}:x);saveC(updated);}}
                     rows={2} style={{width:'100%',border:'1px solid var(--border)',borderRadius:10,padding:'8px 12px',fontSize:13,outline:'none',resize:'none',boxSizing:'border-box',marginBottom:6}}/>
-                  {c.phone&&<button onClick={()=>{const msg=c.autoMessage||`Bonjour ${c.name}, je vous contacte.`;window.open(`https://wa.me/${c.phone.replace(/\s/g,'')}?text=${encodeURIComponent(msg)}`,'_blank');}} style={{background:'#25D366',color:'#fff',border:'none',borderRadius:10,padding:'6px 16px',cursor:'pointer',fontSize:13,fontWeight:600}}>📤 Envoyer WhatsApp</button>}
+                  {c.phone&&<button onClick={()=>{const msg=c.autoMessage||formatTemplate(autoSettings.welcomeMessage,c);window.open(`https://wa.me/${c.phone.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`,'_blank');}} style={{background:'#25D366',color:'#fff',border:'none',borderRadius:10,padding:'6px 16px',cursor:'pointer',fontSize:13,fontWeight:600}}>📤 Ouvrir le message</button>}
                 </div>
               ))}
               {clients.length===0&&<p style={{color:'var(--text-muted)',fontSize:13,textAlign:'center'}}>Ajoutez des clients pour configurer les messages auto.</p>}
+            </div>
+            <div style={{background:'var(--bg-surface)',borderRadius:16,padding:16,boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+              <p style={{fontWeight:700,fontSize:15,color:'var(--text-primary)',margin:'0 0 4px'}}>💳 Paiements</p>
+              <p style={{fontSize:13,color:'var(--text-muted)',margin:'0 0 12px',lineHeight:1.5}}>Collez ici votre lien CinetPay, Babimo, Flutterwave ou autre. Il sera ajouté dans les messages avec {'{paiement}'}.</p>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:8}}>
+                <select value={autoSettings.paymentProvider} onChange={e=>saveAuto({...autoSettings,paymentProvider:e.target.value})} style={{border:'1px solid var(--border)',borderRadius:12,padding:'10px 12px',fontSize:13,background:'var(--bg-app)',color:'var(--text-primary)',fontWeight:800}}>
+                  <option>CinetPay</option>
+                  <option>Babimo</option>
+                  <option>Flutterwave</option>
+                  <option>Autre</option>
+                </select>
+                <button onClick={()=>navigator.clipboard?.writeText('{paiement}').then(()=>alert('Variable copiée'))} style={{border:'1px solid var(--border)',background:'var(--bg-app)',borderRadius:12,padding:'10px 8px',fontSize:13,fontWeight:900,color:'var(--text-primary)',cursor:'pointer'}}>Copier {'{paiement}'}</button>
+              </div>
+              <input value={autoSettings.paymentLink} onChange={e=>saveAuto({...autoSettings,paymentLink:e.target.value})} placeholder="https://lien-de-paiement..." style={{width:'100%',border:'1px solid var(--border)',borderRadius:12,padding:'10px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}}/>
             </div>
             <div style={{background:'var(--bg-surface)',borderRadius:16,padding:16,boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
               <p style={{fontWeight:700,fontSize:15,color:'var(--text-primary)',marginBottom:4}}>📋 Clients à relancer</p>
@@ -295,7 +383,7 @@ export default function BusinessPage() {
                     <p style={{fontWeight:600,fontSize:14,color:'var(--text-primary)',margin:0}}>{c.name}</p>
                     <p style={{fontSize:12,color:'var(--text-muted)',margin:0}}>{c.phone}</p>
                   </div>
-                  {c.phone&&<button onClick={()=>window.open(`https://wa.me/${c.phone.replace(/\s/g,'')}?text=${encodeURIComponent(`Bonjour ${c.name}, je vous recontacte.`)}`,'_blank')} style={{background:'#25D366',color:'#fff',border:'none',borderRadius:10,padding:'6px 12px',cursor:'pointer',fontSize:12}}>💬</button>}
+                  {c.phone&&<button onClick={()=>window.open(`https://wa.me/${c.phone.replace(/\D/g,'')}?text=${encodeURIComponent(formatTemplate(autoSettings.welcomeMessage,c))}`,'_blank')} style={{background:'#25D366',color:'#fff',border:'none',borderRadius:10,padding:'6px 12px',cursor:'pointer',fontSize:12}}>💬</button>}
                 </div>
               ))}
               {clients.filter(c=>c.tags.includes('relancer')).length===0&&<p style={{color:'var(--text-muted)',fontSize:13}}>Aucun client à relancer.</p>}

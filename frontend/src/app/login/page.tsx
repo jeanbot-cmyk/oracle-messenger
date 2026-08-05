@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { useSession, signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { api } from '../../lib/api';
 
 const ACCENT = 'var(--accent)';
 const DEEP = 'var(--header-bg)';
@@ -22,6 +23,9 @@ function LoginContent() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [phone, setPhone] = useState('');
+  const [recovering, setRecovering] = useState(false);
+  const [recovery, setRecovery] = useState<{ found: boolean; name?: string; emailHint?: string; message: string } | null>(null);
 
   useEffect(() => {
     const from = new URLSearchParams(window.location.search).get('from');
@@ -52,6 +56,24 @@ function LoginContent() {
     } catch {
       setError('Connexion Google impossible. Vérifiez votre connexion puis réessayez.');
       setLoading(false);
+    }
+  }
+
+  async function handleRecoverPhone() {
+    if (!phone.trim()) {
+      setRecovery({ found: false, message: 'Entrez votre numéro avec indicatif, puis réessayez.' });
+      return;
+    }
+    setRecovering(true);
+    setRecovery(null);
+    setError('');
+    try {
+      const result = await api.auth.recoverByPhone(phone.trim());
+      setRecovery(result);
+    } catch {
+      setRecovery({ found: false, message: 'Vérification impossible maintenant. Réessayez avec une connexion stable.' });
+    } finally {
+      setRecovering(false);
     }
   }
 
@@ -91,8 +113,43 @@ function LoginContent() {
         )}
       </button>
 
+      <div style={{ width:'100%', maxWidth:360, marginTop:18, border:'1px solid var(--border)', borderRadius:18, padding:14, background:'#F8FAFC', boxSizing:'border-box' }}>
+        <p style={{ margin:'0 0 5px', fontSize:14, fontWeight:900, color:'var(--text-primary)' }}>Retrouver mon compte</p>
+        <p style={{ margin:'0 0 10px', fontSize:12.5, lineHeight:1.45, color:'var(--text-muted)', fontWeight:650 }}>
+          Entrez votre numéro. Si ce numéro est lié à un compte, Oracle affiche le Gmail masqué à utiliser.
+        </p>
+        <div style={{ display:'flex', gap:8 }}>
+          <input
+            value={phone}
+            onChange={e => setPhone(e.target.value)}
+            placeholder="+225 07..."
+            inputMode="tel"
+            style={{ flex:1, minWidth:0, border:'1px solid var(--border)', borderRadius:14, padding:'11px 12px', fontSize:14, outline:'none', color:'var(--text-primary)', background:'#fff', boxSizing:'border-box' }}
+          />
+          <button
+            onClick={handleRecoverPhone}
+            disabled={recovering}
+            style={{ border:'none', borderRadius:14, padding:'0 13px', minWidth:86, background:DEEP, color:'#fff', fontSize:13, fontWeight:900, cursor:recovering?'default':'pointer', opacity:recovering ? .7 : 1 }}
+          >
+            {recovering ? '...' : 'Vérifier'}
+          </button>
+        </div>
+        {recovery && (
+          <div style={{ marginTop:10, borderRadius:12, padding:'10px 11px', background:recovery.found ? '#ECFDF5' : '#FEF2F2', border:`1px solid ${recovery.found ? '#BBF7D0' : '#FECACA'}` }}>
+            {recovery.found && recovery.emailHint && (
+              <p style={{ margin:'0 0 4px', fontSize:13, fontWeight:900, color:'#065F46' }}>
+                Gmail associé : {recovery.emailHint}
+              </p>
+            )}
+            <p style={{ margin:0, fontSize:12.5, lineHeight:1.45, color:recovery.found ? '#047857' : '#B91C1C', fontWeight:700 }}>
+              {recovery.message}
+            </p>
+          </div>
+        )}
+      </div>
+
       <p style={{ fontSize:11, color:'var(--text-muted)', textAlign:'center', lineHeight:1.6, maxWidth:320, margin:'22px 0 0' }}>
-        Le numéro de téléphone sert à la découverte des contacts. Il ne remplace pas l'identité Google du compte.
+        Le numéro aide à retrouver le bon compte Google. La connexion reste protégée par Google.
       </p>
     </div>
   );

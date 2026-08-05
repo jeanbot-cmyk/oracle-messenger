@@ -8,7 +8,7 @@ import { t } from '../../lib/i18n';
 
 const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
-const INSTALL_VERSION = '90-20260803-capacitor-calls';
+const INSTALL_VERSION = '116-20260805-install-system-expiry';
 const INSTALL_RESET_KEY = `oracle-install-reset-${INSTALL_VERSION}`;
 
 type Device = 'ios' | 'android' | 'other';
@@ -124,7 +124,7 @@ async function runInstallDiagnostics(promptAvailable: boolean): Promise<InstallD
     if (!manifest.start_url) errors.push('Manifest sans start_url');
     if (!manifest.scope) errors.push('Manifest sans scope');
     if (!manifest.icons?.length) errors.push('Manifest sans icônes');
-    const requiredIcons = ['/icons/icon-192-v20260803.png', '/icons/icon-512-v20260803.png'];
+    const requiredIcons = ['/icons/icon-192-v20260804.png', '/icons/icon-512-v20260804.png'];
     for (const icon of requiredIcons) {
       const res = await fetch(icon, { method: 'HEAD', cache: 'no-store' });
       add(`Icône ${icon}`, `${res.status} ${res.headers.get('content-type') || ''}`.trim());
@@ -208,10 +208,6 @@ function saveContact(inviter: Inviter) {
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-function openDiscussionWithInviter(inviter: Inviter | null) {
-  goToAppEntry();
-}
-
 export default function InstallPage() {
   const { lang } = useSettings();
   const [device,     setDevice]     = useState<Device>('android');
@@ -223,6 +219,7 @@ export default function InstallPage() {
   const [inviter, setInviter] = useState<Inviter | null>(null);
   const [contactSaved, setContactSaved] = useState(false);
   const [diagnostic, setDiagnostic] = useState<InstallDiagnostic | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
   const promptRef = useRef<any>(null);
 
   async function refreshDiagnostic(promptAvailable = !!(promptRef.current || (window as any).__installPrompt || (window as any).__pwaPrompt)) {
@@ -375,10 +372,10 @@ export default function InstallPage() {
     return (
       <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', justifyContent:'center', background: '#fff', fontFamily: 'system-ui,-apple-system,sans-serif', padding:'28px 24px', boxSizing:'border-box' }}>
         <div style={{ maxWidth:420, margin:'0 auto', width:'100%', textAlign:'center' }}>
-          <img src="/icons/icon-192-v20260803.png" alt="" style={{ width:82, height:82, borderRadius:22, marginBottom:18 }} />
-          <h1 style={{ fontSize:26, lineHeight:1.15, margin:'0 0 10px', color:'var(--text-primary)', fontWeight:900 }}>Installer Oracle Messenger</h1>
-          <p style={{ fontSize:15, lineHeight:1.55, margin:'0 0 24px', color:'var(--text-secondary)', fontWeight:600 }}>
-            Sur iPhone, ouvrez ce lien avec Safari, appuyez sur Partager, puis choisissez “Sur l’écran d’accueil”.
+          <img src="/icons/icon-192-v20260804.png" alt="" style={{ width:82, height:82, borderRadius:22, marginBottom:18 }} />
+          <h1 style={{ fontSize:26, lineHeight:1.15, margin:'0 0 10px', color:'var(--text-primary)', fontWeight:900 }}>Oracle Messenger</h1>
+          <p style={{ fontSize:15, lineHeight:1.45, margin:'0 0 24px', color:'var(--text-secondary)', fontWeight:650 }}>
+            Installez l’application depuis Safari.
           </p>
           <button onClick={goToAppEntry}
             style={{ width: '100%', background: ACCENT, color: ACCENT_TEXT, border: 'none', borderRadius: 28, padding: '18px 24px', fontSize: 17, fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
@@ -398,107 +395,82 @@ export default function InstallPage() {
   const chromeInstallHref = buildChromeInstallIntentUrl();
 
   return (
-    <div style={{ height: '100dvh', overflowY: 'auto', background: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 24px 48px', boxSizing: 'border-box', fontFamily: 'system-ui,-apple-system,sans-serif', WebkitOverflowScrolling: 'touch' }}>
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}`}</style>
+    <div style={{ minHeight: '100dvh', overflowY: 'auto', background: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '28px 22px 30px', boxSizing: 'border-box', fontFamily: 'system-ui,-apple-system,sans-serif', WebkitOverflowScrolling: 'touch' }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
-      {/* Illustration */}
-      <div style={{ marginTop: 56, marginBottom: 28, animation: 'float 3s ease-in-out infinite' }}>
-        <svg width="200" height="160" viewBox="0 0 200 160" fill="none">
-          <rect x="20" y="30" width="120" height="85" rx="18" fill="#d9fdd3" stroke={ACCENT} strokeWidth="2"/>
-          <path d="M40 115 L28 135 L60 115Z" fill="#d9fdd3" stroke={ACCENT} strokeWidth="1.5" strokeLinejoin="round"/>
-          <rect x="38" y="52" width="84" height="7" rx="3.5" fill={ACCENT} opacity="0.5"/>
-          <rect x="38" y="67" width="64" height="7" rx="3.5" fill={ACCENT} opacity="0.35"/>
-          <rect x="38" y="82" width="44" height="7" rx="3.5" fill={ACCENT} opacity="0.2"/>
-          <rect x="100" y="12" width="84" height="56" rx="14" fill="var(--bg-input)" stroke="var(--border)" strokeWidth="1.5"/>
-          <path d="M176 68 L184 82 L162 68Z" fill="var(--bg-input)" stroke="var(--border)" strokeWidth="1" strokeLinejoin="round"/>
-          <rect x="114" y="28" width="56" height="6" rx="3" fill="var(--text-muted)" opacity="0.4"/>
-          <rect x="114" y="42" width="40" height="6" rx="3" fill="var(--text-muted)" opacity="0.25"/>
-          <rect x="136" y="118" width="34" height="28" rx="6" fill={ACCENT}/>
-          <path d="M143 118 V111 a9 9 0 0 1 18 0 V118" stroke={ACCENT} strokeWidth="3.5" fill="none" strokeLinecap="round"/>
-          <circle cx="153" cy="132" r="3.5" fill="white"/>
-          <rect x="151" y="132" width="4" height="6" rx="2" fill="white"/>
-        </svg>
-      </div>
+      <main style={{ width: '100%', maxWidth: 390, minHeight: 'calc(100dvh - 58px)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
+      <img src="/icons/icon-192-v20260804.png" alt="" style={{ width: 92, height: 92, borderRadius: 26, marginBottom: 18, boxShadow: '0 14px 34px rgba(16,42,42,0.14)' }} />
 
-      <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-primary)', textAlign: 'center', margin: '0 0 10px', lineHeight: 1.2 }}>
+      <h1 style={{ fontSize: 27, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px', lineHeight: 1.12 }}>
         Oracle Messenger
       </h1>
-      <p style={{ fontSize: 14, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.6, margin: '0 0 6px', maxWidth: 300 }}>
-        Messagerie rapide et sécurisée.
+      <p style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.45, margin: '0 0 22px', maxWidth: 285, fontWeight: 650 }}>
+        Une installation rapide pour discuter et recevoir vos appels.
       </p>
       {inviter && (
-        <div style={{ width: '100%', maxWidth: 380, background: '#f8fbfa', border: '1px solid var(--border)', borderRadius: 22, padding: 14, margin: '8px 0 18px', boxShadow: '0 8px 22px rgba(16,42,42,0.06)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <img src={inviter.avatar || '/icons/icon-96-v20260803.png'} alt="" style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', background: 'var(--bg-input)' }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ margin: 0, fontSize: 15, fontWeight: 900, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{inviter.name}</p>
-              <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>@{inviter.username}</p>
-            </div>
-          </div>
-          <p style={{ margin: '0 0 12px', fontSize: 13, lineHeight: 1.45, color: 'var(--text-secondary)' }}>
-            Cette personne t’a invité. Enregistre son contact, puis continue vers la discussion Oracle Messenger.
-          </p>
-          {contactSaved && (
-            <p style={{ margin: '0 0 10px', fontSize: 12, lineHeight: 1.4, fontWeight: 800, color: '#047857' }}>
-              Contact préparé. Si ton téléphone demande confirmation, appuie sur Enregistrer.
-            </p>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: normalizeInternationalPhone(inviter.phone || '') ? '1fr 1fr' : '1fr', gap: 8 }}>
-            {normalizeInternationalPhone(inviter.phone || '') && (
-              <button onClick={() => { saveContact(inviter); setContactSaved(true); }}
-                style={{ border: 'none', borderRadius: 999, background: 'var(--header-bg)', color: '#fff', padding: '11px 12px', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>
-                Enregistrer contact
-              </button>
-            )}
-            <button onClick={() => openDiscussionWithInviter(inviter)}
-              style={{ border: 'none', borderRadius: 999, background: ACCENT, color: ACCENT_TEXT, padding: '11px 12px', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>
-              Ouvrir discussion
-            </button>
+        <div style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, margin: '0 0 18px', color: 'var(--text-secondary)' }}>
+          <img src={inviter.avatar || '/icons/icon-96-v20260804.png'} alt="" style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', background: 'var(--bg-input)' }} />
+          <div style={{ minWidth: 0, textAlign: 'left' }}>
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)', fontWeight: 800 }}>Invitation de</p>
+            <p style={{ margin: 0, fontSize: 14, fontWeight: 850, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>{inviter.name}</p>
           </div>
         </div>
       )}
-      <p style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center', margin: '0 0 36px', maxWidth: 300, lineHeight: 1.5 }}>
-        En continuant, vous acceptez nos{' '}
-        <a href="/terms" style={{ color: ACCENT, fontWeight: 600 }}>Conditions</a>
-        {' '}et{' '}
-        <a href="/privacy" style={{ color: ACCENT, fontWeight: 600 }}>Politique de confidentialité</a>.
-      </p>
+
+      {contactSaved && inviter && (
+        <p style={{ margin: '-6px 0 12px', fontSize: 12, lineHeight: 1.4, fontWeight: 800, color: '#047857' }}>
+          Contact préparé. Confirmez l’enregistrement si le téléphone le demande.
+        </p>
+      )}
+
+      {inviter && normalizeInternationalPhone(inviter.phone || '') && (
+        <button onClick={() => { saveContact(inviter); setContactSaved(true); }}
+          style={{ border: 'none', background: 'transparent', color: 'var(--brand)', padding: '0 12px 14px', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>
+          Enregistrer le contact
+        </button>
+      )}
 
       {/* Install button */}
       {needsChrome ? (
         <a
           href={chromeInstallHref}
           style={{
-            width: '100%', maxWidth: 380,
+            width: '100%',
             background: ACCENT,
             color: '#fff', border: 'none', borderRadius: 28,
-            padding: '18px 24px', fontSize: 17, fontWeight: 700,
+            padding: '17px 18px',
+            fontSize: 'clamp(15px, 4.15vw, 17px)',
+            fontWeight: 850,
             cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
             boxShadow: '0 10px 24px rgba(16,42,42,0.18)',
             marginBottom: 14,
             textDecoration:'none',
             boxSizing:'border-box',
+            whiteSpace: 'nowrap',
           }}
         >
-          <svg width="22" height="22" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24">
+          <svg width="21" height="21" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
           </svg>
-          {t(lang, 'install.openChrome')}
+          Installer Oracle Messenger
         </a>
       ) : (
         <button
           onClick={handleAndroidInstall}
           disabled={installing}
           style={{
-          width: '100%', maxWidth: 380,
+          width: '100%',
           background: installing ? 'var(--text-muted)' : ACCENT,
           color: '#fff', border: 'none', borderRadius: 28,
-          padding: '18px 24px', fontSize: 17, fontWeight: 700,
+          padding: '17px 18px',
+          fontSize: 'clamp(15px, 4.15vw, 17px)',
+          fontWeight: 850,
           cursor: installing ? 'not-allowed' : 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
           boxShadow: '0 10px 24px rgba(16,42,42,0.18)',
           marginBottom: 14,
+          whiteSpace: 'nowrap',
           }}
         >
           {installing ? (
@@ -508,17 +480,31 @@ export default function InstallPage() {
             </>
           ) : (
             <>
-              <svg width="22" height="22" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24">
+              <svg width="21" height="21" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
               </svg>
-              {t(lang, 'pwa.install')}
+              Installer Oracle Messenger
             </>
           )}
         </button>
       )}
 
+      <button
+        onClick={goToAppEntry}
+        style={{
+          width: '100%',
+          background: 'transparent', color: 'var(--text-muted)',
+          border: 'none', borderRadius: 28,
+          padding: '12px 24px', fontSize: 14, fontWeight: 800,
+          cursor: 'pointer',
+          marginBottom: 8,
+        }}
+      >
+        Ouvrir sans installer
+      </button>
+
       {(installMessage || manualInstall) && (
-        <div style={{ width: '100%', maxWidth: 380, background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 18, padding: 16, marginBottom: 14, color: '#102A2A' }}>
+        <div style={{ width: '100%', background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 18, padding: 16, marginBottom: 14, color: '#102A2A', textAlign: 'left' }}>
           <p style={{ fontSize: 14, fontWeight: 800, margin: '0 0 8px' }}>
             {t(lang, 'install.secureBrowserOnly')}
           </p>
@@ -528,10 +514,12 @@ export default function InstallPage() {
         </div>
       )}
 
-      <details style={{ width:'100%', maxWidth:380, border:'1px solid var(--border)', borderRadius:18, padding:14, marginBottom:10, background:'#F8FAFC', color:'var(--text-primary)' }}>
-        <summary style={{ cursor:'pointer', fontSize:13, fontWeight:900 }}>
-          Aide installation {diagnostic?.ok ? '✓' : diagnostic ? '⚠' : ''}
-        </summary>
+      <button onClick={() => setShowHelp(value => !value)} style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', fontSize: 12, fontWeight: 850, padding: '8px 12px', cursor: 'pointer' }}>
+        {showHelp ? 'Masquer l’aide' : 'Besoin d’aide ?'}
+      </button>
+
+      {showHelp && (
+      <div style={{ width:'100%', border:'1px solid var(--border)', borderRadius:18, padding:14, marginTop:6, background:'#F8FAFC', color:'var(--text-primary)', textAlign: 'left' }}>
         <div style={{ marginTop:12, display:'flex', flexDirection:'column', gap:10 }}>
           <button
             onClick={() => {
@@ -583,21 +571,9 @@ export default function InstallPage() {
             Copier le diagnostic
           </button>
         </div>
-      </details>
-
-      {/* Fallback — never block access */}
-      <button
-        onClick={goToAppEntry}
-        style={{
-          width: '100%', maxWidth: 380,
-          background: 'transparent', color: 'var(--text-muted)',
-          border: '1.5px solid var(--border)', borderRadius: 28,
-          padding: '14px 24px', fontSize: 14, fontWeight: 500,
-          cursor: 'pointer',
-        }}
-      >
-        {inviter ? 'Continuer vers la discussion' : 'Accéder sans installer'}
-      </button>
+      </div>
+      )}
+      </main>
     </div>
   );
 }

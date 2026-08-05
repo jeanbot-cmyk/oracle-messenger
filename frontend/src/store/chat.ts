@@ -46,11 +46,16 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setCurrentUser: (u) => set({ currentUser: u }),
 
   setConversations: (convs) => {
-    convs.forEach(c => saveConversation(c));
-    set({ conversations: sortConversations(convs) });
+    const visible = convs.filter(c => !isOfficialExpired(c));
+    visible.forEach(c => saveConversation(c));
+    set({ conversations: sortConversations(visible) });
   },
 
   upsertConversation: (conv) => {
+    if (isOfficialExpired(conv)) {
+      get().removeConversation(conv.id);
+      return;
+    }
     saveConversation(conv).catch(() => {});
     set(s => {
       const exists = s.conversations.some(c => c.id === conv.id);
@@ -180,7 +185,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   markRead: (convId) => {
     set(s => ({
       conversations: s.conversations.map(c =>
-        c.id === convId ? { ...c, unreadCount: 0 } : c
+        c.id === convId ? markConversationReadLocally(c) : c
       ),
     }));
   },
@@ -202,10 +207,30 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 }));
 
 function sortConversations(convs: Conversation[]) {
-  return [...convs].sort((a, b) => {
+  return [...convs].filter(c => !isOfficialExpired(c)).sort((a, b) => {
     const aPinned = Boolean(a.isPinned || a.isOfficial || a.type === 'official');
     const bPinned = Boolean(b.isPinned || b.isOfficial || b.type === 'official');
     if (aPinned !== bPinned) return aPinned ? -1 : 1;
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });
+}
+
+function isOfficialExpired(conv: Conversation) {
+  if (!conv.isOfficial && conv.type !== 'official') return false;
+  if ((conv.unreadCount ?? 0) > 0) return false;
+  if (!conv.officialExpiresAt) return false;
+  const expiry = new Date(conv.officialExpiresAt).getTime();
+  return Number.isFinite(expiry) && expiry <= Date.now();
+}
+
+function markConversationReadLocally(conv: Conversation): Conversation {
+  const isOfficial = Boolean(conv.isOfficial || conv.type === 'official');
+  if (!isOfficial) return { ...conv, unreadCount: 0 };
+  if (conv.officialExpiresAt) return { ...conv, unreadCount: 0 };
+  if (!conv.lastMessage?.createdAt) return { ...conv, unreadCount: 0 };
+  return {
+    ...conv,
+    unreadCount: 0,
+    officialExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  };
 }

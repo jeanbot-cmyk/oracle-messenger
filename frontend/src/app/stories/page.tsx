@@ -36,6 +36,17 @@ function timeAgo(value: string) {
   return date.toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit' });
 }
 
+function formatViewedAt(value?: string) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const today = new Date();
+  const sameDay = date.toDateString() === today.toDateString();
+  return sameDay
+    ? date.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' })
+    : date.toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+}
+
 export default function StoriesPage() {
   const { data: session, status } = useSession();
   const token = (session?.user as any)?.backendToken ?? '';
@@ -45,6 +56,7 @@ export default function StoriesPage() {
   const [mounted, setMounted]     = useState(false);
   const [stories, setStories]     = useState<Story[]>([]);
   const [viewing, setViewing]     = useState<Story | null>(null);
+  const [viewersStory, setViewersStory] = useState<Story | null>(null);
   const [creating, setCreating]   = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [pubError, setPubError]   = useState('');
@@ -173,12 +185,14 @@ export default function StoriesPage() {
   }, [viewing]);
 
   function openStory(story: Story) {
-    // Marquer comme vu via backend
-    fetch(`${API}/stories/${story.id}/view`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => {});
-    if (myId && !story.views.includes(myId)) {
+    // Le propriétaire peut consulter sa story sans s'ajouter comme vue.
+    if (story.authorId !== myId) {
+      fetch(`${API}/stories/${story.id}/view`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
+    if (story.authorId !== myId && myId && !story.views.includes(myId)) {
       setStories(prev => prev.map(s => s.id === story.id ? { ...s, views: [...s.views, myId], viewCount: (s.viewCount ?? s.views.length) + 1 } : s));
       story = { ...story, views: [...story.views, myId], viewCount: (story.viewCount ?? story.views.length) + 1 };
     }
@@ -274,6 +288,8 @@ export default function StoriesPage() {
 
   const myId = session?.user?.id ?? '';
   const myStories = byAuthor[myId] ?? [];
+  const latestMyStory = myStories[myStories.length - 1] ?? null;
+  const totalMyStoryViews = myStories.reduce((total, story) => total + (story.viewCount ?? story.views.length), 0);
   const othersAuthors = Object.keys(byAuthor).filter(id => id !== myId);
   const authorRows = othersAuthors.map(authorId => {
     const authorStories = byAuthor[authorId];
@@ -312,14 +328,14 @@ export default function StoriesPage() {
         {/* Ma story */}
         <div style={{ padding:'0 16px 12px' }}>
           <p style={{ fontSize:12, fontWeight:900, color:'var(--text-muted)', margin:'0 0 10px', textTransform:'uppercase', letterSpacing:.8 }}>Ma story</p>
-          <button onClick={() => myStories.length ? openStory(myStories[myStories.length - 1]) : setCreating(true)}
+          <button onClick={() => latestMyStory ? openStory(latestMyStory) : setCreating(true)}
             style={{ width:'100%', display:'flex', alignItems:'center', gap:14, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:18, padding:12, cursor:'pointer', textAlign:'left', boxShadow:'var(--shadow-soft)' }}>
             <div style={{ position:'relative', width:62, height:62, flexShrink:0 }}>
-              <div style={{ width:62, height:62, borderRadius:'50%', overflow:'hidden', border:myStories.length ? '3px solid var(--brand)' : '2px dashed var(--border)', background:myStories.length ? (myStories[myStories.length - 1].type === 'text' ? myStories[myStories.length - 1].bg : '#000') : 'var(--bg-input)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                {myStories.length && myStories[myStories.length - 1].type === 'image' ? (
-                  <img src={myStories[myStories.length - 1].content} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-                ) : myStories.length ? (
-                  <span style={{ fontSize:10, color:'#fff', fontWeight:900, textAlign:'center', padding:5 }}>{myStories[myStories.length - 1].content.slice(0,24)}</span>
+              <div style={{ width:62, height:62, borderRadius:'50%', overflow:'hidden', border:latestMyStory ? '3px solid var(--brand)' : '2px dashed var(--border)', background:latestMyStory ? (latestMyStory.type === 'text' ? latestMyStory.bg : '#000') : 'var(--bg-input)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {latestMyStory && latestMyStory.type === 'image' ? (
+                  <img src={latestMyStory.content} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                ) : latestMyStory ? (
+                  <span style={{ fontSize:10, color:'#fff', fontWeight:900, textAlign:'center', padding:5 }}>{latestMyStory.content.slice(0,24)}</span>
                 ) : (
                   <span style={{ fontSize:28, color:'var(--brand)', fontWeight:500 }}>+</span>
                 )}
@@ -330,10 +346,42 @@ export default function StoriesPage() {
             <div style={{ flex:1, minWidth:0 }}>
               <p style={{ margin:0, color:'var(--text-primary)', fontSize:16, fontWeight:900 }}>Ajouter à ma story</p>
               <p style={{ margin:'4px 0 0', color:'var(--text-secondary)', fontSize:13, lineHeight:1.35, fontWeight:650 }}>
-                {myStories.length ? `${myStories.length} story active · ${timeAgo(myStories[myStories.length - 1].createdAt)}` : 'Photo, texte ou annonce visible pendant 24h.'}
+                {latestMyStory ? `${myStories.length} story active · ${timeAgo(latestMyStory.createdAt)}` : 'Photo, texte ou annonce visible pendant 24h.'}
               </p>
+              {latestMyStory && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => { e.stopPropagation(); setViewersStory(latestMyStory); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setViewersStory(latestMyStory);
+                    }
+                  }}
+                  style={{ marginTop:8, border:'1px solid rgba(0,128,105,0.20)', background:'var(--brand-soft)', color:'var(--brand)', borderRadius:999, padding:'7px 11px', cursor:'pointer', fontSize:12.5, fontWeight:900, display:'inline-flex', alignItems:'center', gap:6 }}
+                >
+                  <span aria-hidden="true">👁</span>
+                  Qui a vu · {totalMyStoryViews}
+                </span>
+              )}
             </div>
           </button>
+          {myStories.length > 1 && (
+            <div style={{ display:'flex', gap:8, overflowX:'auto', padding:'10px 2px 2px' }}>
+              {myStories.slice().reverse().map((story, index) => (
+                <button
+                  key={story.id}
+                  type="button"
+                  onClick={() => setViewersStory(story)}
+                  style={{ flex:'0 0 auto', border:'1px solid var(--border)', background:'var(--bg-surface)', color:'var(--text-secondary)', borderRadius:999, padding:'7px 10px', fontSize:12, fontWeight:850, cursor:'pointer', boxShadow:'0 4px 12px rgba(16,42,42,0.06)' }}
+                >
+                  Story {myStories.length - index} · 👁 {story.viewCount ?? story.views.length}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Stories des autres */}
@@ -459,8 +507,12 @@ export default function StoriesPage() {
           </div>
 
           {/* Vues */}
-          <div style={{ position:'absolute', bottom:24, left:0, right:0, display:'flex', justifyContent:'center', padding:'0 18px', pointerEvents:'none' }}>
-            <div style={{ background:'rgba(0,0,0,.58)', borderRadius:20, padding:'7px 16px', display:'flex', flexDirection:'column', alignItems:'center', gap:6, maxWidth:360 }}>
+          <div style={{ position:'absolute', bottom:24, left:0, right:0, display:'flex', justifyContent:'center', padding:'0 18px', pointerEvents: viewing.authorId === myId ? 'auto' : 'none' }}>
+            <button
+              type="button"
+              onClick={() => viewing.authorId === myId && setViewersStory(viewing)}
+              style={{ background:'rgba(0,0,0,.58)', border:'1px solid rgba(255,255,255,.12)', borderRadius:20, padding:'7px 16px', display:'flex', flexDirection:'column', alignItems:'center', gap:6, maxWidth:360, cursor: viewing.authorId === myId ? 'pointer' : 'default' }}
+            >
               <div style={{ display:'flex', alignItems:'center', gap:6 }}>
               <span style={{ fontSize:16 }}>👁</span>
                 <span style={{ color:'#fff', fontSize:13, fontWeight:800 }}>{viewing.viewCount ?? viewing.views.length} vue{(viewing.viewCount ?? viewing.views.length) !== 1 ? 's' : ''}</span>
@@ -471,7 +523,70 @@ export default function StoriesPage() {
                   {viewing.viewers!.length > 4 ? ` +${viewing.viewers!.length - 4}` : ''}
                 </p>
               )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Liste des vues */}
+      {viewersStory && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Qui a vu cette story"
+          style={{ position:'fixed', inset:0, zIndex:650, background:'rgba(0,0,0,.48)', display:'flex', alignItems:'flex-end' }}
+          onClick={() => setViewersStory(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ width:'100%', maxHeight:'78vh', overflowY:'auto', background:'var(--bg-surface)', borderRadius:'24px 24px 0 0', padding:'18px 18px calc(18px + env(safe-area-inset-bottom, 0px))', boxShadow:'0 -20px 48px rgba(0,0,0,.22)' }}
+          >
+            <div style={{ width:44, height:5, borderRadius:999, background:'var(--border)', margin:'0 auto 14px' }} />
+            <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:16 }}>
+              <div style={{ width:44, height:44, borderRadius:14, overflow:'hidden', background:viewersStory.type === 'text' ? viewersStory.bg : '#111', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                {viewersStory.type === 'image' ? (
+                  <img src={viewersStory.content} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                ) : (
+                  <span style={{ color:'#fff', fontSize:10, fontWeight:950, padding:6, textAlign:'center' }}>{viewersStory.content.slice(0,18)}</span>
+                )}
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <h2 style={{ margin:0, fontSize:19, lineHeight:1.15, color:'var(--text-primary)', fontWeight:950 }}>Qui a vu cette story</h2>
+                <p style={{ margin:'4px 0 0', color:'var(--text-secondary)', fontSize:13, fontWeight:700 }}>
+                  {viewersStory.viewCount ?? viewersStory.views.length} vue{(viewersStory.viewCount ?? viewersStory.views.length) !== 1 ? 's' : ''} · publiée {timeAgo(viewersStory.createdAt)}
+                </p>
+              </div>
+              <button onClick={() => setViewersStory(null)} style={{ width:38, height:38, borderRadius:'50%', border:'1px solid var(--border)', background:'var(--bg-input)', color:'var(--text-primary)', cursor:'pointer', fontSize:22, lineHeight:1 }}>×</button>
             </div>
+
+            {viewersStory.viewers?.length ? (
+              <div style={{ borderTop:'1px solid var(--border)' }}>
+                {viewersStory.viewers.map(viewer => (
+                  <div key={viewer.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 0', borderBottom:'1px solid var(--border)' }}>
+                    <div style={{ width:46, height:46, borderRadius:'50%', overflow:'hidden', background:'var(--brand-soft)', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--brand)', fontWeight:950, flexShrink:0 }}>
+                      {viewer.avatar ? (
+                        <img src={viewer.avatar} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                      ) : (
+                        <span>{(viewer.name || viewer.username || 'C')[0]?.toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <p style={{ margin:0, color:'var(--text-primary)', fontSize:15, fontWeight:900, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{viewer.name || viewer.username || 'Contact'}</p>
+                      {viewer.username && viewer.username !== viewer.name && (
+                        <p style={{ margin:'3px 0 0', color:'var(--text-muted)', fontSize:12.5, fontWeight:650, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>@{viewer.username}</p>
+                      )}
+                    </div>
+                    <span style={{ color:'var(--text-muted)', fontSize:12.5, fontWeight:750 }}>{formatViewedAt(viewer.viewedAt)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ textAlign:'center', padding:'34px 20px 26px', color:'var(--text-secondary)' }}>
+                <div style={{ width:62, height:62, borderRadius:22, background:'var(--brand-soft)', color:'var(--brand)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 12px', fontSize:28 }}>👁</div>
+                <p style={{ margin:0, fontSize:16, fontWeight:900, color:'var(--text-primary)' }}>Aucune vue pour l’instant</p>
+                <p style={{ margin:'6px auto 0', maxWidth:280, fontSize:13.5, lineHeight:1.4, fontWeight:650 }}>Les contacts qui regardent votre story apparaîtront ici automatiquement.</p>
+              </div>
+            )}
           </div>
         </div>
       )}

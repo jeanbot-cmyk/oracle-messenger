@@ -1,4 +1,4 @@
-import { Controller, Get, Delete, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Delete, Param, Query, UseGuards, Request, Post, Body } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
 import { CallsService } from './calls.service';
 
@@ -17,6 +17,19 @@ export class CallsController {
   @Get('ice-servers')
   getIceServers() {
     return this.calls.getIceServers();
+  }
+
+  /** POST /calls/sfu-token — jeton LiveKit pour appels de groupe scalables */
+  @Post('sfu-token')
+  createSfuToken(
+    @Request() req: any,
+    @Body() body: { room?: string; name?: string },
+  ) {
+    return this.calls.createSfuToken({
+      room: body.room ?? '',
+      identity: req.user.id,
+      name: body.name ?? req.user.name,
+    });
   }
 
   /** DELETE /calls/history — vider tout l'historique */

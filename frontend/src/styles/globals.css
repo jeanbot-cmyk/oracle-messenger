@@ -241,16 +241,16 @@ textarea:focus {
 .bubble-out {
   background: var(--bubble-out);
   color: var(--bubble-out-text);
-  border: 1px solid rgba(16,42,42,0.05);
-  border-radius: 11px 11px 4px 11px;
-  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(16,42,42,0.045);
+  border-radius: 16px 16px 5px 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.075);
 }
 .bubble-in {
   background: var(--bubble-in);
   color: var(--bubble-in-text);
-  border: 1px solid rgba(15,23,42,0.07);
-  border-radius: 11px 11px 11px 4px;
-  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.07);
+  border: 1px solid rgba(15,23,42,0.055);
+  border-radius: 16px 16px 16px 5px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.065);
 }
 
 .om-chat-window {
@@ -258,12 +258,56 @@ textarea:focus {
 }
 
 .om-chat-header {
-  box-shadow: 0 1px 0 rgba(255,255,255,0.06), 0 8px 18px rgba(17,24,28,0.08);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.06), 0 6px 16px rgba(17,24,28,0.075);
+}
+
+.om-conversation-list li > button {
+  transition: background-color 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
+}
+
+.om-conversation-list li > button:hover {
+  background-color: rgba(16,42,42,0.045) !important;
+}
+
+.om-conversation-list li > button:active {
+  transform: scale(0.995);
+}
+
+.om-unread-badge {
+  animation: omUnreadPop 180ms ease both;
+}
+
+.om-main-tab::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 22px;
+  height: 3px;
+  border-radius: 999px;
+  background: transparent;
+  transform: translateX(-50%) scaleX(.7);
+  transition: background-color 160ms ease, transform 160ms ease;
+}
+
+.om-main-tab-active::after {
+  background: var(--brand);
+  transform: translateX(-50%) scaleX(1);
+}
+
+.om-main-tab:active {
+  transform: translateY(1px);
 }
 
 .om-messages-viewport {
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  background-color: #F7F3EC !important;
+  background-image:
+    radial-gradient(circle at 18px 24px, rgba(16,42,42,0.045) 0 2px, transparent 2.5px),
+    radial-gradient(circle at 74px 68px, rgba(217,183,91,0.05) 0 2px, transparent 2.5px),
+    linear-gradient(45deg, transparent 0 44px, rgba(16,42,42,0.025) 44px 45px, transparent 45px 92px);
+  background-size: 96px 96px, 112px 112px, 92px 92px;
 }
 
 .om-messages-inner {
@@ -272,15 +316,16 @@ textarea:focus {
 }
 
 .om-messages-top-spacer {
-  flex: 0 0 6px;
-  min-height: 6px;
-  height: 6px;
+  flex: 0 0 3px;
+  min-height: 3px;
+  height: 3px;
 }
 
 .om-message-row {
   width: 100%;
   contain: layout;
   transition: background-color 0.16s ease, box-shadow 0.16s ease;
+  animation: omMessageIn 150ms ease both;
 }
 
 .om-message-row-in {
@@ -320,6 +365,7 @@ textarea:focus {
   min-width: 48px;
   max-width: 100%;
   font-size: 15px;
+  transform: translateZ(0);
 }
 
 .om-date-separator {
@@ -351,8 +397,8 @@ textarea:focus {
   max-height: min(48vh, 430px);
   aspect-ratio: 4 / 5;
   overflow: hidden;
-  border-radius: 9px;
-  background: #111;
+  border-radius: 14px;
+  background: rgba(16,42,42,0.06);
 }
 
 .om-media-content {
@@ -361,7 +407,7 @@ textarea:focus {
   max-height: min(48vh, 430px);
   display: block;
   object-fit: cover;
-  background: #111;
+  background: rgba(16,42,42,0.04);
 }
 
 .om-media-time-overlay {
@@ -401,7 +447,19 @@ textarea:focus {
 }
 
 .om-chat-composer {
-  box-shadow: 0 -1px 0 rgba(17,24,28,0.06);
+  box-shadow: 0 -1px 0 rgba(17,24,28,0.06), 0 -8px 18px rgba(17,24,28,0.035);
+}
+
+.om-composer-icon-btn,
+.om-composer-send,
+.om-chat-action {
+  transition: transform 0.14s ease, background-color 0.14s ease, opacity 0.14s ease;
+}
+
+.om-composer-icon-btn:active,
+.om-composer-send:active,
+.om-chat-action:active {
+  transform: scale(0.94);
 }
 
 .om-emoji-picker {
@@ -412,13 +470,13 @@ textarea:focus {
 @media (max-width: 768px) and (pointer: coarse) {
   .om-chat-header {
     gap: 8px !important;
-    padding: calc(7px + env(safe-area-inset-top, 0px)) 9px 7px !important;
-    min-height: calc(58px + env(safe-area-inset-top, 0px)) !important;
+    padding: calc(6px + env(safe-area-inset-top, 0px)) 9px 6px !important;
+    min-height: calc(56px + env(safe-area-inset-top, 0px)) !important;
   }
 
   .om-chat-avatar {
-    width: 40px !important;
-    height: 40px !important;
+    width: 42px !important;
+    height: 42px !important;
   }
 
   .om-chat-title {
@@ -431,9 +489,9 @@ textarea:focus {
   }
 
   .om-chat-action {
-    width: 30px !important;
-    height: 30px !important;
-    min-height: 30px !important;
+    width: 34px !important;
+    height: 34px !important;
+    min-height: 34px !important;
   }
 
   .om-selection-toolbar {
@@ -486,11 +544,11 @@ textarea:focus {
   .om-message-bubble {
     max-width: 100%;
     min-width: 48px;
-    border-radius: 11px 11px 4px 11px;
+    border-radius: 15px 15px 5px 15px;
   }
 
   .bubble-in.om-message-bubble {
-    border-radius: 11px 11px 11px 4px;
+    border-radius: 15px 15px 15px 5px;
   }
 
   .om-message-text {
@@ -502,7 +560,7 @@ textarea:focus {
   .om-media-card {
     min-height: 168px;
     max-height: min(46vh, 390px);
-    border-radius: 8px;
+    border-radius: 13px;
   }
 
   .om-media-content {
@@ -528,7 +586,7 @@ textarea:focus {
   }
 
   .om-chat-composer {
-    padding: 6px 7px calc(max(6px, env(safe-area-inset-bottom)) + 6px) !important;
+    padding: 5px 7px calc(max(5px, env(safe-area-inset-bottom)) + 6px) !important;
   }
 
   .om-composer-row {
@@ -544,7 +602,7 @@ textarea:focus {
 
   .om-composer-input-shell {
     min-height: 39px !important;
-    padding: 6px 10px !important;
+    padding: 5px 10px !important;
     border-radius: 21px !important;
   }
 
@@ -581,6 +639,16 @@ textarea:focus {
 @keyframes omFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes omMessageIn {
+  from { opacity: .82; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes omUnreadPop {
+  from { opacity: .3; transform: scale(.72); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 @keyframes omSlideUp {

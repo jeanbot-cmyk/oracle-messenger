@@ -1,11 +1,11 @@
-// Oracle Messenger — Service Worker v91
+// Oracle Messenger — Service Worker v137
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '91-20260804-playstore-pwa';
+const CACHE_VERSION = '137-20260805-global-optimizations';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [
   '/reset-pwa.html', '/manifest.json', '/manifest.webmanifest',
-  '/icons/icon-192-v20260803.png', '/icons/icon-512-v20260803.png', '/icons/icon-1024-v20260803.png'
+  '/icons/icon-192-v20260804.png', '/icons/icon-512-v20260804.png', '/icons/icon-1024-v20260804.png'
 ];
 
 // ── Install : skipWaiting immédiat ────────────────────────────────────────────
@@ -96,8 +96,8 @@ self.addEventListener('push', e => {
   e.waitUntil(
     self.registration.showNotification(data.title ?? 'Oracle Messenger', {
       body: data.body ?? '',
-      icon: '/icons/icon-192-v20260803.png',
-      badge: '/icons/icon-72-v20260803.png',
+      icon: '/icons/icon-192-v20260804.png',
+      badge: '/icons/icon-72-v20260804.png',
       tag: data.tag ?? 'msg',
       renotify: true,
       requireInteraction: data.requireInteraction ?? isCall,
@@ -138,8 +138,8 @@ self.addEventListener('message', e => {
     const timer = setTimeout(() => {
       self.registration.showNotification(`📅 Rappel : ${title}`, {
         body: `Événement prévu le ${date}`,
-        icon: '/icons/icon-192.png',
-        badge: '/icons/icon-72.png',
+        icon: '/icons/icon-192-v20260804.png',
+        badge: '/icons/icon-72-v20260804.png',
         tag: `reminder-${id}`,
         requireInteraction: true,
         vibrate: [200, 100, 200, 100, 200],
@@ -176,7 +176,7 @@ async function checkStorageQuota() {
     if (((quota - usage) / quota) * 100 < 10) {
       self.registration.showNotification('Oracle Messenger — Stockage', {
         body: "Votre téléphone est presque plein. Supprimez quelques fichiers.",
-        icon: '/icons/icon-192.png',
+        icon: '/icons/icon-192-v20260804.png',
         tag: 'storage-warning',
         requireInteraction: true,
       });

@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useChatStore } from '../../store/chat';
 import type { Message } from '../../types';
+import { matchesSearch } from '../../lib/search';
 
 // Limite : 3 transferts par jour (stocké localement)
 function getForwardCount(): number {
@@ -28,7 +29,8 @@ export function ForwardModal({ message, onClose, onForward }: Props) {
 
   const filtered = conversations.filter(c => {
     const name = (c.type === 'group' ? c.name : c.participants?.[0]?.name) ?? '';
-    return name.toLowerCase().includes(search.toLowerCase());
+    const other = c.participants?.[0];
+    return matchesSearch([name, other?.username, other?.phone, other?.email], search);
   });
 
   function toggle(id: string) {

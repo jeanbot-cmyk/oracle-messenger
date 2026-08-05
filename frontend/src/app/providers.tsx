@@ -8,7 +8,7 @@ import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { clearOldTextMessages } from '../lib/db';
 import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 
-const CLIENT_CACHE_VERSION = '91-20260804-playstore-pwa';
+const CLIENT_CACHE_VERSION = '137-20260805-global-optimizations';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 
@@ -87,7 +87,7 @@ function ThemeApplier() {
         if (pctFree < 10 && Notification.permission === 'granted') {
           new Notification('Oracle Messenger — Stockage', {
             body: "Votre téléphone est presque plein. Supprimez quelques fichiers dans Oracle Messenger pour libérer de l'espace.",
-            icon: '/icons/icon-192.png',
+            icon: '/icons/icon-192-v20260804.png',
           });
         }
       }).catch(() => {});
@@ -178,7 +178,7 @@ function InstallBanner() {
     <div style={{ position:'fixed', top:0, left:0, right:0, zIndex:2000, background:'var(--header-bg)', color:'#fff', borderBottom:'1px solid rgba(255,255,255,0.12)', boxShadow:'0 6px 20px rgba(0,0,0,0.18)', padding:'8px 10px env(safe-area-inset-top)' }}>
       <div style={{ display:'flex', alignItems:'center', gap:10, maxWidth:720, margin:'0 auto' }}>
         <div style={{ width:34, height:34, borderRadius:10, background:'rgba(255,255,255,0.12)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-          <img src="/icons/icon-72-v20260803.png" alt="" style={{ width:26, height:26, borderRadius:7 }} />
+          <img src="/icons/icon-72-v20260804.png" alt="" style={{ width:26, height:26, borderRadius:7 }} />
         </div>
         <div style={{ flex:1, minWidth:0 }}>
           <p style={{ margin:0, fontSize:13, fontWeight:900, lineHeight:1.25 }}>{t(lang, 'install.bannerTitle')}</p>
@@ -206,7 +206,7 @@ function AppLoadingScreen({ text = 'Ouverture d’Oracle Messenger...' }: { text
   return (
     <div style={{ height:'100dvh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:14, background:'var(--bg-app)', color:'var(--text-primary)', fontFamily:'system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif', padding:24, textAlign:'center' }}>
       <div style={{ width:52, height:52, borderRadius:16, background:'var(--header-bg)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 10px 28px rgba(16,42,42,0.18)' }}>
-        <img src="/icons/icon-72-v20260803.png" alt="" style={{ width:36, height:36, borderRadius:10 }} />
+        <img src="/icons/icon-72-v20260804.png" alt="" style={{ width:36, height:36, borderRadius:10 }} />
       </div>
       <div style={{ width:34, height:34, border:'3px solid var(--border)', borderTopColor:'var(--brand)', borderRadius:'50%', animation:'spin .8s linear infinite' }} />
       <p style={{ margin:0, fontSize:14, lineHeight:1.45, fontWeight:800 }}>{text === 'Ouverture d’Oracle Messenger...' ? t(lang, 'app.opening') : text}</p>

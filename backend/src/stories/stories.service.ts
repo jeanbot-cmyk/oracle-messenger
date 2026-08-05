@@ -81,12 +81,14 @@ export class StoriesService {
         },
       },
     });
-    return stories.map(s => ({
+    return stories.map(s => {
+      const audienceViews = s.views.filter(v => v.userId !== s.authorId);
+      return {
       ...s,
-      views: s.views.map(v => v.userId),
-      viewCount: s.views.length,
+      views: audienceViews.map(v => v.userId),
+      viewCount: audienceViews.length,
       viewers: s.authorId === requesterId
-        ? s.views.map(v => ({
+        ? audienceViews.map(v => ({
             id: v.user.id,
             name: v.user.name,
             username: v.user.username,
@@ -94,8 +96,9 @@ export class StoriesService {
             viewedAt: v.viewedAt,
           }))
         : [],
-      seen: s.views.some(v => v.userId === requesterId),
-    }));
+      seen: audienceViews.some(v => v.userId === requesterId),
+    };
+    });
   }
 
   async markViewed(storyId: string, userId: string) {
@@ -106,14 +109,16 @@ export class StoriesService {
         expiresAt: { gt: new Date() },
         authorId: { in: visibleAuthorIds },
       },
-      select: { id: true },
+      select: { id: true, authorId: true },
     });
     if (!exists) throw new NotFoundException('Story introuvable');
+    if (exists.authorId === userId) return { ok: true, ownStory: true };
     await this.prisma.storyView.upsert({
       where: { storyId_userId: { storyId, userId } },
       create: { storyId, userId },
       update: { viewedAt: new Date() },
     });
+    return { ok: true };
   }
 
   async delete(storyId: string, authorId: string) {

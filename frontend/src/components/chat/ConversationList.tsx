@@ -4,13 +4,16 @@ import { useChatStore } from '../../store/chat';
 import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
 import { format } from 'date-fns';
-import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { MediaLightbox } from '../ui/MediaLightbox';
+import { matchesSearch } from '../../lib/search';
 
 interface Props {
   search?: string;
+  remoteResults?: any[] | null;
+  searchLoading?: boolean;
   filter?: 'all' | 'unread' | 'fav' | 'groups';
+  loading?: boolean;
   onSelect?: (convId: string) => void;
   onDelete?: (convId: string, name: string) => void;
 }
@@ -52,15 +55,16 @@ function messagePreview(message: any) {
   return message.content ?? '';
 }
 
-function VerifiedSeal({ size = 18 }: { size?: number }) {
+function VerifiedSeal({ size = 20 }: { size?: number }) {
+  const px = `${size}px`;
   return (
-    <span title="Compte officiel certifié" style={{ width:size, height:size, display:'inline-flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto' }}>
-      <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" style={{ display:'block', filter:'drop-shadow(0 1px 2px rgba(15,23,42,.18))' }}>
+    <span title="Compte officiel certifié" style={{ width:px, minWidth:px, maxWidth:px, height:px, minHeight:px, maxHeight:px, display:'inline-flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', lineHeight:0, aspectRatio:'1 / 1', overflow:'visible' }}>
+      <svg width={size} height={size} viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" aria-hidden="true" style={{ width:px, minWidth:px, maxWidth:px, height:px, minHeight:px, maxHeight:px, display:'block', flex:'0 0 auto', aspectRatio:'1 / 1', filter:'drop-shadow(0 1px 2px rgba(15,23,42,.18))' }}>
         <path
           fill="#1D9BF0"
-          d="M12 1.5l2.08 1.78 2.72-.32 1.15 2.49 2.56.98-.08 2.74 1.58 2.24-1.58 2.24.08 2.74-2.56.98-1.15 2.49-2.72-.32L12 22.5l-2.08-1.78-2.72.32-1.15-2.49-2.56-.98.08-2.74L1.99 12.6l1.58-2.24-.08-2.74 2.56-.98L7.2 4.15l2.72.32L12 1.5z"
+          d="M12 1.15l1.55 1.72 2.18-.79.92 2.12 2.31.06.06 2.31 2.12.92-.79 2.18L22.07 12l-1.72 1.55.79 2.18-2.12.92-.06 2.31-2.31.06-.92 2.12-2.18-.79L12 22.07l-1.55-1.72-2.18.79-.92-2.12-2.31-.06-.06-2.31-2.12-.92.79-2.18L1.93 12l1.72-1.55-.79-2.18 2.12-.92.06-2.31 2.31-.06.92-2.12 2.18.79L12 1.15z"
         />
-        <path d="M7.35 12.25l3.05 3.05 6.25-6.6" fill="none" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M7.1 12.25l3.05 3.05 6.75-6.85" fill="none" stroke="#fff" strokeWidth="2.55" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </span>
   );
@@ -76,18 +80,83 @@ function readFavoriteConversationIds() {
   }
 }
 
-export function ConversationList({ search = '', filter = 'all', onSelect, onDelete }: Props) {
-  const { conversations, activeConvId, setActiveConv, onlineUsers } = useChatStore();
+function isOfficialExpired(conv: any) {
+  if (!Boolean(conv?.isOfficial || conv?.type === 'official')) return false;
+  if ((conv?.unreadCount ?? 0) > 0) return false;
+  if (!conv?.officialExpiresAt) return false;
+  const expiry = new Date(conv.officialExpiresAt).getTime();
+  return Number.isFinite(expiry) && expiry <= Date.now();
+}
+
+function ConversationListSkeleton() {
+  return (
+    <div className="om-fade-in" aria-label="Chargement des discussions" style={{ flex:1, overflow:'hidden', padding:'2px 0 8px' }}>
+      {Array.from({ length: 7 }).map((_, index) => (
+        <div key={index} style={{ display:'flex', alignItems:'center', gap:12, minHeight:74, padding:'9px 16px' }}>
+          <div style={{ width:50, height:50, borderRadius:'50%', background:'var(--bg-input)', border:'1px solid var(--border)', flexShrink:0 }} />
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ width:index % 2 ? '58%' : '72%', height:13, borderRadius:7, background:'var(--bg-input)', marginBottom:10 }} />
+            <div style={{ width:index % 3 ? '76%' : '44%', height:11, borderRadius:6, background:'var(--bg-input)' }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ConversationAvatarImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span style={{ fontSize:20, fontWeight:800, color:'var(--brand)' }}>
+        {(alt || '?')[0]?.toUpperCase() ?? '?'}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="eager"
+      decoding="async"
+      onError={() => setFailed(true)}
+      style={{ width:'100%', height:'100%', objectFit:'cover', display:'block', background:'var(--brand-soft)' }}
+    />
+  );
+}
+
+export function ConversationList({ search = '', remoteResults = null, searchLoading = false, filter = 'all', loading = false, onSelect, onDelete }: Props) {
+  const { conversations, activeConvId, setActiveConv, onlineUsers, messages } = useChatStore();
   const { lang } = useSettings();
   const router = useRouter();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [photoPreview, setPhotoPreview] = useState<{ src: string; name: string } | null>(null);
   const favoriteIds = readFavoriteConversationIds();
 
-  const filtered = conversations.filter(c => {
+  const sourceConversations = search.trim() && Array.isArray(remoteResults) ? remoteResults : conversations;
+  const filtered = sourceConversations.filter(c => {
+    if (isOfficialExpired(c)) return false;
     const isOfficial = Boolean((c as any).isOfficial || c.type === 'official');
     const name = isOfficial ? (c.name ?? 'Oracle Messenger') : c.type === 'group' ? c.name : c.participants?.[0]?.name;
-    if (search && !name?.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search.trim()) {
+      const loadedMessages = messages[c.id] ?? [];
+      const searchableFields = [
+        c.name,
+        name,
+        c.type,
+        c.participants?.map(p => [p.name, p.username, p.email, p.phone].filter(Boolean).join(' ')).join(' '),
+        messagePreview(c.lastMessage),
+        c.lastMessage?.content,
+        ...loadedMessages.slice(-250).flatMap(msg => [
+          msg.content,
+          messagePreview(msg),
+          msg.sender?.name,
+          msg.sender?.username,
+          msg.sender?.phone,
+        ]),
+      ];
+      if (!Array.isArray(remoteResults) && !matchesSearch(searchableFields, search)) return false;
+    }
     if (filter === 'unread' && (c.unreadCount ?? 0) === 0) return false;
     if (filter === 'groups' && c.type !== 'group') return false;
     if (filter === 'fav' && !((c as any).isFavorite || (c as any).favorite || favoriteIds.has(c.id))) return false;
@@ -96,8 +165,8 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
 
   const emptyCopy = (() => {
     if (search.trim()) return {
-      title: 'Aucun résultat',
-      subtitle: 'Aucune conversation ne correspond à cette recherche.',
+      title: searchLoading ? 'Recherche...' : 'Aucun résultat',
+      subtitle: searchLoading ? 'Recherche dans vos conversations et messages.' : 'Aucune conversation ne correspond à cette recherche.',
       button: 'Effacer la recherche',
       action: undefined,
     };
@@ -127,6 +196,8 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
     };
   })();
 
+  if (loading && conversations.length === 0 && !search.trim()) return <ConversationListSkeleton />;
+
   if (filtered.length === 0) return (
     <div className="om-fade-in" style={{ height:'100%', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:12, padding:'32px 28px 104px', textAlign:'center' }}>
       <div style={{ width:88, height:88, borderRadius:28, background:'linear-gradient(145deg, var(--brand-soft), #FFFFFF)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'var(--shadow-soft)' }}>
@@ -148,15 +219,14 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
 
   return (
     <>
-    <ul className="om-fade-in" style={{ flex:1, overflowY:'auto', listStyle:'none', margin:0, padding:'4px 0 8px' }}>
+    <ul className="om-fade-in om-conversation-list" style={{ flex:1, overflowY:'auto', listStyle:'none', margin:0, padding:'2px 0 8px' }}>
       {filtered.map(conv => {
         const isOfficial = Boolean((conv as any).isOfficial || conv.type === 'official');
-        const isVerified = Boolean((conv as any).isVerified || isOfficial);
         const other    = conv.participants?.[0];
         const isOnline = !isOfficial && other && onlineUsers.has(other.id);
         const isActive = conv.id === activeConvId;
         const name     = isOfficial ? (conv.name ?? 'Oracle Messenger') : conv.type === 'group' ? conv.name : other?.name ?? t(lang, 'common.unknown');
-        const avatar   = isOfficial ? (conv.avatar ?? '/icons/icon-192.png') : conv.type === 'group' ? conv.avatar : other?.avatar;
+        const avatar   = isOfficial ? '/icons/oracle-system-avatar.svg' : conv.type === 'group' ? conv.avatar : other?.avatar;
         const lastMsg  = conv.lastMessage;
         const timeStr  = lastMsg ? format(new Date(lastMsg.createdAt), 'HH:mm') : '';
 
@@ -166,8 +236,9 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
               onClick={() => { setOpenMenuId(null); setActiveConv(conv.id); onSelect?.(conv.id); }}
               style={{
                 width:'100%', display:'flex', alignItems:'center', gap:12,
-                padding:'11px 10px 11px 16px', border:'none',
-                background: isActive ? 'var(--brand-soft)' : isOfficial ? 'rgba(16,42,42,0.035)' : 'transparent',
+                minHeight:74,
+                padding:'9px 10px 9px 16px', border:'none',
+                background: isActive ? 'var(--brand-soft)' : isOfficial ? 'rgba(16,42,42,0.028)' : 'transparent',
                 cursor:'pointer', textAlign:'left',
                 borderRadius:0,
               }}
@@ -185,17 +256,12 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
                 }}
                 style={{ position:'relative', flexShrink:0, cursor: avatar ? 'zoom-in' : 'inherit' }}
               >
-                <div style={{ width:52, height:52, borderRadius:'50%', background: isOfficial ? '#102A2A' : 'var(--brand-soft)', border: isOfficial ? '2px solid rgba(217,183,91,0.82)' : '1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', boxShadow: isOfficial ? '0 4px 14px rgba(16,42,42,0.18)' : 'none' }}>
-                  {avatar
-                    ? <Image src={avatar} alt={name ?? ''} width={52} height={52} style={{ objectFit:'cover' }}/>
-                    : <span style={{ fontSize:20, fontWeight:800, color:'var(--brand)' }}>{(name ?? '?')[0].toUpperCase()}</span>
-                  }
+                <div style={{ width:50, height:50, borderRadius:'50%', background: isOfficial ? '#102A2A' : 'var(--brand-soft)', border: isOfficial ? '2px solid rgba(217,183,91,0.82)' : '1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', boxShadow: isOfficial ? '0 4px 14px rgba(16,42,42,0.16)' : 'none' }}>
+	                  {avatar
+	                    ? <ConversationAvatarImage src={avatar} alt={name ?? ''} />
+	                    : <span style={{ fontSize:20, fontWeight:800, color:'var(--brand)' }}>{(name ?? '?')[0].toUpperCase()}</span>
+	                  }
                 </div>
-                {isVerified && (
-                  <span style={{ position:'absolute', bottom:-1, right:-1, width:21, height:21, borderRadius:'50%', background:'var(--bg-surface)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                    <VerifiedSeal size={18} />
-                  </span>
-                )}
                 {isOnline && (
                   <span style={{ position:'absolute', bottom:2, right:2, width:12, height:12, background:'var(--online-dot)', borderRadius:'50%', border:'2px solid var(--bg-surface)' }}/>
                 )}
@@ -204,27 +270,29 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
               {/* Infos */}
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:4 }}>
-                  <span style={{ fontWeight: isOfficial ? 850 : 720, fontSize:16, lineHeight:1.25, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, display:'inline-flex', alignItems:'center', gap:6, minWidth:0 }}>
-                    <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</span>
-                    {isVerified && (
-                      <VerifiedSeal size={16} />
+                  <span style={{ fontWeight: isOfficial ? 850 : 760, fontSize:15.7, lineHeight:1.2, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, display:'inline-flex', alignItems:'center', gap:6, minWidth:0 }}>
+                    <span style={{ order:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</span>
+                    {isOfficial && (
+                      <span style={{ order:1, flex:'0 0 auto', display:'inline-flex', alignItems:'center' }}>
+                        <VerifiedSeal size={20} />
+                      </span>
                     )}
                   </span>
-                  <span style={{ fontSize:12, color: conv.unreadCount > 0 ? 'var(--brand)' : 'var(--text-muted)', flexShrink:0, marginLeft:8, fontWeight: conv.unreadCount > 0 ? 750 : 500 }}>{timeStr}</span>
+                  <span style={{ fontSize:11.5, color: conv.unreadCount > 0 ? 'var(--brand)' : 'var(--text-muted)', flexShrink:0, marginLeft:8, fontWeight: conv.unreadCount > 0 ? 800 : 500 }}>{timeStr}</span>
                 </div>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                  <p style={{ fontSize:14, lineHeight:1.35, color:'var(--text-secondary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, margin:0, fontWeight:450 }}>
+                  <p style={{ fontSize:13.6, lineHeight:1.32, color:'var(--text-secondary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, margin:0, fontWeight:480 }}>
                     {lastMsg?.isDeleted
                       ? <em style={{ color:'var(--text-muted)' }}>{t(lang, 'chat.deleted')}</em>
                       : messagePreview(lastMsg)}
                   </p>
                   {isOfficial && (conv.unreadCount ?? 0) === 0 && (
-                    <span style={{ marginLeft:8, flexShrink:0, borderRadius:999, background:'rgba(29,155,240,0.10)', color:'#1D4ED8', fontSize:10.5, fontWeight:900, padding:'3px 7px', letterSpacing:0 }}>
+                    <span style={{ marginLeft:8, flexShrink:0, borderRadius:999, background:'rgba(29,155,240,0.08)', color:'#1D4ED8', fontSize:9.8, fontWeight:850, padding:'2px 6px', letterSpacing:0 }}>
                       OFFICIEL
                     </span>
                   )}
                   {conv.unreadCount > 0 && (
-                    <span style={{ marginLeft:8, flexShrink:0, minWidth:21, height:21, background:'var(--unread-bg)', borderRadius:11, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11.5, color:'var(--accent-text)', fontWeight:850, padding:'0 6px' }}>
+                    <span className="om-unread-badge" style={{ marginLeft:8, flexShrink:0, minWidth:20, height:20, background:'var(--unread-bg)', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'var(--accent-text)', fontWeight:850, padding:'0 6px' }}>
                       {conv.unreadCount > 9 ? '9+' : conv.unreadCount}
                     </span>
                   )}
@@ -272,7 +340,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
               </>
             )}
             {/* Séparateur */}
-            <div style={{ height:1, background:'var(--border)', marginLeft:80 }}/>
+            <div style={{ height:1, background:'rgba(16,42,42,0.055)', marginLeft:78 }}/>
           </li>
         );
       })}
@@ -281,6 +349,9 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
       <MediaLightbox
         src={photoPreview.src}
         type="image"
+        title={photoPreview.name}
+        subtitle="Photo de profil"
+        qualityMode="profile"
         onClose={() => setPhotoPreview(null)}
       />
     )}

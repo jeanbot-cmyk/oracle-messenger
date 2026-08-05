@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { api } from '../../lib/api';
+import { matchesSearch } from '../../lib/search';
 
 const ACCENT = 'var(--brand)';
 
@@ -106,11 +107,7 @@ export default function OnboardingPage() {
     }
   }, [status, session]);
 
-  const filtered = COUNTRIES.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    c.dial.includes(search) ||
-    c.code.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = COUNTRIES.filter(c => matchesSearch([c.name, c.dial, c.code], search));
 
   function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];

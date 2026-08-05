@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AccessToken } from 'livekit-server-sdk';
 
 export interface LogCallDto {
   callId: string;
@@ -17,6 +18,12 @@ export interface IceServerConfig {
   credential?: string;
 }
 
+export interface SfuTokenDto {
+  room: string;
+  identity: string;
+  name?: string;
+}
+
 @Injectable()
 export class CallsService {
   constructor(private prisma: PrismaService) {}
@@ -31,6 +38,14 @@ export class CallsService {
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun.cloudflare.com:3478' },
+      // Secours public en priorité: si le TURN du VPS est filtré par
+      // l'hébergeur ou par un réseau mobile, les appels ne doivent pas rester
+      // bloqués après la sonnerie.
+      {
+        urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turns:openrelay.metered.ca:443'],
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
     ];
 
     if (turnUrls.length && process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL) {
@@ -39,15 +54,46 @@ export class CallsService {
         username: process.env.TURN_USERNAME,
         credential: process.env.TURN_CREDENTIAL,
       });
-    } else {
-      iceServers.push({
-        urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turns:openrelay.metered.ca:443'],
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      });
     }
 
     return { iceServers };
+  }
+
+  async createSfuToken(dto: SfuTokenDto) {
+    const url = process.env.LIVEKIT_URL;
+    const apiKey = process.env.LIVEKIT_API_KEY;
+    const apiSecret = process.env.LIVEKIT_API_SECRET;
+
+    if (!url || !apiKey || !apiSecret) {
+      return {
+        enabled: false,
+        reason: 'LIVEKIT_URL, LIVEKIT_API_KEY ou LIVEKIT_API_SECRET manquant',
+      };
+    }
+
+    if (!dto.room || !dto.identity) {
+      throw new BadRequestException('Salle SFU invalide');
+    }
+
+    const token = new AccessToken(apiKey, apiSecret, {
+      identity: dto.identity,
+      name: dto.name ?? dto.identity,
+    });
+    token.addGrant({
+      room: dto.room,
+      roomJoin: true,
+      canPublish: true,
+      canSubscribe: true,
+      canPublishData: true,
+    });
+
+    return {
+      enabled: true,
+      provider: 'livekit',
+      url,
+      room: dto.room,
+      token: await token.toJwt(),
+    };
   }
 
   async logCall(dto: LogCallDto) {
@@ -89,7 +135,7 @@ export class CallsService {
   }
 
   async getHistory(userId: string, limit = 50) {
-    return this.prisma.callLog.findMany({
+    const entries = await this.prisma.callLog.findMany({
       where: { userId },
       orderBy: { startedAt: 'desc' },
       take: limit,
@@ -97,6 +143,22 @@ export class CallsService {
         id: true, callId: true, peerId: true, peerName: true,
         type: true, direction: true, duration: true, startedAt: true,
       },
+    });
+    const peerIds = [...new Set(entries.map(entry => entry.peerId).filter(Boolean))];
+    const peers = peerIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: peerIds } },
+          select: { id: true, avatar: true, name: true },
+        })
+      : [];
+    const peersById = new Map(peers.map(peer => [peer.id, peer]));
+    return entries.map(entry => {
+      const peer = peersById.get(entry.peerId);
+      return {
+        ...entry,
+        peerName: peer?.name || entry.peerName,
+        peerAvatar: peer?.avatar ?? null,
+      };
     });
   }
 

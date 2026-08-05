@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { matchesSearch } from '../lib/search';
 
 const COUNTRIES = [
   { code:'CI', name:"Côte d'Ivoire", dial:'+225', flag:'🇨🇮' },
@@ -37,9 +38,7 @@ export function PhoneOnboarding({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState<'form'|'verifying'>('form');
   const [error, setError] = useState('');
 
-  const filtered = COUNTRIES.filter(c =>
-    c.name.toLowerCase().includes(search.toLowerCase()) || c.dial.includes(search)
-  );
+  const filtered = COUNTRIES.filter(c => matchesSearch([c.name, c.dial, c.code], search));
 
   async function handleSubmit() {
     const digits = number.replace(/\D/g, '');

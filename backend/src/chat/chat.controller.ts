@@ -12,6 +12,11 @@ export class ChatController {
     return this.chat.getConversations(req.user.id);
   }
 
+  @Get('conversations/search')
+  search(@Query('q') q: string, @Request() req: any) {
+    return this.chat.searchConversations(req.user.id, q ?? '');
+  }
+
   @Post('conversations')
   create(@Body('participantId') participantId: string, @Request() req: any) {
     return this.chat.getOrCreateDirect(req.user.id, participantId);

@@ -9,4 +9,9 @@ export class AuthController {
   async googleLogin(@Body() body: { idToken?: string; googleId?: string; email?: string; name?: string; avatar?: string }) {
     return this.auth.googleLogin(body);
   }
+
+  @Post('recover-phone')
+  async recoverByPhone(@Body() body: { phone?: string }) {
+    return this.auth.recoverByPhone(body.phone ?? '');
+  }
 }

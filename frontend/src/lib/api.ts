@@ -24,6 +24,7 @@ export const api = {
   },
   conversations: {
     list: (token: string) => req<any[]>('/conversations', {}, token),
+    search: (q: string, token: string) => req<any[]>(`/conversations/search?q=${encodeURIComponent(q)}`, {}, token),
     get:  (id: string, token: string) => req<any>(`/conversations/${id}`, {}, token),
     create: (participantId: string, token: string) =>
       req<any>('/conversations', { method: 'POST', body: JSON.stringify({ participantId }) }, token),
@@ -52,5 +53,9 @@ export const api = {
   notifications: {
     subscribe: (token: string, sub: PushSubscriptionJSON) =>
       req<void>('/notifications/subscribe', { method: 'POST', body: JSON.stringify(sub) }, token),
+  },
+  auth: {
+    recoverByPhone: (phone: string) =>
+      req<{ found: boolean; name?: string; emailHint?: string; message: string }>('/auth/recover-phone', { method: 'POST', body: JSON.stringify({ phone }) }),
   },
 };

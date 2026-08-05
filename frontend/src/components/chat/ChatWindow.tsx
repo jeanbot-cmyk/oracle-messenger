@@ -10,6 +10,7 @@ import { MessageBubble } from './MessageBubble';
 import { MediaLightbox } from '../ui/MediaLightbox';
 import { CameraCapture } from '../ui/CameraCapture';
 import type { Conversation, Message, User } from '../../types';
+import { normalizeSearchValue } from '../../lib/search';
 
 // ── Emoji picker léger (sans dépendance externe) ─────────────────────────────
 const EMOJI_CATEGORIES: { label: string; emojis: string[] }[] = [
@@ -75,6 +76,21 @@ const PROBABLE_DIAL_CODES = [
   '243', '242', '241', '233', '234', '212', '213', '216',
   '33', '32', '41', '1', '44',
 ];
+
+function VerifiedSeal({ size = 20 }: { size?: number }) {
+  const px = `${size}px`;
+  return (
+    <span title="Compte officiel certifié" style={{ width:px, minWidth:px, maxWidth:px, height:px, minHeight:px, maxHeight:px, display:'inline-flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', lineHeight:0, aspectRatio:'1 / 1', overflow:'visible' }}>
+      <svg width={size} height={size} viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" aria-hidden="true" style={{ width:px, minWidth:px, maxWidth:px, height:px, minHeight:px, maxHeight:px, display:'block', flex:'0 0 auto', aspectRatio:'1 / 1', filter:'drop-shadow(0 1px 2px rgba(15,23,42,.22))' }}>
+        <path
+          fill="#1D9BF0"
+          d="M12 1.15l1.55 1.72 2.18-.79.92 2.12 2.31.06.06 2.31 2.12.92-.79 2.18L22.07 12l-1.72 1.55.79 2.18-2.12.92-.06 2.31-2.31.06-.92 2.12-2.18-.79L12 22.07l-1.55-1.72-2.18.79-.92-2.12-2.31-.06-.06-2.31-2.12-.92.79-2.18L1.93 12l1.72-1.55-.79-2.18 2.12-.92.06-2.31 2.31-.06.92-2.12 2.18.79L12 1.15z"
+        />
+        <path d="M7.1 12.25l3.05 3.05 6.75-6.85" fill="none" stroke="#fff" strokeWidth="2.55" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
+  );
+}
 
 function readStoredContactPhones(userId: string) {
   const phones = new Set<string>();
@@ -258,12 +274,12 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const isOfficialConversation = Boolean((conv as any)?.isOfficial || conv?.type === 'official');
   const other = conv?.participants?.[0];
   const isOnline = !isOfficialConversation && other && onlineUsers.has(other.id);
-  const searchNeedle = messageSearch.trim().toLowerCase();
+  const searchNeedle = normalizeSearchValue(messageSearch);
   const searchMatches = searchNeedle
     ? convMessages.filter(msg =>
         !msg.isDeleted &&
         msg.type === 'text' &&
-        (msg.content ?? '').toLowerCase().includes(searchNeedle)
+        normalizeSearchValue(msg.content).includes(searchNeedle)
       )
     : [];
   const activeSearchMessage = searchMatches[activeSearchIndex]?.id ?? '';
@@ -271,6 +287,19 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const selectionMode = selectedMessageIds.length > 0;
   const selectedTextMessages = selectedMessages.filter(message => message.type === 'text' && (message.content ?? '').trim());
   const canEditSelected = selectedMessages.length === 1 && selectedMessages[0]?.senderId === userId && selectedMessages[0]?.type === 'text';
+
+  useEffect(() => {
+    if (!activeConvId || !isOfficialConversation || !conv?.officialExpiresAt || (conv.unreadCount ?? 0) > 0) return;
+    const expiresAt = new Date(conv.officialExpiresAt).getTime();
+    if (!Number.isFinite(expiresAt)) return;
+    const delay = expiresAt - Date.now();
+    if (delay <= 0) {
+      removeConversation(activeConvId);
+      return;
+    }
+    const timer = window.setTimeout(() => removeConversation(activeConvId), delay);
+    return () => window.clearTimeout(timer);
+  }, [activeConvId, isOfficialConversation, conv?.officialExpiresAt, conv?.unreadCount, removeConversation]);
 
   useEffect(() => {
     setReplyTo(null);
@@ -586,12 +615,12 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
 
     const source = await readFileAsDataUrl(file);
     const img = await imageToElement(source);
-    const maxSide = 1600;
+    const maxSide = 2560;
     const scale = Math.min(1, maxSide / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
     const width = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
     const height = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
 
-    if (scale >= 1 && file.size <= 850 * 1024) {
+    if (scale >= 1 && file.size <= 2.5 * 1024 * 1024) {
       return {
         dataUrl: source,
         mime: file.type || 'image/jpeg',
@@ -610,7 +639,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     ctx.drawImage(img, 0, 0, width, height);
 
     const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-    const quality = mime === 'image/jpeg' ? 0.82 : undefined;
+    const quality = mime === 'image/jpeg' ? 0.9 : undefined;
     const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, mime, quality));
     if (!blob) return { dataUrl: source, mime: file.type || 'image/jpeg', size: file.size, width, height };
     const dataUrl = await readFileAsDataUrl(new File([blob], file.name, { type: mime }));
@@ -619,6 +648,10 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
 
   function startConversationCall(type: 'audio' | 'video') {
     if (!conv || !onStartCall) return;
+    if (isOfficialConversation) {
+      alert('Le compte système ne peut pas être appelé.');
+      return;
+    }
     if (!navigator.mediaDevices?.getUserMedia) {
       alert('Ce navigateur ne permet pas les appels. Utilisez Chrome Android ou Safari iPhone à jour.');
       return;
@@ -775,7 +808,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   }
 
   const name = isOfficialConversation ? (conv?.name ?? 'Oracle Messenger') : conv?.type === 'group' ? conv.name : other?.name ?? t(lang, 'common.unknown');
-  const avatar = isOfficialConversation ? (conv?.avatar ?? '/icons/icon-192.png') : conv?.type === 'group' ? conv.avatar : other?.avatar;
+  const avatar = isOfficialConversation ? '/icons/oracle-system-avatar.svg' : conv?.type === 'group' ? conv.avatar : other?.avatar;
   const forwardConversations = conversations
     .filter(item => item.id !== activeConvId)
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -991,7 +1024,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   return (
     <div className="om-chat-window" style={{ flex:1, display:'flex', flexDirection:'column', height:'100%', minHeight:0, background:'var(--bg-elevated)', overflow:'hidden', position:'relative' }}>
       {/* Header */}
-      <div className="om-chat-header" style={{ display:'flex', alignItems:'center', gap:9, padding:'calc(7px + env(safe-area-inset-top, 0px)) 10px 7px', minHeight:'calc(58px + env(safe-area-inset-top, 0px))', background:'var(--header-bg)', borderBottom:'1px solid rgba(0,0,0,0.08)', flexShrink:0, position:'sticky', top:0, zIndex:30 }}>
+      <div className="om-chat-header" style={{ display:'flex', alignItems:'center', gap:9, padding:'calc(6px + env(safe-area-inset-top, 0px)) 10px 6px', minHeight:'calc(56px + env(safe-area-inset-top, 0px))', background:'var(--header-bg)', borderBottom:'1px solid rgba(0,0,0,0.08)', flexShrink:0, position:'sticky', top:0, zIndex:30 }}>
         {/* Back button — mobile only */}
         {onBack && (
           <button onClick={onBack}
@@ -1005,29 +1038,20 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         <button
           onClick={() => avatar ? setAvatarLightbox(true) : setProfileModal(true)}
           style={{ position:'relative', border:'none', background:'transparent', padding:0, cursor:'pointer', flexShrink:0 }}>
-          <div className="om-chat-avatar" style={{ width:40, height:40, borderRadius:'50%', background:'#F8FAFC', border:'1.5px solid rgba(255,255,255,0.72)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', flexShrink:0 }}>
+          <div className="om-chat-avatar" style={{ width:42, height:42, borderRadius:'50%', background:'#F8FAFC', border:'1.5px solid rgba(255,255,255,0.72)', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', flexShrink:0 }}>
             {avatar ? <img src={avatar} alt={name??''} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} /> : (
               <span style={{ fontWeight:800, color:'var(--header-bg)', fontSize:18 }}>{(name??'?')[0].toUpperCase()}</span>
             )}
           </div>
-          {isOfficialConversation && (
-            <span title="Compte officiel certifié" style={{ position:'absolute', bottom:0, right:0, width:15, height:15, borderRadius:'50%', background:'#1D9BF0', border:'2px solid var(--header-bg)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <svg width="9" height="9" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-            </span>
-          )}
           {isOnline && <span style={{ position:'absolute', bottom:1, right:1, width:11, height:11, background:'var(--online-dot)', borderRadius:'50%', border:'2px solid var(--header-bg)' }} />}
         </button>
         <button onClick={() => setProfileModal(true)}
           style={{ flex:1, border:'none', background:'transparent', cursor:'pointer', textAlign:'left', padding:0, minWidth:0 }}>
           <p className="om-chat-title" style={{ fontWeight:800, fontSize:16, lineHeight:1.08, color:'#FFFFFF', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', letterSpacing:0, display:'flex', alignItems:'center', gap:6 }}>
-            <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</span>
+            <span style={{ order:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</span>
             {isOfficialConversation && (
-              <span style={{ width:15, height:15, borderRadius:'50%', background:'#1D9BF0', color:'#fff', display:'inline-flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto' }}>
-                <svg width="9" height="9" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
+              <span style={{ order:1, flex:'0 0 auto', display:'inline-flex', alignItems:'center' }}>
+                <VerifiedSeal size={21} />
               </span>
             )}
           </p>
@@ -1047,7 +1071,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             <button
               onClick={() => startConversationCall('audio')}
               className="om-chat-action"
-              style={{ width:30, height:30, minHeight:30, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title={t(lang, 'chat.audioCall')}>
+              style={{ width:36, height:36, minHeight:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title={t(lang, 'chat.audioCall')}>
               <svg width="17" height="17" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/>
               </svg>
@@ -1055,7 +1079,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             <button
               onClick={() => startConversationCall('video')}
               className="om-chat-action"
-              style={{ width:30, height:30, minHeight:30, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title={t(lang, 'chat.videoCall')}>
+              style={{ width:36, height:36, minHeight:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background:'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }} title={t(lang, 'chat.videoCall')}>
               <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.89L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
               </svg>
@@ -1065,7 +1089,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         <button
           onClick={() => setShowMessageSearch(v => !v)}
           className="om-chat-action"
-          style={{ width:30, height:30, minHeight:30, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background: showMessageSearch ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }}
+          style={{ width:36, height:36, minHeight:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background: showMessageSearch ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }}
           title={t(lang, 'chat.searchInConversation')}
         >
           <svg width="17" height="17" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1209,7 +1233,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         className="om-messages-viewport"
         ref={messagesViewportRef}
         onScroll={handleMessagesScroll}
-        style={{ flex:1, minHeight:0, overflowY:'auto', overflowX:'hidden', padding:'8px 10px 10px', WebkitOverflowScrolling:'touch', background:'var(--bg-app)', position:'relative' } as React.CSSProperties}
+        style={{ flex:1, minHeight:0, overflowY:'auto', overflowX:'hidden', padding:'7px 10px 9px', WebkitOverflowScrolling:'touch', background:'var(--bg-app)', position:'relative' } as React.CSSProperties}
       >
         <div className="om-messages-inner" style={{ display:'flex', flexDirection:'column', gap:2 }}>
           <div className="om-messages-top-spacer" />
@@ -1238,6 +1262,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                 onReact={reactToMessage}
                 selectionMode={selectionMode}
                 selected={selectedMessageIds.includes(msg.id)}
+                onCallMessageClick={!isOfficialConversation ? startConversationCall : undefined}
                 onMediaLoad={() => {
                   if (isNearBottomRef.current) requestAnimationFrame(() => scrollMessagesToBottom('auto'));
                 }}
@@ -1292,14 +1317,14 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       {isOfficialConversation && !selectionMode && (
         <div style={{ padding:'12px 14px max(12px, env(safe-area-inset-bottom))', background:'#EAF4F1', borderTop:'1px solid rgba(16,42,42,0.14)', color:'#102A2A', flexShrink:0 }}>
           <p style={{ margin:0, fontSize:13.5, fontWeight:850, lineHeight:1.45, textAlign:'center' }}>
-            Conversation officielle Aura Messenger. Les réponses sont désactivées pour ce canal.
+            Conversation officielle O.messenger. Les réponses sont désactivées pour ce canal.
           </p>
         </div>
       )}
 
       {/* Input — toujours visible, safe-area iOS */}
       {!selectionMode && !isOfficialConversation && (
-      <div className="chat-composer-safe om-chat-composer" style={{ position:'relative', padding:'6px 8px', paddingBottom:'max(7px, env(safe-area-inset-bottom))', background:'#F0F2F5', borderTop:'1px solid #D7DBDF', flexShrink:0 }}>
+      <div className="chat-composer-safe om-chat-composer" style={{ position:'relative', padding:'5px 8px', paddingBottom:'max(6px, env(safe-area-inset-bottom))', background:'#F0F2F5', borderTop:'1px solid #D7DBDF', flexShrink:0 }}>
         {/* Emoji picker */}
         {showEmoji && (
           <EmojiPicker
@@ -1363,7 +1388,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               {showAttachMenu && (
                 <>
                   <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setShowAttachMenu(false)} />
-                  <div style={{ position:'absolute', bottom:50, left:0, zIndex:50, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:16, boxShadow:'0 4px 24px rgba(0,0,0,.15)', overflow:'hidden', minWidth:180 }}>
+                  <div style={{ position:'absolute', bottom:50, left:0, zIndex:50, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:16, boxShadow:'0 4px 24px rgba(0,0,0,.15)', overflow:'hidden', minWidth:210 }}>
                     <button onClick={() => { setShowAttachMenu(false); setShowCamera(true); }}
                       style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:14, color:'var(--text-primary)' }}>
                       <span style={{ fontSize:20 }}>📷</span> {t(lang, 'chat.camera')}
@@ -1376,19 +1401,45 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                       style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:14, color:'var(--text-primary)' }}>
                       <span style={{ fontSize:20 }}>📄</span> {t(lang, 'common.document')}
                     </button>
+                    <button onClick={() => { setShowAttachMenu(false); fileInputRef.current?.setAttribute('accept','audio/*'); fileInputRef.current?.click(); }}
+                      style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:14, color:'var(--text-primary)' }}>
+                      <span style={{ fontSize:20 }}>🎧</span> Audio
+                    </button>
+                    <button onClick={() => { setShowAttachMenu(false); showNotice('Le partage de contact sera activé après validation Android réelle.'); }}
+                      style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:14, color:'var(--text-primary)' }}>
+                      <span style={{ fontSize:20 }}>👤</span> Contact
+                    </button>
+                    <button onClick={() => {
+                      setShowAttachMenu(false);
+                      if (!navigator.geolocation) {
+                        showNotice('Localisation indisponible sur cet appareil.');
+                        return;
+                      }
+                      navigator.geolocation.getCurrentPosition(
+                        pos => {
+                          if (!activeConvId) return;
+                          const url = `https://maps.google.com/?q=${pos.coords.latitude},${pos.coords.longitude}`;
+                          sendMessage(activeConvId, url, 'text');
+                        },
+                        () => showNotice('Autorisation localisation refusée ou indisponible.')
+                      );
+                    }}
+                      style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:14, color:'var(--text-primary)' }}>
+                      <span style={{ fontSize:20 }}>📍</span> Localisation
+                    </button>
                   </div>
                 </>
               )}
             </div>
 
             {/* Textarea + emoji button */}
-            <div className="om-composer-input-shell" style={{ flex:1, background:'var(--bg-surface)', borderRadius:23, padding:'7px 12px', minHeight:42, display:'flex', alignItems:'center', gap:7, border:'1px solid var(--border)' }}>
+            <div className="om-composer-input-shell" style={{ flex:1, background:'var(--bg-surface)', borderRadius:23, padding:'6px 11px', minHeight:42, display:'flex', alignItems:'center', gap:7, border:'1px solid var(--border)' }}>
               <textarea ref={textareaRef} value={input} onChange={e => handleInputChange(e.target.value)}
                 onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 onPaste={handlePaste}
                 placeholder={t(lang,'chat.placeholder')} rows={1}
                 className="om-composer-textarea"
-                style={{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:16, color:'var(--text-primary)', resize:'none', maxHeight:108, lineHeight:1.28, padding:'1px 0', minHeight:22, WebkitUserSelect:'text', userSelect:'text', touchAction:'auto' }}
+                style={{ flex:1, background:'transparent', border:'none', outline:'none', fontSize:15.8, color:'var(--text-primary)', resize:'none', maxHeight:108, lineHeight:1.28, padding:'1px 0', minHeight:22, WebkitUserSelect:'text', userSelect:'text', touchAction:'auto' }}
                 onFocus={() => setTimeout(() => { if (isNearBottomRef.current) scrollMessagesToBottom('smooth'); }, 120)}
                 onInput={e => resizeTextarea(e.target as HTMLTextAreaElement)}
               />
@@ -1639,6 +1690,59 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         <MediaLightbox
           src={avatar}
           type="image"
+          title={name}
+          subtitle="Photo de profil"
+          qualityMode="profile"
+          profileActions={[
+            {
+              key: 'message',
+              label: 'Message',
+              icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.1" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.4-4 8-9 8-1.5 0-2.9-.3-4.1-.9L3 20l1.4-3.7A7.2 7.2 0 013 12c0-4.4 4-8 9-8s9 3.6 9 8z"/></svg>,
+              onClick: () => setAvatarLightbox(false),
+            },
+            {
+              key: 'audio',
+              label: 'Appeler',
+              icon: <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>,
+              disabled: !onStartCall || !other || isOfficialConversation,
+              onClick: () => { setAvatarLightbox(false); startConversationCall('audio'); },
+            },
+            {
+              key: 'video',
+              label: 'Vidéo',
+              icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.1" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.6-2.1A1 1 0 0121 8.8v6.4a1 1 0 01-1.4.9L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/></svg>,
+              disabled: !onStartCall || !other || isOfficialConversation,
+              onClick: () => { setAvatarLightbox(false); startConversationCall('video'); },
+            },
+            {
+              key: 'profile',
+              label: 'Profil',
+              icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.1" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M20 21a8 8 0 00-16 0M12 13a5 5 0 100-10 5 5 0 000 10z"/></svg>,
+              onClick: () => { setAvatarLightbox(false); setProfileModal(true); },
+            },
+            {
+              key: 'favorite',
+              label: 'Favori',
+              icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.1" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 3.7l2.5 5.1 5.6.8-4 3.9.9 5.5-5-2.7-5 2.7.9-5.5-4-3.9 5.6-.8L12 3.7z"/></svg>,
+              onClick: () => showNotice('Favori enregistré localement.'),
+            },
+            {
+              key: 'share',
+              label: 'Partager',
+              icon: <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.1" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7M16 6l-4-4-4 4M12 2v14"/></svg>,
+              onClick: () => {
+                const text = `${name} - Oracle Messenger`;
+                if (navigator.share) navigator.share({ title: name, text }).catch(() => {});
+                else navigator.clipboard?.writeText(text).then(() => showNotice('Contact copié.'));
+              },
+            },
+            {
+              key: 'more',
+              label: 'Plus',
+              icon: <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>,
+              onClick: () => { setAvatarLightbox(false); setProfileModal(true); },
+            },
+          ]}
           onClose={() => setAvatarLightbox(false)}
         />
       )}

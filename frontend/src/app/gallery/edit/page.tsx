@@ -52,6 +52,8 @@ export default function PhotoEditPage() {
   const imgRef    = useRef<HTMLImageElement | null>(null);
 
   const [src,      setSrc]      = useState('');
+  const [mediaType,setMediaType]= useState<'image' | 'video'>('image');
+  const [fileName, setFileName] = useState('');
   const [adj,      setAdj]      = useState<Adjustments>(DEFAULT);
   const [filter,   setFilter]   = useState(0);
   const [tab,      setTab]      = useState<'adjust'|'filter'>('adjust');
@@ -61,12 +63,17 @@ export default function PhotoEditPage() {
 
   useEffect(() => {
     setMounted(true);
-    const stored = sessionStorage.getItem('photo-edit-src');
+    const stored = sessionStorage.getItem('media-edit-src') || sessionStorage.getItem('photo-edit-src');
     if (!stored) { router.replace('/chat'); return; }
+    const storedType = sessionStorage.getItem('media-edit-type') === 'video' || stored.startsWith('data:video') ? 'video' : 'image';
     setSrc(stored);
-    const img = new Image();
-    img.onload = () => { imgRef.current = img; };
-    img.src = stored;
+    setMediaType(storedType);
+    setFileName(sessionStorage.getItem('media-edit-name') || '');
+    if (storedType === 'image') {
+      const img = new Image();
+      img.onload = () => { imgRef.current = img; };
+      img.src = stored;
+    }
   }, []);
 
   if (!mounted || !src) return (
@@ -89,6 +96,14 @@ export default function PhotoEditPage() {
   async function handleSave() {
     setSaving(true);
     try {
+      if (mediaType === 'video') {
+        const name = fileName || `video-retouche-${Date.now()}.mp4`;
+        saveToGallery(src, 'video', name, { source: 'edit', mime: src.startsWith('data:video/') ? src.slice(5, src.indexOf(';')) : 'video/mp4' });
+        downloadToPhone(src, name);
+        setSaved(true);
+        setTimeout(() => router.back(), 1200);
+        return;
+      }
       const img = imgRef.current;
       if (!img) return;
       const canvas = canvasRef.current!;
@@ -104,12 +119,25 @@ export default function PhotoEditPage() {
       ctx.drawImage(img, -img.naturalWidth/2, -img.naturalHeight/2);
       ctx.restore();
       const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-      saveToGallery(dataUrl, 'image', `retouche-${Date.now()}.jpg`, { source: 'edit', mime: 'image/jpeg' });
+      const name = `retouche-${Date.now()}.jpg`;
+      saveToGallery(dataUrl, 'image', name, { source: 'edit', mime: 'image/jpeg' });
+      downloadToPhone(dataUrl, name);
       setSaved(true);
       setTimeout(() => router.back(), 1200);
     } finally {
       setSaving(false);
     }
+  }
+
+  function downloadToPhone(dataUrl: string, name: string) {
+    try {
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch {}
   }
 
   const sliders: { key: keyof Adjustments; label: string; min: number; max: number; step: number }[] = [
@@ -133,7 +161,7 @@ export default function PhotoEditPage() {
           style={{ width:36, height:36, borderRadius:'50%', border:'none', background:'rgba(255,255,255,0.1)', cursor:'pointer', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center' }}>
           <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
         </button>
-        <h1 style={{ color:'#fff', fontSize:16, fontWeight:700, margin:0 }}>Retouche Photo</h1>
+        <h1 style={{ color:'#fff', fontSize:16, fontWeight:700, margin:0 }}>{mediaType === 'video' ? 'Retouche Vidéo' : 'Retouche Photo'}</h1>
         <div style={{ display:'flex', gap:8 }}>
           <button onClick={reset}
             style={{ padding:'7px 14px', borderRadius:20, border:'1px solid rgba(255,255,255,0.2)', background:'transparent', color:'#fff', fontSize:13, cursor:'pointer' }}>
@@ -149,9 +177,13 @@ export default function PhotoEditPage() {
       </div>
 
       {/* Preview */}
-      <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', background:'#000', position:'relative' }}>
-        <img src={src} alt="edit"
-          style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain', filter:filterCss, transform:transformCss, transition:'filter 0.15s, transform 0.2s' }}/>
+      <div style={{ flex:'0 0 clamp(300px, 48dvh, 560px)', minHeight:0, display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', background:'#000', position:'relative' }}>
+        {mediaType === 'video' ? (
+          <video src={src} controls playsInline style={{ width:'100%', height:'100%', objectFit:'contain', filter:filterCss, transform:transformCss, transition:'filter 0.15s, transform 0.2s' }} />
+        ) : (
+          <img src={src} alt="edit"
+            style={{ maxWidth:'100%', maxHeight:'100%', objectFit:'contain', filter:filterCss, transform:transformCss, transition:'filter 0.15s, transform 0.2s' }}/>
+        )}
         {saved && (
           <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(0,0,0,0.5)', animation:'pop 0.2s ease' }}>
             <div style={{ width:72, height:72, borderRadius:'50%', background:'#22c55e', display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -162,7 +194,7 @@ export default function PhotoEditPage() {
       </div>
 
       {/* Toolbar */}
-      <div style={{ background:'#1a1a1a', flexShrink:0 }}>
+      <div style={{ background:'#1a1a1a', flex:'1 1 auto', minHeight:0, overflowY:'auto', WebkitOverflowScrolling:'touch' }}>
         {/* Tabs */}
         <div style={{ display:'flex', borderBottom:'1px solid rgba(255,255,255,0.1)' }}>
           {(['adjust','filter'] as const).map(t => (
@@ -174,7 +206,9 @@ export default function PhotoEditPage() {
         </div>
 
         <div style={{ padding:'8px 16px 0', color:'rgba(255,255,255,0.68)', fontSize:12, lineHeight:1.35 }}>
-          Outils gratuits : luminosité, contraste, saturation, chaleur, noir & blanc, sépia, flou, rotation, miroir et filtres.
+          {mediaType === 'video'
+            ? 'Vidéo : aperçu grand écran, lecture, rotation, miroir, classement dans la galerie Oracle et enregistrement sur le téléphone.'
+            : 'Outils gratuits : luminosité, contraste, saturation, chaleur, noir & blanc, sépia, flou, rotation, miroir et filtres.'}
         </div>
 
         {/* Adjust tab */}
@@ -217,7 +251,11 @@ export default function PhotoEditPage() {
                 <button key={f.name} onClick={() => setFilter(i)}
                   style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, border:'none', background:'transparent', cursor:'pointer', padding:0 }}>
                   <div style={{ width:64, height:64, borderRadius:12, overflow:'hidden', border: filter===i ? '2.5px solid var(--brand)' : '2.5px solid transparent' }}>
-                    <img src={src} alt={f.name} style={{ width:'100%', height:'100%', objectFit:'cover', filter: f.css || 'none' }}/>
+                    {mediaType === 'video' ? (
+                      <video src={src} muted playsInline style={{ width:'100%', height:'100%', objectFit:'cover', filter: f.css || 'none', pointerEvents:'none' }} />
+                    ) : (
+                      <img src={src} alt={f.name} style={{ width:'100%', height:'100%', objectFit:'cover', filter: f.css || 'none' }}/>
+                    )}
                   </div>
                   <span style={{ fontSize:11, color: filter===i ? ACCENT : 'rgba(255,255,255,0.6)', fontWeight: filter===i ? 700 : 400 }}>{f.name}</span>
                 </button>

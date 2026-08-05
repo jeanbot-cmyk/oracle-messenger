@@ -57,7 +57,7 @@ export default function ProfilePage() {
         image.onerror = reject;
         image.src = imageUrl;
       });
-      const maxSide = 900;
+      const maxSide = 1400;
       const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
       const width = Math.max(1, Math.round(img.width * scale));
       const height = Math.max(1, Math.round(img.height * scale));
@@ -68,12 +68,12 @@ export default function ProfilePage() {
       if (!ctx) throw new Error('canvas unavailable');
       ctx.drawImage(img, 0, 0, width, height);
 
-      const qualities = [0.82, 0.72, 0.62, 0.52, 0.44];
+      const qualities = [0.9, 0.84, 0.76, 0.66, 0.56];
       for (const quality of qualities) {
         const dataUrl = canvas.toDataURL('image/jpeg', quality);
-        if (dataUrl.length < 2_700_000) return dataUrl;
+        if (dataUrl.length < 3_400_000) return dataUrl;
       }
-      return canvas.toDataURL('image/jpeg', 0.38);
+      return canvas.toDataURL('image/jpeg', 0.48);
     } finally {
       URL.revokeObjectURL(imageUrl);
     }

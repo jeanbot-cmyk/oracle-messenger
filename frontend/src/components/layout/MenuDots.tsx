@@ -24,10 +24,6 @@ export function MenuDots() {
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  const menuStyle: React.CSSProperties = { position:'absolute', right:0, top:62, zIndex:50, width:'min(312px, calc(100vw - 28px))', background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:18, boxShadow:'0 18px 44px rgba(16,42,42,0.20)', overflow:'hidden' };
-  const itemStyle: React.CSSProperties = { width:'100%', display:'flex', alignItems:'center', gap:13, padding:'14px 16px', border:'none', background:'transparent', cursor:'pointer', textAlign:'left' as const, color:'var(--text-primary)', fontSize:15, lineHeight:1.25 };
-  const divStyle: React.CSSProperties = { height:1, background:'var(--border)', margin:'2px 0' };
-
   function shareApp() {
     setOpen(false);
     if (navigator.share) {
@@ -37,80 +33,201 @@ export function MenuDots() {
     }
   }
 
+  const menuStyle: React.CSSProperties = {
+    position:'absolute',
+    right:0,
+    top:52,
+    zIndex:50,
+    width:'min(292px, calc(100vw - 34px))',
+    maxHeight:'min(78dvh, 680px)',
+    overflowY:'auto',
+    overflowX:'hidden',
+    background:'color-mix(in srgb, var(--bg-surface) 94%, transparent)',
+    border:'1px solid color-mix(in srgb, var(--border) 72%, transparent)',
+    borderRadius:24,
+    boxShadow:'0 26px 70px rgba(16,42,42,0.22), 0 2px 10px rgba(15,23,42,0.08)',
+    backdropFilter:'blur(18px) saturate(1.08)',
+    WebkitBackdropFilter:'blur(18px) saturate(1.08)',
+    padding:'10px 0',
+    scrollbarWidth:'none',
+  };
+  const divStyle: React.CSSProperties = { height:1, background:'color-mix(in srgb, var(--border) 58%, transparent)', margin:'9px 18px' };
+
+  function MenuItem({
+    icon,
+    title,
+    subtitle,
+    end,
+    danger = false,
+    onClick,
+  }: {
+    icon: string;
+    title: React.ReactNode;
+    subtitle?: React.ReactNode;
+    end?: React.ReactNode;
+    danger?: boolean;
+    onClick: () => void;
+  }) {
+    return (
+      <button className={`om-tools-menu-item${danger ? ' om-tools-menu-danger' : ''}`} onClick={onClick}>
+        <span className="om-tools-menu-icon" aria-hidden="true">{icon}</span>
+        <span className="om-tools-menu-copy">
+          <span className="om-tools-menu-title">{title}</span>
+          {subtitle && <span className="om-tools-menu-subtitle">{subtitle}</span>}
+        </span>
+        {end && <span className="om-tools-menu-end">{end}</span>}
+      </button>
+    );
+  }
+
   return (
     <div ref={ref} style={{ position:'relative' }}>
       <button
         onClick={() => setOpen(v => !v)}
         aria-label={t(lang, 'chat.menu.open')}
-        style={{ width:52, height:52, minHeight:52, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1.5px solid rgba(255,255,255,0.22)', background:'rgba(255,255,255,0.14)', cursor:'pointer', color:'#FFFFFF', boxShadow:'inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 20px rgba(0,0,0,0.16)' }}
+        style={{ width:42, height:42, minHeight:42, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1.5px solid rgba(255,255,255,0.22)', background:'rgba(255,255,255,0.14)', cursor:'pointer', color:'#FFFFFF', boxShadow:'inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 20px rgba(0,0,0,0.16)' }}
       >
-        <svg width="30" height="30" fill="currentColor" viewBox="0 0 24 24">
+        <svg width="25" height="25" fill="currentColor" viewBox="0 0 24 24">
           <circle cx="12" cy="5" r="1.85"/><circle cx="12" cy="12" r="1.85"/><circle cx="12" cy="19" r="1.85"/>
         </svg>
       </button>
 
       {open && (
         <div style={menuStyle}>
-          <button style={itemStyle} onClick={() => { window.location.assign('https://oracle-plus.online/consultation'); setOpen(false); }}>
-            <span>🔮</span><div><div style={{ fontWeight:500 }}>{t(lang,'menu.spirituality')}</div><div style={{ fontSize:11, color:'var(--text-muted)' }}>{t(lang,'menu.spirituality.sub')}</div></div>
-          </button>
-          <button style={itemStyle} onClick={() => { window.location.assign('https://web.oracle-plus.online?source=messenger'); setOpen(false); }}>
-            <span>🌐</span><div><div style={{ fontWeight:700 }}>Web</div><div style={{ fontSize:11.5, color:'var(--text-muted)', lineHeight:1.35 }}>Créer mon site web, appli ou boutique</div></div>
-          </button>
+          <style>{`
+            @keyframes omToolsMenuIn {
+              from { opacity: 0; transform: translateY(-8px) scale(.985); }
+              to { opacity: 1; transform: translateY(0) scale(1); }
+            }
+            .om-tools-menu-item {
+              position: relative;
+              width: 100%;
+              min-height: 68px;
+              display: flex;
+              align-items: center;
+              gap: 17px;
+              padding: 15px 18px;
+              border: none;
+              background: transparent;
+              color: var(--text-primary);
+              cursor: pointer;
+              text-align: left;
+              line-height: 1.18;
+              animation: omToolsMenuIn 170ms ease both;
+              transition: background-color 140ms ease, transform 120ms ease, color 140ms ease;
+            }
+            .om-tools-menu-item::after {
+              content: "";
+              position: absolute;
+              inset: 7px 10px;
+              border-radius: 16px;
+              background: transparent;
+              z-index: -1;
+              transition: background-color 120ms ease, transform 120ms ease;
+            }
+            .om-tools-menu-item:active {
+              transform: scale(.992);
+            }
+            .om-tools-menu-item:active::after,
+            .om-tools-menu-item:hover::after {
+              background: color-mix(in srgb, var(--header-bg) 9%, transparent);
+            }
+            .dark .om-tools-menu-item:active::after,
+            .dark .om-tools-menu-item:hover::after {
+              background: rgba(255,255,255,.08);
+            }
+            .om-tools-menu-icon {
+              width: 34px;
+              height: 34px;
+              flex: 0 0 34px;
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 22px;
+              line-height: 1;
+              border-radius: 12px;
+              background: color-mix(in srgb, var(--header-bg) 7%, transparent);
+            }
+            .om-tools-menu-copy {
+              min-width: 0;
+              flex: 1 1 auto;
+              display: flex;
+              flex-direction: column;
+              gap: 3px;
+              justify-content: center;
+            }
+            .om-tools-menu-title {
+              display: block;
+              font-size: 16px;
+              font-weight: 760;
+              color: inherit;
+              letter-spacing: 0;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+            }
+            .om-tools-menu-subtitle {
+              display: block;
+              font-size: 13px;
+              font-weight: 560;
+              color: var(--text-muted);
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+            }
+            .om-tools-menu-end {
+              flex: 0 0 auto;
+              display: inline-flex;
+              align-items: center;
+              justify-content: center;
+              min-width: 24px;
+              color: var(--text-muted);
+              font-weight: 800;
+            }
+            .om-tools-menu-danger {
+              color: #dc2626;
+            }
+            .om-tools-menu-danger .om-tools-menu-icon {
+              background: rgba(220,38,38,.08);
+            }
+            @media (prefers-reduced-motion: reduce) {
+              .om-tools-menu-item { animation: none; transition: none; }
+            }
+          `}</style>
+          <MenuItem icon="🔮" title={t(lang,'menu.spirituality')} subtitle={t(lang,'menu.spirituality.sub')} onClick={() => { window.location.assign('https://oracle-plus.online/consultation'); setOpen(false); }} />
+          <MenuItem icon="🌐" title="Web" subtitle="Créer mon site web, appli ou boutique" onClick={() => { window.location.assign('https://web.oracle-plus.online?source=messenger'); setOpen(false); }} />
           <div style={divStyle}/>
-          <button style={itemStyle} onClick={() => { setOpen(false); setShowMedia(true); }}>
-            <span>📸</span><div><div style={{ fontWeight:500 }}>{t(lang,'menu.media')}</div><div style={{ fontSize:11, color:'var(--text-muted)' }}>{t(lang,'menu.media.sub')}</div></div>
-          </button>
-          <button style={itemStyle} onClick={() => { setOpen(false); router.push('/business'); }}>
-            <span>💼</span><div><div style={{ fontWeight:500 }}>{t(lang,'menu.business')}</div><div style={{ fontSize:11, color:'var(--text-muted)' }}>{t(lang,'menu.business.sub')}</div></div>
-          </button>
+          <MenuItem icon="📸" title={t(lang,'menu.media')} subtitle={t(lang,'menu.media.sub')} onClick={() => { setOpen(false); setShowMedia(true); }} />
+          <MenuItem icon="💼" title={t(lang,'menu.business')} subtitle={t(lang,'menu.business.sub')} onClick={() => { setOpen(false); router.push('/business'); }} />
           <div style={divStyle}/>
           {/* Thème */}
-          <button style={itemStyle} onClick={() => { toggleTheme(); setOpen(false); }}>
-            <span>{theme === 'light' ? '🌙' : '☀️'}</span>
-            <div style={{ fontWeight:500 }}>{theme === 'light' ? t(lang,'menu.theme.dark') : t(lang,'menu.theme.light')}</div>
-          </button>
+          <MenuItem icon={theme === 'light' ? '🌙' : '☀️'} title={theme === 'light' ? t(lang,'menu.theme.dark') : t(lang,'menu.theme.light')} onClick={() => { toggleTheme(); setOpen(false); }} />
           {/* Langue */}
-          <button style={itemStyle} onClick={() => setLangOpen(v => !v)}>
-            <span>🌐</span>
-            <div style={{ flex:1, fontWeight:500 }}>{t(lang,'menu.language')}</div>
-            <span style={{ fontSize:12, color:'var(--text-muted)' }}>{LANGUAGES.find(l=>l.code===lang)?.flag}</span>
-          </button>
+          <MenuItem icon="🌐" title={t(lang,'menu.language')} end={LANGUAGES.find(l=>l.code===lang)?.flag} onClick={() => setLangOpen(v => !v)} />
           {langOpen && (
-            <div style={{ background:'var(--bg-elevated)', borderTop:'1px solid var(--border)', maxHeight:200, overflowY:'auto' }}>
+            <div style={{ background:'color-mix(in srgb, var(--bg-elevated) 88%, transparent)', borderTop:'1px solid color-mix(in srgb, var(--border) 56%, transparent)', maxHeight:200, overflowY:'auto', padding:'4px 0' }}>
               {LANGUAGES.map(l => (
-                <button key={l.code} style={{ ...itemStyle, padding:'8px 24px', background: l.code===lang ? 'var(--bg-input)' : 'transparent' }}
+                <button key={l.code} className="om-tools-menu-item" style={{ minHeight:46, padding:'9px 24px', background: l.code===lang ? 'color-mix(in srgb, var(--header-bg) 9%, transparent)' : 'transparent' }}
                   onClick={() => { setLang(l.code); setLangOpen(false); setOpen(false); }}>
-                  <span>{l.flag}</span><span>{l.label}</span>
-                  {l.code===lang && <span style={{ marginLeft:'auto', color:'var(--accent)' }}>✓</span>}
+                  <span className="om-tools-menu-icon" style={{ width:28, height:28, flexBasis:28, fontSize:18 }}>{l.flag}</span>
+                  <span className="om-tools-menu-title" style={{ fontSize:14 }}>{l.label}</span>
+                  {l.code===lang && <span className="om-tools-menu-end" style={{ marginLeft:'auto', color:'var(--brand)' }}>✓</span>}
                 </button>
               ))}
             </div>
           )}
           <div style={divStyle}/>
-          <button style={itemStyle} onClick={shareApp}>
-            <span>📤</span><div><div style={{ fontWeight:500 }}>{t(lang,'menu.share')}</div><div style={{ fontSize:11, color:'var(--text-muted)' }}>{t(lang,'menu.share.sub')}</div></div>
-          </button>
+          <MenuItem icon="📤" title={t(lang,'menu.share')} subtitle={t(lang,'menu.share.sub')} onClick={shareApp} />
           <div style={divStyle}/>
-          <button style={itemStyle} onClick={() => { setOpen(false); router.push('/profile'); }}>
-            <span>👤</span><span style={{ fontWeight:500 }}>{t(lang,'menu.profile')}</span>
-          </button>
+          <MenuItem icon="👤" title={t(lang,'menu.profile')} onClick={() => { setOpen(false); router.push('/profile'); }} />
           {isAdmin && (
             <>
               <div style={divStyle}/>
-              <button style={itemStyle} onClick={() => { setOpen(false); router.push('/admin'); }}>
-                <span>🛡️</span>
-                <div>
-                  <div style={{ fontWeight:500 }}>{t(lang,'menu.admin')}</div>
-                  <div style={{ fontSize:11, color:'var(--text-muted)' }}>{t(lang,'menu.admin.sub')}</div>
-                </div>
-              </button>
+              <MenuItem icon="🛡️" title={t(lang,'menu.admin')} subtitle={t(lang,'menu.admin.sub')} onClick={() => { setOpen(false); router.push('/admin'); }} />
             </>
           )}
           <div style={divStyle}/>
-          <button style={{ ...itemStyle, color:'#dc2626' }} onClick={() => { setOpen(false); signOut({ callbackUrl:'/login' }); }}>
-            <span>🚪</span><span style={{ fontWeight:500 }}>{t(lang,'menu.logout')}</span>
-          </button>
+          <MenuItem icon="🚪" title={t(lang,'menu.logout')} danger onClick={() => { setOpen(false); signOut({ callbackUrl:'/login' }); }} />
         </div>
       )}
 

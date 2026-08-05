@@ -8,9 +8,10 @@ import * as os from 'os';
 export class AdminService {
   private readonly logger = new Logger(AdminService.name);
   private lastCpuSnapshot: { idle: number; total: number } | null = null;
-  private readonly officialConversationName = 'Aura Messenger';
-  private readonly officialConversationAvatar = '/icons/icon-192.png';
+  private readonly officialConversationName = 'O.messenger';
+  private readonly officialConversationAvatar = '/icons/oracle-system-avatar.svg';
   private readonly officialSystemEmail = 'system-aura@oracle-messenger.local';
+  private readonly realUserWhere = { email: { not: this.officialSystemEmail } };
 
   constructor(
     private prisma: PrismaService,
@@ -20,13 +21,16 @@ export class AdminService {
 
   async getStats() {
     const [totalUsers, premiumUsers, totalMessages, totalConversations, pwaInstalls] = await Promise.all([
-      this.prisma.user.count(),
-      this.prisma.user.count({ where: { isPremium: true } }),
+      this.prisma.user.count({ where: this.realUserWhere }),
+      this.prisma.user.count({ where: { ...this.realUserWhere, isPremium: true } }),
       this.prisma.message.count({ where: { isDeleted: false } }),
       this.prisma.conversation.count(),
       this.prisma.pwaInstall.count(),
     ]);
-    const onlineUsers = this.socketState.getOnlineUserIds().length;
+    const onlineUserIds = this.socketState.getOnlineUserIds();
+    const onlineUsers = await this.prisma.user.count({
+      where: { ...this.realUserWhere, id: { in: onlineUserIds.length ? onlineUserIds : [''] } },
+    });
     return {
       totalUsers,
       premiumUsers,
@@ -76,6 +80,7 @@ export class AdminService {
     const liveIds = new Set(this.socketState.getOnlineUserIds());
     const users = await this.prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
+      where: this.realUserWhere,
       take: limit,
       select: { id:true, name:true, email:true, isPremium:true, status:true, createdAt:true, pushToken:true },
     });
@@ -122,7 +127,7 @@ export class AdminService {
       where: { email: this.officialSystemEmail },
       update: {
         name: this.officialConversationName,
-        username: 'aura_messenger',
+        username: 'o_messenger',
         avatar: this.officialConversationAvatar,
         status: 'online',
       },
@@ -130,7 +135,7 @@ export class AdminService {
         googleId: 'system-aura-messenger',
         email: this.officialSystemEmail,
         name: this.officialConversationName,
-        username: 'aura_messenger',
+        username: 'o_messenger',
         avatar: this.officialConversationAvatar,
         status: 'online',
       },
@@ -142,7 +147,7 @@ export class AdminService {
     const cleanContent = content?.trim() || mediaUrl?.trim() || '';
     if (!cleanContent) return { success: false, sent: 0, failed: 0, total: 0, message: 'Contenu requis' };
 
-    // Get or create one official Aura Messenger conversation for each user.
+    // Get or create one official O.messenger conversation for each user.
     const users = await this.prisma.user.findMany({
       where: { id: { not: systemUser.id } },
       select: { id: true },

@@ -4,6 +4,7 @@ dist/
 .env
 .env.local
 .secrets/
+.android-sdk/
 *.log
 .DS_Store
 coverage/

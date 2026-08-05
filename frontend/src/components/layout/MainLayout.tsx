@@ -1,6 +1,6 @@
 'use client';
 import { useRef, useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { signOut, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { ConversationList } from '../chat/ConversationList';
 import { ChatWindow } from '../chat/ChatWindow';
@@ -9,11 +9,16 @@ import { useChatStore } from '../../store/chat';
 import { api } from '../../lib/api';
 import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
+import { matchesSearch } from '../../lib/search';
 
-type Tab = 'discussions' | 'appels' | 'actus' | 'outils';
+type Tab = 'discussions' | 'appels' | 'actus' | 'outils' | 'menu';
+const TAB_ORDER: Tab[] = ['discussions', 'appels', 'actus', 'outils', 'menu'];
+const ADMIN_EMAIL = 'tchingankonggeorges@gmail.com';
+const ADMIN_PHONE = '+2250504673829';
 
 interface Props {
   onStartCall?: (convId: string, userIds: string[], type: 'audio' | 'video') => void;
+  conversationsLoading?: boolean;
 }
 
 function readFavoriteConversationIds() {
@@ -26,16 +31,19 @@ function readFavoriteConversationIds() {
   }
 }
 
-export function MainLayout({ onStartCall }: Props) {
+export function MainLayout({ onStartCall, conversationsLoading = false }: Props) {
   const { data: session } = useSession();
   const router = useRouter();
   const [tab, setTab]       = useState<Tab>('discussions');
   const [search, setSearch] = useState('');
+  const [remoteSearchConversations, setRemoteSearchConversations] = useState<any[] | null>(null);
+  const [remoteSearchLoading, setRemoteSearchLoading] = useState(false);
   const [filter, setFilter] = useState<'all' | 'unread' | 'fav' | 'groups'>('all');
   const [showChat, setShowChat] = useState(false); // mobile: show conversation panel
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const photoPickerRef = useRef<HTMLInputElement>(null);
+  const tabTouchRef = useRef<{ x: number; y: number } | null>(null);
   const { lang } = useSettings();
   const token = session?.user?.backendToken ?? '';
   const { conversations, activeConvId, setActiveConv, removeConversation } = useChatStore();
@@ -46,6 +54,46 @@ export function MainLayout({ onStartCall }: Props) {
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
   }, []);
+
+  useEffect(() => {
+    ['/contacts', '/stories', '/tools', '/business', '/profile', '/gallery'].forEach(path => {
+      router.prefetch(path);
+    });
+  }, [router]);
+
+  useEffect(() => {
+    const q = search.trim();
+    if (!token || !q) {
+      setRemoteSearchConversations(null);
+      setRemoteSearchLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setRemoteSearchLoading(true);
+    const timer = window.setTimeout(() => {
+      api.conversations.search(q, token)
+        .then(results => {
+          if (cancelled) return;
+          setRemoteSearchConversations(Array.isArray(results) ? results : []);
+          if (Array.isArray(results) && results.length) {
+            const existing = useChatStore.getState().conversations;
+            const byId = new Map(existing.map(conv => [conv.id, conv]));
+            results.forEach(conv => byId.set(conv.id, { ...byId.get(conv.id), ...conv }));
+            useChatStore.getState().setConversations([...byId.values()]);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setRemoteSearchConversations(null);
+        })
+        .finally(() => {
+          if (!cancelled) setRemoteSearchLoading(false);
+        });
+    }, 220);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [search, token]);
 
   // When a conversation is activated (e.g. from /contacts), switch to chat view on mobile
   useEffect(() => {
@@ -75,6 +123,30 @@ export function MainLayout({ onStartCall }: Props) {
     }
   }
 
+  function goToTab(next: Tab) {
+    setTab(next);
+  }
+
+  function handleTabTouchStart(e: React.TouchEvent<HTMLDivElement>) {
+    if (e.touches.length !== 1) return;
+    tabTouchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }
+
+  function handleTabTouchEnd(e: React.TouchEvent<HTMLDivElement>) {
+    const start = tabTouchRef.current;
+    tabTouchRef.current = null;
+    if (!start || e.changedTouches.length !== 1) return;
+    const end = e.changedTouches[0];
+    const dx = end.clientX - start.x;
+    const dy = end.clientY - start.y;
+    if (Math.abs(dx) < 58 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+    const currentIndex = TAB_ORDER.indexOf(tab);
+    const nextIndex = dx < 0 ? currentIndex + 1 : currentIndex - 1;
+    if (nextIndex >= 0 && nextIndex < TAB_ORDER.length) {
+      goToTab(TAB_ORDER[nextIndex]);
+    }
+  }
+
   const TABS: { id: Tab; icon: React.ReactNode; label: string }[] = [
     {
       id: 'discussions', label: t(lang, 'nav.discussions'),
@@ -91,6 +163,10 @@ export function MainLayout({ onStartCall }: Props) {
     {
       id: 'outils', label: t(lang, 'nav.tools'),
       icon: <svg width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 7h14M5 12h14M5 17h14"/></svg>,
+    },
+    {
+      id: 'menu', label: 'Menu',
+      icon: <svg width="21" height="21" fill="none" stroke="currentColor" strokeWidth="1.9" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M4 12h16M4 17h16"/></svg>,
     },
   ];
 
@@ -121,13 +197,17 @@ export function MainLayout({ onStartCall }: Props) {
     e.target.value = '';
   }
 
-  // Retouche photo depuis Outils → ouvre l'éditeur photo (pas stories)
+  // Retouche photo/vidéo depuis Outils → ouvre l'éditeur média (pas stories)
   function handlePhotoEdit(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    const isVideo = file.type.startsWith('video/');
     const reader = new FileReader();
     reader.onload = () => {
       const b64 = reader.result as string;
+      sessionStorage.setItem('media-edit-src', b64);
+      sessionStorage.setItem('media-edit-type', isVideo ? 'video' : 'image');
+      sessionStorage.setItem('media-edit-name', file.name || '');
       sessionStorage.setItem('photo-edit-src', b64);
       router.push('/gallery/edit');
     };
@@ -138,6 +218,7 @@ export function MainLayout({ onStartCall }: Props) {
   // On mobile: show either list OR chat, never both
   const showList = isMobile === false || !showChat;
   const showChatPanel = isMobile === false || showChat;
+  const tabIndex = Math.max(0, TAB_ORDER.indexOf(tab));
 
   if (isMobile === null) {
     return (
@@ -155,8 +236,8 @@ export function MainLayout({ onStartCall }: Props) {
       <div style={{ width: isMobile ? '100%' : '100%', maxWidth: isMobile ? '100%' : 420, display: showList ? 'flex' : 'none', flexDirection: 'column', background: 'var(--bg-surface)', borderRight: isMobile ? 'none' : '1px solid var(--border)', height: '100%', minHeight:0, flexShrink: 0, position: 'relative' }}>
 
         {/* Header */}
-        <div style={{ padding: 'calc(14px + env(safe-area-inset-top, 0px)) 18px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, background: 'linear-gradient(180deg, var(--header-bg), #0B1628)', borderBottom: '1px solid rgba(255,255,255,0.10)', boxShadow: '0 1px 0 rgba(16,42,42,0.05)' }}>
-          <span style={{ fontSize: 24, lineHeight: 1.1, fontWeight: 850, color: '#FFFFFF', letterSpacing: 0 }}>Oracle Messenger</span>
+        <div style={{ padding: 'calc(12px + env(safe-area-inset-top, 0px)) 16px 10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, background: 'linear-gradient(180deg, var(--header-bg), #0B1628)', borderBottom: '1px solid rgba(255,255,255,0.10)', boxShadow: '0 1px 0 rgba(16,42,42,0.05)' }}>
+          <span style={{ fontSize: 22, lineHeight: 1.1, fontWeight: 850, color: '#FFFFFF', letterSpacing: 0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', paddingRight:10 }}>Oracle Messenger</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {/* Bouton caméra → ouvre caméra native */}
             <button
@@ -171,20 +252,33 @@ export function MainLayout({ onStartCall }: Props) {
             </button>
             {/* Input caméra caché */}
             <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFileToStory} style={{ display: 'none' }} />
-            {/* Input galerie caché (Retouche Photo) */}
-            <input ref={photoPickerRef} type="file" accept="image/*" onChange={handlePhotoEdit} style={{ display: 'none' }} />
+            {/* Input galerie caché (Retouche Photo/Vidéo) */}
+            <input ref={photoPickerRef} type="file" accept="image/*,video/*" onChange={handlePhotoEdit} style={{ display: 'none' }} />
             <MenuDots />
           </div>
         </div>
 
         {/* Barre de recherche */}
-        <div style={{ padding: '12px 16px 10px', flexShrink: 0, background: 'var(--bg-surface)' }}>
+        <div style={{ padding: '10px 16px 9px', flexShrink: 0, background: 'var(--bg-surface)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 22, padding: '9px 14px', minHeight: 44, boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.75)' }}>
             <svg width="18" height="18" fill="none" stroke="var(--text-muted)" strokeWidth="1.9" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
             </svg>
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder={t(lang, 'chat.search')}
               style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 15, color: 'var(--text-primary)', fontWeight: 500, lineHeight: 1.35 }} />
+            {remoteSearchLoading && search.trim() && (
+              <span aria-label="Recherche en cours" style={{ width:16, height:16, border:'2px solid rgba(100,116,139,.22)', borderTopColor:'var(--brand)', borderRadius:'50%', animation:'spin .7s linear infinite', flexShrink:0 }} />
+            )}
+            {search && (
+              <button
+                type="button"
+                aria-label="Effacer la recherche"
+                onClick={() => setSearch('')}
+                style={{ width:28, height:28, minHeight:28, border:'none', borderRadius:'50%', background:'rgba(16,42,42,.08)', color:'var(--text-secondary)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', flexShrink:0, fontSize:17, lineHeight:1 }}
+              >
+                ×
+              </button>
+            )}
           </div>
         </div>
 
@@ -207,18 +301,44 @@ export function MainLayout({ onStartCall }: Props) {
         )}
 
         {/* Contenu */}
-        <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-          {tab === 'discussions' && (
-            <ConversationList
-              search={search}
-              filter={filter}
-              onSelect={(convId) => handleSelectConv(convId)}
-              onDelete={handleDeleteConversation}
-            />
-          )}
-          {tab === 'appels'      && <CallsTab onStartCall={onStartCall} />}
-          {tab === 'actus'       && <ActusTab />}
-          {tab === 'outils'      && <OutilsTab onPickPhoto={() => photoPickerRef.current?.click()} />}
+        <div
+          onTouchStart={handleTabTouchStart}
+          onTouchEnd={handleTabTouchEnd}
+          style={{ flex: 1, overflow: 'hidden', position: 'relative', touchAction: 'pan-y', background: 'var(--bg-app)' }}
+        >
+          <div
+            style={{
+              height: '100%',
+              display: 'flex',
+              transform: `translate3d(-${tabIndex * 100}%, 0, 0)`,
+              transition: 'transform 230ms cubic-bezier(.2,.8,.2,1)',
+              willChange: 'transform',
+            }}
+          >
+            <div aria-hidden={tab !== 'discussions'} style={{ flex: '0 0 100%', width: '100%', height: '100%', overflow: 'hidden', pointerEvents: tab === 'discussions' ? 'auto' : 'none' }}>
+              <ConversationList
+                search={search}
+                remoteResults={remoteSearchConversations}
+                searchLoading={remoteSearchLoading}
+                filter={filter}
+                loading={conversationsLoading}
+                onSelect={(convId) => handleSelectConv(convId)}
+                onDelete={handleDeleteConversation}
+              />
+            </div>
+            <div aria-hidden={tab !== 'appels'} style={{ flex: '0 0 100%', width: '100%', height: '100%', overflow: 'hidden', pointerEvents: tab === 'appels' ? 'auto' : 'none' }}>
+              <CallsTab search={search} onStartCall={onStartCall} />
+            </div>
+            <div aria-hidden={tab !== 'actus'} style={{ flex: '0 0 100%', width: '100%', height: '100%', overflow: 'hidden', pointerEvents: tab === 'actus' ? 'auto' : 'none' }}>
+              <ActusTab />
+            </div>
+            <div aria-hidden={tab !== 'outils'} style={{ flex: '0 0 100%', width: '100%', height: '100%', overflow: 'hidden', pointerEvents: tab === 'outils' ? 'auto' : 'none' }}>
+              <OutilsTab onPickPhoto={() => photoPickerRef.current?.click()} />
+            </div>
+            <div aria-hidden={tab !== 'menu'} style={{ flex: '0 0 100%', width: '100%', height: '100%', overflow: 'hidden', pointerEvents: tab === 'menu' ? 'auto' : 'none' }}>
+              <MenuTab />
+            </div>
+          </div>
         </div>
 
         {/* FAB nouveau message → contacts */}
@@ -237,8 +357,9 @@ export function MainLayout({ onStartCall }: Props) {
         {/* Tabs bas */}
         <div style={{ display: 'flex', borderTop: '1px solid var(--border)', background: 'rgba(255,255,255,0.96)', flexShrink: 0, paddingBottom: 'env(safe-area-inset-bottom)', boxShadow: '0 -8px 24px rgba(16,42,42,0.04)' }}>
           {TABS.map(tb => (
-            <button key={tb.id} onClick={() => setTab(tb.id)}
-              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '9px 4px 8px', minHeight: 62, border: 'none', background: 'transparent', cursor: 'pointer', color: tab === tb.id ? 'var(--brand)' : 'var(--text-muted)', fontSize: 12, lineHeight: 1.1, fontWeight: tab === tb.id ? 800 : 600, transition: 'color 0.2s ease, transform 0.2s ease' }}>
+            <button key={tb.id} onClick={() => goToTab(tb.id)}
+              className={tab === tb.id ? 'om-main-tab om-main-tab-active' : 'om-main-tab'}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 4px 7px', minHeight: 60, border: 'none', background: 'transparent', cursor: 'pointer', color: tab === tb.id ? 'var(--brand)' : '#334155', fontSize: 12, lineHeight: 1.1, fontWeight: tab === tb.id ? 850 : 760, transition: 'color 0.2s ease, transform 0.2s ease', position:'relative' }}>
               {tb.icon}
               {tb.label}
             </button>
@@ -259,6 +380,7 @@ export function MainLayout({ onStartCall }: Props) {
 
 interface CallLogEntry {
   id: string; callId: string; peerId: string; peerName: string;
+  peerAvatar?: string;
   type: 'audio'|'video'; direction: 'incoming'|'outgoing'|'missed';
   duration?: number; startedAt: string;
 }
@@ -269,12 +391,12 @@ function formatDuration(s?: number) {
   return `${Math.floor(s/60)}min ${s%60}s`;
 }
 
-function CallsTab({ onStartCall }: { onStartCall?: (convId: string, userIds: string[], type: 'audio' | 'video') => void }) {
+function CallsTab({ search = '', onStartCall }: { search?: string; onStartCall?: (convId: string, userIds: string[], type: 'audio' | 'video') => void }) {
   const router = useRouter();
   const { data: session } = useSession();
   const token = session?.user?.backendToken ?? '';
   const BASE  = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
-  const { setActiveConv, setConversations } = useChatStore();
+  const { conversations, setActiveConv, setConversations } = useChatStore();
 
   const [log,     setLog]     = useState<CallLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -347,6 +469,15 @@ function CallsTab({ onStartCall }: { onStartCall?: (convId: string, userIds: str
   );
 
   const ACCENT = 'var(--accent)';
+  const visibleLog = search.trim()
+    ? log.filter(entry => matchesSearch([
+        entry.peerName,
+        entry.type === 'video' ? 'video vidéo appel vidéo' : 'audio appel audio',
+        entry.direction === 'missed' ? 'manque manqué missed' : entry.direction === 'incoming' ? 'recu reçu entrant incoming' : 'emis émis sortant outgoing',
+        entry.startedAt,
+        formatDuration(entry.duration),
+      ], search))
+    : log;
 
   const dirIcon = (d: string) => {
     if (d === 'missed')   return <span style={{ color:'#dc2626', fontSize:13 }}>↙ Manqué</span>;
@@ -378,21 +509,24 @@ function CallsTab({ onStartCall }: { onStartCall?: (convId: string, userIds: str
           <div style={{ width:28, height:28, border:'3px solid var(--border)', borderTopColor:ACCENT, borderRadius:'50%', animation:'spin .8s linear infinite' }}/>
           <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
         </div>
-      ) : log.length === 0 ? (
+      ) : visibleLog.length === 0 ? (
         <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:12, color:'var(--text-muted)', padding:24 }}>
           <div style={{ width:72, height:72, borderRadius:'50%', background:'rgba(16,42,42,0.08)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center' }}>
             <svg width="36" height="36" fill="var(--accent)" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
           </div>
-          <p style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)', margin:0 }}>Aucun appel récent</p>
-          <p style={{ fontSize:13, textAlign:'center', lineHeight:1.5, margin:0 }}>Vos appels apparaîtront ici</p>
+          <p style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)', margin:0 }}>{search.trim() ? 'Aucun résultat' : 'Aucun appel récent'}</p>
+          <p style={{ fontSize:13, textAlign:'center', lineHeight:1.5, margin:0 }}>{search.trim() ? 'Aucun appel ne correspond à cette recherche.' : 'Vos appels apparaîtront ici'}</p>
         </div>
       ) : (
         <div style={{ flex:1, overflowY:'auto' }}>
-          {log.map(entry => {
+          {visibleLog.map(entry => {
             const d = new Date(entry.startedAt);
             const timeStr = d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' });
             const dateStr = d.toLocaleDateString('fr-FR', { weekday:'short', day:'numeric', month:'short' });
             const initials = entry.peerName?.[0]?.toUpperCase() ?? '?';
+            const peerAvatar = entry.peerAvatar || conversations
+              .flatMap(conv => conv.participants ?? [])
+              .find(user => user.id === entry.peerId)?.avatar || '';
             return (
               <div
                 key={entry.id}
@@ -404,8 +538,12 @@ function CallsTab({ onStartCall }: { onStartCall?: (convId: string, userIds: str
                 style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 16px', background: callingId === entry.id ? 'var(--bg-input)' : 'var(--bg-surface)', borderBottom:'1px solid var(--border)', cursor: onStartCall ? 'pointer' : 'default', opacity: callingId && callingId !== entry.id ? 0.62 : 1, transition:'background .18s ease, opacity .18s ease' }}
               >
                 {/* Avatar */}
-                <div style={{ width:48, height:48, borderRadius:'50%', background: entry.direction==='missed' ? '#fef2f2' : 'rgba(16,42,42,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <span style={{ fontSize:20, fontWeight:800, color: entry.direction==='missed' ? '#dc2626' : 'var(--header-bg)' }}>{initials}</span>
+                <div style={{ width:48, height:48, borderRadius:'50%', background: entry.direction==='missed' ? '#fef2f2' : 'rgba(16,42,42,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, overflow:'hidden', border:'1px solid var(--border)' }}>
+                  {peerAvatar ? (
+                    <img src={peerAvatar} alt={entry.peerName} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+                  ) : (
+                    <span style={{ fontSize:20, fontWeight:800, color: entry.direction==='missed' ? '#dc2626' : 'var(--header-bg)' }}>{initials}</span>
+                  )}
                 </div>
                 {/* Info */}
                 <div style={{ flex:1, minWidth:0 }}>
@@ -467,6 +605,12 @@ const TOOL_ICONS: Record<string, React.ReactNode> = {
   crm: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3H8a2 2 0 00-2 2v2h12V5a2 2 0 00-2-2z"/><path d="M8 12h8M8 16h5"/></svg>,
   contacts: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>,
   settings: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
+  ai: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/><path d="M19 15l.9 2.6 2.6.9-2.6.9L19 23l-.9-2.6-2.6-.9 2.6-.9L19 15z"/></svg>,
+  qr: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z"/><path d="M14 14h2v2h-2zM18 14h2v6h-4v-2h2zM14 18h2v2h-2z"/></svg>,
+  files: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>,
+  translate: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M4 5h9M9 3v2M6 9c1.2 2.2 3 3.9 5.5 5M12 9c-1 2.1-2.8 4.1-6 6"/><path d="M13 21l4-9 4 9M14.4 18h5.2"/></svg>,
+  share: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 10.6l6.8-4.2M8.6 13.4l6.8 4.2"/></svg>,
+  logout: <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3"/><path d="M21 3v18h-7"/></svg>,
 };
 
 type ToolItem = { iconKey: string; label: string; sub: string; action: () => void; section?: string };
@@ -480,9 +624,11 @@ function OutilsTab({ onPickPhoto }: { onPickPhoto: () => void }) {
       title: t(lang, 'tools.creative'),
       items: [
         { iconKey: 'photo',   label: t(lang, 'tools.photoEdit'), sub: t(lang, 'tools.photoEdit.sub'), action: onPickPhoto },
-        { iconKey: 'meeting', label: t(lang, 'tools.gallery'),   sub: t(lang, 'tools.gallery.sub'),   action: () => router.push('/gallery') },
+        { iconKey: 'photo',   label: t(lang, 'tools.gallery'),   sub: t(lang, 'tools.gallery.sub'),   action: () => router.push('/gallery') },
         { iconKey: 'web',     label: 'Oracle Web',                sub: 'Créer mon site web, appli ou boutique.', action: () => window.location.assign('https://web.oracle-plus.online?source=messenger-tools') },
         { iconKey: 'meeting', label: t(lang, 'tools.meeting'),   sub: t(lang, 'tools.meeting.sub'),   action: () => router.push('/tools') },
+        { iconKey: 'ai',      label: 'IA Oracle',                 sub: 'Assistant utile pour écrire, résumer et préparer vos messages.', action: () => router.push('/tools?tab=notes') },
+        { iconKey: 'translate', label: 'Traduction',              sub: 'Préparer une traduction rapide depuis les outils.', action: () => router.push('/tools?tab=notes') },
       ],
     },
     {
@@ -490,6 +636,8 @@ function OutilsTab({ onPickPhoto }: { onPickPhoto: () => void }) {
       items: [
         { iconKey: 'crm',      label: t(lang, 'tools.myBusiness'), sub: t(lang, 'tools.myBusiness.sub'), action: () => router.push('/business') },
         { iconKey: 'contacts', label: t(lang, 'tools.contacts'),   sub: t(lang, 'tools.contacts.sub'),   action: () => router.push('/contacts') },
+        { iconKey: 'files',    label: 'Partage de fichiers',       sub: 'Retrouver et partager les médias et documents.', action: () => router.push('/gallery') },
+        { iconKey: 'qr',       label: 'Scanner QR',                sub: 'Ouvrir les contacts pour partager ou scanner un lien.', action: () => router.push('/contacts') },
       ],
     },
     {
@@ -533,6 +681,94 @@ function OutilsTab({ onPickPhoto }: { onPickPhoto: () => void }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function MenuTab() {
+  const router = useRouter();
+  const { data: session } = useSession();
+  const { lang, theme, toggleTheme } = useSettings();
+  const isAdmin = session?.user?.email === ADMIN_EMAIL || (session?.user as any)?.phone === ADMIN_PHONE;
+
+  function shareApp() {
+    const url = 'https://messenger.oracle-plus.online';
+    if (navigator.share) {
+      navigator.share({ title: 'Oracle Messenger', text: t(lang, 'menu.share.sub'), url }).catch(() => {});
+      return;
+    }
+    navigator.clipboard?.writeText(url).then(() => alert(t(lang, 'profile.linkCopied'))).catch(() => {});
+  }
+
+  const sections: { title: string; items: ToolItem[] }[] = [
+    {
+      title: 'Compte',
+      items: [
+        { iconKey: 'settings', label: t(lang, 'menu.profile'), sub: 'Profil, photo, nom et préférences personnelles.', action: () => router.push('/profile') },
+        { iconKey: 'contacts', label: t(lang, 'tools.contacts'), sub: t(lang, 'tools.contacts.sub'), action: () => router.push('/contacts') },
+      ],
+    },
+    {
+      title: 'Services',
+      items: [
+        { iconKey: 'crm', label: t(lang, 'menu.business'), sub: t(lang, 'menu.business.sub'), action: () => router.push('/business') },
+        { iconKey: 'photo', label: t(lang, 'menu.media'), sub: t(lang, 'menu.media.sub'), action: () => router.push('/gallery') },
+        { iconKey: 'web', label: 'Web', sub: 'Créer mon site web, appli ou boutique.', action: () => window.location.assign('https://web.oracle-plus.online?source=messenger-menu') },
+        { iconKey: 'ai', label: t(lang, 'menu.spirituality'), sub: t(lang, 'menu.spirituality.sub'), action: () => window.location.assign('https://oracle-plus.online/consultation') },
+      ],
+    },
+    {
+      title: 'Application',
+      items: [
+        { iconKey: 'share', label: t(lang, 'menu.share'), sub: t(lang, 'menu.share.sub'), action: shareApp },
+        {
+          iconKey: 'settings',
+          label: theme === 'light' ? t(lang, 'menu.theme.dark') : t(lang, 'menu.theme.light'),
+          sub: 'Changer rapidement le mode d’affichage.',
+          action: toggleTheme,
+        },
+        ...(isAdmin ? [{ iconKey: 'settings', label: t(lang, 'menu.admin'), sub: t(lang, 'menu.admin.sub'), action: () => router.push('/admin') }] : []),
+        { iconKey: 'logout', label: t(lang, 'menu.logout'), sub: 'Fermer la session sur cet appareil.', action: () => signOut({ callbackUrl: '/login' }) },
+      ],
+    },
+  ];
+
+  return (
+    <div style={{ overflowY: 'auto', height: '100%', background: 'var(--bg-app)' }}>
+      <div style={{ padding: '16px 16px 8px', background: 'var(--bg-surface)', borderBottom: '1px solid var(--border)' }}>
+        <p style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 850, color: 'var(--text-primary)' }}>Menu</p>
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.45, color: 'var(--text-muted)', fontWeight: 600 }}>
+          Compte, services et réglages principaux d’Oracle Messenger.
+        </p>
+      </div>
+      {sections.map(section => (
+        <div key={section.title}>
+          <p style={{ fontSize: 11, fontWeight: 850, color: 'var(--text-muted)', padding: '16px 16px 6px', textTransform: 'uppercase', letterSpacing: 0.8, margin: 0 }}>
+            {section.title}
+          </p>
+          <div style={{ background: 'var(--bg-surface)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+            {section.items.map((item, i) => (
+              <button
+                key={`${section.title}-${item.label}`}
+                onClick={item.action}
+                style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%', borderBottom: i < section.items.length - 1 ? '1px solid var(--border)' : 'none' }}
+              >
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: item.iconKey === 'logout' ? 'rgba(220,38,38,0.08)' : 'rgba(16,42,42,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: item.iconKey === 'logout' ? '#dc2626' : 'var(--accent)', flexShrink: 0 }}>
+                  {TOOL_ICONS[item.iconKey]}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 15, fontWeight: 780, color: item.iconKey === 'logout' ? '#dc2626' : 'var(--text-primary)', margin: '0 0 2px' }}>{item.label}</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>{item.sub}</p>
+                </div>
+                <svg style={{ color: '#C4C4C4', flexShrink: 0 }} width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/>
+                </svg>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+      <div style={{ height: 18 }} />
     </div>
   );
 }
