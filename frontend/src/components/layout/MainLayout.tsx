@@ -41,7 +41,7 @@ export function MainLayout({ onStartCall, conversationsLoading = false }: Props)
   const [remoteSearchLoading, setRemoteSearchLoading] = useState(false);
   const [filter, setFilter] = useState<'all' | 'unread' | 'fav' | 'groups'>('all');
   const [showChat, setShowChat] = useState(false); // mobile: show conversation panel
-  const [isMobile, setIsMobile] = useState<boolean | null>(null);
+  const [isMobile, setIsMobile] = useState(true);
   const cameraRef = useRef<HTMLInputElement>(null);
   const photoPickerRef = useRef<HTMLInputElement>(null);
   const tabTouchRef = useRef<{ x: number; y: number } | null>(null);
@@ -220,15 +220,6 @@ export function MainLayout({ onStartCall, conversationsLoading = false }: Props)
   const showList = isMobile === false || !showChat;
   const showChatPanel = isMobile === false || showChat;
   const tabIndex = Math.max(0, TAB_ORDER.indexOf(tab));
-
-  if (isMobile === null) {
-    return (
-      <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg-app)' }}>
-        <div style={{ width:28, height:28, border:'3px solid var(--border)', borderTopColor:'var(--accent)', borderRadius:'50%', animation:'spin .8s linear infinite' }}/>
-        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-      </div>
-    );
-  }
 
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', height: '100%', minHeight: 0 }}>
