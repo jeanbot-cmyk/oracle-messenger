@@ -8,7 +8,7 @@ import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { clearOldTextMessages } from '../lib/db';
 import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 
-const CLIENT_CACHE_VERSION = '138-20260805-premium-feedback';
+const CLIENT_CACHE_VERSION = '139-20260805-ux-polish';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 
@@ -269,11 +269,16 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <Toaster
         position="top-center"
         toastOptions={{
+          className: 'om-toast',
           style: {
-            background: 'var(--bg-surface)',
+            background: 'color-mix(in srgb, var(--bg-surface) 94%, transparent)',
             color: 'var(--text-primary)',
             border: '1px solid var(--border)',
-            borderRadius: 12,
+            borderRadius: 16,
+            boxShadow: '0 18px 55px rgba(15,23,42,0.18)',
+            padding: '10px 13px',
+            fontSize: 13.5,
+            fontWeight: 800,
           },
           duration: 3000,
         }}

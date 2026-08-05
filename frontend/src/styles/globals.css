@@ -152,10 +152,27 @@ button, [role="button"] {
 button:active:not(:disabled),
 [role="button"]:active {
   opacity: .84;
+  transform: translateY(1px) scale(.985);
 }
 
 button:disabled {
   pointer-events: none;
+}
+
+button:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--brand) 34%, transparent);
+  outline-offset: 3px;
+}
+
+a {
+  color: inherit;
+  text-decoration-thickness: .08em;
+  text-underline-offset: .18em;
 }
 
 input,
@@ -200,6 +217,10 @@ textarea:focus {
   box-shadow: var(--shadow);
 }
 
+.om-icon-button:active {
+  transform: scale(.94);
+}
+
 .om-primary-button {
   border: none;
   border-radius: var(--radius-pill);
@@ -218,6 +239,10 @@ textarea:focus {
   box-shadow: 0 12px 26px rgba(16,42,42,.18);
 }
 
+.om-primary-button:active {
+  transform: translateY(1px) scale(.985);
+}
+
 .om-secondary-button {
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
@@ -228,6 +253,20 @@ textarea:focus {
   font-size: 15px;
   font-weight: 700;
   cursor: pointer;
+}
+
+.om-secondary-button:hover {
+  background: var(--bg-input);
+}
+
+.om-toast {
+  max-width: min(380px, calc(100vw - 24px));
+  backdrop-filter: blur(14px) saturate(1.05);
+  -webkit-backdrop-filter: blur(14px) saturate(1.05);
+}
+
+.om-toast-confirm {
+  animation: omSlideUp 180ms ease both;
 }
 
 .om-fade-in {
@@ -296,7 +335,7 @@ textarea:focus {
 }
 
 .om-main-tab:active {
-  transform: translateY(1px);
+  transform: translateY(1px) scale(.98);
 }
 
 .om-messages-viewport {
@@ -326,6 +365,11 @@ textarea:focus {
   contain: layout;
   transition: background-color 0.16s ease, box-shadow 0.16s ease;
   animation: omMessageIn 150ms ease both;
+}
+
+.om-message-row:focus-within {
+  position: relative;
+  z-index: 1;
 }
 
 .om-message-row-in {
@@ -366,6 +410,10 @@ textarea:focus {
   max-width: 100%;
   font-size: 15px;
   transform: translateZ(0);
+}
+
+.om-message-bubble:active {
+  filter: brightness(.985);
 }
 
 .om-date-separator {

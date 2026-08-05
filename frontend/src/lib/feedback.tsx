@@ -5,6 +5,8 @@ type ToastKind = 'success' | 'error' | 'info';
 
 export function notify(message: string, kind: ToastKind = 'info') {
   if (!message) return;
+  if (kind === 'success') navigator.vibrate?.(8);
+  if (kind === 'error') navigator.vibrate?.([18, 30, 18]);
   const options = { duration: kind === 'error' ? 4200 : 2600 };
   if (kind === 'success') toast.success(message, options);
   else if (kind === 'error') toast.error(message, options);
@@ -17,6 +19,7 @@ export function confirmAction(message: string, confirmLabel = 'Confirmer', cance
     const id = toast.custom(
       current => (
         <div
+          className="om-toast-confirm"
           role="dialog"
           aria-modal="true"
           style={{
