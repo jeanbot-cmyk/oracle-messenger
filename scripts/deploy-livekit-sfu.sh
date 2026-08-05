@@ -13,9 +13,10 @@ CONTAINER_NAME="${LIVEKIT_CONTAINER_NAME:-oracle-messenger-livekit}"
 NETWORK="${LIVEKIT_DOCKER_NETWORK:-coolify}"
 
 if [[ -z "$API_KEY" || -z "$API_SECRET" ]]; then
-  echo "Set LIVEKIT_API_KEY and LIVEKIT_API_SECRET before running this script."
+  echo "Set LiveKit API key and API secret in the environment before running this script."
   echo "Example:"
-  echo "  LIVEKIT_API_KEY=oracle_$(date +%s) LIVEKIT_API_SECRET=\$(openssl rand -hex 32) $0 $DOMAIN $PUBLIC_IP"
+  echo "  export LIVEKIT_API_KEY=oracle_$(date +%s)"
+  echo "  export LIVEKIT_API_SECRET from a secure shell history-disabled source, then run: $0 $DOMAIN $PUBLIC_IP"
   exit 1
 fi
 
@@ -85,4 +86,4 @@ echo "LiveKit started for wss://${DOMAIN}"
 echo "Configure backend:"
 echo "  LIVEKIT_URL=wss://${DOMAIN}"
 echo "  LIVEKIT_API_KEY=${API_KEY}"
-echo "  LIVEKIT_API_SECRET=<the secret you provided>"
+echo "  LiveKit API secret: keep the same value in the backend secret store."

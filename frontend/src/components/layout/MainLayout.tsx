@@ -10,6 +10,7 @@ import { api } from '../../lib/api';
 import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
 import { matchesSearch } from '../../lib/search';
+import { confirmAction, notify } from '../../lib/feedback';
 
 type Tab = 'discussions' | 'appels' | 'actus' | 'outils' | 'menu';
 const TAB_ORDER: Tab[] = ['discussions', 'appels', 'actus', 'outils', 'menu'];
@@ -112,14 +113,14 @@ export function MainLayout({ onStartCall, conversationsLoading = false }: Props)
 
   async function handleDeleteConversation(convId: string, name: string) {
     if (!token) return;
-    const ok = confirm(`Supprimer la discussion avec ${name} ?`);
+    const ok = await confirmAction(`Supprimer la discussion avec ${name} ?`, 'Supprimer');
     if (!ok) return;
     removeConversation(convId);
     if (activeConvId === convId && isMobile) setShowChat(false);
     try {
       await api.conversations.delete(convId, token);
     } catch {
-      alert('La discussion a été retirée de ce téléphone. La suppression serveur sera à réessayer si elle réapparaît.');
+      notify('La discussion a été retirée de ce téléphone. La suppression serveur sera à réessayer si elle réapparaît.', 'info');
     }
   }
 
@@ -418,16 +419,17 @@ function CallsTab({ search = '', onStartCall }: { search?: string; onStartCall?:
   }, [mounted, token]);
 
   async function clearAll() {
-    if (!confirm('Effacer tout l\'historique des appels ?')) return;
+    if (!await confirmAction('Effacer tout l’historique des appels ?', 'Effacer')) return;
     const res = await fetch(`${BASE}/calls/history`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => {});
     if (!res || !res.ok) {
-      alert('Impossible d’effacer l’historique maintenant. Vérifiez votre connexion.');
+      notify('Impossible d’effacer l’historique maintenant. Vérifiez votre connexion.', 'error');
       return;
     }
     setLog([]);
+    notify('Historique des appels effacé.', 'success');
   }
 
   async function deleteEntry(id: string) {
@@ -436,7 +438,7 @@ function CallsTab({ search = '', onStartCall }: { search?: string; onStartCall?:
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => {});
     if (!res || !res.ok) {
-      alert('Impossible de supprimer cet appel maintenant.');
+      notify('Impossible de supprimer cet appel maintenant.', 'error');
       return;
     }
     setLog(prev => prev.filter(e => e.id !== id));
@@ -455,7 +457,7 @@ function CallsTab({ search = '', onStartCall }: { search?: string; onStartCall?:
       setActiveConv(conv.id);
       onStartCall(conv.id, [entry.peerId], entry.type);
     } catch {
-      alert('Impossible de relancer cet appel. Vérifiez votre connexion puis réessayez.');
+      notify('Impossible de relancer cet appel. Vérifiez votre connexion puis réessayez.', 'error');
     } finally {
       setCallingId('');
     }
@@ -697,7 +699,7 @@ function MenuTab() {
       navigator.share({ title: 'Oracle Messenger', text: t(lang, 'menu.share.sub'), url }).catch(() => {});
       return;
     }
-    navigator.clipboard?.writeText(url).then(() => alert(t(lang, 'profile.linkCopied'))).catch(() => {});
+    navigator.clipboard?.writeText(url).then(() => notify(t(lang, 'profile.linkCopied'), 'success')).catch(() => {});
   }
 
   const sections: { title: string; items: ToolItem[] }[] = [

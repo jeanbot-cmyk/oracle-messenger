@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '../../lib/api';
 import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
+import { notify } from '../../lib/feedback';
 
 export default function ProfilePage() {
   const { data: session, status, update } = useSession();
@@ -232,7 +233,7 @@ export default function ProfilePage() {
               </p>
             </div>
             <div style={{ display:'flex', gap:8 }}>
-              <button onClick={() => navigator.clipboard?.writeText(profileLink).then(() => alert(t(lang, 'profile.linkCopied')))}
+              <button onClick={() => navigator.clipboard?.writeText(profileLink).then(() => notify(t(lang, 'profile.linkCopied'), 'success'))}
                 style={{ flex:1, background:'var(--bg-app)', border:'1px solid var(--border)', borderRadius:10, padding:'10px', cursor:'pointer', fontSize:13, color:'var(--text-primary)', fontWeight:700 }}>
                 📋 {t(lang, 'common.copy')}
               </button>

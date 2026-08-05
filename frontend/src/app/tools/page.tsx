@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic';
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { notify } from '../../lib/feedback';
 
 interface Note { id: string; title: string; body: string; updatedAt: number; }
 interface CalEvent { id: string; title: string; date: string; note: string; notified: boolean; }
@@ -119,7 +120,7 @@ function MeetingTab({ userName }: { userName: string }) {
           {notice && <p style={{ fontSize:12.5, lineHeight:1.45, color:'#2e7d32', margin:'0 0 8px', fontWeight:700 }}>{notice}</p>}
           <div style={{ background: '#fff', borderRadius: 10, padding: '8px 12px', marginBottom: 10, wordBreak: 'break-all', fontSize: 13, color: 'var(--brand)' }}>{shareLink}</div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            <button onClick={() => navigator.clipboard?.writeText(shareLink).then(() => alert('Lien copié !'))}
+            <button onClick={() => navigator.clipboard?.writeText(shareLink).then(() => notify('Lien copié.', 'success'))}
               style={{ flex: 1, background: 'var(--bg-input)', border: 'none', borderRadius: 10, padding: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>📋 Copier</button>
             <button onClick={() => navigator.share?.({ title: 'Rejoins ma réunion', url: shareLink }).catch(() => {})}
               style={{ flex: 1, background: 'var(--brand)', border: 'none', borderRadius: 10, padding: 10, cursor: 'pointer', fontSize: 13, color: '#fff', fontWeight: 600 }}>📤 Partager</button>

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { matchesSearch } from '../../lib/search';
+import { notify } from '../../lib/feedback';
 
 type Tag = 'chaud'|'froid'|'payé'|'relancer'|'prospect'|'vip'|'perdu';
 interface Client {
@@ -84,7 +85,7 @@ export default function BusinessPage() {
   function saveC(list:Client[]){setClients(list);sv('oracle-crm',list);}
   function saveR(list:Reminder[]){setReminders(list);sv('oracle-rem',list);}
   function saveAuto(next:AutoSettings){setAutoSettings(next);sv('oracle-crm-auto',next);}
-  function copyBusinessLink(){navigator.clipboard?.writeText(businessLink).then(()=>alert('Lien copié !')).catch(()=>{});}
+  function copyBusinessLink(){navigator.clipboard?.writeText(businessLink).then(()=>notify('Lien copié.', 'success')).catch(()=>{});}
   function shareBusinessLink(){navigator.share?.({title:'Oracle Messenger',text:'Contactez-moi directement sur Oracle Messenger.',url:businessLink}).catch(()=>copyBusinessLink());}
   function formatTemplate(template:string, client?:Client){
     return template
@@ -370,7 +371,7 @@ export default function BusinessPage() {
                   <option>Flutterwave</option>
                   <option>Autre</option>
                 </select>
-                <button onClick={()=>navigator.clipboard?.writeText('{paiement}').then(()=>alert('Variable copiée'))} style={{border:'1px solid var(--border)',background:'var(--bg-app)',borderRadius:12,padding:'10px 8px',fontSize:13,fontWeight:900,color:'var(--text-primary)',cursor:'pointer'}}>Copier {'{paiement}'}</button>
+                <button onClick={()=>navigator.clipboard?.writeText('{paiement}').then(()=>notify('Variable copiée.', 'success'))} style={{border:'1px solid var(--border)',background:'var(--bg-app)',borderRadius:12,padding:'10px 8px',fontSize:13,fontWeight:900,color:'var(--text-primary)',cursor:'pointer'}}>Copier {'{paiement}'}</button>
               </div>
               <input value={autoSettings.paymentLink} onChange={e=>saveAuto({...autoSettings,paymentLink:e.target.value})} placeholder="https://lien-de-paiement..." style={{width:'100%',border:'1px solid var(--border)',borderRadius:12,padding:'10px 12px',fontSize:13,outline:'none',boxSizing:'border-box'}}/>
             </div>

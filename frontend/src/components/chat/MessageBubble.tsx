@@ -7,6 +7,7 @@ import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
 import { MediaLightbox } from '../ui/MediaLightbox';
 import { saveToGallery } from '../../lib/gallery';
+import { notify } from '../../lib/feedback';
 
 interface Props {
   message: Message;
@@ -432,7 +433,7 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
       file.name && effectiveType !== 'text' ? `Fichier : ${file.name}` : '',
       file.size ? `Taille : ${formatBytes(file.size)}` : '',
     ].filter(Boolean);
-    window.alert(lines.join('\n'));
+    notify(lines.join('\n'), 'info');
     setShowMenu(false);
   }
   const touchStartX = useRef(0);

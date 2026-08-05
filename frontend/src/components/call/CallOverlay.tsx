@@ -4,6 +4,7 @@ import type { CallState, CallInfo } from '../../hooks/useWebRTC';
 import { startRingtone, stopRingtone, startOutgoingCallTone, stopOutgoingCallTone, playCallConnected } from '../../lib/sounds';
 import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
+import { notify } from '../../lib/feedback';
 
 interface Props {
   callState: CallState;
@@ -117,7 +118,7 @@ export function CallOverlay({ callState, callInfo, localStream, remoteStreams, a
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [selectedAddIds, setSelectedAddIds] = useState<string[]>([]);
   const unsupported = (message: string) => {
-    try { window.alert(message); } catch {}
+    notify(message, 'error');
   };
   // Sonneries selon l'état de l'appel.
   // Important : seul le destinataire doit sonner/vibrer. L'appelant ne reçoit

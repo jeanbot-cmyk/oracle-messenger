@@ -4,6 +4,7 @@ import { signOut, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useSettings } from '../../store/settings';
 import { t, LANGUAGES } from '../../lib/i18n';
+import { notify } from '../../lib/feedback';
 
 const ADMIN_EMAIL = 'tchingankonggeorges@gmail.com';
 const ADMIN_PHONE = '+2250504673829';
@@ -29,7 +30,7 @@ export function MenuDots() {
     if (navigator.share) {
       navigator.share({ title:'Oracle Messenger', text:t(lang, 'menu.share.sub'), url:'https://messenger.oracle-plus.online' }).catch(()=>{});
     } else {
-      navigator.clipboard.writeText('https://messenger.oracle-plus.online').then(()=>alert(t(lang, 'profile.linkCopied')));
+      navigator.clipboard.writeText('https://messenger.oracle-plus.online').then(()=>notify(t(lang, 'profile.linkCopied'), 'success'));
     }
   }
 

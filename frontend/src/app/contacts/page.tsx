@@ -12,6 +12,7 @@ import { t } from '../../lib/i18n';
 import { importNativeDeviceContacts, isCapacitorNativeRuntime } from '../../lib/nativeContacts';
 import { MediaLightbox } from '../../components/ui/MediaLightbox';
 import { matchesSearch } from '../../lib/search';
+import { confirmAction, notify } from '../../lib/feedback';
 
 interface LocalContact { name: string; phones: string[]; emails: string[]; avatar?: string | null }
 interface AppUser { id: string; name: string; username: string; avatar?: string; phone?: string }
@@ -470,7 +471,7 @@ export default function ContactsPage() {
         router.push(`/chat?conv=${conv.id}`);
       } catch (err) {
         console.error('handleTap error', err);
-        alert('Impossible d\'ouvrir la conversation. Vérifiez votre connexion.');
+        notify('Impossible d’ouvrir la conversation. Vérifiez votre connexion.', 'error');
       } finally {
         setCreating(false);
         setActionNotice('');
@@ -911,8 +912,8 @@ function ContactRow({ c, onTap, onRemove, creating, onAvatarOpen }: { c: Enriche
         {!appUser && <span style={{ color: 'var(--brand)', fontSize: 14, fontWeight: 800, flexShrink: 0 }}>Inviter</span>}
       </button>
       <button
-        onClick={() => {
-          if (confirm(`Retirer ${local.name} de cette liste ?`)) onRemove();
+        onClick={async () => {
+          if (await confirmAction(`Retirer ${local.name} de cette liste ?`, 'Retirer')) onRemove();
         }}
         aria-label={`Retirer ${local.name}`}
         style={{ width:38, height:38, minHeight:38, borderRadius:'50%', border:'1px solid var(--border)', background:'#FFFFFF', color:'#B42318', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}

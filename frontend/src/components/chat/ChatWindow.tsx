@@ -11,6 +11,7 @@ import { MediaLightbox } from '../ui/MediaLightbox';
 import { CameraCapture } from '../ui/CameraCapture';
 import type { Conversation, Message, User } from '../../types';
 import { normalizeSearchValue } from '../../lib/search';
+import { confirmAction, notify } from '../../lib/feedback';
 
 // ── Emoji picker léger (sans dépendance externe) ─────────────────────────────
 const EMOJI_CATEGORIES: { label: string; emojis: string[] }[] = [
@@ -649,18 +650,18 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   function startConversationCall(type: 'audio' | 'video') {
     if (!conv || !onStartCall) return;
     if (isOfficialConversation) {
-      alert('Le compte système ne peut pas être appelé.');
+      notify('Le compte système ne peut pas être appelé.', 'error');
       return;
     }
     if (!navigator.mediaDevices?.getUserMedia) {
-      alert('Ce navigateur ne permet pas les appels. Utilisez Chrome Android ou Safari iPhone à jour.');
+      notify('Ce navigateur ne permet pas les appels. Utilisez Chrome Android ou Safari iPhone à jour.', 'error');
       return;
     }
     const ids = conv.type === 'group'
       ? allParticipants.map((p: any) => p.id)
       : other ? [other.id] : [];
     if (!ids.length) {
-      alert('Aucun destinataire disponible pour cet appel.');
+      notify('Aucun destinataire disponible pour cet appel.', 'error');
       return;
     }
     setCallNotice('Garde l’application ouverte pendant l’appel. En veille, le téléphone peut seulement afficher une notification.');
@@ -681,7 +682,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     const isAudio = file.type.startsWith('audio/');
     const maxBytes = (isImage ? 32 : 18) * 1024 * 1024;
     if (file.size > maxBytes) {
-      alert(isImage ? 'Image trop lourde. Limite actuelle : 32 Mo avant compression.' : 'Fichier trop lourd. Limite actuelle : 18 Mo.');
+      notify(isImage ? 'Image trop lourde. Limite actuelle : 32 Mo avant compression.' : 'Fichier trop lourd. Limite actuelle : 18 Mo.', 'error');
       e.target.value = '';
       return;
     }
@@ -708,7 +709,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         });
         sendMessage(activeConvId, content, type);
       } catch {
-        alert('Impossible d’envoyer ce média. Vérifiez la connexion puis réessayez.');
+        notify('Impossible d’envoyer ce média. Vérifiez la connexion puis réessayez.', 'error');
       } finally {
         setMediaUploading(false);
         setCallNotice('');
@@ -761,7 +762,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         setRecSeconds(recSecondsRef.current);
       }, 1000);
     } catch {
-      alert('Microphone non disponible — vérifiez les permissions');
+      notify('Microphone non disponible. Vérifiez les permissions.', 'error');
     }
   }
 
@@ -796,7 +797,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       sendMessage(activeConvId, content, 'audio');
       setVoiceDraft(null);
     } catch {
-      alert('Impossible d’envoyer le vocal. Vérifiez la connexion puis réessayez.');
+      notify('Impossible d’envoyer le vocal. Vérifiez la connexion puis réessayez.', 'error');
     } finally {
       setMediaUploading(false);
       setCallNotice('');
@@ -878,10 +879,10 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     setSelectedMessageIds([]);
   }
 
-  function deleteSelectedMessages() {
+  async function deleteSelectedMessages() {
     if (!activeConvId || selectedMessages.length === 0) return;
     const count = selectedMessages.length;
-    const ok = window.confirm(`${withCount(t(lang, 'chat.selectCount'), count)} ?`);
+    const ok = await confirmAction(`${withCount(t(lang, 'chat.selectCount'), count)} ?`, 'Supprimer');
     if (!ok) return;
     const ids = selectedMessages.map(message => message.id);
     const nextHidden = new Set(hiddenMessageIds);
@@ -1675,7 +1676,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               });
               sendMessage(activeConvId, content, type);
             } catch {
-              alert('Impossible d’envoyer ce média. Vérifiez la connexion puis réessayez.');
+              notify('Impossible d’envoyer ce média. Vérifiez la connexion puis réessayez.', 'error');
             } finally {
               setMediaUploading(false);
               setCallNotice('');
