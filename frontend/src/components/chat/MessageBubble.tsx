@@ -26,8 +26,8 @@ interface Props {
 }
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '😡'];
-const LONG_PRESS_MS = 430;
-const LONG_PRESS_CANCEL_PX = 18;
+const LONG_PRESS_MS = 360;
+const LONG_PRESS_CANCEL_PX = 22;
 const SWIPE_REPLY_TRIGGER_PX = 66;
 const SYNTHETIC_MOUSE_SUPPRESS_MS = 750;
 

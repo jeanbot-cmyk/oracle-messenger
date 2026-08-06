@@ -87,7 +87,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const exists = prev.find(m => m.id === msg.id);
       const nextMsg = preserveLocalMediaContent(msg, exists);
       saveMessage(nextMsg).catch(() => {});
-      const updated = exists ? prev.map(m => m.id === msg.id ? nextMsg : m) : [...prev, nextMsg];
+      const updated = sortMessages(exists ? prev.map(m => m.id === msg.id ? nextMsg : m) : [...prev, nextMsg]);
       // Mettre à jour lastMessage dans la conversation
       const convs = s.conversations.map(c => {
         if (c.id !== msg.conversationId) return c;
@@ -114,23 +114,40 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           return next;
         });
       }
+      for (const convId of Object.keys(updated)) updated[convId] = sortMessages(updated[convId]);
       return { messages: updated };
     });
   },
 
   deleteMessage: (convId, msgId) => {
     if (msgId.startsWith('temp-')) deleteLocalMessage(msgId).catch(() => {});
-    set(s => ({
-      messages: {
-        ...s.messages,
-        [convId]: (s.messages[convId] ?? []).filter(m => !(m.id === msgId && msgId.startsWith('temp-'))).map(m => {
+    set(s => {
+      const nextMessages = sortMessages((s.messages[convId] ?? []).filter(m => !(m.id === msgId && msgId.startsWith('temp-'))).map(m => {
           if (m.id !== msgId) return m;
           const next = { ...m, isDeleted: true, content: 'Ce message a été supprimé' };
           saveMessage(next).catch(() => {});
           return next;
-        }),
-      },
-    }));
+        }));
+      const visibleMessages = nextMessages.filter(m => !m.isDeleted);
+      const lastVisible = visibleMessages.at(-1);
+      const conversations = s.conversations.map(c => {
+        if (c.id !== convId) return c;
+        const next = {
+          ...c,
+          lastMessage: lastVisible,
+          updatedAt: lastVisible?.createdAt ?? c.updatedAt,
+        };
+        saveConversation(next).catch(() => {});
+        return next;
+      });
+      return {
+        messages: {
+          ...s.messages,
+          [convId]: nextMessages,
+        },
+        conversations: sortConversations(conversations),
+      };
+    });
   },
 
   setMessages: (convId, msgs) => {
@@ -143,9 +160,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         byId.set(msg.id, nextMsg);
         saveMessage(nextMsg).catch(() => {});
       }
-      const merged = Array.from(byId.values())
-        .filter(msg => msg.conversationId === convId)
-        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      const merged = sortMessages(Array.from(byId.values())
+        .filter(msg => msg.conversationId === convId));
       return { messages: { ...s.messages, [convId]: merged } };
     });
   },
@@ -153,7 +169,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   loadLocalMessages: async (convId) => {
     const msgs = await getMessages(convId);
     if (msgs.length > 0) {
-      set(s => ({ messages: { ...s.messages, [convId]: msgs } }));
+      set(s => ({ messages: { ...s.messages, [convId]: sortMessages(msgs) } }));
     }
   },
 
@@ -213,6 +229,19 @@ function sortConversations(convs: Conversation[]) {
     if (aPinned !== bPinned) return aPinned ? -1 : 1;
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });
+}
+
+function sortMessages(messages: Message[]) {
+  return [...messages].sort((a, b) => {
+    const diff = messageTime(a) - messageTime(b);
+    if (diff !== 0) return diff;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function messageTime(message: Message) {
+  const timestamp = new Date(message.createdAt).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function isOfficialExpired(conv: Conversation) {

@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v140
+// Oracle Messenger — Service Worker v141
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '140-20260805-load-polish';
+const CACHE_VERSION = '141-20260806-message-ux';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [
