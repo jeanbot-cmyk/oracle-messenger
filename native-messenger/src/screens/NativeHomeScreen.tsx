@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, FlatList, Image, KeyboardAvoidingView, Linking, NativeModules, PermissionsAndroid, Platform, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, KeyboardAvoidingView, Linking, NativeModules, PermissionsAndroid, Platform, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
@@ -11,10 +11,10 @@ import { ANDROID_PACKAGE, GOOGLE_WEB_CLIENT_ID, NATIVE_BASELINE } from '@/config
 import { useNativeCall } from '@/hooks/useNativeCall';
 import { NativeChatComposer } from '@/screens/home/NativeChatComposer';
 import { NativeCallOverlay } from '@/screens/home/NativeCallOverlay';
-import { NativeChatMediaMessage } from '@/screens/home/NativeChatMediaMessage';
 import { NativeConversationList } from '@/screens/home/NativeConversationList';
+import { NativeMessageList } from '@/screens/home/NativeMessageList';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
-import { conversationName, initials, messagePreview, parseCallActionDeepLink, parseConversationTarget, parsePaystackDeepLink, socketAck, sortMessages } from '@/screens/home/homeUtils';
+import { conversationName, messagePreview, parseCallActionDeepLink, parseConversationTarget, parsePaystackDeepLink, socketAck, sortMessages } from '@/screens/home/homeUtils';
 import { NativeFeaturePage, type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
 import { api } from '@/services/api';
 import { readLocalGalleryItems, type LocalGalleryItem } from '@/services/localMedia';
@@ -1154,55 +1154,16 @@ export function NativeHomeScreen() {
               </ScrollView>
             </View>
           ) : null}
-          <FlatList
-            data={visibleMessages}
-            keyExtractor={item => item.id}
-            contentContainerStyle={styles.messagesList}
-            ListEmptyComponent={messageSearch ? <Text style={styles.emptySearch}>Aucun message trouvé.</Text> : null}
-            renderItem={({ item }) => {
-              const mine = item.senderId === session.user.id;
-              const isVoice = item.type === 'audio' || item.type === 'voice';
-              const avatar = mine ? session.user.avatar : item.sender?.avatar;
-              const avatarLabel = initials(mine ? session.user.name : item.sender?.name);
-              const selectedForAction = selectedMessageIds.includes(item.id);
-              return (
-                <Pressable
-                  onPress={() => selectedMessageIds.length ? toggleMessageSelection(item.id) : undefined}
-                  onLongPress={() => openMessageActions(item)}
-                  style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther, selectedForAction && styles.bubbleSelected]}
-                >
-                  {item.replyTo ? (
-                    <View style={styles.replyPreview}>
-                      <Text style={styles.replyPreviewTitle}>{item.replyTo.sender?.name || 'Réponse'}</Text>
-                      <Text numberOfLines={1} style={styles.replyPreviewText}>{messagePreview(item.replyTo)}</Text>
-                    </View>
-                  ) : null}
-                  {isVoice ? (
-                    <View style={styles.voiceRow}>
-                      {!mine ? (
-                        <View style={styles.voiceAvatar}>
-                          {avatar ? <Image source={{ uri: avatar }} style={styles.avatarImage} /> : <Text style={styles.voiceAvatarText}>{avatarLabel}</Text>}
-                        </View>
-                      ) : null}
-                      <NativeChatMediaMessage message={item} localItem={localMediaByMessageId[item.id]} />
-                      {mine ? (
-                        <View style={styles.voiceAvatar}>
-                          {avatar ? <Image source={{ uri: avatar }} style={styles.avatarImage} /> : <Text style={styles.voiceAvatarText}>{avatarLabel}</Text>}
-                        </View>
-                      ) : null}
-                    </View>
-                  ) : (
-                    item.type === 'text'
-                      ? <Text style={styles.bubbleText}>{item.content}</Text>
-                      : <NativeChatMediaMessage message={item} localItem={localMediaByMessageId[item.id]} />
-                  )}
-                  {item.reactions?.length ? (
-                    <Text style={styles.reactionLine}>{item.reactions.map(reaction => reaction.emoji).join(' ')}</Text>
-                  ) : null}
-                  <Text style={styles.bubbleMeta}>{mine ? 'Moi' : item.sender?.name || 'Contact'} • {item.isEdited ? 'modifié • ' : ''}{item.status || 'sent'}</Text>
-                </Pressable>
-              );
-            }}
+          <NativeMessageList
+            messages={visibleMessages}
+            currentUserId={session.user.id}
+            currentUserName={session.user.name}
+            currentUserAvatar={session.user.avatar}
+            selectedMessageIds={selectedMessageIds}
+            localMediaByMessageId={localMediaByMessageId}
+            messageSearch={messageSearch}
+            onToggleSelection={toggleMessageSelection}
+            onOpenMessageActions={openMessageActions}
           />
           <NativeChatComposer
             draft={draft}
@@ -1290,19 +1251,4 @@ const styles = StyleSheet.create({
   forwardTargets: { gap: 8, paddingRight: 4 },
   forwardTarget: { minHeight: 36, maxWidth: 150, borderRadius: 13, backgroundColor: '#EAF4F1', paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
   forwardTargetText: { color: colors.header, fontSize: 12, fontWeight: '900' },
-  messagesList: { padding: 12, gap: 8 },
-  bubble: { maxWidth: '82%', borderRadius: 18, padding: 12, marginBottom: 8 },
-  bubbleSelected: { borderWidth: 2, borderColor: colors.accent },
-  bubbleMine: { alignSelf: 'flex-end', backgroundColor: '#DCFCE7' },
-  bubbleOther: { alignSelf: 'flex-start', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  emptySearch: { color: colors.muted, fontSize: 13, fontWeight: '800', textAlign: 'center', marginTop: 30 },
-  bubbleText: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '700' },
-  bubbleMeta: { color: colors.muted, fontSize: 10.5, marginTop: 5, fontWeight: '700' },
-  replyPreview: { borderLeftWidth: 3, borderLeftColor: colors.brand, paddingLeft: 8, marginBottom: 7 },
-  replyPreviewTitle: { color: colors.header, fontSize: 11, fontWeight: '900' },
-  replyPreviewText: { color: colors.muted, fontSize: 11.5, fontWeight: '700', marginTop: 1 },
-  reactionLine: { alignSelf: 'flex-start', marginTop: 7, color: colors.header, fontSize: 15, fontWeight: '900' },
-  voiceRow: { minWidth: 190, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  voiceAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#EAF4F1', overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
-  voiceAvatarText: { color: colors.header, fontSize: 12, fontWeight: '900' },
 });
