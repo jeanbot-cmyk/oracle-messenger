@@ -1,0 +1,2 @@
+b1bdfa8f22b1021b1164159b82d07153b5ba9e40b0f81b15d1d7d308d0657335  frontend/public/downloads/oracle-messenger-release-vc2026080936-native-no-web-fallback.apk
+3bc595294378731790ef81bb931f99f13b67733a1b711dee48b6881e649dd2c7  frontend/public/downloads/oracle-messenger-release-vc2026080936-native-no-web-fallback.aab

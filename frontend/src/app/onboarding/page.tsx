@@ -77,6 +77,8 @@ export default function OnboardingPage() {
   const { data: session, status, update } = useSession();
   const router = useRouter();
   const token = session?.user?.backendToken ?? '';
+  const ownerId = (session?.user as any)?.id || session?.user?.email || '';
+  const profileKey = ownerId ? `oracle-profile:${ownerId}` : '';
 
   const [name,    setName]    = useState('');
   const [bio,     setBio]     = useState('');
@@ -99,10 +101,11 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (status !== 'authenticated') return;
     setName(current => current || session?.user?.name || '');
+    setAvatar(current => current || session?.user?.image || '');
   }, [status, session]);
 
   useEffect(() => {
-    if (status === 'authenticated' && !(session?.user as any)?.isNew) {
+    if (status === 'authenticated' && !(session?.user as any)?.isNew && (session?.user as any)?.phone) {
       router.replace('/chat');
     }
   }, [status, session]);
@@ -131,20 +134,35 @@ export default function OnboardingPage() {
     if (phone.replace(/\D/g,'').length < 6) { setError('Le numéro de téléphone est requis'); return; }
     setSaving(true); setError('');
     try {
-      const fullPhone = phone ? `${country.dial}${phone.replace(/^0+/,'')}` : '';
+      const fullPhone = phone ? `${country.dial}${phone.replace(/\D/g, '')}` : '';
       if (token) {
         const payload: Record<string,string> = { name: name.trim(), bio };
-        if (avatar && !avatar.startsWith('data:')) payload.avatar = avatar;
+        if (avatar) payload.avatar = avatar;
         if (fullPhone) payload.phone = fullPhone;
         const saved = await api.users.update(token, payload);
-        await update({ user: { phone: saved.phone, username: saved.username } });
+        await update({
+          user: {
+            id: saved.id,
+            backendToken: saved.token || token,
+            name: saved.name ?? name.trim(),
+            image: saved.avatar ?? avatar,
+            phone: saved.phone,
+            username: saved.username,
+            isNew: false,
+          },
+        });
       }
-      localStorage.setItem('oracle-profile', JSON.stringify({ name: name.trim(), bio, avatar, phone: `${country.dial}${phone}` }));
+      if (profileKey) {
+        localStorage.setItem(profileKey, JSON.stringify({ name: name.trim(), bio, avatar, phone: fullPhone }));
+        localStorage.removeItem('oracle-profile');
+      }
       router.replace('/chat');
     } catch(err:any) {
       const raw = String(err?.message ?? '');
-      setError(raw.includes('déjà associé') || raw.includes('deja associe') || raw.includes('409')
-        ? 'Ce numéro est déjà utilisé par un autre compte Oracle Messenger.'
+      setError(raw.includes('même compte Google') || raw.includes('votre compte Oracle Messenger')
+        ? 'Ce numéro appartient déjà à votre compte. Déconnectez-vous puis reconnectez-vous avec le même compte Google pour l’ouvrir.'
+        : raw.includes('autre compte Google') || raw.includes('déjà associé') || raw.includes('deja associe') || raw.includes('409')
+        ? 'Ce numéro est déjà lié à un autre compte Google. Connectez-vous avec le Gmail associé à ce numéro.'
         : 'Erreur lors de la sauvegarde.');
     } finally {
       setSaving(false);

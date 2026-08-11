@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { unlink } from 'fs/promises';
+import { join, resolve } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -17,6 +19,75 @@ export class ChatService {
 
   private isMediaType(type?: string | null) {
     return ['image', 'video', 'audio', 'voice', 'file', 'document', 'gif', 'sticker'].includes(String(type ?? '').toLowerCase());
+  }
+
+  private uploadRoot() {
+    return process.env.MEDIA_UPLOAD_DIR || join(process.cwd(), 'uploads');
+  }
+
+  private uploadedFilePathFromContent(content?: string | null) {
+    const raw = String(content ?? '').trim();
+    if (!raw) return null;
+
+    let source = raw;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && typeof parsed.url === 'string') {
+        source = parsed.url;
+      }
+    } catch {}
+
+    try {
+      source = new URL(source).pathname;
+    } catch {}
+
+    const marker = '/uploads/';
+    const markerIndex = source.indexOf(marker);
+    if (markerIndex < 0) return null;
+
+    const relative = decodeURIComponent(source.slice(markerIndex + marker.length)).replace(/\\/g, '/');
+    if (!relative || relative.split('/').some(part => part === '..')) return null;
+
+    const root = resolve(this.uploadRoot());
+    const absolute = resolve(root, relative);
+    if (absolute !== root && !absolute.startsWith(`${root}/`)) return null;
+    return absolute;
+  }
+
+  private mediaPayloadFromContent(content?: string | null) {
+    const raw = String(content ?? '').trim();
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      const payload = parsed as Record<string, unknown>;
+      return {
+        url: typeof payload.url === 'string' ? payload.url : '',
+        checksum: typeof payload.checksum === 'string' && /^[a-f0-9]{64}$/i.test(payload.checksum)
+          ? payload.checksum.toLowerCase()
+          : undefined,
+        size: Number.isFinite(Number(payload.size)) && Number(payload.size) > 0
+          ? Math.floor(Number(payload.size))
+          : undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async removeTemporaryUploadedFile(content?: string | null) {
+    const filePath = this.uploadedFilePathFromContent(content);
+    if (!filePath) return false;
+    try {
+      await unlink(filePath);
+      return true;
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') {
+        console.warn('[media] temporary upload cleanup failed', { filePath, error: error?.message ?? error });
+        return false;
+      }
+      return true;
+    }
   }
 
   private normalizeMessageType(type?: string | null) {
@@ -116,7 +187,7 @@ export class ChatService {
       include: {
         conversation: {
           include: {
-            participants: { include: { user: { select: { id: true, name: true, username: true, email: true, phone: true, avatar: true, status: true } } } },
+            participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
             messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
           },
         },
@@ -176,7 +247,7 @@ export class ChatService {
         ],
       },
       include: {
-        participants: { include: { user: { select: { id: true, name: true, username: true, email: true, phone: true, avatar: true, status: true } } } },
+        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
         messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
       },
       orderBy: { updatedAt: 'desc' },
@@ -210,7 +281,7 @@ export class ChatService {
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: {
-        participants: { include: { user: { select: { id: true, name: true, username: true, email: true, phone: true, avatar: true, status: true } } } },
+        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
             messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
       },
     });
@@ -271,7 +342,7 @@ export class ChatService {
         ],
       },
       include: {
-        participants: { include: { user: { select: { id: true, name: true, username: true, email: true, phone: true, avatar: true, status: true } } } },
+        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
         messages: { take: 1, orderBy: { createdAt: 'desc' }, include: { reactions: true } },
       },
     });
@@ -283,7 +354,7 @@ export class ChatService {
           participants: { create: [{ userId }, { userId: participantId }] },
         },
         include: {
-          participants: { include: { user: { select: { id: true, name: true, username: true, email: true, phone: true, avatar: true, status: true } } } },
+          participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
           messages: { take: 1, orderBy: { createdAt: 'desc' }, include: { reactions: true } },
         },
       });
@@ -383,30 +454,119 @@ export class ChatService {
     });
     if (!msg) throw new NotFoundException();
     if (!this.isMediaType(msg.type)) return { cleared: false, message: msg };
-    if (!checksum || !/^[a-f0-9]{64}$/i.test(checksum)) return { cleared: false, message: msg };
+    const normalizedChecksum = String(checksum || '').toLowerCase();
+    const normalizedSize = Number.isFinite(Number(size)) ? Math.floor(Number(size)) : 0;
+    if (!/^[a-f0-9]{64}$/.test(normalizedChecksum) || normalizedSize <= 0) {
+      throw new BadRequestException('Confirmation média invalide');
+    }
 
     const participantIds = msg.conversation.participants.map(p => p.userId);
     if (!participantIds.includes(userId)) throw new ForbiddenException();
+    if (msg.senderId === userId && participantIds.length > 1) {
+      throw new BadRequestException('Le destinataire doit confirmer la sauvegarde locale');
+    }
 
+    const expected = this.mediaPayloadFromContent(msg.content);
+    if (expected?.size && expected.size !== normalizedSize) {
+      return {
+        cleared: false,
+        ackConfirmed: false,
+        mediaDelivery: {
+          state: 'LOCAL_SAVE_REJECTED',
+          reason: 'SIZE_MISMATCH',
+          expectedSize: expected.size,
+          receivedSize: normalizedSize,
+          serverRetained: true,
+        },
+      };
+    }
+    if (expected?.checksum && expected.checksum !== normalizedChecksum) {
+      return {
+        cleared: false,
+        ackConfirmed: false,
+        mediaDelivery: {
+          state: 'LOCAL_SAVE_REJECTED',
+          reason: 'CHECKSUM_MISMATCH',
+          expectedChecksum: expected.checksum,
+          receivedChecksum: normalizedChecksum,
+          serverRetained: true,
+        },
+      };
+    }
+
+    const now = new Date();
     await this.prisma.messageLocalSave.upsert({
       where: { messageId_userId: { messageId, userId } },
-      create: { messageId, userId, checksum, size: Number.isFinite(size) ? Math.max(0, Math.floor(size ?? 0)) : undefined },
-      update: { checksum, size: Number.isFinite(size) ? Math.max(0, Math.floor(size ?? 0)) : undefined },
+      create: {
+        messageId,
+        userId,
+        checksum: normalizedChecksum,
+        size: normalizedSize,
+        deliveryState: 'ACK_CONFIRMED',
+        downloadedAt: now,
+        locallySavedAt: now,
+        ackConfirmedAt: now,
+      } as any,
+      update: {
+        checksum: normalizedChecksum,
+        size: normalizedSize,
+        deliveryState: 'ACK_CONFIRMED',
+        downloadedAt: now,
+        locallySavedAt: now,
+        ackConfirmedAt: now,
+      } as any,
     });
 
-    const savedCount = await this.prisma.messageLocalSave.count({
-      where: { messageId, userId: { in: participantIds } },
+    const recipientIds = participantIds.filter(id => id !== msg.senderId);
+    const ackConfirmedCount = await this.prisma.messageLocalSave.count({
+      where: {
+        messageId,
+        userId: { in: recipientIds.length ? recipientIds : participantIds },
+        ...({ deliveryState: 'ACK_CONFIRMED' } as any),
+      },
     });
-    const allParticipantsSaved = savedCount >= participantIds.length;
-    const hasServerPayload = typeof msg.content === 'string' && msg.content.trim().length > 0;
+    const requiredAckCount = recipientIds.length ? recipientIds.length : participantIds.length;
+    const allRecipientsSaved = requiredAckCount > 0 && ackConfirmedCount >= requiredAckCount;
+    const serverFileCleaned = allRecipientsSaved
+      ? await this.removeTemporaryUploadedFile(msg.content)
+      : false;
 
-    if (!allParticipantsSaved || !hasServerPayload) return { cleared: false, message: msg };
+    return {
+      cleared: false,
+      ackConfirmed: true,
+      message: msg,
+      mediaDelivery: {
+        state: 'ACK_CONFIRMED',
+        ackConfirmedCount,
+        requiredAckCount,
+        serverRetained: !serverFileCleaned,
+        serverFileCleaned,
+      },
+    };
+  }
 
-    const cleared = await this.prisma.message.update({
-      where: { id: messageId },
-      data: { content: '' },
+  async getPendingMedia(userId: string, limit = 50) {
+    const take = Math.min(Math.max(Number(limit) || 50, 1), 100);
+    return this.prisma.message.findMany({
+      where: {
+        senderId: { not: userId },
+        isDeleted: false,
+        type: { in: ['image', 'video', 'audio', 'voice', 'file', 'document', 'gif', 'sticker'] },
+        conversation: { participants: { some: { userId } } },
+        localSaves: {
+          none: {
+            userId,
+            ...({ deliveryState: 'ACK_CONFIRMED' } as any),
+          },
+        },
+      },
+      include: {
+        sender: { select: { id: true, name: true, username: true, avatar: true } },
+        reactions: { select: { emoji: true, userId: true, updatedAt: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take,
     });
-    return { cleared: true, message: cleared };
   }
 
   async cleanupOldTextMessages(days = 5) {
@@ -421,6 +581,28 @@ export class ChatService {
     });
   }
 
+  private async rememberMediaDelivered(messageId: string, userId: string) {
+    const existing = await this.prisma.messageLocalSave.findUnique({
+      where: { messageId_userId: { messageId, userId } },
+      select: { deliveryState: true },
+    });
+    if (existing?.deliveryState === 'ACK_CONFIRMED') return;
+    if (existing) {
+      await this.prisma.messageLocalSave.update({
+        where: { messageId_userId: { messageId, userId } },
+        data: { deliveryState: 'DELIVERED' } as any,
+      });
+      return;
+    }
+    await this.prisma.messageLocalSave.create({
+      data: {
+        messageId,
+        userId,
+        deliveryState: 'DELIVERED',
+      } as any,
+    });
+  }
+
   async markMessageDelivered(messageId: string, receiverId: string) {
     const msg = await this.prisma.message.findUnique({
       where: { id: messageId },
@@ -430,6 +612,7 @@ export class ChatService {
     const participantIds = msg.conversation.participants.map(p => p.userId);
     if (!participantIds.includes(receiverId)) throw new ForbiddenException();
     if (msg.senderId === receiverId) return msg;
+    if (this.isMediaType(msg.type)) await this.rememberMediaDelivered(messageId, receiverId);
     if (msg.status === 'read' || msg.status === 'delivered') return msg;
     return this.prisma.message.update({
       where: { id: messageId },
@@ -483,6 +666,14 @@ export class ChatService {
     const msg = await this.prisma.message.findUnique({ where: { id: messageId } });
     if (!msg) throw new NotFoundException();
     if (msg.senderId !== userId) throw new ForbiddenException();
+    if (msg.isDeleted) return msg;
+    const hasTemporaryUpload = this.isMediaType(msg.type) && Boolean(this.uploadedFilePathFromContent(msg.content));
+    if (hasTemporaryUpload) {
+      const temporaryMediaRemoved = await this.removeTemporaryUploadedFile(msg.content);
+      if (!temporaryMediaRemoved) {
+        throw new BadRequestException('Suppression média temporaire impossible. Réessayez.');
+      }
+    }
     return this.prisma.message.update({ where: { id: messageId }, data: { isDeleted: true, content: '' } });
   }
 

@@ -38,8 +38,9 @@ export function ChatLayout() {
     }
     let cancelled = false;
     setConversationsLoading(true);
+    setCurrentUser(session?.user as any);
     api.users.me(token).then(setCurrentUser).catch(() => {});
-    getConversations()
+    getConversations(userId)
       .then(localConversations => {
         if (!cancelled && localConversations.length > 0) setConversations(localConversations);
       })
@@ -58,7 +59,7 @@ export function ChatLayout() {
         if (!cancelled) setConversationsLoading(false);
       });
     return () => { cancelled = true; };
-  }, [token, status, setCurrentUser, setConversations]);
+  }, [token, userId, status, session, setCurrentUser, setConversations]);
 
   useEffect(() => {
     const convId = searchParams?.get('conv');

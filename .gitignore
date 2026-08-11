@@ -9,3 +9,5 @@ dist/
 .DS_Store
 coverage/
 .nyc_output/
+frontend/public/downloads/*.aab
+frontend/public/downloads/*.apk

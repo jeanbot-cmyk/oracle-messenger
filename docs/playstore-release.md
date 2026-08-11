@@ -78,6 +78,43 @@ Cela évite les refus Play Store liés à un `versionCode` déjà utilisé.
 - Questionnaire sécurité des données.
 - Justification des permissions sensibles.
 
+## Configuration Google Sign-In critique
+
+Ne pas recréer le projet Firebase, ne pas changer le package Android et ne pas supprimer les clients OAuth existants sans audit. Oracle Messenger utilise :
+
+- Projet Firebase / Google Cloud : `tchingankong`.
+- Project number : `734297398479`.
+- Package Android officiel : `online.oracle_plus.messenger`.
+- Web client ID serveur : `734297398479-rids78si56kck1u3sjrgnivfdtpr7e89.apps.googleusercontent.com`.
+
+Les empreintes suivantes doivent rester enregistrées dans Firebase et dans Google Cloud OAuth Android pour le package `online.oracle_plus.messenger` :
+
+| Usage | SHA-1 | OAuth Android Client ID |
+| --- | --- | --- |
+| Play App Signing actuelle | `CD:B2:27:20:D6:FB:57:28:A9:0A:33:27:FD:27:6B:28:3D:32:A1:78` | `734297398479-irrshc48k2d7kotc696gofbellvll43i.apps.googleusercontent.com` |
+| Upload key | `C7:80:36:3E:B0:30:96:6E:B7:9D:0B:8A:DA:64:62:3E:9A:C1:D2:C8` | `734297398479-49duf58ok258ni2di43aq7df4pn5tp4d.apps.googleusercontent.com` |
+| Ancienne cle Play encore vue sur certaines installations | `F2:C2:57:2B:6C:E4:C7:3D:3F:25:7B:71:99:05:75:A9:2A:8B:FB:D1` | `734297398479-f164rp1c083d77vftt76mk7qm32l2u21.apps.googleusercontent.com` |
+
+SHA-256 Play App Signing actuelle :
+
+```text
+26:87:0B:9B:48:69:C2:18:B1:DB:B8:96:EA:B9:C7:56:41:A1:7F:F0:36:18:D2:4A:70:71:23:34:46:52:BE:98
+```
+
+SHA-256 upload key :
+
+```text
+FB:41:8D:3C:C0:5F:48:DF:8E:FB:C3:28:07:EA:58:F7:B7:93:A8:51:01:FC:46:9E:86:49:1D:BF:1E:6F:88:5F
+```
+
+Avant chaque nouvelle AAB :
+
+1. Verifier que `frontend/android/app/google-services.json` contient le client Android `online.oracle_plus.messenger`.
+2. Verifier que ce client contient les trois SHA-1 ci-dessus.
+3. Verifier que le Web client ID reste `734297398479-rids78si56kck1u3sjrgnivfdtpr7e89.apps.googleusercontent.com`.
+4. Ne pas remplacer `google-services.json` par un fichier qui ne contient que `com.oracleplus.android` ou un autre package.
+5. Si une erreur Google `DEVELOPER_ERROR` / code 10 revient, lire le diagnostic affiche dans l'app, recuperer le SHA-1 exact du build installe, puis l'ajouter a Firebase et Google Cloud OAuth Android sans supprimer les autres empreintes.
+
 ## Permissions à justifier
 
 L'application déclare des permissions liées à la messagerie et aux appels :
@@ -86,7 +123,7 @@ L'application déclare des permissions liées à la messagerie et aux appels :
 - Notifications : réception des messages et appels entrants.
 - Vibration : alerte d'appel/message.
 - Wake lock : maintenir certains flux actifs pendant les appels.
-- Micro/caméra en foreground service : appels audio/vidéo.
+- Micro/caméra : appels audio/vidéo déclenchés par l'utilisateur.
 - Full screen intent : écran d'appel entrant, si accepté par Android/Google Play.
 - Contacts : retrouver automatiquement les personnes du carnet d'adresses qui utilisent déjà Oracle Messenger.
 
@@ -96,7 +133,7 @@ Avant la demande système Android pour les contacts, l'application affiche une e
 
 ## Cible Android
 
-Le projet cible actuellement Android API 35. Pour une soumission après la limite Google Play du 31 août 2026, prévoir le passage à API 36 avec Android Gradle Plugin/SDK compatibles.
+Le projet cible Android API 36 avec `compileSdkVersion = 36` et `targetSdkVersion = 36`, ce qui prépare la soumission Google Play pour Android 16.
 
 ## Validation avant publication
 
@@ -142,3 +179,44 @@ Points qui ne peuvent pas être validés uniquement par build :
 ## Limite importante
 
 L'application Android actuelle reste principalement un wrapper Capacitor de la PWA en ligne. Cela améliore la distribution Android et prépare les permissions natives, mais une sonnerie d'appel fiable téléphone verrouillé nécessite encore une implémentation native complète côté notifications/appels entrants.
+
+## Texte Play Store recommandé
+
+Description courte :
+
+```text
+Secure messaging with video calls, AI creative tools and Business automation.
+```
+
+Description complète :
+
+```text
+Oracle Messenger is a modern communication app built for people and businesses who want messaging, calls, creative tools and business automation in one place.
+
+Chat with contacts, create private or group conversations, share photos, videos, voice notes and documents, and make audio or video calls from a simple mobile interface.
+
+Oracle Messenger also includes creative and productivity tools designed for professional users:
+
+- AI image and flyer creation tools
+- Business assistant and CRM features
+- Client organization and follow-up reminders
+- Smart business messages and automation
+- Local media gallery for saved creations and shared files
+- Contact discovery and group communication
+- Notifications for messages and calls
+
+The goal of Oracle Messenger is not only to send messages. It helps users communicate, create content, organize client conversations and manage business follow-up from one mobile app.
+
+Main features:
+- Private messaging and group chats
+- Audio and video calls
+- Photo, video, voice note and document sharing
+- Contact search and contact import
+- Message and call notifications
+- AI creative tools for images, flyers and content
+- Business CRM, reminders and automation features
+- Simple, fast and modern mobile interface
+- Local access to saved media and creations
+
+Oracle Messenger is designed for daily communication, professional exchanges and business growth.
+```

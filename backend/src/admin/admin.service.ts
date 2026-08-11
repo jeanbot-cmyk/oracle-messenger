@@ -144,8 +144,9 @@ export class AdminService {
 
   async broadcastSalesMessage(adminId: string, content: string, mediaUrl?: string, type = 'text') {
     const systemUser = await this.getOrCreateOfficialSystemUser();
-    const cleanContent = content?.trim() || mediaUrl?.trim() || '';
-    if (!cleanContent) return { success: false, sent: 0, failed: 0, total: 0, message: 'Contenu requis' };
+    const cleanText = content?.trim() || '';
+    const cleanMediaUrl = mediaUrl?.trim() || '';
+    if (!cleanText && !cleanMediaUrl) return { success: false, sent: 0, failed: 0, total: 0, message: 'Contenu requis' };
 
     // Get or create one official O.messenger conversation for each user.
     const users = await this.prisma.user.findMany({
@@ -198,12 +199,24 @@ export class AdminService {
           });
         }
 
-        const messageType = ['text', 'image', 'video', 'audio', 'voice', 'file', 'document'].includes(type) ? type : 'text';
+        const messageType = ['image', 'video', 'audio', 'voice', 'file', 'document'].includes(type)
+          ? type
+          : cleanMediaUrl
+            ? 'file'
+          : 'text';
+        const messageContent = messageType === 'text'
+          ? cleanText
+          : JSON.stringify({
+              url: cleanMediaUrl,
+              name: cleanText || 'Message officiel',
+              mime: this.inferBroadcastMime(messageType, cleanMediaUrl),
+              official: true,
+            });
         const msg = await this.prisma.message.create({
           data: {
             conversationId: conv.id,
             senderId: systemUser.id,
-            content: cleanContent,
+            content: messageContent,
             type: messageType,
             status: 'sent',
           },
@@ -245,10 +258,23 @@ export class AdminService {
           ? 'Message vocal officiel'
           : type === 'file' || type === 'document'
             ? 'Fichier officiel'
-            : cleanContent;
+            : cleanText;
     await this.notifications.sendToAll({ title: this.officialConversationName, body: notificationBody }).catch(() => {});
 
     return { success: failed === 0, sent, failed, total: users.length };
+  }
+
+  private inferBroadcastMime(type: string, url: string) {
+    if (type === 'image') return 'image/jpeg';
+    if (type === 'video') return 'video/mp4';
+    if (type === 'audio' || type === 'voice') return 'audio/mpeg';
+    const lower = url.toLowerCase();
+    if (lower.endsWith('.pdf')) return 'application/pdf';
+    if (lower.endsWith('.doc')) return 'application/msword';
+    if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    if (lower.endsWith('.xls')) return 'application/vnd.ms-excel';
+    if (lower.endsWith('.xlsx')) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    return 'application/octet-stream';
   }
 
   // ── Statistiques par pays (basé sur l'indicatif du numéro de téléphone) ────

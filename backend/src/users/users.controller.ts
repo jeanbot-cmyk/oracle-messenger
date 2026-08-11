@@ -33,6 +33,12 @@ export class UsersController {
     return this.users.matchByPhoneHashes(body.hashes ?? [], req.user.id);
   }
 
+  @Post('match-contact')
+  @UseGuards(JwtGuard)
+  matchContact(@Request() req: any, @Body() body: { hashes?: string[]; phone?: string; email?: string }) {
+    return this.users.matchExplicitContact(req.user.id, body ?? {});
+  }
+
   @Get('me/has-phone')
   @UseGuards(JwtGuard)
   async hasPhone(@Request() req: any) {

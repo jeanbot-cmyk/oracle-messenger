@@ -4,4 +4,5 @@
     <string name="title_activity_main">Oracle Messenger</string>
     <string name="package_name">online.oracle_plus.messenger</string>
     <string name="custom_url_scheme">online.oracle_plus.messenger</string>
+    <string name="server_client_id">734297398479-rids78si56kck1u3sjrgnivfdtpr7e89.apps.googleusercontent.com</string>
 </resources>

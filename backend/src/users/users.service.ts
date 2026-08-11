@@ -1,10 +1,11 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { createHash } from 'crypto';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private jwt: JwtService) {}
 
   async findById(id: string) {
     return this.prisma.user.findUnique({ where: { id } });
@@ -24,8 +25,24 @@ export class UsersService {
   }
 
   async updateProfile(id: string, data: { name?: string; bio?: string; avatar?: string; phone?: string }) {
-    const phone = data.phone !== undefined && data.phone !== ''
-      ? await this.normalizeUniquePhone(id, data.phone)
+    const assignment = data.phone !== undefined && data.phone !== ''
+      ? await this.preparePhoneAssignment(id, data.phone)
+      : undefined;
+    if (assignment?.recoveryUser) {
+      const user = await this.prisma.user.update({
+        where: { id: assignment.recoveryUser.id },
+        data: {
+          ...(data.name ? { name: data.name } : {}),
+          ...(data.bio !== undefined ? { bio: data.bio } : {}),
+          ...(data.avatar ? { avatar: data.avatar } : {}),
+          status: 'online',
+        },
+      });
+      return this.withSessionToken(user, true);
+    }
+
+    const phone = assignment?.phone !== undefined
+      ? assignment.phone
       : data.phone === ''
         ? null
         : undefined;
@@ -43,7 +60,15 @@ export class UsersService {
   }
 
   async setPhone(id: string, phone: string) {
-    const cleaned = await this.normalizeUniquePhone(id, phone);
+    const assignment = await this.preparePhoneAssignment(id, phone);
+    if (assignment.recoveryUser) {
+      const user = await this.prisma.user.update({
+        where: { id: assignment.recoveryUser.id },
+        data: { status: 'online' },
+      });
+      return this.withSessionToken(user, true);
+    }
+    const cleaned = assignment.phone;
 
     return this.prisma.user.update({
       where: { id },
@@ -92,6 +117,57 @@ export class UsersService {
     return matched;
   }
 
+  async matchExplicitContact(requesterId: string, data: { hashes?: string[]; phone?: string; email?: string }) {
+    const hashSet = new Set((data.hashes ?? []).filter(h => /^[a-f0-9]{64}$/i.test(h)));
+    const rawPhone = String(data.phone ?? '').trim();
+    const email = String(data.email ?? '').trim().toLowerCase();
+    if (rawPhone) {
+      for (const candidate of this.phoneLookupCandidates(rawPhone)) {
+        hashSet.add(this.sha256(candidate));
+      }
+    }
+    if (!hashSet.size && !email) return null;
+
+    await this.backfillMissingPhoneHashes();
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        id: { not: requesterId },
+        OR: [
+          ...(hashSet.size ? [
+            { phoneHash: { in: [...hashSet] } },
+            { phoneDigitsHash: { in: [...hashSet] } },
+            { phoneLast8Hash: { in: [...hashSet] } },
+            { phoneLast9Hash: { in: [...hashSet] } },
+          ] : []),
+          ...(email ? [{ email: { equals: email, mode: 'insensitive' as const } }] : []),
+        ],
+      },
+      select: { id:true, name:true, username:true, avatar:true, status:true, phone:true, email:true },
+      take: 20,
+    });
+
+    let user = users[0];
+    if (rawPhone) {
+      const scored = users
+        .map(candidate => ({ candidate, score: this.phoneMatchScore(rawPhone, candidate.phone ?? '') }))
+        .filter(item => item.score > 0)
+        .sort((a, b) => b.score - a.score);
+      const best = scored[0];
+      const sameBest = best ? scored.filter(item => item.score === best.score) : [];
+
+      // Une correspondance par suffixe seul n'est pas une identité certaine.
+      // Si plusieurs comptes ont le même suffixe, on ne lie aucun compte.
+      user = best && !(best.score < 80 && sameBest.length > 1)
+        ? best.candidate
+        : users.find(candidate => candidate.email?.toLowerCase() === email);
+    }
+
+    if (!user) return null;
+    await this.rememberContacts(requesterId, [user.id], email ? 'manual_email' : 'manual_phone');
+    return user;
+  }
+
   async setOnline(id: string, online: boolean) {
     return this.prisma.user.update({
       where: { id },
@@ -122,14 +198,49 @@ export class UsersService {
   }
 
   private async normalizeUniquePhone(userId: string, phone: string) {
+    return (await this.preparePhoneAssignment(userId, phone)).phone;
+  }
+
+  private async preparePhoneAssignment(userId: string, phone: string) {
     const cleaned = this.normalizePhone(phone);
     if (cleaned.replace(/\D/g, '').length < 8) throw new BadRequestException('Numéro de téléphone invalide');
 
-    const owner = await this.prisma.user.findUnique({ where: { phone: cleaned } });
+    const current = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, googleId: true },
+    });
+    if (!current) throw new BadRequestException('Compte Oracle Messenger introuvable');
+
+    await this.backfillMissingPhoneHashes();
+    const digits = cleaned.replace(/\D/g, '');
+    const owner = await this.prisma.user.findFirst({
+      where: {
+        OR: [
+          { phone: cleaned },
+          { phoneHash: this.sha256(cleaned) },
+          { phoneDigitsHash: this.sha256(digits) },
+        ],
+      },
+      select: { id: true, email: true, googleId: true },
+    });
     if (owner && owner.id !== userId) {
-      throw new ConflictException('Ce numéro de téléphone est déjà associé à un autre compte Oracle Messenger.');
+      const sameGoogleAccount =
+        (!!owner.googleId && owner.googleId === current.googleId) ||
+        (!!owner.email && owner.email.toLowerCase() === current.email.toLowerCase());
+      if (sameGoogleAccount) {
+        return { phone: cleaned, recoveryUser: owner };
+      }
+      throw new ConflictException('Ce numéro est déjà lié à un autre compte Google Oracle Messenger. Connectez-vous avec le Gmail associé à ce numéro.');
     }
-    return cleaned;
+    return { phone: cleaned, recoveryUser: null };
+  }
+
+  private withSessionToken(user: any, recovered: boolean) {
+    return {
+      ...user,
+      recovered,
+      token: this.jwt.sign({ sub: user.id, email: user.email }),
+    };
   }
 
   private sha256(value: string) {
@@ -173,6 +284,8 @@ export class UsersService {
         OR: [
           { phoneHash: null },
           { phoneDigitsHash: null },
+          { phoneLast8Hash: null },
+          { phoneLast9Hash: null },
         ],
       },
       select: { id: true, phone: true },
@@ -197,6 +310,8 @@ export class UsersService {
     if (withoutLeadingZero.length >= 6) candidates.add(withoutLeadingZero);
     if (digits.length >= 8) candidates.add(digits.slice(-8));
     if (digits.length >= 9) candidates.add(digits.slice(-9));
+    if (withoutLeadingZero.length >= 8) candidates.add(withoutLeadingZero.slice(-8));
+    if (withoutLeadingZero.length >= 9) candidates.add(withoutLeadingZero.slice(-9));
     return [...candidates];
   }
 

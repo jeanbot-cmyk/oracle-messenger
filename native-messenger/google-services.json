@@ -1,0 +1,92 @@
+{
+  "project_info": {
+    "project_number": "734297398479",
+    "project_id": "tchingankong",
+    "storage_bucket": "tchingankong.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:734297398479:android:d997b138a59efce5c86bba",
+        "android_client_info": {
+          "package_name": "online.oracle_plus.messenger"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "734297398479-49duf58ok258ni2di43aq7df4pn5tp4d.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "online.oracle_plus.messenger",
+            "certificate_hash": "c780363eb030966eb79d0b8ada64623e9ac1d2c8"
+          }
+        },
+        {
+          "client_id": "734297398479-f164rp1c083d77vftt76mk7qm32l2u21.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "online.oracle_plus.messenger",
+            "certificate_hash": "f2c2572b6ce4c73d3f257b71990575a92a8bfbd1"
+          }
+        },
+        {
+          "client_id": "734297398479-irrshc48k2d7kotc696gofbellvll43i.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "online.oracle_plus.messenger",
+            "certificate_hash": "cdb22720d6fb5728a90a3327fd276b283d32a178"
+          }
+        },
+        {
+          "client_id": "734297398479-rids78si56kck1u3sjrgnivfdtpr7e89.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBuJ9DRHFOzV7aqXiFzH694BBLoXZmyk28"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "734297398479-rids78si56kck1u3sjrgnivfdtpr7e89.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:734297398479:android:db7bf0606671909bc86bba",
+        "android_client_info": {
+          "package_name": "com.oracleplus.android"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "734297398479-rids78si56kck1u3sjrgnivfdtpr7e89.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBuJ9DRHFOzV7aqXiFzH694BBLoXZmyk28"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "734297398479-rids78si56kck1u3sjrgnivfdtpr7e89.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

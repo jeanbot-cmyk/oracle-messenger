@@ -1,0 +1,2 @@
+d0b6f5f5aa9ac8ca5ab17a394026530e7376a8509da3835e075e9601f4d49702  frontend/public/downloads/oracle-messenger-release-vc2026080927-google-clean.apk
+37f5f13e588420c5bb2bad90a43c5fabd454b42ccf890de8b36b4c287f271021  frontend/public/downloads/oracle-messenger-release-vc2026080927-google-clean.aab

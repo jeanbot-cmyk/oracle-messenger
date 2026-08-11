@@ -3,7 +3,7 @@ import { openDB, type IDBPDatabase } from 'idb';
 import type { Message, Conversation } from '../types';
 
 const DB_NAME    = 'oracle-messenger';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const DATA_URL_FALLBACK_MAX_BYTES = 256 * 1024;
 
 let db: IDBPDatabase | null = null;
@@ -167,21 +167,33 @@ export function preserveLocalMediaContent(incoming: Message, existing?: Message 
 async function getDB() {
   if (db) return db;
   db = await openDB(DB_NAME, DB_VERSION, {
-    upgrade(database) {
+    upgrade(database, _oldVersion, _newVersion, transaction) {
       // Messages
       if (!database.objectStoreNames.contains('messages')) {
         const msgStore = database.createObjectStore('messages', { keyPath: 'id' });
         msgStore.createIndex('conversationId', 'conversationId');
         msgStore.createIndex('createdAt', 'createdAt');
+        msgStore.createIndex('ownerId', 'ownerId');
+      } else {
+        const msgStore = transaction.objectStore('messages');
+        if (!msgStore.indexNames.contains('ownerId')) msgStore.createIndex('ownerId', 'ownerId');
       }
       // Conversations
       if (!database.objectStoreNames.contains('conversations')) {
-        database.createObjectStore('conversations', { keyPath: 'id' });
+        const convStore = database.createObjectStore('conversations', { keyPath: 'id' });
+        convStore.createIndex('ownerId', 'ownerId');
+      } else {
+        const convStore = transaction.objectStore('conversations');
+        if (!convStore.indexNames.contains('ownerId')) convStore.createIndex('ownerId', 'ownerId');
       }
       // Media metadata (pas le contenu — P2P WebRTC)
       if (!database.objectStoreNames.contains('media')) {
         const mediaStore = database.createObjectStore('media', { keyPath: 'id' });
         mediaStore.createIndex('conversationId', 'conversationId');
+        mediaStore.createIndex('ownerId', 'ownerId');
+      } else {
+        const mediaStore = transaction.objectStore('media');
+        if (!mediaStore.indexNames.contains('ownerId')) mediaStore.createIndex('ownerId', 'ownerId');
       }
     },
   });
@@ -189,7 +201,7 @@ async function getDB() {
 }
 
 // ── Messages ─────────────────────────────────────────────────────────────────
-export async function saveMessage(msg: Message) {
+export async function saveMessage(msg: Message, ownerId?: string) {
   const database = await getDB();
   const existing = await database.get('messages', msg.id);
   const media = isMediaMessage(msg.type) ? await database.get('media', msg.id) : null;
@@ -200,13 +212,15 @@ export async function saveMessage(msg: Message) {
   await database.put('messages', {
     ...next,
     content,
+    ownerId: ownerId || (existing as any)?.ownerId || '',
   });
 }
 
-export async function getMessages(conversationId: string, limit = 50): Promise<Message[]> {
+export async function getMessages(conversationId: string, limit = 50, ownerId?: string): Promise<Message[]> {
   const database = await getDB();
   const all = await database.getAllFromIndex('messages', 'conversationId', conversationId);
-  const messages = all.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()).slice(-limit);
+  const scoped = ownerId ? all.filter(message => (message as any).ownerId === ownerId) : all;
+  const messages = scoped.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()).slice(-limit);
   const hydrated = await Promise.all(messages.map(async message => {
     if (!isMediaMessage(message.type)) return message;
     const media = await database.get('media', message.id);
@@ -225,7 +239,7 @@ export async function deleteMessage(id: string) {
   await deleteFromOpfs(media?.opfsPath);
 }
 
-export async function persistMessageMedia(msg: Message) {
+export async function persistMessageMedia(msg: Message, ownerId?: string) {
   if (!isMediaMessage(msg.type) || !hasLocalPayload(msg.content)) return null;
   const attachment = extractAttachment(msg.content, msg.type);
   if (!attachment?.src) return null;
@@ -256,6 +270,7 @@ export async function persistMessageMedia(msg: Message) {
 
   await database.put('media', {
     id: msg.id,
+    ownerId: ownerId || '',
     conversationId: msg.conversationId,
     type: msg.type,
     mime: verifiedBlob.type || attachment.mime,
@@ -269,21 +284,23 @@ export async function persistMessageMedia(msg: Message) {
     name: attachment.name,
     savedAt: Date.now(),
   });
-  await database.put('messages', { ...msg, content });
+  await database.put('messages', { ...msg, content, ownerId: ownerId || '' });
 
   return { checksum, size: verifiedBlob.size, opfsPath, content };
 }
 
 // ── Conversations ─────────────────────────────────────────────────────────────
-export async function saveConversation(conv: Conversation) {
+export async function saveConversation(conv: Conversation, ownerId?: string) {
   const database = await getDB();
-  await database.put('conversations', conv);
+  const existing = await database.get('conversations', conv.id);
+  await database.put('conversations', { ...conv, ownerId: ownerId || (existing as any)?.ownerId || '' });
 }
 
-export async function getConversations(): Promise<Conversation[]> {
+export async function getConversations(ownerId?: string): Promise<Conversation[]> {
   const database = await getDB();
   const all = await database.getAll('conversations');
-  return all.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  const scoped = ownerId ? all.filter(conversation => (conversation as any).ownerId === ownerId) : all;
+  return scoped.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 }
 
 export async function deleteConversation(conversationId: string) {

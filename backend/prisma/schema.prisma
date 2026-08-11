@@ -38,10 +38,268 @@ model User {
   contacts         Contact[]     @relation("ContactOwner")
   contactedBy      Contact[]     @relation("ContactTarget")
   messageReactions MessageReaction[]
+  aiAutoConfig     AiAutoConfig?
+  aiWallet         AiWallet?
+  aiPayments       AiPayment[]
+  aiUsageLogs      AiUsageLog[]
+  aiFlyerWallet    AiFlyerWallet?
+  aiFlyerPayments  AiFlyerPayment[]
+  aiFlyerGenerations AiFlyerGeneration[]
+  aiVideoPayments  AiVideoPayment[]
+  aiVideoGenerations AiVideoGeneration[]
+  businessClients   BusinessClient[]   @relation("BusinessOwner")
+  businessCustomerCards BusinessClient[] @relation("BusinessCustomer")
+  businessReminders BusinessReminder[]
+  businessSubscription BusinessSubscription?
+  businessSubscriptionPayments BusinessSubscriptionPayment[]
 
   @@index([phoneDigitsHash])
   @@index([phoneLast8Hash])
   @@index([phoneLast9Hash])
+}
+
+model AiAutoConfig {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  isEnabled      Boolean  @default(false)
+  paidActive     Boolean  @default(false)
+  prompt         String   @db.Text
+  delayMs        Int      @default(5000)
+  recipientScope String   @default("private_only") // friends | non_friends | everyone | groups_only | private_only
+  dailyLimit     Int?
+  lastError      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AiWallet {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  wordsRemaining  Int      @default(0)
+  wordsConsumed   Int      @default(0)
+  valueRemainingFcfa Int   @default(0)
+  totalResponses  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AiPayment {
+  id               String   @id @default(uuid())
+  userId           String
+  reference        String   @unique
+  planCode         String
+  amountFcfa       Int
+  words            Int
+  type             String   // activation | recharge
+  status           String   @default("pending") // pending | success | failed
+  authorizationUrl String?  @db.Text
+  paidAt           DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model AiUsageLog {
+  id             String   @id @default(uuid())
+  userId         String
+  conversationId String?
+  messageId      String?
+  mode           String   @default("auto") // auto | test
+  words          Int
+  costFcfa       Int
+  response       String   @db.Text
+  createdAt      DateTime @default(now())
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([conversationId])
+}
+
+model AiPlan {
+  id         String   @id @default(uuid())
+  code       String   @unique
+  label      String
+  type       String   // activation | recharge
+  priceFcfa  Int
+  words      Int
+  enabled    Boolean  @default(true)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AiSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+
+model BusinessClient {
+  id             String   @id @default(uuid())
+  ownerId        String
+  customerUserId String?
+  conversationId String?
+  name           String
+  phone          String?
+  email          String?
+  status         String   @default("prospect") // prospect | chaud | froid | paye | relancer | vip | perdu
+  tags           String   @default("prospect")
+  notes          String   @default("") @db.Text
+  value          Int      @default(0)
+  source         String   @default("manual") // manual | ai_auto | payment
+  lastIntent     String?
+  lastMessageAt  DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  owner          User     @relation("BusinessOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  customer       User?    @relation("BusinessCustomer", fields: [customerUserId], references: [id], onDelete: SetNull)
+  reminders      BusinessReminder[]
+
+  @@index([ownerId, updatedAt(sort: Desc)])
+  @@index([ownerId, conversationId])
+  @@index([ownerId, customerUserId])
+}
+
+model BusinessSubscription {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  active    Boolean  @default(false)
+  activeUntil DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model BusinessSubscriptionPayment {
+  id               String   @id @default(uuid())
+  userId           String
+  reference        String   @unique
+  amountFcfa       Int
+  months           Int      @default(1)
+  status           String   @default("pending") // pending | success | failed
+  authorizationUrl String?  @db.Text
+  paidAt           DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model BusinessReminder {
+  id             String   @id @default(uuid())
+  ownerId        String
+  clientId       String?
+  conversationId String?
+  title          String
+  note           String   @default("") @db.Text
+  dueAt          DateTime
+  done           Boolean  @default(false)
+  source         String   @default("manual") // manual | ai_auto
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  owner          User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  client         BusinessClient? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, dueAt])
+  @@index([clientId])
+}
+
+model AiFlyerWallet {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  creditsRemaining Int      @default(0)
+  creditsPurchased Int      @default(0)
+  creditsConsumed  Int      @default(0)
+  totalGenerated   Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AiFlyerPayment {
+  id               String   @id @default(uuid())
+  userId           String
+  reference        String   @unique
+  amountFcfa       Int
+  credits          Int
+  status           String   @default("pending") // pending | success | failed
+  authorizationUrl String?  @db.Text
+  paidAt           DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model AiFlyerGeneration {
+  id          String   @id @default(uuid())
+  userId      String
+  prompt      String   @db.Text
+  mode        String   @default("paid") // free | paid
+  mime        String?
+  imageBytes  Int?
+  imageHash   String?
+  title       String?
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model AiVideoPayment {
+  id               String   @id @default(uuid())
+  userId           String
+  reference        String   @unique
+  amountFcfa       Int
+  durationSeconds  Int
+  status           String   @default("pending") // pending | success | failed
+  authorizationUrl String?  @db.Text
+  paidAt           DateTime?
+  consumedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model AiVideoGeneration {
+  id              String   @id @default(uuid())
+  userId          String
+  prompt          String   @db.Text
+  mode            String   @default("premium") // free | premium | admin
+  mime            String?
+  videoBytes      Int?
+  videoHash       String?
+  durationSeconds Int
+  aspectRatio     String
+  quality         String
+  referenceCount  Int      @default(0)
+  title           String?
+  createdAt       DateTime @default(now())
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 model Contact {
@@ -158,15 +416,19 @@ model MessageReaction {
 }
 
 model MessageLocalSave {
-  id        String   @id @default(uuid())
-  messageId String
-  userId    String
-  checksum  String?
-  size      Int?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
+  id             String   @id @default(uuid())
+  messageId      String
+  userId         String
+  checksum       String?
+  size           Int?
+  deliveryState  String   @default("UPLOADED")
+  downloadedAt   DateTime?
+  locallySavedAt DateTime?
+  ackConfirmedAt DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now()) @updatedAt
 
-  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  message        Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@unique([messageId, userId])
   @@index([messageId])

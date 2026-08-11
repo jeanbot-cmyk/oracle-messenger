@@ -1,0 +1,2 @@
+ddd83700afb54367df92292c1b6cdbfd81c0944474768655aabccd678c4bbddf  public/downloads/oracle-messenger-playstore-20260808-v197-stability-vc2026080801.aab
+aaa796f5faa5021dc91fd93b15b08992eb9b1837942c794b542cf41da3224824  public/downloads/oracle-messenger-test-20260808-v197-stability-vc2026080801.apk

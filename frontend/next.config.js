@@ -66,6 +66,13 @@ const nextConfig = {
         ],
       },
       {
+        source: '/manifest.webmanifest',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, max-age=0, must-revalidate' },
+          { key: 'Content-Type', value: 'application/manifest+json; charset=utf-8' },
+        ],
+      },
+      {
         source: '/reset-pwa.html',
         headers: [
           { key: 'Cache-Control', value: 'no-cache, no-store, max-age=0, must-revalidate' },

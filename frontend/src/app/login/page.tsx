@@ -5,9 +5,157 @@ import { useSession, signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
+import {
+  APP_BUILD_LABEL,
+  BACKEND_URL,
+  GOOGLE_ANDROID_APK_CLIENT_ID,
+  GOOGLE_ANDROID_CLIENT_ID,
+  GOOGLE_ANDROID_UPLOAD_CLIENT_ID,
+  GOOGLE_WEB_CLIENT_ID,
+} from '../../lib/config';
 
 const ACCENT = 'var(--accent)';
 const DEEP = 'var(--header-bg)';
+
+function isAndroidAppRuntime(Capacitor?: any) {
+  if (typeof window === 'undefined') return false;
+  const windowCapacitor = (window as any).Capacitor;
+  const nativeCapacitor = Capacitor?.isNativePlatform?.() === true ||
+    windowCapacitor?.isNativePlatform?.() === true;
+  const platform = Capacitor?.getPlatform?.() || windowCapacitor?.getPlatform?.();
+  const search = new URLSearchParams(window.location.search);
+  const ua = navigator.userAgent.toLowerCase();
+  const nativeBuild = localStorage.getItem('oracle-native-build') ||
+    sessionStorage.getItem('oracle-native-build') ||
+    search.get('nativeBuild');
+  return nativeCapacitor ||
+    platform === 'android' ||
+    Boolean((window as any).OracleAndroid) ||
+    Boolean((window as any).__ORACLE_NATIVE_ANDROID) ||
+    Boolean(nativeBuild) ||
+    ua.includes('oraclemessengernative') ||
+    document.referrer.startsWith('android-app://') ||
+    ua.includes('; wv');
+}
+
+function readNativeDiagnostics() {
+  try {
+    const raw = (window as any).OracleAndroid?.getNativeDiagnostics?.();
+    const fallback = localStorage.getItem('oracle-native-diagnostics') || sessionStorage.getItem('oracle-native-diagnostics') || '';
+    if (!raw && !fallback) return '';
+    const parsed = JSON.parse(raw || fallback);
+    const googleClient = localStorage.getItem('oracle-last-google-client') || '';
+    return [
+      parsed.versionCode ? `versionCode ${parsed.versionCode}` : '',
+      parsed.packageName ? `package ${parsed.packageName}` : '',
+      parsed.sha1 ? `SHA-1 ${parsed.sha1}` : '',
+      googleClient ? `client ${googleClient}` : '',
+    ].filter(Boolean).join(' • ');
+  } catch {
+    return '';
+  }
+}
+
+function readCompactNativeDiagnostics() {
+  try {
+    const raw = (window as any).OracleAndroid?.getNativeDiagnostics?.() ||
+      localStorage.getItem('oracle-native-diagnostics') ||
+      sessionStorage.getItem('oracle-native-diagnostics') ||
+      '';
+    if (!raw) return '';
+    const parsed = JSON.parse(raw);
+    return [
+      parsed.versionCode ? `versionCode ${parsed.versionCode}` : '',
+      parsed.packageName ? `package ${parsed.packageName}` : '',
+      parsed.sha1 ? `SHA-1 ${parsed.sha1}` : '',
+    ].filter(Boolean).join(' • ');
+  } catch {
+    return '';
+  }
+}
+
+function getNativeDiagnosticPayload() {
+  try {
+    const raw = (window as any).OracleAndroid?.getNativeDiagnostics?.() ||
+      localStorage.getItem('oracle-native-diagnostics') ||
+      sessionStorage.getItem('oracle-native-diagnostics') ||
+      '';
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSha(value: string) {
+  return String(value || '').replace(/[^a-f0-9]/gi, '').toUpperCase();
+}
+
+function nativeClientCandidates() {
+  const diagnostics = getNativeDiagnosticPayload();
+  const sha = normalizeSha(diagnostics?.sha1 || '');
+  const playSha = normalizeSha('CD:B2:27:20:D6:FB:57:28:A9:0A:33:27:FD:27:6B:28:3D:32:A1:78');
+  const uploadSha = normalizeSha('C7:80:36:3E:B0:30:96:6E:B7:9D:0B:8A:DA:64:62:3E:9A:C1:D2:C8');
+  const apkSha = normalizeSha('F2:C2:57:2B:6C:E4:C7:3D:3F:25:7B:71:99:05:75:A9:2A:8B:FB:D1');
+  const preferred =
+    sha === playSha ? { clientId: GOOGLE_ANDROID_CLIENT_ID, label: 'android-play' } :
+    sha === uploadSha ? { clientId: GOOGLE_ANDROID_UPLOAD_CLIENT_ID, label: 'android-upload' } :
+    sha === apkSha ? { clientId: GOOGLE_ANDROID_APK_CLIENT_ID, label: 'android-apk' } :
+    null;
+  const candidates = [
+    preferred,
+    { clientId: GOOGLE_WEB_CLIENT_ID, label: 'web' },
+    { clientId: GOOGLE_ANDROID_CLIENT_ID, label: 'android-play' },
+    { clientId: GOOGLE_ANDROID_APK_CLIENT_ID, label: 'android-apk' },
+    { clientId: GOOGLE_ANDROID_UPLOAD_CLIENT_ID, label: 'android-upload' },
+  ].filter(Boolean) as Array<{ clientId: string; label: string }>;
+  const seen = new Set<string>();
+  return candidates.filter(item => {
+    if (!item.clientId || seen.has(item.clientId)) return false;
+    seen.add(item.clientId);
+    return true;
+  });
+}
+
+async function nativeGoogleSignInWithClient(clientId: string, label: string) {
+  const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
+  localStorage.setItem('oracle-last-google-client', label);
+  await GoogleAuth.initialize({
+    clientId,
+    scopes: ['profile', 'email'],
+    grantOfflineAccess: false,
+  });
+  return GoogleAuth.signIn();
+}
+
+async function postNativeGoogleUser(googleUser: any) {
+  const idToken = googleUser?.authentication?.idToken;
+  if (!idToken) throw new Error('missing_google_token');
+
+  const res = await fetch(`${BACKEND_URL}/auth/google`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      idToken,
+      googleId: googleUser.id,
+      email: googleUser.email ?? '',
+      name: googleUser.name ?? '',
+      avatar: googleUser.imageUrl ?? '',
+    }),
+  });
+  if (!res.ok) throw new Error('backend_google_rejected');
+  const data = await res.json();
+  if (!data?.token) throw new Error('missing_backend_token');
+  return data;
+}
+
+function googleErrorDetail(error: unknown) {
+  const nativeFailure = error as { message?: string; code?: string | number };
+  return [
+    nativeFailure?.code,
+    nativeFailure?.message,
+    error instanceof Error ? error.message : String(error || ''),
+  ].filter(Boolean).join(' ');
+}
 
 function Spinner() {
   return (
@@ -28,11 +176,20 @@ function LoginContent() {
   const [recovery, setRecovery] = useState<{ found: boolean; name?: string; emailHint?: string; message: string } | null>(null);
 
   useEffect(() => {
-    const from = new URLSearchParams(window.location.search).get('from');
+    const params = new URLSearchParams(window.location.search);
+    const from = params.get('from');
+    const authError = params.get('error');
     if (from) {
       const next = `/contacts?from=${encodeURIComponent(from)}`;
       sessionStorage.setItem('oracle-after-login', next);
       localStorage.setItem('oracle-after-login', next);
+    }
+    if (authError) {
+      setError(
+        authError === 'native_session'
+          ? 'La session Google n’a pas été transmise à Oracle Messenger. Réessayez avec Google.'
+          : 'Connexion Google interrompue. Réessayez avec une connexion stable.',
+      );
     }
   }, []);
 
@@ -52,6 +209,54 @@ function LoginContent() {
     setLoading(true);
     setError('');
     try {
+      const { Capacitor } = await import('@capacitor/core');
+      const shouldUseNativeGoogle = isAndroidAppRuntime(Capacitor);
+      if (shouldUseNativeGoogle) {
+        let lastNativeError: unknown = null;
+        try {
+          let data: any = null;
+          for (const candidate of nativeClientCandidates()) {
+            try {
+              const googleUser = await nativeGoogleSignInWithClient(candidate.clientId, candidate.label);
+              data = await postNativeGoogleUser(googleUser);
+              break;
+            } catch (candidateError) {
+              lastNativeError = candidateError;
+              const detail = googleErrorDetail(candidateError);
+              if (detail.includes('12501')) throw candidateError;
+              if (!detail.includes('10') && !detail.includes('backend_google_rejected') && !detail.includes('missing_google_token')) {
+                throw candidateError;
+              }
+            }
+          }
+          if (!data?.token) throw lastNativeError || new Error('native_google_failed');
+
+          const result = await signIn('native-token', { token: data.token, redirect: false });
+          if (!result?.ok) throw new Error('native_session_failed');
+          router.replace(data.user?.phone ? '/chat' : '/onboarding');
+          return;
+        } catch (nativeError) {
+          console.warn('[Oracle Messenger] Native Google login failed.', nativeError);
+          const detail = googleErrorDetail(lastNativeError || nativeError);
+          if (detail.includes('10')) {
+            const diagnostics = readNativeDiagnostics();
+            setError(
+              "Google Android refuse la signature de cette version. Vérifiez que l'OAuth Android contient le package et le SHA du build installé." +
+              (diagnostics ? ` Diagnostic: ${diagnostics}` : ' Diagnostic indisponible: bridge natif non détecté.'),
+            );
+            setLoading(false);
+            return;
+          }
+          setError(
+            detail.includes('12501')
+              ? 'Connexion Google annulée.'
+              : "Connexion Google Android impossible pour cette version. Vérifiez la configuration Google, puis réessayez." +
+                (readCompactNativeDiagnostics() ? ` Diagnostic: ${readCompactNativeDiagnostics()}` : ''),
+          );
+          setLoading(false);
+          return;
+        }
+      }
       await signIn('google', { callbackUrl: '/login' });
     } catch {
       setError('Connexion Google impossible. Vérifiez votre connexion puis réessayez.');
@@ -81,14 +286,11 @@ function LoginContent() {
     <div style={{ minHeight:'100dvh', background:'#fff', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'32px 24px', boxSizing:'border-box', fontFamily:'system-ui,-apple-system,sans-serif' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}} @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
 
-      <div style={{ width:72, height:72, borderRadius:22, background:DEEP, border:'1px solid rgba(16,42,42,0.14)', display:'flex', alignItems:'center', justifyContent:'center', marginBottom:20, boxShadow:`0 8px 24px rgba(16,42,42,0.22)` }}>
-        <svg width="38" height="38" fill="none" viewBox="0 0 24 24">
-          <path fill="white" d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.05 21.95l4.782-1.388A9.953 9.953 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2z"/>
-          <circle cx="8.5" cy="12" r="1.3" fill={ACCENT}/>
-          <circle cx="12" cy="12" r="1.3" fill={ACCENT}/>
-          <circle cx="15.5" cy="12" r="1.3" fill={ACCENT}/>
-        </svg>
-      </div>
+      <img
+        src="/icons/icon-192-v20260809-premium.png"
+        alt=""
+        style={{ width:92, height:92, borderRadius:26, marginBottom:18, boxShadow:'0 14px 34px rgba(16,42,42,0.18)' }}
+      />
 
       <h1 style={{ fontSize:26, fontWeight:800, color:'var(--text-primary)', margin:'0 0 6px', textAlign:'center' }}>Oracle Messenger</h1>
       <p style={{ color:'var(--text-secondary)', fontSize:14, margin:'0 0 24px', textAlign:'center', maxWidth:340, lineHeight:1.5 }}>
@@ -150,6 +352,9 @@ function LoginContent() {
 
       <p style={{ fontSize:11, color:'var(--text-muted)', textAlign:'center', lineHeight:1.6, maxWidth:320, margin:'22px 0 0' }}>
         Le numéro aide à retrouver le bon compte Google. La connexion reste protégée par Google.
+      </p>
+      <p style={{ fontSize:10, color:'#94A3B8', textAlign:'center', margin:'8px 0 0' }}>
+        Build {APP_BUILD_LABEL}
       </p>
     </div>
   );

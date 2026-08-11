@@ -8,12 +8,22 @@ import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
 import { notify } from '../../lib/feedback';
 
+function setNativeSecureProfile(enabled: boolean) {
+  try {
+    const bridge = (window as any).OracleAndroid;
+    const fn = bridge?.setSecureProfileViewer;
+    if (typeof fn === 'function') fn.call(bridge, enabled);
+  } catch {}
+}
+
 export default function ProfilePage() {
   const { data: session, status, update } = useSession();
   const router = useRouter();
   const { lang } = useSettings();
   const token = session?.user?.backendToken ?? '';
   const username = (session?.user as any)?.username ?? '';
+  const ownerId = (session?.user as any)?.id || session?.user?.email || '';
+  const profileKey = ownerId ? `oracle-profile:${ownerId}` : '';
 
   const [name,    setName]    = useState('');
   const [bio,     setBio]     = useState('');
@@ -31,9 +41,14 @@ export default function ProfilePage() {
   }, [status]);
 
   useEffect(() => {
+    setNativeSecureProfile(true);
+    return () => setNativeSecureProfile(false);
+  }, []);
+
+  useEffect(() => {
     if (!mounted) return;
     // Charger depuis localStorage d'abord
-    const local = JSON.parse(localStorage.getItem('oracle-profile') ?? '{}');
+    const local = profileKey ? JSON.parse(localStorage.getItem(profileKey) ?? '{}') : {};
     setName(local.name || session?.user?.name || '');
     setBio(local.bio || '');
     setAvatar(local.avatar || session?.user?.image || '');
@@ -41,13 +56,13 @@ export default function ProfilePage() {
     // Puis backend (source de vérité)
     if (token) {
       api.users.me(token).then((u: any) => {
-        if (u.name)   setName(u.name);
-        if (u.bio)    setBio(u.bio);
-        if (u.avatar) setAvatar(u.avatar); // priorité backend sur local
-        if (u.phone)  setPhone(u.phone);
+        if (u.name !== undefined)   setName(u.name || '');
+        if (u.bio !== undefined)    setBio(u.bio || '');
+        if (u.avatar !== undefined) setAvatar(u.avatar || ''); // priorité backend sur local
+        if (u.phone !== undefined)  setPhone(u.phone || '');
       }).catch(() => {});
     }
-  }, [mounted, token]);
+  }, [mounted, token, profileKey]);
 
   async function compressAvatar(file: File): Promise<string> {
     const imageUrl = URL.createObjectURL(file);
@@ -110,18 +125,20 @@ export default function ProfilePage() {
     try {
       const payload: Record<string, string> = { name: name.trim(), bio };
       if (avatar) payload.avatar = avatar;
-      if (phone.trim()) payload.phone = phone.trim();
       let savedUser: any = { name: name.trim(), bio, avatar, phone: phone.trim() };
       if (token) {
         savedUser = await api.users.update(token, payload);
       }
 
-      localStorage.setItem('oracle-profile', JSON.stringify({
-        name: savedUser.name ?? name.trim(),
-        bio: savedUser.bio ?? bio,
-        avatar: savedUser.avatar ?? avatar,
-        phone: savedUser.phone ?? phone.trim(),
-      }));
+      if (profileKey) {
+        localStorage.setItem(profileKey, JSON.stringify({
+          name: savedUser.name ?? name.trim(),
+          bio: savedUser.bio ?? bio,
+          avatar: savedUser.avatar ?? avatar,
+          phone: savedUser.phone ?? phone.trim(),
+        }));
+        localStorage.removeItem('oracle-profile');
+      }
 
       if (update) {
         await update({
@@ -155,26 +172,37 @@ export default function ProfilePage() {
     ? `https://messenger.oracle-plus.online/u/${encodeURIComponent(username)}`
     : 'https://messenger.oracle-plus.online/install';
 
+  function goBack() {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+      window.setTimeout(() => {
+        if (window.location.pathname === '/profile') router.replace('/chat');
+      }, 180);
+      return;
+    }
+    router.replace('/chat');
+  }
+
   if (!mounted || status === 'loading') return <Spinner />;
 
   return (
-    <div style={{ minHeight:'100dvh', background:'var(--bg-app)', paddingBottom:'calc(158px + env(safe-area-inset-bottom))' }}>
+    <div style={{ height:'var(--om-viewport-height, 100dvh)', minHeight:0, overflowY:'auto', WebkitOverflowScrolling:'touch', overscrollBehavior:'contain', background:'var(--bg-app)', paddingBottom:'calc(132px + env(safe-area-inset-bottom, 0px))', boxSizing:'border-box' }}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
 
       {/* Header */}
-      <div style={{ background:'var(--header-bg)', padding:'14px 16px', display:'flex', alignItems:'center', gap:12, position:'sticky', top:0, zIndex:20 }}>
-        <button onClick={() => router.back()}
-          style={{ width:36, height:36, borderRadius:'50%', border:'none', background:'rgba(255,255,255,0.2)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:18 }}>←</button>
-        <h1 style={{ fontSize:18, fontWeight:900, color:'#fff', margin:0, flex:1 }}>{t(lang, 'profile.title')}</h1>
+      <div style={{ background:'var(--header-bg)', padding:'calc(12px + env(safe-area-inset-top, 0px)) 12px 12px', display:'flex', alignItems:'center', gap:9, position:'sticky', top:0, zIndex:20, minHeight:'calc(56px + env(safe-area-inset-top, 0px))', boxSizing:'border-box' }}>
+        <button onClick={goBack}
+          style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:'rgba(255,255,255,0.2)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:18, flexShrink:0 }}>←</button>
+        <h1 style={{ fontSize:18, lineHeight:1.15, fontWeight:900, color:'#fff', margin:0, flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{t(lang, 'profile.title')}</h1>
         {saved && <span style={{ color:'#fff', fontSize:13, fontWeight:600 }}>✓ {t(lang, 'common.saved')}</span>}
         <button onClick={handleSave} disabled={saving}
-          style={{ border:'none', borderRadius:999, background:'var(--accent)', color:'var(--accent-text)', padding:'8px 12px', fontSize:13, fontWeight:900, cursor:saving ? 'not-allowed' : 'pointer', opacity:saving ? 0.8 : 1, whiteSpace:'nowrap' }}>
+          style={{ border:'none', borderRadius:999, background:'var(--accent)', color:'var(--accent-text)', padding:'8px 11px', fontSize:13, fontWeight:900, cursor:saving ? 'not-allowed' : 'pointer', opacity:saving ? 0.8 : 1, whiteSpace:'nowrap', flexShrink:0 }}>
           {saving ? '...' : t(lang, 'common.save')}
         </button>
       </div>
 
       {/* Avatar */}
-      <div style={{ background:'var(--header-bg)', paddingBottom:32, display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
+      <div style={{ background:'var(--header-bg)', padding:'0 16px 30px', display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
         <label style={{ cursor:'pointer', position:'relative', marginTop:8 }}>
           <div style={{ width:110, height:110, borderRadius:'50%', overflow:'hidden', background:'rgba(255,255,255,0.3)', display:'flex', alignItems:'center', justifyContent:'center', border:'3px solid rgba(255,255,255,0.5)' }}>
             {avatar
@@ -193,7 +221,7 @@ export default function ProfilePage() {
         <p style={{ color:'rgba(255,255,255,0.85)', fontSize:13 }}>{t(lang, 'profile.tapPhoto')}</p>
       </div>
 
-      <div style={{ padding:16, display:'flex', flexDirection:'column', gap:12, marginTop:-16 }}>
+      <div style={{ padding:'16px 16px 0', display:'flex', flexDirection:'column', gap:12, marginTop:-16 }}>
         {error && (
           <div style={{ background:'#fef2f2', border:'1px solid #fecaca', borderRadius:12, padding:'10px 14px', color:'#dc2626', fontSize:13 }}>{error}</div>
         )}
@@ -250,12 +278,13 @@ export default function ProfilePage() {
           <p style={{ fontSize:12, fontWeight:800, color:'var(--brand)', margin:'0 0 6px', textTransform:'uppercase', letterSpacing:0.5 }}>📱 {t(lang, 'profile.phone')}</p>
           <input
             value={phone}
-            onChange={e => { setPhone(e.target.value); setError(''); }}
             type="tel"
-            placeholder="+33 6 12 34 56 78"
-            style={{ width:'100%', border:'none', outline:'none', fontSize:15, color:'var(--text-primary)', background:'transparent', padding:0 }}
+            readOnly
+            aria-readonly="true"
+            placeholder="Aucun numéro enregistré"
+            style={{ width:'100%', border:'none', outline:'none', fontSize:15, color:'var(--text-primary)', background:'transparent', padding:0, opacity: phone ? 1 : 0.72 }}
           />
-          <p style={{ fontSize:11, color:'var(--text-muted)', margin:'6px 0 0' }}>{t(lang, 'profile.phoneHelp')}</p>
+          <p style={{ fontSize:11, color:'var(--text-muted)', margin:'6px 0 0' }}>Ce numéro est lié au compte et ne se modifie pas depuis le profil.</p>
         </div>
 
         {/* Email */}
@@ -267,7 +296,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Bouton sauvegarder toujours visible */}
-      <div style={{ position:'fixed', left:0, right:0, bottom:0, zIndex:30, padding:'10px 16px max(12px, env(safe-area-inset-bottom))', background:'rgba(245,241,234,0.92)', backdropFilter:'blur(12px)', borderTop:'1px solid var(--border)' }}>
+      <div style={{ position:'fixed', left:0, right:0, bottom:0, zIndex:30, padding:'10px 16px max(14px, env(safe-area-inset-bottom))', background:'rgba(245,241,234,0.94)', backdropFilter:'blur(12px)', borderTop:'1px solid var(--border)' }}>
         <button onClick={handleSave} disabled={saving}
           style={{ width:'100%', background:'var(--accent)', color:'var(--accent-text)', border:'none', borderRadius:16, padding:16, fontSize:16, fontWeight:900, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.8 : 1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow:'var(--shadow)' }}>
           {saving

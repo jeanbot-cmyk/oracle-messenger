@@ -7,7 +7,12 @@ export interface MediaItem {
   name?: string;
   mime?: string;
   size?: number;
-  source?: 'conversation' | 'edit' | 'manual';
+  source?: 'conversation' | 'edit' | 'manual' | 'ai_flyer';
+}
+
+function scopedGalleryKey(ownerId?: string) {
+  const normalized = typeof ownerId === 'string' ? ownerId.trim() : '';
+  return normalized ? `${GALLERY_KEY}:${normalized}` : GALLERY_KEY;
 }
 
 function inferType(src: string, fallback: MediaItem['type'] = 'image'): MediaItem['type'] {
@@ -56,26 +61,26 @@ export function normalizeGalleryItems(raw: unknown): MediaItem[] {
     .filter((item): item is MediaItem => Boolean(item));
 }
 
-export function readGalleryItems(): MediaItem[] {
+export function readGalleryItems(ownerId?: string): MediaItem[] {
   if (typeof window === 'undefined') return [];
   try {
-    return normalizeGalleryItems(JSON.parse(localStorage.getItem(GALLERY_KEY) ?? '[]'));
+    return normalizeGalleryItems(JSON.parse(localStorage.getItem(scopedGalleryKey(ownerId)) ?? '[]'));
   } catch {
     return [];
   }
 }
 
-export function writeGalleryItems(items: MediaItem[]) {
+export function writeGalleryItems(items: MediaItem[], ownerId?: string) {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(GALLERY_KEY, JSON.stringify(items.slice(0, 500)));
+  localStorage.setItem(scopedGalleryKey(ownerId), JSON.stringify(items.slice(0, 500)));
 }
 
-export function saveToGallery(src: string, type: MediaItem['type'] = 'image', name?: string, meta?: Partial<MediaItem>) {
+export function saveToGallery(src: string, type: MediaItem['type'] = 'image', name?: string, meta?: Partial<MediaItem>, ownerId?: string) {
   if (typeof window === 'undefined') return;
   try {
-    const items = readGalleryItems();
+    const items = readGalleryItems(ownerId);
     if (items.some(i => i.src === src)) return;
     items.unshift({ src, type, savedAt: Date.now(), name, ...meta });
-    writeGalleryItems(items);
+    writeGalleryItems(items, ownerId);
   } catch {}
 }

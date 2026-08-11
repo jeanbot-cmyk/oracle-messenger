@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { ensureSocket, getExistingSocket, waitForSocket } from '../lib/socket';
 import { useNotifications } from './useNotifications';
 import { getMediaStream } from '../lib/media';
+import { BACKEND_URL } from '../lib/config';
 
 export type CallState = 'idle' | 'calling' | 'incoming' | 'connecting' | 'connected' | 'ended';
 
@@ -59,8 +60,7 @@ function emitWithAck<T = any>(socket: any, event: string, payload: any, timeoutM
 
 async function getIceServers(token: string): Promise<RTCIceServer[]> {
   try {
-    const BASE = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
-    const res = await fetch(`${BASE}/calls/ice-servers`, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await fetch(`${BACKEND_URL}/calls/ice-servers`, { headers: { Authorization: `Bearer ${token}` } });
     if (res.ok) { const d = await res.json(); return d.iceServers ?? DEFAULT_ICE; }
   } catch {}
   return DEFAULT_ICE;
@@ -68,8 +68,7 @@ async function getIceServers(token: string): Promise<RTCIceServer[]> {
 
 async function getSfuSession(token: string, room: string, name?: string): Promise<{ enabled: boolean; url?: string; token?: string; reason?: string }> {
   try {
-    const BASE = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
-    const res = await fetch(`${BASE}/calls/sfu-token`, {
+    const res = await fetch(`${BACKEND_URL}/calls/sfu-token`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -85,10 +84,59 @@ async function getSfuSession(token: string, room: string, name?: string): Promis
 }
 
 async function getCallStream(type: 'audio' | 'video', facingMode: 'user' | 'environment') {
-  return getMediaStream({
-    audio: CALL_AUDIO_CONSTRAINTS,
-    video: type === 'video' ? CALL_VIDEO_CONSTRAINTS(facingMode) : false,
-  });
+  try {
+    const stream = await getMediaStream({
+      audio: CALL_AUDIO_CONSTRAINTS,
+      video: type === 'video' ? CALL_VIDEO_CONSTRAINTS(facingMode) : false,
+    });
+    const audioTracks = stream.getAudioTracks();
+    if (!audioTracks.length) {
+      stream.getTracks().forEach(track => track.stop());
+      throw new Error("Aucun microphone disponible. Activez le micro pour continuer l'appel.");
+    }
+    audioTracks.forEach(track => { track.enabled = true; });
+    return stream;
+  } catch (err) {
+    throw err instanceof Error
+      ? err
+      : new Error('Votre caméra ou microphone est désactivé. Activez les autorisations pour continuer.');
+  }
+}
+
+async function getVideoTrackForFacing(facingMode: 'user' | 'environment') {
+  const attempts: MediaStreamConstraints[] = [
+    { video: { ...CALL_VIDEO_CONSTRAINTS(facingMode), facingMode: { exact: facingMode } }, audio: false },
+    { video: CALL_VIDEO_CONSTRAINTS(facingMode), audio: false },
+  ];
+
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cameras = devices.filter(device => device.kind === 'videoinput');
+    const labelPattern = facingMode === 'environment'
+      ? /(back|rear|environment|arrière|arri[eè]re|dos)/i
+      : /(front|user|face|avant|selfie)/i;
+    const preferred = cameras.find(camera => labelPattern.test(camera.label)) ??
+      (facingMode === 'environment' ? cameras[cameras.length - 1] : cameras[0]);
+    if (preferred?.deviceId) {
+      attempts.push({
+        video: { ...CALL_VIDEO_CONSTRAINTS(facingMode), deviceId: { exact: preferred.deviceId } },
+        audio: false,
+      });
+    }
+  } catch {}
+
+  let lastError: unknown;
+  for (const constraints of attempts) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const track = stream.getVideoTracks()[0];
+      if (track) return { stream, track };
+      stream.getTracks().forEach(track => track.stop());
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Impossible de basculer la caméra.');
 }
 
 // L'historique des appels est persisté côté serveur (CallLog en base).
@@ -137,6 +185,13 @@ export function useWebRTC(userId: string, token = '') {
   function failCall(message: string) {
     setCallError(message);
     setTimeout(() => setCallError(''), 6500);
+  }
+
+  function activateMicrophone(stream = localStreamRef.current) {
+    const audioTracks = stream?.getAudioTracks() ?? [];
+    audioTracks.forEach(track => { track.enabled = true; });
+    setIsMuted(false);
+    return audioTracks.length > 0;
   }
 
   function traceCall(event: string, details: Record<string, unknown> = {}) {
@@ -499,18 +554,24 @@ export function useWebRTC(userId: string, token = '') {
     if (startingRef.current || callStateRef.current !== 'idle') return;
     startingRef.current = true;
     const callId = `call_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const info: CallInfo = { callId, conversationId, callerId: userId, type, participants: targetUserIds };
     try {
       setCallError('');
       if (!token) throw new Error('Session appel indisponible');
+      _setInfo(info);
+      _setState('calling');
+      if (type === 'video') {
+        setCallError('Préparation de la caméra...');
+      }
       const socket = await waitForSocket(token, CALL_SOCKET_TIMEOUT_MS);
       iceServersRef.current = await getIceServers(token);
       const stream = await getCallStream(type, cameraFacing);
       traceCall('media:local-ready', { type, audioTracks: stream.getAudioTracks().length, videoTracks: stream.getVideoTracks().length });
       localStreamRef.current = stream;
+      activateMicrophone(stream);
       setLocalStream(stream);
-      const info: CallInfo = { callId, conversationId, callerId: userId, type, participants: targetUserIds };
-      _setInfo(info);
-      _setState('calling');
+      setIsCamOff(false);
+      setCallError('');
       await connectSfuIfAvailable(info, stream);
       const ack = await emitWithAck<{ ok?: boolean; message?: string; targets?: number }>(
         socket,
@@ -525,7 +586,7 @@ export function useWebRTC(userId: string, token = '') {
     } catch (err) {
       console.error('[WebRTC] startCall:', err);
       failCall(err instanceof Error ? err.message : 'Impossible de démarrer cet appel.');
-      endCall();
+      endCall(false);
     } finally {
       startingRef.current = false;
     }
@@ -560,7 +621,9 @@ export function useWebRTC(userId: string, token = '') {
       const stream = await getCallStream(info.type, cameraFacing);
       traceCall('media:local-ready', { type: info.type, audioTracks: stream.getAudioTracks().length, videoTracks: stream.getVideoTracks().length });
       localStreamRef.current = stream;
+      activateMicrophone(stream);
       setLocalStream(stream);
+      setIsCamOff(false);
       const usingSfu = await connectSfuIfAvailable(info, stream);
       // Seulement maintenant on notifie le caller → il va envoyer l'offer
       const ack = await emitWithAck<{ ok?: boolean; message?: string; accepted?: boolean }>(
@@ -588,8 +651,30 @@ export function useWebRTC(userId: string, token = '') {
     }
   }, [token, endCall, cameraFacing]);
 
-  const toggleMute   = useCallback(() => { localStreamRef.current?.getAudioTracks().forEach(t => { t.enabled = !t.enabled; }); setIsMuted(v => !v); }, []);
-  const toggleCamera = useCallback(() => { localStreamRef.current?.getVideoTracks().forEach(t => { t.enabled = !t.enabled; }); setIsCamOff(v => !v); }, []);
+  const toggleMute = useCallback(() => {
+    const audioTracks = localStreamRef.current?.getAudioTracks() ?? [];
+    if (!audioTracks.length) {
+      failCall("Microphone indisponible. Autorisez le micro dans Android puis relancez l'appel.");
+      setIsMuted(true);
+      return;
+    }
+    const shouldMute = audioTracks.some(track => track.enabled);
+    audioTracks.forEach(track => { track.enabled = !shouldMute; });
+    setIsMuted(shouldMute);
+    traceCall('microphone:toggle', { muted: shouldMute, tracks: audioTracks.length });
+  }, []);
+  const toggleCamera = useCallback(() => {
+    const videoTracks = localStreamRef.current?.getVideoTracks() ?? [];
+    if (!videoTracks.length) {
+      failCall("Caméra indisponible. Autorisez la caméra dans Android puis relancez l'appel vidéo.");
+      setIsCamOff(true);
+      return;
+    }
+    const shouldDisable = videoTracks.some(track => track.enabled);
+    videoTracks.forEach(track => { track.enabled = !shouldDisable; });
+    setIsCamOff(shouldDisable);
+    traceCall('camera:toggle', { disabled: shouldDisable, tracks: videoTracks.length });
+  }, []);
   const switchCamera = useCallback(async () => {
     const info = callInfoRef.current;
     if (!info || info.type !== 'video') return;
@@ -598,15 +683,7 @@ export function useWebRTC(userId: string, token = '') {
 
     const nextFacing = cameraFacing === 'user' ? 'environment' : 'user';
     try {
-      const nextStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: nextFacing } },
-        audio: false,
-      });
-      const nextVideoTrack = nextStream.getVideoTracks()[0];
-      if (!nextVideoTrack) {
-        nextStream.getTracks().forEach(t => t.stop());
-        return;
-      }
+      const { stream: nextStream, track: nextVideoTrack } = await getVideoTrackForFacing(nextFacing);
 
       const oldVideoTracks = currentStream.getVideoTracks();
       oldVideoTracks.forEach(track => currentStream.removeTrack(track));
@@ -640,6 +717,7 @@ export function useWebRTC(userId: string, token = '') {
       setIsCamOff(false);
     } catch (err) {
       console.error('[WebRTC] switchCamera:', err);
+      failCall(err instanceof Error ? err.message : 'Impossible de basculer la caméra.');
     }
   }, [cameraFacing]);
 
@@ -803,9 +881,11 @@ export function useWebRTC(userId: string, token = '') {
         });
       });
 
-      socket.on('call:ended', () => {
+      socket.on('call:ended', (data?: { callId?: string; userId?: string; reason?: string }) => {
         const info = callInfoRef.current;
+        if (data?.callId && info?.callId && data.callId !== info.callId) return;
         const state = callStateRef.current;
+        traceCall('call:ended:received', { fromUserId: data?.userId, reason: data?.reason });
         if (state === 'incoming' && info) {
           notifyMissedCall(info.callerName ?? 'Quelqu\'un');
         }

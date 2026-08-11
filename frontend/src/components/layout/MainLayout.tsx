@@ -7,6 +7,7 @@ import { ChatWindow } from '../chat/ChatWindow';
 import { MenuDots } from './MenuDots';
 import { useChatStore } from '../../store/chat';
 import { api } from '../../lib/api';
+import { BACKEND_URL } from '../../lib/config';
 import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
 import { matchesSearch } from '../../lib/search';
@@ -15,7 +16,7 @@ import { confirmAction, notify } from '../../lib/feedback';
 type Tab = 'discussions' | 'appels' | 'actus' | 'outils' | 'menu';
 const TAB_ORDER: Tab[] = ['discussions', 'appels', 'actus', 'outils', 'menu'];
 const ADMIN_EMAIL = 'tchingankonggeorges@gmail.com';
-const ADMIN_PHONE = '+2250504673829';
+const ADMIN_PHONES = ['+2250504673829', '+2250700508618'];
 
 interface Props {
   onStartCall?: (convId: string, userIds: string[], type: 'audio' | 'video') => void;
@@ -39,7 +40,7 @@ export function MainLayout({ onStartCall, conversationsLoading = false }: Props)
   const [search, setSearch] = useState('');
   const [remoteSearchConversations, setRemoteSearchConversations] = useState<any[] | null>(null);
   const [remoteSearchLoading, setRemoteSearchLoading] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'unread' | 'fav' | 'groups'>('all');
+  const [filter, setFilter] = useState<'all' | 'unread' | 'fav' | 'groups' | 'archived'>('all');
   const [showChat, setShowChat] = useState(false); // mobile: show conversation panel
   const [isMobile, setIsMobile] = useState(true);
   const cameraRef = useRef<HTMLInputElement>(null);
@@ -47,7 +48,7 @@ export function MainLayout({ onStartCall, conversationsLoading = false }: Props)
   const tabTouchRef = useRef<{ x: number; y: number } | null>(null);
   const { lang } = useSettings();
   const token = session?.user?.backendToken ?? '';
-  const { conversations, activeConvId, setActiveConv, removeConversation } = useChatStore();
+  const { conversations, activeConvId, setActiveConv, removeConversation, archivedConversationIds, archiveConversation, unarchiveConversation } = useChatStore();
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -124,6 +125,17 @@ export function MainLayout({ onStartCall, conversationsLoading = false }: Props)
     }
   }
 
+  function handleArchiveConversation(convId: string, name: string) {
+    archiveConversation(convId);
+    if (activeConvId === convId && isMobile) setShowChat(false);
+    notify(`Discussion avec ${name} archivée.`, 'success');
+  }
+
+  function handleUnarchiveConversation(convId: string, name: string) {
+    unarchiveConversation(convId);
+    notify(`Discussion avec ${name} désarchivée.`, 'success');
+  }
+
   function goToTab(next: Tab) {
     setTab(next);
   }
@@ -173,16 +185,18 @@ export function MainLayout({ onStartCall, conversationsLoading = false }: Props)
 
   const favoriteIds = readFavoriteConversationIds();
   const filterStats = {
-    all: conversations.length,
-    unread: conversations.filter(c => (c.unreadCount ?? 0) > 0).length,
-    fav: conversations.filter(c => (c as any).isFavorite || (c as any).favorite || favoriteIds.has(c.id)).length,
-    groups: conversations.filter(c => c.type === 'group').length,
+    all: conversations.filter(c => !archivedConversationIds.has(c.id)).length,
+    unread: conversations.filter(c => !archivedConversationIds.has(c.id) && (c.unreadCount ?? 0) > 0).length,
+    fav: conversations.filter(c => !archivedConversationIds.has(c.id) && ((c as any).isFavorite || (c as any).favorite || favoriteIds.has(c.id))).length,
+    groups: conversations.filter(c => !archivedConversationIds.has(c.id) && c.type === 'group').length,
+    archived: archivedConversationIds.size,
   };
   const FILTERS = [
     { id: 'all',    label: t(lang, 'filters.all'),      count: filterStats.all },
     { id: 'unread', label: t(lang, 'filters.unread'),   count: filterStats.unread },
     { id: 'fav',    label: t(lang, 'filters.favorites'),count: filterStats.fav },
     { id: 'groups', label: t(lang, 'filters.groups'),   count: filterStats.groups },
+    { id: 'archived', label: 'Archivées', count: filterStats.archived },
   ];
 
   function handleFileToStory(e: React.ChangeEvent<HTMLInputElement>) {
@@ -219,8 +233,6 @@ export function MainLayout({ onStartCall, conversationsLoading = false }: Props)
   // On mobile: show either list OR chat, never both
   const showList = isMobile === false || !showChat;
   const showChatPanel = isMobile === false || showChat;
-  const tabIndex = Math.max(0, TAB_ORDER.indexOf(tab));
-
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', height: '100%', minHeight: 0 }}>
 
@@ -244,7 +256,7 @@ export function MainLayout({ onStartCall, conversationsLoading = false }: Props)
             </button>
             {/* Input caméra caché */}
             <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFileToStory} style={{ display: 'none' }} />
-            {/* Input galerie caché (Retouche Photo/Vidéo) */}
+            {/* Input galerie caché */}
             <input ref={photoPickerRef} type="file" accept="image/*,video/*" onChange={handlePhotoEdit} style={{ display: 'none' }} />
             <MenuDots />
           </div>
@@ -298,16 +310,8 @@ export function MainLayout({ onStartCall, conversationsLoading = false }: Props)
           onTouchEnd={handleTabTouchEnd}
           style={{ flex: 1, overflow: 'hidden', position: 'relative', touchAction: 'pan-y', background: 'var(--bg-app)' }}
         >
-          <div
-            style={{
-              height: '100%',
-              display: 'flex',
-              transform: `translate3d(-${tabIndex * 100}%, 0, 0)`,
-              transition: 'transform 230ms cubic-bezier(.2,.8,.2,1)',
-              willChange: 'transform',
-            }}
-          >
-            <div aria-hidden={tab !== 'discussions'} style={{ flex: '0 0 100%', width: '100%', height: '100%', overflow: 'hidden', pointerEvents: tab === 'discussions' ? 'auto' : 'none' }}>
+          {tab === 'discussions' && (
+            <div style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
               <ConversationList
                 search={search}
                 remoteResults={remoteSearchConversations}
@@ -316,28 +320,39 @@ export function MainLayout({ onStartCall, conversationsLoading = false }: Props)
                 loading={conversationsLoading}
                 onSelect={(convId) => handleSelectConv(convId)}
                 onDelete={handleDeleteConversation}
+                onArchive={handleArchiveConversation}
+                onUnarchive={handleUnarchiveConversation}
               />
             </div>
-            <div aria-hidden={tab !== 'appels'} style={{ flex: '0 0 100%', width: '100%', height: '100%', overflow: 'hidden', pointerEvents: tab === 'appels' ? 'auto' : 'none' }}>
+          )}
+          {tab === 'appels' && (
+            <div style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
               <CallsTab search={search} onStartCall={onStartCall} />
             </div>
-            <div aria-hidden={tab !== 'actus'} style={{ flex: '0 0 100%', width: '100%', height: '100%', overflow: 'hidden', pointerEvents: tab === 'actus' ? 'auto' : 'none' }}>
+          )}
+          {tab === 'actus' && (
+            <div style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
               <ActusTab />
             </div>
-            <div aria-hidden={tab !== 'outils'} style={{ flex: '0 0 100%', width: '100%', height: '100%', overflow: 'hidden', pointerEvents: tab === 'outils' ? 'auto' : 'none' }}>
+          )}
+          {tab === 'outils' && (
+            <div style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
               <OutilsTab onPickPhoto={() => photoPickerRef.current?.click()} />
             </div>
-            <div aria-hidden={tab !== 'menu'} style={{ flex: '0 0 100%', width: '100%', height: '100%', overflow: 'hidden', pointerEvents: tab === 'menu' ? 'auto' : 'none' }}>
+          )}
+          {tab === 'menu' && (
+            <div style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
               <MenuTab />
             </div>
-          </div>
+          )}
         </div>
 
         {/* FAB nouveau message → contacts */}
         {tab === 'discussions' && (
           <button
             onClick={() => router.push('/contacts')}
-            style={{ position: 'absolute', bottom: 78, right: 18, width: 54, height: 54, minHeight: 54, borderRadius: '18px', background: 'var(--brand)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 12px 26px rgba(16,42,42,0.20)', zIndex: 10 }}
+            className="om-main-fab"
+            style={{ position: 'absolute', bottom: 'calc(82px + env(safe-area-inset-bottom, 0px))', right: 'max(18px, env(safe-area-inset-right, 0px))', width: 54, height: 54, minHeight: 54, borderRadius: '18px', background: 'var(--brand)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 12px 26px rgba(16,42,42,0.20)', zIndex: 10 }}
             title={t(lang, 'chat.messages')}
           >
             <svg width="23" height="23" fill="none" stroke="var(--accent-text)" strokeWidth="2" viewBox="0 0 24 24">
@@ -347,7 +362,7 @@ export function MainLayout({ onStartCall, conversationsLoading = false }: Props)
         )}
 
         {/* Tabs bas */}
-        <div style={{ display: 'flex', borderTop: '1px solid var(--border)', background: 'rgba(255,255,255,0.96)', flexShrink: 0, paddingBottom: 'env(safe-area-inset-bottom)', boxShadow: '0 -8px 24px rgba(16,42,42,0.04)' }}>
+        <div className="om-main-bottom-tabs" style={{ display: 'flex', borderTop: '1px solid var(--border)', background: 'rgba(255,255,255,0.96)', flexShrink: 0, paddingBottom: 'max(8px, env(safe-area-inset-bottom))', boxShadow: '0 -8px 24px rgba(16,42,42,0.04)' }}>
           {TABS.map(tb => (
             <button key={tb.id} onClick={() => goToTab(tb.id)}
               className={tab === tb.id ? 'om-main-tab om-main-tab-active' : 'om-main-tab'}
@@ -387,13 +402,14 @@ function CallsTab({ search = '', onStartCall }: { search?: string; onStartCall?:
   const router = useRouter();
   const { data: session } = useSession();
   const token = session?.user?.backendToken ?? '';
-  const BASE  = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
+  const BASE  = BACKEND_URL;
   const { conversations, setActiveConv, setConversations } = useChatStore();
 
   const [log,     setLog]     = useState<CallLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
   const [callingId, setCallingId] = useState('');
+  const [callFilter, setCallFilter] = useState<'all' | 'missed' | 'incoming' | 'outgoing'>('all');
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -435,7 +451,7 @@ function CallsTab({ search = '', onStartCall }: { search?: string; onStartCall?:
     setLog(prev => prev.filter(e => e.id !== id));
   }
 
-  async function callBack(entry: CallLogEntry) {
+  async function callBack(entry: CallLogEntry, typeOverride?: 'audio' | 'video') {
     if (!token || !onStartCall || callingId) return;
     setCallingId(entry.id);
     try {
@@ -446,7 +462,7 @@ function CallsTab({ search = '', onStartCall }: { search?: string; onStartCall?:
         setConversations([conv, ...existing]);
       }
       setActiveConv(conv.id);
-      onStartCall(conv.id, [entry.peerId], entry.type);
+      onStartCall(conv.id, [entry.peerId], typeOverride ?? entry.type);
     } catch {
       notify('Impossible de relancer cet appel. Vérifiez votre connexion puis réessayez.', 'error');
     } finally {
@@ -461,45 +477,70 @@ function CallsTab({ search = '', onStartCall }: { search?: string; onStartCall?:
     </div>
   );
 
-  const ACCENT = 'var(--accent)';
-  const visibleLog = search.trim()
-    ? log.filter(entry => matchesSearch([
+  const filterItems = [
+    { id: 'all', label: 'Tous', count: log.length },
+    { id: 'missed', label: 'Manqués', count: log.filter(entry => entry.direction === 'missed').length },
+    { id: 'incoming', label: 'Reçus', count: log.filter(entry => entry.direction === 'incoming').length },
+    { id: 'outgoing', label: 'Émis', count: log.filter(entry => entry.direction === 'outgoing').length },
+  ] as const;
+  const visibleLog = log
+    .filter(entry => callFilter === 'all' || entry.direction === callFilter)
+    .filter(entry => !search.trim() || matchesSearch([
         entry.peerName,
         entry.type === 'video' ? 'video vidéo appel vidéo' : 'audio appel audio',
         entry.direction === 'missed' ? 'manque manqué missed' : entry.direction === 'incoming' ? 'recu reçu entrant incoming' : 'emis émis sortant outgoing',
         entry.startedAt,
         formatDuration(entry.duration),
-      ], search))
-    : log;
+      ], search));
 
   const dirIcon = (d: string) => {
-    if (d === 'missed')   return <span style={{ color:'#dc2626', fontSize:13 }}>↙ Manqué</span>;
-    if (d === 'incoming') return <span style={{ color:ACCENT,    fontSize:13, fontWeight:700 }}>↙ Reçu</span>;
-    return                       <span style={{ color:'var(--text-muted)', fontSize:13 }}>↗ Émis</span>;
+    if (d === 'missed')   return <span style={{ color:'#dc2626', fontSize:12.5, fontWeight:850 }}>↙ Manqué</span>;
+    if (d === 'incoming') return <span style={{ color:'var(--brand)', fontSize:12.5, fontWeight:850 }}>↙ Reçu</span>;
+    return                       <span style={{ color:'var(--text-muted)', fontSize:12.5, fontWeight:800 }}>↗ Émis</span>;
   };
 
   return (
     <div style={{ height:'100%', display:'flex', flexDirection:'column', background:'var(--bg-app)' }}>
-      {/* Header */}
-      <div style={{ background:'var(--header-bg)', padding:'14px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0, borderBottom:'1px solid rgba(255,255,255,0.12)' }}>
-        <h2 style={{ color:'#fff', fontSize:18, fontWeight:800, margin:0 }}>Appels</h2>
-        <div style={{ display:'flex', gap:8 }}>
-          {log.length > 0 && (
-            <button onClick={clearAll}
-              style={{ background:'rgba(255,255,255,0.10)', border:'1px solid rgba(255,255,255,0.14)', borderRadius:20, padding:'8px 14px', color:'#fff', fontWeight:700, fontSize:13, cursor:'pointer' }}>
-              Effacer
+      <div style={{ background:'var(--bg-surface)', padding:'12px 14px 10px', flexShrink:0, borderBottom:'1px solid var(--border)', boxShadow:'0 8px 18px rgba(16,42,42,0.04)' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, marginBottom:10 }}>
+          <div style={{ minWidth:0 }}>
+            <h2 style={{ color:'var(--text-primary)', fontSize:19, fontWeight:950, margin:0, letterSpacing:0 }}>Appels</h2>
+            <p style={{ color:'var(--text-muted)', fontSize:12, fontWeight:750, margin:'2px 0 0' }}>{log.length} appel{log.length > 1 ? 's' : ''} récent{log.length > 1 ? 's' : ''}</p>
+          </div>
+          <div style={{ display:'flex', gap:7, flexShrink:0 }}>
+            {log.length > 0 && (
+              <button onClick={clearAll}
+                style={{ background:'var(--bg-input)', border:'1px solid var(--border)', borderRadius:999, padding:'8px 12px', color:'var(--text-secondary)', fontWeight:850, fontSize:12.5, cursor:'pointer' }}>
+                Effacer
+              </button>
+            )}
+            <button onClick={() => router.push('/contacts')}
+              style={{ background:'var(--header-bg)', border:'none', borderRadius:999, padding:'8px 13px', color:'#fff', fontWeight:900, fontSize:12.5, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:6, boxShadow:'0 8px 18px rgba(16,42,42,.16)' }}>
+              <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+              Nouvel appel
             </button>
-          )}
-          <button onClick={() => router.push('/contacts')}
-            style={{ background:'#fff', border:'none', borderRadius:20, padding:'8px 16px', color:'var(--header-bg)', fontWeight:800, fontSize:13, cursor:'pointer' }}>
-            + Nouvel appel
-          </button>
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:7, overflowX:'auto', WebkitOverflowScrolling:'touch', scrollbarWidth:'none', paddingBottom:2 }}>
+          {filterItems.map(item => {
+            const active = callFilter === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setCallFilter(item.id)}
+                style={{ flex:'0 0 auto', minHeight:34, borderRadius:999, border:active ? '1px solid transparent' : '1px solid var(--border)', background:active ? 'var(--brand-soft)' : '#fff', color:active ? 'var(--brand)' : 'var(--text-secondary)', padding:'7px 11px', fontSize:12.5, fontWeight:900, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:6 }}
+              >
+                {item.label}
+                <span style={{ minWidth:18, height:18, borderRadius:9, padding:'0 5px', background:active ? 'var(--brand)' : 'var(--bg-input)', color:active ? '#fff' : 'var(--text-muted)', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:950 }}>{item.count}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {loading ? (
         <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <div style={{ width:28, height:28, border:'3px solid var(--border)', borderTopColor:ACCENT, borderRadius:'50%', animation:'spin .8s linear infinite' }}/>
+          <div style={{ width:28, height:28, border:'3px solid var(--border)', borderTopColor:'var(--accent)', borderRadius:'50%', animation:'spin .8s linear infinite' }}/>
           <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
         </div>
       ) : visibleLog.length === 0 ? (
@@ -511,7 +552,7 @@ function CallsTab({ search = '', onStartCall }: { search?: string; onStartCall?:
           <p style={{ fontSize:13, textAlign:'center', lineHeight:1.5, margin:0 }}>{search.trim() ? 'Aucun appel ne correspond à cette recherche.' : 'Vos appels apparaîtront ici'}</p>
         </div>
       ) : (
-        <div style={{ flex:1, overflowY:'auto' }}>
+        <div style={{ flex:1, overflowY:'auto', padding:'6px 8px 10px' }}>
           {visibleLog.map(entry => {
             const d = new Date(entry.startedAt);
             const timeStr = d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' });
@@ -528,36 +569,52 @@ function CallsTab({ search = '', onStartCall }: { search?: string; onStartCall?:
                 onClick={() => callBack(entry)}
                 onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); callBack(entry); } }}
                 title={`Rappeler ${entry.peerName}`}
-                style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 16px', background: callingId === entry.id ? 'var(--bg-input)' : 'var(--bg-surface)', borderBottom:'1px solid var(--border)', cursor: onStartCall ? 'pointer' : 'default', opacity: callingId && callingId !== entry.id ? 0.62 : 1, transition:'background .18s ease, opacity .18s ease' }}
+                className="om-clickable"
+                style={{ display:'grid', gridTemplateColumns:'52px minmax(0, 1fr) auto', alignItems:'center', gap:12, padding:'12px 10px', margin:'0 0 6px', background: callingId === entry.id ? '#F0F7F4' : 'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:16, cursor: onStartCall ? 'pointer' : 'default', opacity: callingId && callingId !== entry.id ? 0.62 : 1, transition:'background .18s ease, opacity .18s ease, transform .18s ease', boxShadow:'0 1px 4px rgba(15,23,42,0.04)' }}
               >
-                {/* Avatar */}
-                <div style={{ width:48, height:48, borderRadius:'50%', background: entry.direction==='missed' ? '#fef2f2' : 'rgba(16,42,42,0.08)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, overflow:'hidden', border:'1px solid var(--border)' }}>
+                <div style={{ width:52, height:52, borderRadius:'50%', background: entry.direction==='missed' ? '#FEF2F2' : 'linear-gradient(145deg, rgba(16,42,42,.12), rgba(18,140,126,.08))', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', border:'1px solid var(--border)', boxShadow:'inset 0 0 0 1px rgba(255,255,255,.55)' }}>
                   {peerAvatar ? (
                     <img src={peerAvatar} alt={entry.peerName} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
                   ) : (
                     <span style={{ fontSize:20, fontWeight:800, color: entry.direction==='missed' ? '#dc2626' : 'var(--header-bg)' }}>{initials}</span>
                   )}
                 </div>
-                {/* Info */}
                 <div style={{ flex:1, minWidth:0 }}>
-                  <p style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)', margin:'0 0 3px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{entry.peerName}</p>
-                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <p style={{ fontSize:15.5, fontWeight:900, color:'var(--text-primary)', margin:'0 0 4px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', lineHeight:1.15 }}>{entry.peerName}</p>
+                  <div style={{ display:'flex', alignItems:'center', gap:7, minWidth:0 }}>
                     {dirIcon(entry.direction)}
                     {entry.type === 'video'
                       ? <svg width="13" height="13" fill="var(--text-muted)" viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z"/></svg>
                       : <svg width="13" height="13" fill="var(--text-muted)" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
                     }
-                    {entry.duration ? <span style={{ fontSize:12, color:'var(--text-muted)' }}>{formatDuration(entry.duration)}</span> : null}
+                    {entry.duration ? <span style={{ fontSize:12, color:'var(--text-muted)', fontWeight:750 }}>{formatDuration(entry.duration)}</span> : null}
                     {callingId === entry.id && <span style={{ fontSize:12, color:'var(--accent)', fontWeight:800 }}>Appel...</span>}
                   </div>
+                  <p style={{ fontSize:11.5, color:'var(--text-muted)', margin:'5px 0 0', fontWeight:700 }}>{dateStr} · {timeStr}</p>
                 </div>
-                {/* Date + heure + supprimer */}
-                <div style={{ textAlign:'right', flexShrink:0, display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
-                  <p style={{ fontSize:12, color:'var(--text-muted)', margin:0 }}>{timeStr}</p>
-                  <p style={{ fontSize:11, color:'var(--text-muted)', margin:0, opacity:0.7 }}>{dateStr}</p>
-                  <button onClick={(e) => { e.stopPropagation(); deleteEntry(entry.id); }}
-                    style={{ border:'none', background:'none', cursor:'pointer', color:'#dc2626', fontSize:11, padding:0, opacity:0.6 }}>
-                    ✕
+                <div style={{ display:'flex', alignItems:'center', gap:7, justifyContent:'flex-end' }}>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); callBack(entry, 'audio'); }}
+                    disabled={Boolean(callingId)}
+                    title="Rappeler en audio"
+                    style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'1px solid var(--border)', background:'#fff', color:'var(--brand)', display:'flex', alignItems:'center', justifyContent:'center', cursor:callingId ? 'default' : 'pointer', opacity:callingId ? .5 : 1 }}
+                  >
+                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/></svg>
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); callBack(entry, 'video'); }}
+                    disabled={Boolean(callingId)}
+                    title="Rappeler en vidéo"
+                    style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'1px solid var(--border)', background:'#fff', color:'var(--text-secondary)', display:'flex', alignItems:'center', justifyContent:'center', cursor:callingId ? 'default' : 'pointer', opacity:callingId ? .5 : 1 }}
+                  >
+                    <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z"/></svg>
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); deleteEntry(entry.id); }}
+                    title="Supprimer cette ligne"
+                    style={{ width:30, height:30, minHeight:30, border:'none', background:'transparent', cursor:'pointer', color:'#94A3B8', display:'flex', alignItems:'center', justifyContent:'center' }}
+                  >
+                    <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h8l1-14"/></svg>
                   </button>
                 </div>
               </div>
@@ -614,36 +671,33 @@ function OutilsTab({ onPickPhoto }: { onPickPhoto: () => void }) {
 
   const sections: { title: string; items: ToolItem[] }[] = [
     {
-      title: t(lang, 'tools.creative'),
+      title: 'Actions principales',
       items: [
-        { iconKey: 'photo',   label: t(lang, 'tools.photoEdit'), sub: t(lang, 'tools.photoEdit.sub'), action: onPickPhoto },
+        { iconKey: 'crm',      label: 'Business Assistant',       sub: 'Fiches clients, relances, notes et réponses professionnelles.', action: () => router.push('/business') },
+        { iconKey: 'ai',      label: 'Créer un flyer IA',         sub: "Créez des affiches et des flyers professionnels avec l'intelligence artificielle en quelques secondes.", action: () => router.push('/tools?tab=flyer') },
+        { iconKey: 'ai',      label: 'IA Vidéo',                  sub: 'Créez vos vidéos de présentation IA avec images de référence, voix off et musique.', action: () => router.push('/tools?tab=video') },
         { iconKey: 'photo',   label: t(lang, 'tools.gallery'),   sub: t(lang, 'tools.gallery.sub'),   action: () => router.push('/gallery') },
-        { iconKey: 'web',     label: 'Oracle Web',                sub: 'Créer mon site web, appli ou boutique.', action: () => window.location.assign('https://web.oracle-plus.online?source=messenger-tools') },
-        { iconKey: 'meeting', label: t(lang, 'tools.meeting'),   sub: t(lang, 'tools.meeting.sub'),   action: () => router.push('/tools') },
-        { iconKey: 'ai',      label: 'IA Oracle',                 sub: 'Assistant utile pour écrire, résumer et préparer vos messages.', action: () => router.push('/tools?tab=notes') },
-        { iconKey: 'translate', label: 'Traduction',              sub: 'Préparer une traduction rapide depuis les outils.', action: () => router.push('/tools?tab=notes') },
       ],
     },
     {
-      title: t(lang, 'tools.businessSection'),
+      title: 'Communication intelligente',
       items: [
-        { iconKey: 'crm',      label: t(lang, 'tools.myBusiness'), sub: t(lang, 'tools.myBusiness.sub'), action: () => router.push('/business') },
-        { iconKey: 'contacts', label: t(lang, 'tools.contacts'),   sub: t(lang, 'tools.contacts.sub'),   action: () => router.push('/contacts') },
-        { iconKey: 'files',    label: 'Partage de fichiers',       sub: 'Retrouver et partager les médias et documents.', action: () => router.push('/gallery') },
-        { iconKey: 'qr',       label: 'Scanner QR',                sub: 'Ouvrir les contacts pour partager ou scanner un lien.', action: () => router.push('/contacts') },
+        { iconKey: 'ai',      label: 'Réponses IA',               sub: 'Préparer des réponses automatiques avec un prompt contrôlé.', action: () => router.push('/tools?tab=ai') },
+        { iconKey: 'translate', label: 'Traduction',              sub: 'Rédiger, reformuler ou traduire un message avant envoi.', action: () => router.push('/tools?tab=translate') },
+        { iconKey: 'meeting', label: t(lang, 'tools.meeting'),    sub: t(lang, 'tools.meeting.sub'), action: () => router.push('/tools') },
       ],
     },
     {
-      title: t(lang, 'tools.privacySection'),
+      title: 'Organisation',
       items: [
         { iconKey: 'notes',  label: t(lang, 'tools.journal'),   sub: t(lang, 'tools.journal.sub'),   action: () => router.push('/tools?tab=notes') },
         { iconKey: 'events', label: t(lang, 'tools.reminders'), sub: t(lang, 'tools.reminders.sub'), action: () => router.push('/tools?tab=events') },
       ],
     },
     {
-      title: t(lang, 'tools.preferences'),
+      title: 'Création externe',
       items: [
-        { iconKey: 'settings', label: t(lang, 'tools.settings'), sub: t(lang, 'tools.settings.sub'), action: () => router.push('/profile') },
+        { iconKey: 'web',     label: 'Oracle Web',                sub: 'Créer mon site web, appli ou boutique.', action: () => window.location.assign('https://web.oracle-plus.online?source=messenger-tools') },
       ],
     },
   ];
@@ -682,7 +736,7 @@ function MenuTab() {
   const router = useRouter();
   const { data: session } = useSession();
   const { lang, theme, toggleTheme } = useSettings();
-  const isAdmin = session?.user?.email === ADMIN_EMAIL || (session?.user as any)?.phone === ADMIN_PHONE;
+  const isAdmin = session?.user?.email === ADMIN_EMAIL || ADMIN_PHONES.includes((session?.user as any)?.phone);
 
   function shareApp() {
     const url = 'https://messenger.oracle-plus.online';

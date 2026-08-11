@@ -30,7 +30,7 @@ export class StoriesService {
   }
 
   async create(authorId: string, dto: { content: string; caption?: string; type: string; bg: string }) {
-    const type = dto.type === 'image' ? 'image' : dto.type === 'text' ? 'text' : '';
+    const type = dto.type === 'image' ? 'image' : dto.type === 'text' ? 'text' : dto.type === 'video' ? 'video' : '';
     if (!type) throw new BadRequestException('Type de story invalide');
 
     const content = String(dto.content ?? '').trim();
@@ -39,6 +39,12 @@ export class StoriesService {
     if (type === 'image') {
       if (!content.startsWith('data:image/')) throw new BadRequestException('Image invalide');
       if (content.length > 7_000_000) throw new BadRequestException('Image trop lourde');
+    }
+    if (type === 'video') {
+      const isUploadedUrl = /^https?:\/\/.+/i.test(content);
+      const isInlineVideo = content.startsWith('data:video/');
+      if (!isUploadedUrl && !isInlineVideo) throw new BadRequestException('Vidéo invalide');
+      if (isInlineVideo && content.length > 35_000_000) throw new BadRequestException('Vidéo trop lourde');
     }
 
     const caption = dto.caption ? String(dto.caption).trim().slice(0, 120) : undefined;

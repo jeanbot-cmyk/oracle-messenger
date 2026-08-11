@@ -1,0 +1,2 @@
+84bdd74b1e77e7de4719964069bbd41afddf7ad815d69a06793f223419e000f1  frontend/public/downloads/oracle-messenger-full-app-20260809-vc2026080902.apk
+c7253ddfd5f0dfbc1a34368f04b77989faabfb5989bfd218ce9375774033262c  frontend/public/downloads/oracle-messenger-full-app-20260809-vc2026080902.aab

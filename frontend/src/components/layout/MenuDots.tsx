@@ -7,7 +7,7 @@ import { t, LANGUAGES } from '../../lib/i18n';
 import { notify } from '../../lib/feedback';
 
 const ADMIN_EMAIL = 'tchingankonggeorges@gmail.com';
-const ADMIN_PHONE = '+2250504673829';
+const ADMIN_PHONES = ['+2250504673829', '+2250700508618'];
 
 export function MenuDots() {
   const [open, setOpen] = useState(false);
@@ -17,7 +17,8 @@ export function MenuDots() {
   const { lang, theme, setLang, toggleTheme } = useSettings();
   const { data: session } = useSession();
   const router = useRouter();
-  const isAdmin = session?.user?.email === ADMIN_EMAIL || (session?.user as any)?.phone === ADMIN_PHONE;
+  const isAdmin = session?.user?.email === ADMIN_EMAIL || ADMIN_PHONES.includes((session?.user as any)?.phone);
+  const ownerId = (session?.user as any)?.id || session?.user?.email || '';
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setLangOpen(false); } };
@@ -236,18 +237,18 @@ export function MenuDots() {
       {showMedia && (
         <div style={{ position:'fixed', inset:0, zIndex:500 }}>
           {/* Import dynamique pour éviter SSR */}
-          <MediaGalleryLazy onClose={() => setShowMedia(false)} />
+          <MediaGalleryLazy ownerId={ownerId} onClose={() => setShowMedia(false)} />
         </div>
       )}
     </div>
   );
 }
 
-function MediaGalleryLazy({ onClose }: { onClose: () => void }) {
+function MediaGalleryLazy({ ownerId, onClose }: { ownerId: string; onClose: () => void }) {
   const [Comp, setComp] = useState<React.ComponentType<any> | null>(null);
   useEffect(() => {
     import('../media/MediaGallery').then(m => setComp(() => m.MediaGallery));
   }, []);
   if (!Comp) return <div style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg-app)' }}><div style={{ width:32, height:32, border:'3px solid var(--accent)', borderTopColor:'transparent', borderRadius:'50%', animation:'spin .8s linear infinite' }} /><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>;
-  return <Comp onClose={onClose} />;
+  return <Comp ownerId={ownerId} onClose={onClose} />;
 }

@@ -1,0 +1,23 @@
+import { NextResponse } from 'next/server';
+
+const assetLinks = [
+  {
+    relation: ['delegate_permission/common.handle_all_urls'],
+    target: {
+      namespace: 'android_app',
+      package_name: 'online.oracle_plus.messenger',
+      sha256_cert_fingerprints: [
+        'FB:41:8D:3C:C0:5F:48:DF:8E:FB:C3:28:07:EA:58:F7:B7:93:A8:51:01:FC:46:9E:86:49:1D:BF:1E:6F:88:5F',
+        '26:87:0B:9B:48:69:C2:18:B1:DB:B8:96:EA:B9:C7:56:41:A1:7F:F0:36:18:D2:4A:70:71:23:34:46:52:BE:98',
+      ],
+    },
+  },
+];
+
+export function GET() {
+  return NextResponse.json(assetLinks, {
+    headers: {
+      'Cache-Control': 'public, max-age=3600',
+    },
+  });
+}

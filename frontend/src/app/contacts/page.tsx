@@ -1,6 +1,6 @@
 'use client';
 export const dynamic = 'force-dynamic';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -12,11 +12,12 @@ import { t } from '../../lib/i18n';
 import { importNativeDeviceContacts, isCapacitorNativeRuntime } from '../../lib/nativeContacts';
 import { MediaLightbox } from '../../components/ui/MediaLightbox';
 import { matchesSearch } from '../../lib/search';
-import { confirmAction, notify } from '../../lib/feedback';
+import { notify } from '../../lib/feedback';
 
 interface LocalContact { name: string; phones: string[]; emails: string[]; avatar?: string | null }
-interface AppUser { id: string; name: string; username: string; avatar?: string; phone?: string }
+interface AppUser { id: string; name: string; username: string; avatar?: string; phone?: string; email?: string }
 interface EnrichedContact { local: LocalContact; appUser: AppUser | null }
+interface InvitePhoneStatus { valid: boolean; phone: string; last8: string; international: boolean; e164: string }
 
 const LEGACY_MANUAL_KEY = 'oracle-manual-contacts';
 const LEGACY_CACHE_KEY  = 'oracle-contacts';
@@ -26,11 +27,11 @@ const HEADER_BG    = 'var(--header-bg)';
 const SURFACE      = 'var(--bg-surface)';
 const APP_BG       = 'var(--bg-app)';
 const BORDER       = 'var(--border)';
-const PROBABLE_DIAL_CODES = [
+const INTERNATIONAL_DIAL_CODES = [
   '225', '237', '221', '223', '226', '224', '228', '229', '227',
   '243', '242', '241', '233', '234', '212', '213', '216',
-  '33', '32', '41', '1', '44',
-];
+  '33', '32', '41', '44', '49', '34', '39', '1',
+].sort((a, b) => b.length - a.length);
 
 function decodeSafe(value: string) {
   try {
@@ -76,27 +77,53 @@ async function sha256(value: string) {
   return Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+function analyzePhone(phone = '') {
+  const raw = phone.trim();
+  const digits = raw.replace(/\D/g, '');
+  const hasPlusPrefix = raw.startsWith('+');
+  const hasDoubleZeroPrefix = raw.startsWith('00');
+  const bareDialCode = !hasPlusPrefix && !hasDoubleZeroPrefix
+    ? INTERNATIONAL_DIAL_CODES.find(code => digits.startsWith(code) && digits.length >= code.length + 8)
+    : '';
+  const hasInternationalPrefix = hasPlusPrefix || hasDoubleZeroPrefix || Boolean(bareDialCode);
+  const internationalDigits = hasPlusPrefix
+    ? digits
+    : hasDoubleZeroPrefix
+      ? digits.slice(2)
+      : bareDialCode
+        ? digits
+      : '';
+  const nationalDigits = hasInternationalPrefix ? '' : digits;
+  const digitsWithoutLeadingZero = digits.replace(/^0+/, '');
+
+  return {
+    raw,
+    digits,
+    hasInternationalPrefix,
+    bareDialCode: bareDialCode || '',
+    e164: internationalDigits.length >= 8 ? `+${internationalDigits}` : '',
+    internationalDigits,
+    nationalDigits,
+    digitsWithoutLeadingZero,
+    suffix8: digits.length >= 8 ? digits.slice(-8) : '',
+    suffix9: digits.length >= 9 ? digits.slice(-9) : '',
+  };
+}
+
 async function phoneHashes(phones: string[]) {
   const variants = new Set<string>();
   for (const phone of phones) {
-    const hasExplicitCountryCode = phone.trim().startsWith('+') || phone.trim().startsWith('00');
-    const digits = phone.replace(/\D/g, '');
+    const parsed = analyzePhone(phone);
+    const { digits, digitsWithoutLeadingZero } = parsed;
     if (digits.length < 8) continue;
-    const localWithoutLeadingZero = digits.replace(/^0+/, '');
-    variants.add(`+${digits}`);
+
+    if (parsed.e164) variants.add(parsed.e164);
+    if (parsed.internationalDigits) variants.add(parsed.internationalDigits);
     variants.add(digits);
-    variants.add(digits.slice(-8));
-    if (digits.length >= 9) variants.add(digits.slice(-9));
-    if (!hasExplicitCountryCode) {
-      for (const dial of PROBABLE_DIAL_CODES) {
-        variants.add(`+${dial}${digits}`);
-        variants.add(`${dial}${digits}`);
-        if (localWithoutLeadingZero.length >= 8) {
-          variants.add(`+${dial}${localWithoutLeadingZero}`);
-          variants.add(`${dial}${localWithoutLeadingZero}`);
-        }
-      }
-    }
+    if (parsed.suffix8) variants.add(parsed.suffix8);
+    if (parsed.suffix9) variants.add(parsed.suffix9);
+    if (digitsWithoutLeadingZero.length >= 8) variants.add(digitsWithoutLeadingZero.slice(-8));
+    if (digitsWithoutLeadingZero.length >= 9) variants.add(digitsWithoutLeadingZero.slice(-9));
   }
   return Promise.all([...variants].map(value => sha256(value)));
 }
@@ -149,22 +176,55 @@ function writeLocalContacts(key: string, contacts: LocalContact[]) {
 }
 
 function phonesMatch(a = '', b = '') {
-  const da = a.replace(/\D/g, '');
-  const db = b.replace(/\D/g, '');
-  if (da.length < 6 || db.length < 6) return false;
-  const localA = da.replace(/^0+/, '');
-  return da === db ||
-    da.endsWith(db) ||
-    db.endsWith(da) ||
-    (da.length >= 8 && db.endsWith(da.slice(-8))) ||
-    (db.length >= 8 && da.endsWith(db.slice(-8))) ||
-    (da.length >= 9 && db.endsWith(da.slice(-9))) ||
-    (db.length >= 9 && da.endsWith(db.slice(-9))) ||
-    PROBABLE_DIAL_CODES.some(dial =>
-      db === `${dial}${da}` ||
-      db === `${dial}${localA}` ||
-      db.endsWith(`${dial}${localA}`)
-    );
+  return phoneMatchScore(a, b) > 0;
+}
+
+function phoneMatchScore(localPhone = '', userPhone = '') {
+  const local = analyzePhone(localPhone);
+  const user = analyzePhone(userPhone);
+  if (local.digits.length < 8 || user.digits.length < 8) return 0;
+
+  if (local.e164 && user.e164 && local.e164 === user.e164) return 100;
+  if (local.digits === user.digits) return 96;
+  if (local.hasInternationalPrefix && local.internationalDigits && user.digits.endsWith(local.internationalDigits)) return 92;
+  if (user.hasInternationalPrefix && user.internationalDigits && local.digits.endsWith(user.internationalDigits)) return 88;
+  if (local.suffix9 && local.suffix9 === user.suffix9) return 64;
+  if (local.suffix8 && local.suffix8 === user.suffix8) return 58;
+  if (local.digitsWithoutLeadingZero.length >= 8 && user.digitsWithoutLeadingZero.endsWith(local.digitsWithoutLeadingZero.slice(-8))) return 54;
+  return 0;
+}
+
+function bestAppUserForLocalContact(local: LocalContact, matched: AppUser[]) {
+  const scored = matched
+    .map(user => ({
+      user,
+      score: Math.max(0, ...local.phones.map(phone => phoneMatchScore(phone, user.phone ?? ''))),
+    }))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (!scored.length) return null;
+  const best = scored[0];
+  const sameBest = scored.filter(item => item.score === best.score);
+
+  // Les 8/9 derniers chiffres servent uniquement de secours. En cas de collision,
+  // on n'associe pas automatiquement le contact à un mauvais compte.
+  if (best.score < 80 && sameBest.length > 1) return null;
+  return best.user;
+}
+
+function normalizeManualPhone(value = '') {
+  const trimmed = value.trim();
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length < 8) return '';
+  if (trimmed.startsWith('+')) return `+${digits}`;
+  if (trimmed.startsWith('00')) return `+${digits.slice(2)}`;
+  return digits;
+}
+
+function normalizeManualEmail(value = '') {
+  const trimmed = value.trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ? trimmed : '';
 }
 
 async function getSupportedContactProps() {
@@ -210,6 +270,7 @@ export default function ContactsPage() {
   const [inviteOpening, setInviteOpening] = useState(false);
   const [actionNotice, setActionNotice] = useState('');
   const [photoPreview, setPhotoPreview] = useState<{ src: string; name: string } | null>(null);
+  const matchSeqRef = useRef(0);
   const cacheKey = scopedStorageKey(LEGACY_CACHE_KEY, userId);
   const manualKey = scopedStorageKey(LEGACY_MANUAL_KEY, userId);
 
@@ -250,9 +311,11 @@ export default function ContactsPage() {
     const all = mergeContacts(cached, manual);
 
     if (all.length > 0) {
-      // Cache existant → afficher immédiatement et re-matcher en arrière-plan
+      // Cache existant → afficher immédiatement et re-matcher en arrière-plan.
       setImported(true);
-      matchWithBackend(all);
+      setContacts(localOnlyContacts(all));
+      setLoading(false);
+      matchWithBackend(all, { background: true });
       return;
     }
 
@@ -260,24 +323,34 @@ export default function ContactsPage() {
   }, [mounted, status, token, cacheKey, manualKey]);
 
   function mergeContacts(base: LocalContact[], extra: LocalContact[]): LocalContact[] {
-    return [...base, ...extra.filter(m => !base.some(b => b.name === m.name))];
+    const seen = new Set(base.map(contactKey));
+    const merged = [...base];
+    for (const contact of extra) {
+      const key = contactKey(contact);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(contact);
+    }
+    return merged;
   }
 
   function contactKey(contact: LocalContact) {
-    return `${contact.name.trim().toLowerCase()}|${contact.phones.join(',')}|${contact.emails.join(',')}`;
+    const phones = contact.phones
+      .map(phone => {
+        const parsed = analyzePhone(phone);
+        return parsed.e164 || parsed.digits;
+      })
+      .filter(Boolean)
+      .sort()
+      .join(',');
+    const emails = contact.emails.map(email => email.trim().toLowerCase()).filter(Boolean).sort().join(',');
+    return `${contact.name.trim().toLowerCase()}|${phones}|${emails}`;
   }
 
-  function removeContact(contact: LocalContact) {
-    const key = contactKey(contact);
-    const removeFrom = (storageKey: string) => {
-      const existing = readLocalContacts(storageKey);
-      const next = existing.filter(item => contactKey(item) !== key);
-      writeLocalContacts(storageKey, next);
-    };
-    removeFrom(cacheKey);
-    removeFrom(manualKey);
-    setContacts(current => current.filter(item => contactKey(item.local) !== key));
-    setNotice('Contact retiré de cette liste.');
+  function localOnlyContacts(locals: LocalContact[]): EnrichedContact[] {
+    return [...locals]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(local => ({ local, appUser: null }));
   }
 
   async function openConvByUsername(username: string) {
@@ -356,7 +429,7 @@ export default function ContactsPage() {
     setPermDenied(false);
     setNotice('');
     setActionNotice(canUseNativeContacts()
-      ? 'Demande d’autorisation Android pour synchroniser vos contacts...'
+      ? 'Recherche de vos amis sur Oracle Messenger...'
       : canUseContactPicker()
         ? 'Ouverture du sélecteur de contacts...'
         : 'Ce navigateur ne donne pas accès aux contacts.'
@@ -408,8 +481,10 @@ export default function ContactsPage() {
     const all = mergeContacts(locals, manual);
     setImported(true);
     if (all.length > 0) {
-      await matchWithBackend(all);
-      setActionNotice('');
+      setContacts(localOnlyContacts(all));
+      setLoading(false);
+      setActionNotice('Contacts affichés. Vérification Oracle Messenger en arrière-plan...');
+      matchWithBackend(all, { background: true });
     } else {
       setLoading(false);
       setImported(false);
@@ -418,7 +493,8 @@ export default function ContactsPage() {
     }
   }, [token, cacheKey, manualKey]);
 
-  async function matchWithBackend(locals: LocalContact[]) {
+  async function matchWithBackend(locals: LocalContact[], options: { background?: boolean } = {}) {
+    const seq = ++matchSeqRef.current;
     try {
       const allPhones = locals.flatMap(c => c.phones);
       let matched: AppUser[] = [];
@@ -426,11 +502,10 @@ export default function ContactsPage() {
         try { matched = await api.users.matchByPhoneHashes(await phoneHashes(allPhones), token); } catch {}
         matched = matched.filter((u, i, a) => a.findIndex(x => x.id === u.id) === i);
       }
+      if (seq !== matchSeqRef.current) return;
       const enriched: EnrichedContact[] = locals.map(local => ({
         local,
-        appUser: matched.find(u =>
-          local.phones.some(p => phonesMatch(p, u.phone ?? ''))
-        ) ?? null,
+        appUser: bestAppUserForLocalContact(local, matched),
       }));
       enriched.sort((a, b) => {
         if (a.appUser && !b.appUser) return -1;
@@ -441,8 +516,9 @@ export default function ContactsPage() {
       if (enriched.length === 0) {
         setNotice('Aucun contact importé n’est encore inscrit sur Oracle Messenger. Vous pouvez ajouter un contact manuellement ou inviter vos contacts.');
       }
+      if (options.background) setActionNotice('');
     } finally {
-      setLoading(false);
+      if (seq === matchSeqRef.current) setLoading(false);
     }
   }
 
@@ -477,13 +553,30 @@ export default function ContactsPage() {
         setActionNotice('');
       }
     } else {
-      openInviteSheet(c.local);
+      startInvite(c.local);
     }
+  }
+
+  async function startInvite(contact: LocalContact) {
+    if (contact.phones.length > 0) {
+      const completePhone = contact.phones.find(phone => normalizeInviteDestinationPhone(phone).international);
+      if (completePhone) {
+        openWhatsAppInvite(contact, normalizeInviteDestinationPhone(completePhone));
+        return;
+      }
+      openInviteSheet(contact);
+      setActionNotice('Numéro incomplet. Ajoutez le code pays au numéro de votre contact avant de continuer.');
+      return;
+    }
+    setActionNotice('Ouverture du partage...');
+    const shared = await shareInvite(contact);
+    if (!shared) openInviteSheet(contact);
   }
 
   function openInviteSheet(contact: LocalContact) {
     setInvite(contact);
     setInvitePhone(contact.phones[0] ?? contact.emails[0] ?? '');
+    setActionNotice('');
   }
 
   function getInviteLink() {
@@ -492,48 +585,165 @@ export default function ContactsPage() {
     return username ? `${base}/u/${encodeURIComponent(username)}` : `${base}/install`;
   }
 
-  function normalizeInternationalPhone(phone = '') {
-    const digits = phone.replace(/\D/g, '');
-    return digits.length >= 8 ? `+${digits}` : '';
+  function formatOwnPhoneForInvite(phone = '') {
+    const parsed = analyzePhone(phone);
+    if (parsed.e164) return parsed.e164;
+    if (parsed.digits.length < 8) return '';
+    return parsed.digits;
   }
 
-  function shareInvite(contact: LocalContact, selectedPhone = invitePhone) {
+  function normalizeInviteDestinationPhone(phone = ''): InvitePhoneStatus {
+    const parsed = analyzePhone(phone);
+    const { digits } = parsed;
+    if (digits.length < 8) return { valid: false, phone: '', last8: '', international: false, e164: '' };
+
+    if (parsed.hasInternationalPrefix && parsed.internationalDigits.length >= 8) {
+      return { valid: true, phone: parsed.internationalDigits, last8: parsed.suffix8, international: true, e164: `+${parsed.internationalDigits}` };
+    }
+
+    return { valid: true, phone: digits, last8: parsed.suffix8, international: false, e164: '' };
+  }
+
+  function buildInviteMessage(contact: LocalContact) {
     const link = getInviteLink();
-    const senderPhone = normalizeInternationalPhone(myPhone);
+    const senderPhone = formatOwnPhoneForInvite(myPhone);
     const phoneLine = senderPhone ? `\nMon contact : ${senderPhone}` : '';
-    const msg = `Salut ${contact.name} !\n${myName} t'invite à rejoindre Oracle Messenger.${phoneLine}\n\nInstalle l'app :\n${link}`;
+    const msg = `Salut ${contact.name} !\n${myName} t'invite à rejoindre Oracle Messenger.${phoneLine}\n\nInstalle l'app :`;
+    return { link, msg, text: `${msg}\n${link}` };
+  }
+
+  async function shareInvite(contact: LocalContact) {
+    const { link, msg } = buildInviteMessage(contact);
     if (navigator.share) {
-      navigator.share({ title: 'Oracle Messenger', text: msg }).then(() => {
+      try {
+        await navigator.share({ title: 'Oracle Messenger', text: msg, url: link });
         setActionNotice('Invitation envoyée.');
         setTimeout(() => setActionNotice(''), 2500);
-      }).catch(() => {});
-    } else {
-      navigator.clipboard?.writeText(msg).then(() => {
-        setActionNotice('Invitation copiée. Collez-la dans WhatsApp, SMS ou un réseau social.');
-        setTimeout(() => setActionNotice(''), 3500);
-      });
+        setInvite(null);
+        return true;
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          setActionNotice('Choisissez WhatsApp, SMS ou Copier le lien.');
+          return false;
+        }
+        setActionNotice('');
+        return true;
+      }
     }
+    setActionNotice('Choisissez WhatsApp, SMS ou Copier le lien.');
+    return false;
   }
 
   function handleInvite() {
     if (!invite) return;
-    shareInvite(invite, invitePhone);
+    shareInvite(invite);
+  }
+
+  function openWhatsAppInvite(contact: LocalContact, normalized: InvitePhoneStatus) {
+    const { text } = buildInviteMessage(contact);
+    const encodedText = encodeURIComponent(text);
+    const nativeUrl = `whatsapp://send?phone=${normalized.phone}&text=${encodedText}`;
+    const webUrl = `https://wa.me/${normalized.phone}?text=${encodedText}`;
+    setActionNotice(`Ouverture de WhatsApp pour ${normalized.e164}...`);
+    window.location.href = nativeUrl;
+    window.setTimeout(() => {
+      if (document.visibilityState === 'visible') {
+        window.location.href = webUrl;
+      }
+    }, 900);
+  }
+
+  function inviteByWhatsApp() {
+    if (!invite) return;
+    const normalized = normalizeInviteDestinationPhone(invitePhone);
+    if (!normalized.valid) {
+      setActionNotice('Sélectionnez un numéro valide pour WhatsApp.');
+      return;
+    }
+    if (!normalized.international) {
+      setActionNotice('Numéro incomplet. Ajoutez le code pays au numéro de votre contact avant de continuer. Exemple : +225 XX XX XX XX XX.');
+      return;
+    }
+    openWhatsAppInvite(invite, normalized);
     setInvite(null);
   }
 
-  function addManualContact() {
-    if (!newName.trim()) return;
-    const c: LocalContact = { name: newName.trim(), phones: newPhone ? [newPhone.trim()] : [], emails: [], avatar: null };
+  function inviteBySms() {
+    if (!invite) return;
+    const normalized = normalizeInviteDestinationPhone(invitePhone);
+    if (!normalized.valid) {
+      setActionNotice('Sélectionnez un numéro valide pour SMS.');
+      return;
+    }
+    const { text } = buildInviteMessage(invite);
+    setActionNotice(normalized.international
+      ? `Numéro international confirmé : ${normalized.phone}`
+      : `Numéro local sans indicatif conservé tel quel : ${normalized.phone}`);
+    window.location.href = `sms:${encodeURIComponent(normalized.international ? `+${normalized.phone}` : normalized.phone)}?body=${encodeURIComponent(text)}`;
+    setInvite(null);
+  }
+
+  async function copyInvite() {
+    if (!invite) return;
+    const { text } = buildInviteMessage(invite);
+    await navigator.clipboard?.writeText(text);
+    setActionNotice('Lien d’invitation copié.');
+    setTimeout(() => setActionNotice(''), 2500);
+    setInvite(null);
+  }
+
+  async function addManualContact() {
+    const typed = newPhone.trim();
+    const email = normalizeManualEmail(typed);
+    const phone = email ? '' : normalizeManualPhone(typed);
+    if (!newName.trim() && !typed) return;
+    if (typed && !email && !phone) {
+      setActionNotice('Entrez un numéro de téléphone ou une adresse email valide.');
+      return;
+    }
+
+    const c: LocalContact = {
+      name: newName.trim() || typed,
+      phones: phone ? [phone] : [],
+      emails: email ? [email] : [],
+      avatar: null,
+    };
     const manual = readLocalContacts(manualKey);
     const exists = manual.some(item => contactKey(item) === contactKey(c));
     const nextManual = exists ? manual : [c, ...manual];
     writeLocalContacts(manualKey, nextManual);
-    setActionNotice('Contact ajouté. Oracle Messenger vérifie s’il est déjà inscrit.');
-    setTimeout(() => setActionNotice(''), 3000);
-    setNewName(''); setNewPhone(''); setShowAdd(false);
+    setActionNotice('Vérification du contact Oracle Messenger...');
+    setNewName('');
+    setNewPhone('');
+    setShowAdd(false);
     setImported(true);
     setLoading(true);
-    matchWithBackend(mergeContacts(readLocalContacts(cacheKey), nextManual));
+
+    let matchedUser: AppUser | null = null;
+    if (token) {
+      try {
+        matchedUser = await api.users.matchContact({
+          hashes: phone ? await phoneHashes([phone]) : [],
+          phone: phone || undefined,
+          email: email || undefined,
+        }, token);
+      } catch {}
+    }
+
+    if (matchedUser?.id) {
+      setLoading(false);
+      setContacts(current => {
+        const next = [{ local: c, appUser: matchedUser }, ...current.filter(item => contactKey(item.local) !== contactKey(c))];
+        return next;
+      });
+      setActionNotice('Contact trouvé. Ouverture de la conversation...');
+      await handleTap({ local: c, appUser: matchedUser });
+      return;
+    }
+
+    setActionNotice('Aucun compte trouvé pour ce contact. Vous pouvez l’inviter.');
+    setTimeout(() => setActionNotice(''), 3500);
+    await matchWithBackend(mergeContacts(readLocalContacts(cacheKey), nextManual));
   }
 
   const filtered      = contacts.filter(c => matchesSearch([
@@ -548,6 +758,7 @@ export default function ContactsPage() {
   const inviteContacts = filtered.filter(c => !c.appUser);
   const isNativeApp   = canUseNativeContacts();
   const hasNative     = isNativeApp || canUseContactPicker();
+  const invitePhoneStatus = invite ? normalizeInviteDestinationPhone(invitePhone) : null;
 
   if (!mounted || status === 'loading') return <Spinner />;
 
@@ -569,7 +780,7 @@ export default function ContactsPage() {
           style={{ flexShrink: 0, background:'rgba(255,255,255,0.10)', borderColor:'rgba(255,255,255,0.16)', color:'#FFFFFF' }}>
           ←
         </button>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: '#FFFFFF', margin: 0, lineHeight: 1.14 }}>Sélectionner un contact</h1>
           {imported && !loading && (
             <p style={{ fontSize: 15, color: 'rgba(248,250,252,0.72)', margin: '2px 0 0', lineHeight: 1.2 }}>
@@ -594,7 +805,7 @@ export default function ContactsPage() {
               <circle cx="8.5" cy="7" r="4"/>
               <path strokeLinecap="round" strokeLinejoin="round" d="M20 8v6m3-3h-6"/>
             </svg>
-            Importer
+              Retrouver mes amis
           </button>
         </div>
       </div>
@@ -697,10 +908,10 @@ export default function ContactsPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
                 </svg>
               </div>
-              <p style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px' }}>{t(lang, 'contacts.importTitle')}</p>
+              <p style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px' }}>Retrouver mes amis sur Oracle Messenger</p>
               <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.52, margin: 0, fontWeight: 650 }}>
                 {isNativeApp
-                  ? 'Retrouvez vos proches sur Oracle Messenger. Vos contacts servent uniquement à afficher les personnes déjà inscrites.'
+                  ? 'Oracle Messenger vérifie votre carnet pour afficher uniquement les proches déjà inscrits. Rien n’est publié.'
                   : hasNative
                     ? t(lang, 'contacts.importNativeHelp')
                     : t(lang, 'contacts.manualHelp')}
@@ -712,7 +923,7 @@ export default function ContactsPage() {
                 <svg width="18" height="18" fill="none" stroke="var(--accent-text)" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
                 </svg>
-                {t(lang, 'chat.importContacts')}
+                Retrouver mes amis
               </button>
             )}
             <button onClick={() => setShowAdd(true)}
@@ -723,7 +934,7 @@ export default function ContactsPage() {
         )}
 
         {/* Loading */}
-        {loading && (
+        {loading && contacts.length === 0 && (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
             <div style={{ width: 36, height: 36, border: '3px solid var(--border)', borderTopColor: ACCENT, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}/>
             <p style={{ fontSize: 14, color: 'var(--text-muted)' }}>{t(lang, 'contacts.loading')}</p>
@@ -731,7 +942,7 @@ export default function ContactsPage() {
         )}
 
         {/* Contact list */}
-        {imported && !loading && (
+        {imported && (!loading || contacts.length > 0) && (
           <>
             {filtered.length === 0 ? (
               <div style={{ padding: 32, textAlign: 'center' }}>
@@ -746,13 +957,13 @@ export default function ContactsPage() {
                 {oracleContacts.length > 0 && (
                   <>
                     <SectionTitle>Déjà sur Oracle Messenger</SectionTitle>
-                    {oracleContacts.map((c, i) => <ContactRow key={`oracle-${c.local.name}-${i}`} c={c} onTap={() => handleTap(c)} onRemove={() => removeContact(c.local)} creating={creating} onAvatarOpen={(src, name) => setPhotoPreview({ src, name })} />)}
+                    {oracleContacts.map((c, i) => <ContactRow key={`oracle-${c.local.name}-${i}`} c={c} onTap={() => handleTap(c)} creating={creating} onAvatarOpen={(src, name) => setPhotoPreview({ src, name })} />)}
                   </>
                 )}
                 {inviteContacts.length > 0 && (
                   <>
                     <SectionTitle>À inviter</SectionTitle>
-                    {inviteContacts.map((c, i) => <ContactRow key={`invite-${c.local.name}-${i}`} c={c} onTap={() => handleTap(c)} onRemove={() => removeContact(c.local)} creating={creating} onAvatarOpen={(src, name) => setPhotoPreview({ src, name })} />)}
+                    {inviteContacts.map((c, i) => <ContactRow key={`invite-${c.local.name}-${i}`} c={c} onTap={() => handleTap(c)} creating={creating} onAvatarOpen={(src, name) => setPhotoPreview({ src, name })} />)}
                   </>
                 )}
               </div>
@@ -763,14 +974,18 @@ export default function ContactsPage() {
 
       {/* Invitation sheet */}
       {invite && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.36)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.36)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '18px 14px' }}
           onClick={e => { if (e.target === e.currentTarget) setInvite(null); }}>
-          <div style={{ width: 'min(420px, 100%)', background: '#fff', borderRadius: 28, padding: '28px 30px 22px', boxShadow: '0 18px 45px rgba(0,0,0,0.24)' }}>
-            <h3 style={{ fontSize: 24, lineHeight: 1.2, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 22px' }}>
-              Envoyer un message à<br />{invite.name}
+          <div style={{ width: 'min(480px, 100%)', maxHeight: 'min(86dvh, 680px)', overflowY: 'auto', background: 'var(--bg-surface)', borderRadius: '24px 24px 18px 18px', padding: '22px 20px calc(18px + env(safe-area-inset-bottom, 0px))', boxShadow: '0 18px 45px rgba(0,0,0,0.24)' }}>
+            <div style={{ width: 44, height: 4, borderRadius: 999, background: 'var(--border)', margin: '0 auto 18px' }} />
+            <h3 style={{ fontSize: 22, lineHeight: 1.18, fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 8px' }}>
+              Inviter sur Oracle Messenger
             </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.45, fontWeight: 650, margin: '0 0 18px' }}>
+              Envoyez une invitation claire à {invite.name}. Le contact reçoit votre lien et peut vous retrouver directement.
+            </p>
             {(invite.phones.length ? invite.phones : invite.emails).map((value, index) => (
-              <label key={`${value}-${index}`} style={{ display: 'flex', alignItems: 'center', gap: 22, padding: '13px 0', cursor: 'pointer' }}>
+              <label key={`${value}-${index}`} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 0', cursor: 'pointer' }}>
                 <span style={{ width: 24, height: 24, borderRadius: '50%', border: `2px solid ${invitePhone === value ? 'var(--brand)' : 'var(--text-secondary)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   {invitePhone === value && <span style={{ width: 12, height: 12, borderRadius: '50%', background: 'var(--brand)' }} />}
                 </span>
@@ -783,24 +998,68 @@ export default function ContactsPage() {
                   style={{ display: 'none' }}
                 />
                 <span style={{ minWidth: 0 }}>
-                  <span style={{ display: 'block', color: 'var(--text-primary)', fontSize: 16, lineHeight: 1.25, fontWeight:700 }}>Mobile</span>
+                  <span style={{ display: 'block', color: 'var(--text-primary)', fontSize: 15, lineHeight: 1.25, fontWeight: 800 }}>{invite.phones.length ? 'Numéro à inviter' : 'Adresse à inviter'}</span>
                   <span style={{ display: 'block', color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.25, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>
                 </span>
               </label>
             ))}
+            {invite.phones.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: 13, lineHeight: 1.3, fontWeight: 900, marginBottom: 7 }}>
+                  Numéro WhatsApp
+                </label>
+                <input
+                  value={invitePhone}
+                  onChange={event => setInvitePhone(event.target.value)}
+                  placeholder="+225 XX XX XX XX XX"
+                  type="tel"
+                  inputMode="tel"
+                  style={{ width:'100%', boxSizing:'border-box', border:'1.5px solid var(--border)', borderRadius:14, padding:'13px 14px', fontSize:15, fontWeight:750, outline:'none', background:'#fff', color:'var(--text-primary)' }}
+                />
+                {invitePhoneStatus?.valid && !invitePhoneStatus.international && (
+                  <div style={{ marginTop: 10, border:'1px solid #F59E0B', background:'#FFFBEB', color:'#92400E', borderRadius:14, padding:'11px 12px' }}>
+                    <p style={{ margin:'0 0 4px', fontSize:13, fontWeight:900, lineHeight:1.25 }}>Numéro incomplet</p>
+                    <p style={{ margin:0, fontSize:12.5, fontWeight:700, lineHeight:1.4 }}>
+                      Ajoutez le code pays au numéro de votre contact avant de continuer. Exemple : +225 XX XX XX XX XX pour la Côte d’Ivoire.
+                    </p>
+                  </div>
+                )}
+                {invitePhoneStatus?.valid && invitePhoneStatus.international && (
+                  <div style={{ marginTop: 9, color:'#047857', fontSize:12.5, fontWeight:850, lineHeight:1.35 }}>
+                    Numéro international prêt : {invitePhoneStatus.e164}
+                  </div>
+                )}
+              </div>
+            )}
             {!invite.phones.length && !invite.emails.length && (
               <p style={{ color: 'var(--text-secondary)', fontSize: 16, lineHeight: 1.5, margin: 0 }}>
                 Ce contact n'a pas de numéro. Vous pouvez quand même partager votre lien Oracle Messenger.
               </p>
             )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 28, marginTop: 28 }}>
-              <button onClick={() => setInvite(null)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--brand)', fontSize: 16, fontWeight: 800, cursor: 'pointer', padding: '10px 0' }}>
-                Annuler
-              </button>
+            <div style={{ display: 'grid', gap: 10, marginTop: 22 }}>
               <button onClick={handleInvite}
-                style={{ background: 'transparent', border: 'none', color: 'var(--brand)', fontSize: 16, fontWeight: 800, cursor: 'pointer', padding: '10px 0' }}>
-                Continuer
+                style={{ width: '100%', border: 'none', borderRadius: 16, background: 'var(--brand)', color: 'var(--accent-text)', padding: '14px 16px', fontSize: 15, fontWeight: 900, cursor: 'pointer' }}>
+                Partager l’invitation
+              </button>
+              {invite.phones.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <button onClick={inviteByWhatsApp}
+                    style={{ border: '1px solid rgba(18,140,126,.18)', borderRadius: 16, background: invitePhoneStatus?.international ? '#E7F8F1' : '#F3F4F6', color: invitePhoneStatus?.international ? '#075E54' : '#6B7280', padding: '13px 12px', fontSize: 14, fontWeight: 900, cursor: 'pointer' }}>
+                    Inviter sur WhatsApp
+                  </button>
+                  <button onClick={inviteBySms}
+                    style={{ border: '1px solid var(--border)', borderRadius: 16, background: '#FFFFFF', color: 'var(--text-primary)', padding: '13px 12px', fontSize: 14, fontWeight: 900, cursor: 'pointer' }}>
+                    SMS
+                  </button>
+                </div>
+              )}
+              <button onClick={copyInvite}
+                style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 16, background: '#FFFFFF', color: 'var(--brand)', padding: '13px 16px', fontSize: 14, fontWeight: 900, cursor: 'pointer' }}>
+                Copier le lien
+              </button>
+              <button onClick={() => setInvite(null)}
+                style={{ width: '100%', background: 'transparent', border: 'none', color: 'var(--text-secondary)', fontSize: 14, fontWeight: 850, cursor: 'pointer', padding: '8px 0' }}>
+                Annuler
               </button>
             </div>
           </div>
@@ -811,15 +1070,18 @@ export default function ContactsPage() {
       {showAdd && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end' }}
           onClick={e => { if (e.target === e.currentTarget) setShowAdd(false); }}>
-          <div style={{ width: '100%', background: '#fff', borderRadius: '20px 20px 0 0', padding: 28 }}>
+          <div style={{ width: '100%', maxHeight: 'calc(100dvh - 18px)', overflowY: 'auto', background: 'var(--bg-surface)', borderRadius: '20px 20px 0 0', padding: '24px 24px calc(24px + env(safe-area-inset-bottom, 0px))' }}>
             <h3 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 20px' }}>Ajouter un contact</h3>
-            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nom *"
-              style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid var(--border)', fontSize: 15, outline: 'none', marginBottom: 12, boxSizing: 'border-box' }}/>
-            <input value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="Téléphone (optionnel)" type="tel"
-              style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid var(--border)', fontSize: 15, outline: 'none', marginBottom: 20, boxSizing: 'border-box' }}/>
-            <button onClick={addManualContact} disabled={!newName.trim()}
-              style={{ width: '100%', background: newName.trim() ? ACCENT : 'var(--border)', color: newName.trim() ? '#fff' : 'var(--text-muted)', border: 'none', borderRadius: 14, padding: 16, fontSize: 16, fontWeight: 700, cursor: newName.trim() ? 'pointer' : 'default', marginBottom: 10 }}>
-              Ajouter
+            <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nom (optionnel)"
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid var(--border)', fontSize: 15, outline: 'none', marginBottom: 12, boxSizing: 'border-box', background: 'var(--bg-surface)', color: 'var(--text-primary)' }}/>
+            <input value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="Téléphone avec indicatif ou email" type="text" inputMode="email"
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid var(--border)', fontSize: 15, outline: 'none', marginBottom: 8, boxSizing: 'border-box', background: 'var(--bg-surface)', color: 'var(--text-primary)' }}/>
+            <p style={{ margin: '0 0 18px', fontSize: 12, lineHeight: 1.45, color: 'var(--text-secondary)', fontWeight: 650 }}>
+              Oracle Messenger vérifie immédiatement si ce contact possède déjà un compte.
+            </p>
+            <button onClick={addManualContact} disabled={!newName.trim() && !newPhone.trim()}
+              style={{ width: '100%', background: (newName.trim() || newPhone.trim()) ? ACCENT : 'var(--border)', color: (newName.trim() || newPhone.trim()) ? '#fff' : 'var(--text-muted)', border: 'none', borderRadius: 14, padding: 16, fontSize: 16, fontWeight: 700, cursor: (newName.trim() || newPhone.trim()) ? 'pointer' : 'default', marginBottom: 10 }}>
+              Vérifier et ajouter
             </button>
             <button onClick={() => setShowAdd(false)}
               style={{ width: '100%', background: 'transparent', border: '1px solid var(--border)', borderRadius: 14, padding: 14, fontSize: 15, color: 'var(--text-secondary)', cursor: 'pointer' }}>
@@ -882,13 +1144,13 @@ function SectionTitle({ children }: { children: ReactNode }) {
   );
 }
 
-function ContactRow({ c, onTap, onRemove, creating, onAvatarOpen }: { c: EnrichedContact; onTap: () => void; onRemove: () => void; creating: boolean; onAvatarOpen: (src: string, name: string) => void }) {
+function ContactRow({ c, onTap, creating, onAvatarOpen }: { c: EnrichedContact; onTap: () => void; creating: boolean; onAvatarOpen: (src: string, name: string) => void }) {
   const { local, appUser } = c;
   const avatar = appUser?.avatar ?? local.avatar;
   return (
-    <div style={{ background: '#FFFFFF', overflow: 'hidden', display:'flex', alignItems:'center', paddingRight:10 }}>
+    <div style={{ background: '#FFFFFF', overflow: 'hidden', display:'flex', alignItems:'center' }}>
       <button onClick={onTap} disabled={creating}
-        style={{ flex:1, minWidth:0, display: 'flex', alignItems: 'center', gap: 14, padding: '12px 10px 12px 18px', minHeight: 72, border: 'none', background: 'transparent', cursor: creating ? 'wait' : 'pointer', textAlign: 'left' }}>
+        style={{ flex:1, minWidth:0, display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px', minHeight: 72, border: 'none', background: 'transparent', cursor: creating ? 'wait' : 'pointer', textAlign: 'left' }}>
         <div style={{ position: 'relative', flexShrink: 0 }}>
           <Avatar name={local.name} avatar={avatar} size={52} onOpen={avatar ? () => onAvatarOpen(avatar, local.name) : undefined} />
           {appUser && (
@@ -910,17 +1172,6 @@ function ContactRow({ c, onTap, onRemove, creating, onAvatarOpen }: { c: Enriche
           )}
         </div>
         {!appUser && <span style={{ color: 'var(--brand)', fontSize: 14, fontWeight: 800, flexShrink: 0 }}>Inviter</span>}
-      </button>
-      <button
-        onClick={async () => {
-          if (await confirmAction(`Retirer ${local.name} de cette liste ?`, 'Retirer')) onRemove();
-        }}
-        aria-label={`Retirer ${local.name}`}
-        style={{ width:38, height:38, minHeight:38, borderRadius:'50%', border:'1px solid var(--border)', background:'#FFFFFF', color:'#B42318', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}
-      >
-        <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/>
-        </svg>
       </button>
     </div>
   );

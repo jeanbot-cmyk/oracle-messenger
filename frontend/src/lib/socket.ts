@@ -1,15 +1,15 @@
 import { io, Socket } from 'socket.io-client';
+import { BACKEND_URL } from './config';
 
 let socket: Socket | null = null;
 let socketToken = '';
 
 export function getSocket(token?: string): Socket | null {
   if (token) {
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:3001';
     if (!socket || socketToken !== token) {
       if (socket) { socket.disconnect(); socket = null; }
       socketToken = token;
-      socket = io(backendUrl, {
+      socket = io(BACKEND_URL, {
         auth: { token },
         transports: ['websocket', 'polling'],
         reconnection: true,

@@ -2,6 +2,7 @@
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { saveToGallery } from '../../../lib/gallery';
 
 const ACCENT = 'var(--brand)';
@@ -48,6 +49,7 @@ function buildTransform(adj: Adjustments) {
 
 export default function PhotoEditPage() {
   const router = useRouter();
+  const { data: session } = useSession();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef    = useRef<HTMLImageElement | null>(null);
 
@@ -60,6 +62,7 @@ export default function PhotoEditPage() {
   const [saving,   setSaving]   = useState(false);
   const [saved,    setSaved]    = useState(false);
   const [mounted,  setMounted]  = useState(false);
+  const ownerId = session?.user?.id || session?.user?.email || '';
 
   useEffect(() => {
     setMounted(true);
@@ -98,7 +101,7 @@ export default function PhotoEditPage() {
     try {
       if (mediaType === 'video') {
         const name = fileName || `video-retouche-${Date.now()}.mp4`;
-        saveToGallery(src, 'video', name, { source: 'edit', mime: src.startsWith('data:video/') ? src.slice(5, src.indexOf(';')) : 'video/mp4' });
+        saveToGallery(src, 'video', name, { source: 'edit', mime: src.startsWith('data:video/') ? src.slice(5, src.indexOf(';')) : 'video/mp4' }, ownerId);
         downloadToPhone(src, name);
         setSaved(true);
         setTimeout(() => router.back(), 1200);
@@ -120,7 +123,7 @@ export default function PhotoEditPage() {
       ctx.restore();
       const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
       const name = `retouche-${Date.now()}.jpg`;
-      saveToGallery(dataUrl, 'image', name, { source: 'edit', mime: 'image/jpeg' });
+      saveToGallery(dataUrl, 'image', name, { source: 'edit', mime: 'image/jpeg' }, ownerId);
       downloadToPhone(dataUrl, name);
       setSaved(true);
       setTimeout(() => router.back(), 1200);

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { mkdir, writeFile } from 'fs/promises';
 import { extname, join } from 'path';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 
 const MAX_UPLOAD_BYTES = Number(process.env.MEDIA_UPLOAD_MAX_BYTES || 18 * 1024 * 1024);
 const DEFAULT_UPLOAD_ROOT = process.env.MEDIA_UPLOAD_DIR || join(process.cwd(), 'uploads');
@@ -101,6 +101,7 @@ export class MediaService {
     const absPath = join(absDir, filename);
     const buffer = Buffer.from(base64, 'base64');
     if (buffer.length > MAX_UPLOAD_BYTES) throw new BadRequestException('Fichier trop lourd.');
+    const checksum = createHash('sha256').update(buffer).digest('hex');
     await writeFile(absPath, buffer);
 
     const path = `/uploads/${relDir}/${filename}`;
@@ -109,6 +110,7 @@ export class MediaService {
       path,
       mime,
       size: buffer.length,
+      checksum,
       name: input.name || filename,
       kind: input.kind || 'file',
     };

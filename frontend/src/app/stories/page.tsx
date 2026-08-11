@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
+import { BACKEND_URL } from '../../lib/config';
 
 interface Story {
   id: string;
@@ -23,7 +24,7 @@ interface Story {
 }
 
 const BG_COLORS = ['var(--brand)','#25D366','var(--header-bg)','#34B7F1','#ECE5DD','#FF6B6B','#4ECDC4','#45B7D1','#96CEB4','#FFEAA7'];
-const API = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
+const API = BACKEND_URL;
 
 function timeAgo(value: string) {
   const date = new Date(value);
@@ -423,7 +424,7 @@ export default function StoriesPage() {
               <svg width="46" height="46" fill="none" stroke="currentColor" strokeWidth="1.6" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="4"/><circle cx="12" cy="12" r="3.5"/><path d="M17 7h.01"/></svg>
             </div>
             <p style={{ fontSize:24, lineHeight:1.15, fontWeight:950, color:'var(--text-primary)', margin:'0 0 8px' }}>Aucune story</p>
-            <p style={{ fontSize:15.5, lineHeight:1.45, maxWidth:330, margin:'0 auto 18px', color:'var(--text-secondary)', fontWeight:600 }}>Créez votre première story. Elle reste visible 24h, comme sur WhatsApp Business.</p>
+            <p style={{ fontSize:15.5, lineHeight:1.45, maxWidth:330, margin:'0 auto 18px', color:'var(--text-secondary)', fontWeight:600 }}>Créez votre première story. Elle reste visible 24h.</p>
             <button onClick={() => setCreating(true)} style={{ border:'none', background:'var(--brand)', color:'#fff', borderRadius:999, padding:'13px 24px', fontSize:15, fontWeight:900, cursor:'pointer', boxShadow:'0 12px 28px rgba(16,42,42,0.18)' }}>Créer une story</button>
           </div>
         )}

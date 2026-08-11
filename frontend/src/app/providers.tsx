@@ -1,15 +1,15 @@
 'use client';
-import { SessionProvider, useSession } from 'next-auth/react';
+import { getSession, SessionProvider, signIn, useSession } from 'next-auth/react';
 import { Toaster } from 'react-hot-toast';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { useSettings } from '../store/settings';
 import { detectLanguage, t } from '../lib/i18n';
-import { PhoneOnboarding } from '../components/PhoneOnboarding';
 import { clearOldTextMessages } from '../lib/db';
-import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
+import { buildChromeInstallIntentUrl, isInstalledAppMode, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
+import { BACKEND_URL } from '../lib/config';
 
-const CLIENT_CACHE_VERSION = '141-20260806-message-ux';
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
+const CLIENT_CACHE_VERSION = '201-20260810-native-calls-icon-safe';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
 
 function ThemeApplier() {
@@ -30,16 +30,17 @@ function ThemeApplier() {
   }, [lang, langManual, setLang]);
 
   useEffect(() => {
+    const nativeAppMode = isInstalledAppMode();
     // Cookie PWA si mode standalone
     const isStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||
       (window.navigator as any).standalone === true;
-    if (isStandalone) {
+    if (isStandalone && !nativeAppMode) {
       document.cookie = 'pwa-installed=1; path=/; max-age=31536000; SameSite=Lax';
     }
 
     // Service Worker — register and handle updates
-    if ('serviceWorker' in navigator) {
+    if (!nativeAppMode && 'serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
         .then(reg => {
           const storedVersion = localStorage.getItem('oracle-client-cache-version');
@@ -60,6 +61,7 @@ function ThemeApplier() {
           navigator.serviceWorker.addEventListener('message', e => {
             if (e.data?.type === 'SW_UPDATED') {
               localStorage.setItem('oracle-client-cache-version', CLIENT_CACHE_VERSION);
+              window.dispatchEvent(new CustomEvent('oracle:sw-updated', { detail: e.data }));
             }
           });
         })
@@ -81,13 +83,13 @@ function ThemeApplier() {
     }
 
     // Storage quota alert — warn if < 10% free
-    if (navigator.storage?.estimate) {
+    if (!nativeAppMode && navigator.storage?.estimate) {
       navigator.storage.estimate().then(({ usage = 0, quota = 1 }) => {
         const pctFree = ((quota - usage) / quota) * 100;
         if (pctFree < 10 && Notification.permission === 'granted') {
           new Notification('Oracle Messenger — Stockage', {
             body: "Votre téléphone est presque plein. Supprimez quelques fichiers dans Oracle Messenger pour libérer de l'espace.",
-            icon: '/icons/icon-192-v20260804.png',
+            icon: '/icons/icon-192-v20260809-premium.png',
           });
         }
       }).catch(() => {});
@@ -97,6 +99,70 @@ function ThemeApplier() {
     // Browsers display a native contact picker that cannot be styled by the app.
     clearOldTextMessages(5).catch(() => {});
   }, []);
+
+  return null;
+}
+
+function nativeAuthTokenFromUrl(rawUrl: string) {
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== 'online.oracle_plus.messenger:') return '';
+    if (url.hostname !== 'native-auth') return '';
+    return url.searchParams.get('token')?.trim() ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function NativeAuthBridge() {
+  const router = useRouter();
+  const handlingRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let removeListener: (() => void) | undefined;
+
+    async function consumeToken(token: string) {
+      if (!token || handlingRef.current) return;
+      handlingRef.current = true;
+      try {
+        try {
+          const { Browser } = await import('@capacitor/browser');
+          await Browser.close();
+        } catch {}
+        const result = await signIn('native-token', { token, redirect: false });
+        if (!result?.ok) {
+          router.replace('/login?error=native_session');
+          return;
+        }
+        const session = await getSession();
+        router.replace((session?.user as any)?.isNew ? '/onboarding' : '/chat');
+      } catch {
+        router.replace('/login?error=native_session');
+      } finally {
+        handlingRef.current = false;
+      }
+    }
+
+    import('@capacitor/core')
+      .then(({ Capacitor }) => {
+        if (!Capacitor.isNativePlatform()) return null;
+        return import('@capacitor/app');
+      })
+      .then(async mod => {
+        if (!mod?.App) return;
+        const currentToken = nativeAuthTokenFromUrl(window.location.href);
+        if (currentToken) await consumeToken(currentToken);
+        const handle = await mod.App.addListener('appUrlOpen', event => {
+          const token = nativeAuthTokenFromUrl(event.url);
+          if (token) consumeToken(token);
+        });
+        removeListener = () => handle.remove();
+      })
+      .catch(() => {});
+
+    return () => { removeListener?.(); };
+  }, [router]);
 
   return null;
 }
@@ -116,9 +182,7 @@ function PwaInstallTracker() {
 }
 
 function isStandaloneMode() {
-  return window.matchMedia('(display-mode: standalone)').matches ||
-    (window.navigator as any).standalone === true ||
-    !!(window as any).Capacitor?.isNativePlatform?.();
+  return isInstalledAppMode();
 }
 
 function InstallBanner() {
@@ -130,7 +194,7 @@ function InstallBanner() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const path = window.location.pathname;
-    if (path.startsWith('/install') || isStandaloneMode()) return;
+    if (path === '/' || path.startsWith('/install') || isStandaloneMode()) return;
 
     const showTimer = setTimeout(() => setVisible(!isStandaloneMode()), 900);
     const onPrompt = (e: any) => {
@@ -170,6 +234,10 @@ function InstallBanner() {
       }
       return;
     }
+    if (/android/i.test(navigator.userAgent)) {
+      setMessage('');
+      return;
+    }
     setMessage(t(lang, 'install.nativeUnavailable'));
   }
 
@@ -178,7 +246,7 @@ function InstallBanner() {
     <div style={{ position:'fixed', top:0, left:0, right:0, zIndex:2000, background:'var(--header-bg)', color:'#fff', borderBottom:'1px solid rgba(255,255,255,0.12)', boxShadow:'0 6px 20px rgba(0,0,0,0.18)', padding:'8px 10px env(safe-area-inset-top)' }}>
       <div style={{ display:'flex', alignItems:'center', gap:10, maxWidth:720, margin:'0 auto' }}>
         <div style={{ width:34, height:34, borderRadius:10, background:'rgba(255,255,255,0.12)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-          <img src="/icons/icon-72-v20260804.png" alt="" style={{ width:26, height:26, borderRadius:7 }} />
+          <img src="/icons/icon-72-v20260809-premium.png" alt="" style={{ width:26, height:26, borderRadius:7 }} />
         </div>
         <div style={{ flex:1, minWidth:0 }}>
           <p style={{ margin:0, fontSize:13, fontWeight:900, lineHeight:1.25 }}>{t(lang, 'install.bannerTitle')}</p>
@@ -186,7 +254,7 @@ function InstallBanner() {
         </div>
         <button onClick={install} disabled={installing}
           style={{ border:'none', borderRadius:999, background:'var(--accent)', color:'var(--accent-text)', padding:'8px 12px', fontSize:12, fontWeight:900, cursor:'pointer', whiteSpace:'nowrap' }}>
-          {installing ? t(lang, 'install.installing') : t(lang, 'pwa.install.btn')}
+          {installing ? t(lang, 'install.installing') : t(lang, 'install.bannerCta')}
         </button>
         <button onClick={() => setVisible(false)} aria-label={t(lang, 'common.close')}
           style={{ width:30, height:30, borderRadius:'50%', border:'none', background:'rgba(255,255,255,0.10)', color:'#fff', fontSize:18, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>×</button>
@@ -206,7 +274,7 @@ function AppLoadingScreen({ text = 'Ouverture d’Oracle Messenger...' }: { text
   return (
     <div style={{ height:'100dvh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:14, background:'var(--bg-app)', color:'var(--text-primary)', fontFamily:'system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif', padding:24, textAlign:'center' }}>
       <div style={{ width:52, height:52, borderRadius:16, background:'var(--header-bg)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 10px 28px rgba(16,42,42,0.18)' }}>
-        <img src="/icons/icon-72-v20260804.png" alt="" style={{ width:36, height:36, borderRadius:10 }} />
+        <img src="/icons/icon-72-v20260809-premium.png" alt="" style={{ width:36, height:36, borderRadius:10 }} />
       </div>
       <div style={{ width:34, height:34, border:'3px solid var(--border)', borderTopColor:'var(--brand)', borderRadius:'50%', animation:'spin .8s linear infinite' }} />
       <p style={{ margin:0, fontSize:14, lineHeight:1.45, fontWeight:800 }}>{text === 'Ouverture d’Oracle Messenger...' ? t(lang, 'app.opening') : text}</p>
@@ -217,6 +285,8 @@ function AppLoadingScreen({ text = 'Ouverture d’Oracle Messenger...' }: { text
 
 function PhoneGate({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
+  const router = useRouter();
+  const pathname = usePathname();
   const [needsPhone, setNeedsPhone] = useState(false);
   const [checked, setChecked] = useState(false);
 
@@ -231,11 +301,8 @@ function PhoneGate({ children }: { children: React.ReactNode }) {
     const token = (session?.user as any)?.backendToken;
     if (!token) { setChecked(true); return; }
 
-    // Check local cache first
-    try {
-      const local = JSON.parse(localStorage.getItem('oracle-profile') ?? '{}');
-      if (local.phone) { setChecked(true); return; }
-    } catch {}
+    // Session/backend are the source of truth. Local cache is only a display cache.
+    if ((session?.user as any)?.phone) { setChecked(true); return; }
 
     // Check backend — if it fails, assume phone is needed (safe default)
     fetch(`${BACKEND_URL}/users/me/has-phone`, {
@@ -247,15 +314,21 @@ function PhoneGate({ children }: { children: React.ReactNode }) {
         setChecked(true);
       })
       .catch(() => {
-        // En cas de réseau faible, ne pas afficher une fausse étape qui fait clignoter l'app.
-        setNeedsPhone(false);
+        // Le téléphone est obligatoire pour relier le compte Google aux contacts.
+        // Si la vérification échoue, on garde l'utilisateur sur l'étape de saisie.
+        setNeedsPhone(true);
         setChecked(true);
       });
   }, [status, session]);
 
+  useEffect(() => {
+    if (!checked || !needsPhone || pathname === '/onboarding') return;
+    router.replace('/onboarding');
+  }, [checked, needsPhone, pathname, router]);
+
   if (!checked && status === 'authenticated') return <>{children}</>;
   if (!checked) return <AppLoadingScreen />;
-  if (needsPhone) return <PhoneOnboarding onDone={() => setNeedsPhone(false)} />;
+  if (needsPhone && pathname !== '/onboarding') return <AppLoadingScreen text="Association du numéro requise..." />;
   return <>{children}</>;
 }
 
@@ -263,6 +336,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider>
       <ThemeApplier />
+      <NativeAuthBridge />
       <PwaInstallTracker />
       <PhoneGate>{children}</PhoneGate>
       <InstallBanner />

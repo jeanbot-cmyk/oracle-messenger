@@ -1,0 +1,14 @@
+node_modules/
+.expo/
+.expo-shared/
+ios/
+dist/
+web-build/
+android/.gradle/
+android/build/
+android/app/build/
+*.jks
+*.keystore
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

@@ -21,18 +21,9 @@ export function playMessageSound() {
   try {
     const c = unlockAudio();
     const now = c.currentTime;
-    [0, 0.12].forEach((delay, i) => {
-      const osc = c.createOscillator();
-      const gain = c.createGain();
-      osc.connect(gain); gain.connect(c.destination);
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(i === 0 ? 880 : 1100, now + delay);
-      gain.gain.setValueAtTime(0, now + delay);
-      gain.gain.linearRampToValueAtTime(0.18, now + delay + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.18);
-      osc.start(now + delay);
-      osc.stop(now + delay + 0.2);
-    });
+    playPremiumTone(c, now, 880, 0.11, 0.075, 'sine');
+    playPremiumTone(c, now + 0.085, 1320, 0.16, 0.09, 'triangle');
+    playPremiumTone(c, now + 0.12, 1760, 0.08, 0.035, 'sine');
   } catch {}
 }
 
@@ -41,17 +32,26 @@ export function playNotificationSound() {
   try {
     const c = unlockAudio();
     const now = c.currentTime;
-    const osc = c.createOscillator();
-    const gain = c.createGain();
-    osc.connect(gain); gain.connect(c.destination);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(660, now);
-    osc.frequency.linearRampToValueAtTime(990, now + 0.15);
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.15, now + 0.04);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-    osc.start(now);
-    osc.stop(now + 0.4);
+    playPremiumTone(c, now, 587, 0.22, 0.07, 'sine');
+    playPremiumTone(c, now + 0.12, 880, 0.2, 0.075, 'triangle');
+    playPremiumTone(c, now + 0.24, 1175, 0.18, 0.055, 'sine');
+  } catch {}
+}
+
+export function playReminderSound() {
+  try {
+    const c = unlockAudio();
+    const now = c.currentTime;
+    [
+      [0, 523], [0.18, 659], [0.36, 784],
+      [0.76, 659], [0.94, 784], [1.12, 988],
+      [1.68, 587], [1.88, 740], [2.1, 1047],
+    ].forEach(([delay, freq], index) => {
+      playPremiumTone(c, now + (delay as number), freq as number, index < 6 ? 0.16 : 0.26, 0.095, 'sine');
+    });
+    if ('vibrate' in navigator) {
+      try { navigator.vibrate([500, 160, 500, 260, 800]); } catch {}
+    }
   } catch {}
 }
 
@@ -60,6 +60,18 @@ let ringtoneInterval: ReturnType<typeof setInterval> | null = null;
 let vibrationInterval: ReturnType<typeof setInterval> | null = null;
 let outgoingToneInterval: ReturnType<typeof setInterval> | null = null;
 let ringUntil = 0;
+
+function callNativeSound(method: 'startIncomingRingtone' | 'stopIncomingRingtone') {
+  try {
+    const bridge = (window as any).OracleAndroid;
+    const fn = bridge?.[method];
+    if (typeof fn !== 'function') return false;
+    fn.call(bridge);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function playTone(
   c: AudioContext,
@@ -83,32 +95,41 @@ function playTone(
   osc.stop(start + duration + 0.03);
 }
 
+function playPremiumTone(
+  c: AudioContext,
+  start: number,
+  freq: number,
+  duration: number,
+  volume: number,
+  type: OscillatorType = 'sine',
+) {
+  playTone(c, start, freq, duration, volume, type);
+  playTone(c, start + 0.006, freq * 2, Math.max(0.08, duration * 0.72), volume * 0.18, 'sine');
+  playTone(c, start + 0.012, freq / 2, duration, volume * 0.1, 'triangle');
+}
+
 function ringOnce() {
   try {
     const c = unlockAudio();
     const now = c.currentTime;
 
-    // Sonnerie originale Oracle Messenger : vraie mélodie en deux phrases,
-    // plus proche d'un appel entrant qu'un bip de notification.
+    // Récepteur web/PWA : cadence classique type téléphone fixe.
+    // Dans l'app Android native, startRingtone() délègue au MediaPlayer natif
+    // pour utiliser le canal Sonnerie plutôt que le volume multimédia.
     const notes: Array<[number, number, number, number]> = [
-      [0.00, 659, 0.38, 0.28],
-      [0.42, 784, 0.38, 0.30],
-      [0.84, 988, 0.46, 0.30],
-      [1.40, 784, 0.32, 0.24],
-      [1.74, 659, 0.34, 0.24],
-      [2.18, 880, 0.42, 0.29],
-      [2.66, 1047, 0.54, 0.31],
+      [0.00, 440, 0.34, 0.22],
+      [0.00, 480, 0.34, 0.16],
+      [0.42, 440, 0.34, 0.22],
+      [0.42, 480, 0.34, 0.16],
+      [0.84, 440, 0.34, 0.22],
+      [0.84, 480, 0.34, 0.16],
+      [1.26, 440, 0.34, 0.22],
+      [1.26, 480, 0.34, 0.16],
     ];
 
     notes.forEach(([delay, freq, duration, volume]) => {
       const start = now + delay;
-      playTone(c, start, freq, duration, volume, 'triangle');
-      playTone(c, start, freq / 2, duration, volume * 0.12, 'sine');
-    });
-
-    // Petite percussion douce pour que ça perce mieux sur haut-parleur mobile.
-    [0, 0.84, 1.74, 2.66].forEach(delay => {
-      playTone(c, now + delay, 1760, 0.055, 0.08, 'square');
+      playPremiumTone(c, start, freq, duration, volume, 'sine');
     });
   } catch {}
 }
@@ -116,29 +137,31 @@ function ringOnce() {
 export function startRingtone() {
   stopRingtone();
   ringUntil = Date.now() + 75_000;
-  ringOnce();
+  const nativeStarted = callNativeSound('startIncomingRingtone');
+  if (!nativeStarted) ringOnce();
   if ('vibrate' in navigator) {
-    try { navigator.vibrate([900, 250, 900, 450, 500, 900]); } catch {}
+    try { navigator.vibrate([900, 260, 900, 520, 900, 260, 900]); } catch {}
   }
   ringtoneInterval = setInterval(() => {
     if (Date.now() > ringUntil) {
       stopRingtone();
       return;
     }
-    ringOnce();
-  }, 3900);
+    if (!nativeStarted) ringOnce();
+  }, 5200);
   vibrationInterval = setInterval(() => {
     if (Date.now() > ringUntil) {
       stopRingtone();
       return;
     }
     if ('vibrate' in navigator) {
-      try { navigator.vibrate([900, 250, 900, 450, 500, 900]); } catch {}
+      try { navigator.vibrate([900, 260, 900, 520, 900, 260, 900]); } catch {}
     }
-  }, 3900);
+  }, 5200);
 }
 
 export function stopRingtone() {
+  callNativeSound('stopIncomingRingtone');
   if (ringtoneInterval) { clearInterval(ringtoneInterval); ringtoneInterval = null; }
   if (vibrationInterval) { clearInterval(vibrationInterval); vibrationInterval = null; }
   ringtoneTimers.forEach(timer => clearTimeout(timer));
@@ -153,25 +176,22 @@ function outgoingToneOnce() {
   try {
     const c = unlockAudio();
     const now = c.currentTime;
-    [[0, 430], [0.18, 480]].forEach(([delay, freq]) => {
-      const osc = c.createOscillator();
-      const gain = c.createGain();
-      osc.connect(gain); gain.connect(c.destination);
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq as number, now + (delay as number));
-      gain.gain.setValueAtTime(0, now + (delay as number));
-      gain.gain.linearRampToValueAtTime(0.07, now + (delay as number) + 0.03);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + (delay as number) + 0.22);
-      osc.start(now + (delay as number));
-      osc.stop(now + (delay as number) + 0.25);
+    // Appelant : ringback distinct, cadence d'attente, jamais une sonnerie entrante.
+    const notes: Array<[number, number, number, number]> = [
+      [0.00, 425, 0.46, 0.032],
+      [0.64, 425, 0.46, 0.032],
+    ];
+    notes.forEach(([delay, freq, duration, volume]) => {
+      playPremiumTone(c, now + delay, freq, duration, volume, 'sine');
     });
   } catch {}
 }
 
 export function startOutgoingCallTone() {
   stopOutgoingCallTone();
+  stopRingtone();
   outgoingToneOnce();
-  outgoingToneInterval = setInterval(outgoingToneOnce, 2200);
+  outgoingToneInterval = setInterval(outgoingToneOnce, 3600);
 }
 
 export function stopOutgoingCallTone() {
@@ -186,7 +206,7 @@ export function playMissedCallSound() {
     const c = unlockAudio();
     const now = c.currentTime;
     [0, 0.2, 0.46].forEach((delay, i) => {
-      playTone(c, now + delay, 760 - i * 120, 0.16 + i * 0.04, 0.18, 'sine');
+      playPremiumTone(c, now + delay, 784 - i * 110, 0.16 + i * 0.04, 0.14, 'sine');
     });
     if ('vibrate' in navigator) {
       try { navigator.vibrate([180, 90, 180]); } catch {}
@@ -199,15 +219,8 @@ export function playCallConnected() {
   try {
     const c = unlockAudio();
     const now = c.currentTime;
-    const osc = c.createOscillator();
-    const gain = c.createGain();
-    osc.connect(gain); gain.connect(c.destination);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(1200, now);
-    osc.frequency.linearRampToValueAtTime(800, now + 0.1);
-    gain.gain.setValueAtTime(0.12, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-    osc.start(now); osc.stop(now + 0.35);
+    playTone(c, now, 880, 0.13, 0.075, 'triangle');
+    playTone(c, now + 0.12, 1175, 0.2, 0.08, 'sine');
   } catch {}
 }
 
@@ -216,14 +229,7 @@ export function playCallEnded() {
     const c = unlockAudio();
     const now = c.currentTime;
     [0, 0.15, 0.3].forEach((delay, i) => {
-      const osc = c.createOscillator();
-      const gain = c.createGain();
-      osc.connect(gain); gain.connect(c.destination);
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(600 - i * 80, now + delay);
-      gain.gain.setValueAtTime(0.1, now + delay);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.12);
-      osc.start(now + delay); osc.stop(now + delay + 0.15);
+      playTone(c, now + delay, 620 - i * 95, 0.13, 0.072, 'sine');
     });
   } catch {}
 }

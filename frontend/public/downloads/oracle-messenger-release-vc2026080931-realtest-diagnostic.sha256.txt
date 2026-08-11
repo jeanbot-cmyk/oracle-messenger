@@ -1,0 +1,2 @@
+edb13d24a593aacf18b3618220d854675b207c85f23f66d2d5e49bc2a2dd19e9  frontend/public/downloads/oracle-messenger-release-vc2026080931-realtest-diagnostic.apk
+384a6b88cfc76a6a8c4a3c7c0d6210247d48f981f86beeeaa329bc0f0ef0abb9  frontend/public/downloads/oracle-messenger-release-vc2026080931-realtest-diagnostic.aab

@@ -7,15 +7,18 @@ import { format } from 'date-fns';
 import { useRouter } from 'next/navigation';
 import { MediaLightbox } from '../ui/MediaLightbox';
 import { matchesSearch } from '../../lib/search';
+import { notify } from '../../lib/feedback';
 
 interface Props {
   search?: string;
   remoteResults?: any[] | null;
   searchLoading?: boolean;
-  filter?: 'all' | 'unread' | 'fav' | 'groups';
+  filter?: 'all' | 'unread' | 'fav' | 'groups' | 'archived';
   loading?: boolean;
   onSelect?: (convId: string) => void;
   onDelete?: (convId: string, name: string) => void;
+  onArchive?: (convId: string, name: string) => void;
+  onUnarchive?: (convId: string, name: string) => void;
 }
 
 function attachmentUrl(content?: string) {
@@ -59,7 +62,7 @@ function VerifiedSeal({ size = 20 }: { size?: number }) {
   const px = `${size}px`;
   return (
     <span title="Compte officiel certifié" style={{ width:px, minWidth:px, maxWidth:px, height:px, minHeight:px, maxHeight:px, display:'inline-flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', lineHeight:0, aspectRatio:'1 / 1', overflow:'visible' }}>
-      <svg width={size} height={size} viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" aria-hidden="true" style={{ width:px, minWidth:px, maxWidth:px, height:px, minHeight:px, maxHeight:px, display:'block', flex:'0 0 auto', aspectRatio:'1 / 1', filter:'drop-shadow(0 1px 2px rgba(15,23,42,.18))' }}>
+      <svg width={size} height={size} viewBox="0 0 24 24" preserveAspectRatio="xMidYMid meet" aria-hidden="true" style={{ width:px, minWidth:px, maxWidth:px, height:px, minHeight:px, maxHeight:px, display:'block', flex:'0 0 auto', aspectRatio:'1 / 1', filter:'drop-shadow(0 1px 2px rgba(15,23,42,.20))' }}>
         <path
           fill="#1D9BF0"
           d="M12 1.15l1.55 1.72 2.18-.79.92 2.12 2.31.06.06 2.31 2.12.92-.79 2.18L22.07 12l-1.72 1.55.79 2.18-2.12.92-.06 2.31-2.31.06-.92 2.12-2.18-.79L12 22.07l-1.55-1.72-2.18.79-.92-2.12-2.31-.06-.06-2.31-2.12-.92.79-2.18L1.93 12l1.72-1.55-.79-2.18 2.12-.92.06-2.31 2.31-.06.92-2.12 2.18.79L12 1.15z"
@@ -93,10 +96,10 @@ function ConversationListSkeleton() {
     <div className="om-fade-in" aria-label="Chargement des discussions" style={{ flex:1, overflow:'hidden', padding:'2px 0 8px' }}>
       {Array.from({ length: 7 }).map((_, index) => (
         <div key={index} style={{ display:'flex', alignItems:'center', gap:12, minHeight:74, padding:'9px 16px' }}>
-          <div style={{ width:50, height:50, borderRadius:'50%', background:'var(--bg-input)', border:'1px solid var(--border)', flexShrink:0 }} />
+          <div className="om-shimmer" style={{ width:50, height:50, borderRadius:'50%', background:'var(--bg-input)', border:'1px solid var(--border)', flexShrink:0 }} />
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ width:index % 2 ? '58%' : '72%', height:13, borderRadius:7, background:'var(--bg-input)', marginBottom:10 }} />
-            <div style={{ width:index % 3 ? '76%' : '44%', height:11, borderRadius:6, background:'var(--bg-input)' }} />
+            <div className="om-shimmer" style={{ width:index % 2 ? '58%' : '72%', height:13, borderRadius:7, background:'var(--bg-input)', marginBottom:10 }} />
+            <div className="om-shimmer" style={{ width:index % 3 ? '76%' : '44%', height:11, borderRadius:6, background:'var(--bg-input)' }} />
           </div>
         </div>
       ))}
@@ -125,8 +128,8 @@ function ConversationAvatarImage({ src, alt }: { src: string; alt: string }) {
   );
 }
 
-export function ConversationList({ search = '', remoteResults = null, searchLoading = false, filter = 'all', loading = false, onSelect, onDelete }: Props) {
-  const { conversations, activeConvId, setActiveConv, onlineUsers, messages } = useChatStore();
+export function ConversationList({ search = '', remoteResults = null, searchLoading = false, filter = 'all', loading = false, onSelect, onDelete, onArchive, onUnarchive }: Props) {
+  const { conversations, activeConvId, setActiveConv, onlineUsers, messages, archivedConversationIds, blockedUserIds, blockUser, unblockUser } = useChatStore();
   const { lang } = useSettings();
   const router = useRouter();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -136,6 +139,12 @@ export function ConversationList({ search = '', remoteResults = null, searchLoad
   const sourceConversations = search.trim() && Array.isArray(remoteResults) ? remoteResults : conversations;
   const filtered = sourceConversations.filter(c => {
     if (isOfficialExpired(c)) return false;
+    const isArchived = archivedConversationIds.has(c.id);
+    if (filter === 'archived') {
+      if (!isArchived) return false;
+    } else if (isArchived) {
+      return false;
+    }
     const isOfficial = Boolean((c as any).isOfficial || c.type === 'official');
     const name = isOfficial ? (c.name ?? 'Oracle Messenger') : c.type === 'group' ? c.name : c.participants?.[0]?.name;
     if (search.trim()) {
@@ -188,6 +197,12 @@ export function ConversationList({ search = '', remoteResults = null, searchLoad
       button: t(lang, 'chat.importContacts'),
       action: () => router.push('/contacts'),
     };
+    if (filter === 'archived') return {
+      title: 'Aucune discussion archivée',
+      subtitle: 'Les discussions archivées resteront rangées ici jusqu’à leur désarchivage.',
+      button: t(lang, 'chat.importContacts'),
+      action: () => router.push('/contacts'),
+    };
     return {
       title: t(lang, 'chat.noDiscussion'),
       subtitle: t(lang, 'chat.importToStart'),
@@ -229,10 +244,13 @@ export function ConversationList({ search = '', remoteResults = null, searchLoad
         const avatar   = isOfficial ? '/icons/oracle-system-avatar.svg' : conv.type === 'group' ? conv.avatar : other?.avatar;
         const lastMsg  = conv.lastMessage;
         const timeStr  = lastMsg ? format(new Date(lastMsg.createdAt), 'HH:mm') : '';
+        const isArchived = archivedConversationIds.has(conv.id);
+        const isBlocked = Boolean(!isOfficial && conv.type !== 'group' && other?.id && blockedUserIds.has(other.id));
 
         return (
           <li key={conv.id} style={{ position:'relative' }}>
             <button
+              className="om-clickable"
               onClick={() => { setOpenMenuId(null); setActiveConv(conv.id); onSelect?.(conv.id); }}
               style={{
                 width:'100%', display:'flex', alignItems:'center', gap:12,
@@ -291,6 +309,11 @@ export function ConversationList({ search = '', remoteResults = null, searchLoad
                       OFFICIEL
                     </span>
                   )}
+                  {isBlocked && (
+                    <span style={{ marginLeft:8, flexShrink:0, borderRadius:999, background:'#FEF2F2', color:'#B42318', fontSize:9.8, fontWeight:850, padding:'2px 6px', letterSpacing:0 }}>
+                      BLOQUÉ
+                    </span>
+                  )}
                   {conv.unreadCount > 0 && (
                     <span className="om-unread-badge" style={{ marginLeft:8, flexShrink:0, minWidth:20, height:20, background:'var(--unread-bg)', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, color:'var(--accent-text)', fontWeight:850, padding:'0 6px' }}>
                       {conv.unreadCount > 9 ? '9+' : conv.unreadCount}
@@ -327,9 +350,54 @@ export function ConversationList({ search = '', remoteResults = null, searchLoad
                   <button
                     onClick={() => {
                       setOpenMenuId(null);
+                      if (isArchived) onUnarchive?.(conv.id, name ?? 'cette conversation');
+                      else onArchive?.(conv.id, name ?? 'cette conversation');
+                    }}
+                    style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'13px 15px', border:'none', background:'transparent', color:'var(--text-primary)', cursor:'pointer', textAlign:'left', fontSize:14, fontWeight:800 }}
+                  >
+                    {isArchived ? (
+                      <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16v11a2 2 0 01-2 2H6a2 2 0 01-2-2V7zM4 7l1.4-3h13.2L20 7M9 13l3-3 3 3M12 10v7"/>
+                      </svg>
+                    ) : (
+                      <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16v11a2 2 0 01-2 2H6a2 2 0 01-2-2V7zM4 7l1.4-3h13.2L20 7M9 14l3 3 3-3M12 10v7"/>
+                      </svg>
+                    )}
+                    {isArchived ? 'Désarchiver' : 'Archiver'}
+                  </button>
+                  {conv.type !== 'group' && other?.id && (
+                    <button
+                      onClick={() => {
+                        setOpenMenuId(null);
+                        if (isBlocked) {
+                          unblockUser(other.id);
+                          notify(`${name} est débloqué.`, 'success');
+                        } else {
+                          blockUser(other.id);
+                          notify(`${name} est bloqué sur cet appareil.`, 'success');
+                        }
+                      }}
+                      style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'13px 15px', border:'none', borderTop:'1px solid var(--border)', background:'transparent', color:isBlocked ? 'var(--brand)' : '#B42318', cursor:'pointer', textAlign:'left', fontSize:14, fontWeight:800 }}
+                    >
+                      {isBlocked ? (
+                        <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M12 22a10 10 0 100-20 10 10 0 000 20z"/>
+                        </svg>
+                      ) : (
+                        <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M18.4 5.6L5.6 18.4M12 22a10 10 0 100-20 10 10 0 000 20z"/>
+                        </svg>
+                      )}
+                      {isBlocked ? 'Débloquer le contact' : 'Bloquer le contact'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setOpenMenuId(null);
                       onDelete?.(conv.id, name ?? 'cette conversation');
                     }}
-                    style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'13px 15px', border:'none', background:'transparent', color:'#B42318', cursor:'pointer', textAlign:'left', fontSize:14, fontWeight:800 }}
+                    style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'13px 15px', border:'none', borderTop:'1px solid var(--border)', background:'transparent', color:'#B42318', cursor:'pointer', textAlign:'left', fontSize:14, fontWeight:800 }}
                   >
                     <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14M9 7V4h6v3"/>

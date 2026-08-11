@@ -72,11 +72,7 @@ type ForwardTarget = {
 
 const CONTACT_CACHE_BASE_KEYS = ['oracle-contacts', 'oracle-manual-contacts'];
 const HIDDEN_MESSAGES_PREFIX = 'oracle-messenger-hidden-messages:';
-const PROBABLE_DIAL_CODES = [
-  '225', '237', '221', '223', '226', '224', '228', '229', '227',
-  '243', '242', '241', '233', '234', '212', '213', '216',
-  '33', '32', '41', '1', '44',
-];
+const BUSINESS_ASSISTANT_PREFIX = 'oracle-business-assistant:';
 
 function VerifiedSeal({ size = 20 }: { size?: number }) {
   const px = `${size}px`;
@@ -91,6 +87,14 @@ function VerifiedSeal({ size = 20 }: { size?: number }) {
       </svg>
     </span>
   );
+}
+
+function setNativeSecureProfile(enabled: boolean) {
+  try {
+    const bridge = (window as any).OracleAndroid;
+    const fn = bridge?.setSecureProfileViewer;
+    if (typeof fn === 'function') fn.call(bridge, enabled);
+  } catch {}
 }
 
 function readStoredContactPhones(userId: string) {
@@ -118,24 +122,17 @@ async function phoneHashesForForward(phones: string[]) {
   if (typeof crypto === 'undefined' || !crypto.subtle) return [];
   const variants = new Set<string>();
   for (const phone of phones) {
-    const hasExplicitCountryCode = phone.trim().startsWith('+') || phone.trim().startsWith('00');
+    const raw = phone.trim();
     const digits = phone.replace(/\D/g, '');
     if (digits.length < 8) continue;
     const localWithoutLeadingZero = digits.replace(/^0+/, '');
-    variants.add(`+${digits}`);
+    if (raw.startsWith('+')) variants.add(`+${digits}`);
+    if (raw.startsWith('00')) variants.add(`+${digits.slice(2)}`);
     variants.add(digits);
     variants.add(digits.slice(-8));
     if (digits.length >= 9) variants.add(digits.slice(-9));
-    if (!hasExplicitCountryCode) {
-      for (const dial of PROBABLE_DIAL_CODES) {
-        variants.add(`+${dial}${digits}`);
-        variants.add(`${dial}${digits}`);
-        if (localWithoutLeadingZero.length >= 8) {
-          variants.add(`+${dial}${localWithoutLeadingZero}`);
-          variants.add(`${dial}${localWithoutLeadingZero}`);
-        }
-      }
-    }
+    if (localWithoutLeadingZero.length >= 8) variants.add(localWithoutLeadingZero.slice(-8));
+    if (localWithoutLeadingZero.length >= 9) variants.add(localWithoutLeadingZero.slice(-9));
   }
   return Promise.all([...variants].map(value => sha256(value)));
 }
@@ -156,6 +153,88 @@ function writeHiddenMessageIds(conversationId: string, ids: Set<string>) {
   try {
     localStorage.setItem(`${HIDDEN_MESSAGES_PREFIX}${conversationId}`, JSON.stringify([...ids]));
   } catch {}
+}
+
+type BusinessStatus = 'nouveau' | 'chaud' | 'froid' | 'payé' | 'vip' | 'relancer';
+
+interface BusinessClientCard {
+  conversationId: string;
+  status: BusinessStatus;
+  value: number;
+  notes: string;
+  reminderAt: string;
+  interests: string;
+  updatedAt: string;
+}
+
+const BUSINESS_STATUS_META: Record<BusinessStatus, { label: string; bg: string; color: string }> = {
+  nouveau: { label: 'Nouveau', bg: '#EAF4F1', color: '#0F766E' },
+  chaud: { label: 'Chaud', bg: '#FEF3C7', color: '#B45309' },
+  froid: { label: 'Froid', bg: '#E0F2FE', color: '#0369A1' },
+  payé: { label: 'Payé', bg: '#DCFCE7', color: '#15803D' },
+  vip: { label: 'VIP', bg: '#F5E8FF', color: '#7E22CE' },
+  relancer: { label: 'Relancer', bg: '#FFE4E6', color: '#BE123C' },
+};
+
+function emptyBusinessCard(conversationId: string): BusinessClientCard {
+  return {
+    conversationId,
+    status: 'nouveau',
+    value: 0,
+    notes: '',
+    reminderAt: '',
+    interests: '',
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function readBusinessCards(userId: string) {
+  if (typeof window === 'undefined' || !userId) return {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(`${BUSINESS_ASSISTANT_PREFIX}${userId}`) ?? '{}');
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, BusinessClientCard> : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeBusinessCards(userId: string, cards: Record<string, BusinessClientCard>) {
+  if (typeof window === 'undefined' || !userId) return;
+  try {
+    localStorage.setItem(`${BUSINESS_ASSISTANT_PREFIX}${userId}`, JSON.stringify(cards));
+  } catch {}
+}
+
+function messageTextForAssistant(message: Message) {
+  if (message.isDeleted || message.type !== 'text') return '';
+  return (message.content ?? '').trim();
+}
+
+function summarizeConversationForBusiness(messages: Message[], contactName: string) {
+  const textMessages = messages
+    .map(messageTextForAssistant)
+    .filter(Boolean)
+    .slice(-12);
+  if (!textMessages.length) return `Résumé ${contactName} : aucun message texte exploitable pour le moment.`;
+  const latest = textMessages.slice(-4).join(' / ');
+  return `Résumé ${contactName} : derniers points à retenir - ${latest}`;
+}
+
+function professionalReplyDraft(contactName: string, card: BusinessClientCard) {
+  const status = BUSINESS_STATUS_META[card.status].label.toLowerCase();
+  const interest = card.interests.trim();
+  const paymentLine = card.value > 0 ? ` Le montant prévu est de ${card.value.toLocaleString('fr-FR')} €. ` : ' ';
+  return `Bonjour ${contactName}, merci pour votre message. Je reviens vers vous avec une réponse claire concernant ${interest || 'votre demande'}.${paymentLine}Je reste disponible pour avancer avec vous.`;
+}
+
+function followUpDraft(contactName: string, card: BusinessClientCard) {
+  const interest = card.interests.trim();
+  return `Bonjour ${contactName}, je me permets de vous relancer concernant ${interest || 'notre échange'}. Dites-moi si vous souhaitez continuer, je peux vous accompagner étape par étape.`;
+}
+
+function paymentDraft(contactName: string, card: BusinessClientCard) {
+  const amount = card.value > 0 ? ` de ${card.value.toLocaleString('fr-FR')} €` : '';
+  return `Bonjour ${contactName}, voici le rappel de paiement${amount}. Dès confirmation, je vous envoie la suite des informations.`;
 }
 
 function EmojiPicker({ onSelect, onClose }: { onSelect: (e: string) => void; onClose: () => void }) {
@@ -216,8 +295,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const userId = session?.user?.id ?? '';
   const { lang } = useSettings();
 
-  const { activeConvId, conversations, messages, typingUsers, typingNames: typingNamesStore, onlineUsers, setConversations, setMessages, markRead, loadLocalMessages, removeConversation } = useChatStore();
-  const { joinConversation, sendTyping, sendMessage, deleteMessage: deleteSocketMessage, editMessage: editSocketMessage, markRead: emitRead, reactToMessage } = useSocket();
+  const { activeConvId, conversations, messages, typingUsers, typingNames: typingNamesStore, onlineUsers, setConversations, setMessages, markRead, loadLocalMessages, removeConversation, blockedUserIds, blockUser, unblockUser } = useChatStore();
+  const { joinConversation, sendTyping, sendMessage, deleteMessage: deleteSocketMessage, editMessage: editSocketMessage, markRead: emitRead, reactToMessage, confirmMediaSavedForMessages } = useSocket();
 
   const [input, setInput]         = useState('');
   const [replyTo, setReplyTo]     = useState<Message | null>(null);
@@ -229,6 +308,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const [showCamera, setShowCamera]         = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
+  const [showAiComposer, setShowAiComposer] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiComposerError, setAiComposerError] = useState('');
   const [callNotice, setCallNotice] = useState('');
   const [showMessageSearch, setShowMessageSearch] = useState(false);
   const [messageSearch, setMessageSearch] = useState('');
@@ -240,6 +322,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const [forwarding, setForwarding] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
+  const [showBusinessAssistant, setShowBusinessAssistant] = useState(false);
+  const [businessCards, setBusinessCards] = useState<Record<string, BusinessClientCard>>({});
   // Audio recording
   const [recording, setRecording]   = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
@@ -252,6 +336,16 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const messagesViewportRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    if (!profileModal) {
+      setNativeSecureProfile(false);
+      return;
+    }
+    setNativeSecureProfile(true);
+    return () => setNativeSecureProfile(false);
+  }, [profileModal]);
+
   const initialScrollPending = useRef(false);
   const isNearBottomRef = useRef(true);
   const prevConvRef = useRef<string | null>(null);
@@ -274,6 +368,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     .map(id => allParticipants.find(p => p.id === id)?.name ?? storedNames[id] ?? 'Quelqu\'un');
   const isOfficialConversation = Boolean((conv as any)?.isOfficial || conv?.type === 'official');
   const other = conv?.participants?.[0];
+  const isBlockedDirect = Boolean(!isOfficialConversation && conv?.type !== 'group' && other?.id && blockedUserIds.has(other.id));
   const isOnline = !isOfficialConversation && other && onlineUsers.has(other.id);
   const searchNeedle = normalizeSearchValue(messageSearch);
   const searchMatches = searchNeedle
@@ -288,6 +383,39 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const selectionMode = selectedMessageIds.length > 0;
   const selectedTextMessages = selectedMessages.filter(message => message.type === 'text' && (message.content ?? '').trim());
   const canEditSelected = selectedMessages.length === 1 && selectedMessages[0]?.senderId === userId && selectedMessages[0]?.type === 'text';
+  const businessCard = activeConvId ? (businessCards[activeConvId] ?? emptyBusinessCard(activeConvId)) : null;
+  const mediaSummary = convMessages.reduce(
+    (acc, message) => {
+      if (message.isDeleted) return acc;
+      if (message.type === 'image') acc.images += 1;
+      else if (message.type === 'video') acc.videos += 1;
+      else if (message.type === 'audio' || message.type === 'voice') acc.audios += 1;
+      else if (message.type === 'file' || message.type === 'document') acc.documents += 1;
+      return acc;
+    },
+    { images: 0, videos: 0, audios: 0, documents: 0 },
+  );
+
+  useEffect(() => {
+    if (!userId) return;
+    setBusinessCards(readBusinessCards(userId));
+  }, [userId]);
+
+  function updateBusinessCard(patch: Partial<BusinessClientCard>) {
+    if (!activeConvId || !userId) return;
+    setBusinessCards(current => {
+      const previous = current[activeConvId] ?? emptyBusinessCard(activeConvId);
+      const next = {
+        ...previous,
+        ...patch,
+        conversationId: activeConvId,
+        updatedAt: new Date().toISOString(),
+      };
+      const updated = { ...current, [activeConvId]: next };
+      writeBusinessCards(userId, updated);
+      return updated;
+    });
+  }
 
   useEffect(() => {
     if (!activeConvId || !isOfficialConversation || !conv?.officialExpiresAt || (conv.unreadCount ?? 0) > 0) return;
@@ -321,7 +449,12 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     joinConversation(activeConvId);
     emitRead(activeConvId);
     api.messages.list(activeConvId, token)
-      .then(msgs => { setMessages(activeConvId, msgs); markRead(activeConvId); emitRead(activeConvId); })
+      .then(msgs => {
+        setMessages(activeConvId, msgs);
+        confirmMediaSavedForMessages(msgs);
+        markRead(activeConvId);
+        emitRead(activeConvId);
+      })
       .catch(error => {
         if (String(error?.message || error).includes('404')) removeConversation(activeConvId);
       });
@@ -364,9 +497,17 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   function scrollMessagesToBottom(behavior: ScrollBehavior = 'auto') {
     const el = messagesViewportRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior });
+    const top = Math.max(0, el.scrollHeight - el.clientHeight);
+    el.scrollTo({ top, behavior });
+    bottomRef.current?.scrollIntoView({ behavior, block: 'end' });
     isNearBottomRef.current = true;
     setShowJumpToLatest(false);
+  }
+
+  function scheduleScrollToBottom(behavior: ScrollBehavior = 'auto', delay = 0) {
+    window.setTimeout(() => {
+      requestAnimationFrame(() => scrollMessagesToBottom(behavior));
+    }, delay);
   }
 
   function handleMessagesScroll() {
@@ -393,14 +534,29 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         return;
       }
       if (count > previousCount) {
-        if (isNearBottomRef.current) {
-          scrollMessagesToBottom('smooth');
-        } else {
-          setShowJumpToLatest(true);
-        }
+        scrollMessagesToBottom('smooth');
       }
     });
   }, [convMessages.length, activeConvId]);
+
+  useLayoutEffect(() => {
+    if (!activeConvId || convMessages.length === 0) return;
+    scheduleScrollToBottom('auto', 40);
+  }, [activeConvId, convMessages[convMessages.length - 1]?.id, convMessages[convMessages.length - 1]?.updatedAt, convMessages[convMessages.length - 1]?.status]);
+
+  useEffect(() => {
+    if (!activeConvId) return;
+    const viewport = window.visualViewport;
+    const handleResize = () => scheduleScrollToBottom('auto', 80);
+    window.addEventListener('resize', handleResize);
+    viewport?.addEventListener('resize', handleResize);
+    viewport?.addEventListener('scroll', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      viewport?.removeEventListener('resize', handleResize);
+      viewport?.removeEventListener('scroll', handleResize);
+    };
+  }, [activeConvId]);
 
   useEffect(() => {
     if (!activeConvId || convMessages.length === 0) return;
@@ -483,9 +639,54 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     }
   }
 
+  function latestIncomingText() {
+    return [...convMessages]
+      .reverse()
+      .find(message => message.senderId !== userId && message.type === 'text' && !message.isDeleted && (message.content ?? '').trim())
+      ?.content
+      ?.trim() ?? '';
+  }
+
+  async function generateAiReplyDraft() {
+    if (!token) {
+      setAiComposerError('Connexion requise pour utiliser l’IA.');
+      return;
+    }
+    const incoming = latestIncomingText() || input.trim();
+    if (!incoming) {
+      setAiComposerError('Aucun message texte à analyser. Écrivez une demande ou attendez un message client.');
+      return;
+    }
+    setAiGenerating(true);
+    setAiComposerError('');
+    try {
+      const data = await api.aiAuto.test(token, incoming, 'conversation');
+      setInput(data.response);
+      setShowAiComposer(false);
+      showNotice('Réponse IA préparée. Vérifiez avant d’envoyer.');
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+        resizeTextarea(textareaRef.current);
+      });
+    } catch (error: any) {
+      const message = error?.message || 'Réponse IA indisponible.';
+      setAiComposerError(message);
+      if (message.includes('5 messages IA gratuits') || message.includes('Paystack')) {
+        showNotice('Crédit IA terminé. Ouverture du paiement Gemini.', 2200);
+        window.setTimeout(() => { window.location.href = '/tools?tab=ai'; }, 900);
+      }
+    } finally {
+      setAiGenerating(false);
+    }
+  }
+
   async function handleSend() {
     const content = input.trim();
     if (!content || !activeConvId || sending) return;
+    if (isBlockedDirect) {
+      notify('Ce contact est bloqué. Débloquez-le pour envoyer un message.', 'info');
+      return;
+    }
     setInput('');
     setShowEmoji(false);
     setSending(true);
@@ -498,7 +699,25 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       sendMessage(activeConvId, content, 'text', replyTo?.id, replyTo);
       setReplyTo(null);
     }
+    scheduleScrollToBottom('smooth', 30);
     setSending(false);
+  }
+
+  function shareMyOracleContact() {
+    if (!activeConvId) return;
+    const sessionUser = session?.user as any;
+    const username = String(sessionUser?.username || '').trim();
+    const payload = {
+      name: String(sessionUser?.name || 'Contact Oracle Messenger').trim(),
+      phone: String(sessionUser?.phone || '').trim(),
+      email: String(sessionUser?.email || '').trim(),
+      username,
+      avatar: String(sessionUser?.image || '').trim(),
+      url: username ? `/u/${encodeURIComponent(username)}` : '/profile',
+    };
+    sendMessage(activeConvId, JSON.stringify(payload), 'contact');
+    scheduleScrollToBottom('smooth', 30);
+    showNotice('Contact Oracle Messenger partagé.');
   }
 
   async function uploadMediaForMessage(
@@ -649,6 +868,10 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
 
   function startConversationCall(type: 'audio' | 'video') {
     if (!conv || !onStartCall) return;
+    if (isBlockedDirect) {
+      notify('Ce contact est bloqué. Débloquez-le pour lancer un appel.', 'info');
+      return;
+    }
     if (isOfficialConversation) {
       notify('Le compte système ne peut pas être appelé.', 'error');
       return;
@@ -809,6 +1032,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   }
 
   const name = isOfficialConversation ? (conv?.name ?? 'Oracle Messenger') : conv?.type === 'group' ? conv.name : other?.name ?? t(lang, 'common.unknown');
+  const businessContactName = name || t(lang, 'common.contact');
   const avatar = isOfficialConversation ? '/icons/oracle-system-avatar.svg' : conv?.type === 'group' ? conv.avatar : other?.avatar;
   const forwardConversations = conversations
     .filter(item => item.id !== activeConvId)
@@ -1087,6 +1311,19 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             </button>
           </>
         )}
+        {!isOfficialConversation && (
+          <button
+            onClick={() => setShowBusinessAssistant(v => !v)}
+            className="om-chat-action"
+            style={{ width:36, height:36, minHeight:36, display:'flex', alignItems:'center', justifyContent:'center', borderRadius:'50%', border:'1px solid rgba(255,255,255,0.14)', background: showBusinessAssistant ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.08)', cursor:'pointer', color:'#F8FAFC' }}
+            title="Business Assistant"
+            aria-label="Business Assistant"
+          >
+            <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 7V6a3 3 0 116 0v1m-9 4h12M5 7h14a2 2 0 012 2v8a3 3 0 01-3 3H6a3 3 0 01-3-3V9a2 2 0 012-2z"/>
+            </svg>
+          </button>
+        )}
         <button
           onClick={() => setShowMessageSearch(v => !v)}
           className="om-chat-action"
@@ -1100,29 +1337,26 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       </div>
 
       {selectionMode && (
-        <div className="om-selection-toolbar" style={{ flexShrink:0, background:'#F6FBF8', borderBottom:'1px solid rgba(16,42,42,0.10)', padding:'6px 10px', display:'flex', alignItems:'center', gap:8, boxShadow:'0 2px 10px rgba(16,42,42,0.06)', zIndex:25 }}>
+        <div className="om-selection-toolbar" style={{ flexShrink:0, background:'#F8FBF9', borderBottom:'1px solid rgba(16,42,42,0.08)', padding:'5px 8px', minHeight:48, display:'flex', alignItems:'center', gap:8, boxShadow:'0 1px 8px rgba(16,42,42,0.05)', zIndex:25 }}>
           <button
             onClick={clearMessageSelection}
             aria-label="Annuler la sélection"
-            style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:'rgba(16,42,42,0.08)', color:'var(--header-bg)', cursor:'pointer', fontSize:22, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, lineHeight:1 }}
+            style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'none', background:'rgba(16,42,42,0.07)', color:'var(--header-bg)', cursor:'pointer', fontSize:22, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, lineHeight:1 }}
           >
             ×
           </button>
-          <div className="om-selection-copy" style={{ flex:'0 0 auto', minWidth:56, maxWidth:118 }}>
+          <div className="om-selection-copy" style={{ flex:'1 1 auto', minWidth:0 }}>
             <p style={{ margin:0, fontSize:15, lineHeight:1.16, fontWeight:900, color:'var(--header-bg)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-              {withCount(t(lang, 'chat.selectCount'), selectedMessages.length)}
-            </p>
-            <p style={{ margin:'1px 0 0', fontSize:11.5, lineHeight:1.15, fontWeight:700, color:'var(--text-muted)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-              {t(lang, 'chat.selectionHint')}
+              {selectedMessages.length} sélectionné{selectedMessages.length > 1 ? 's' : ''}
             </p>
           </div>
-          <div className="om-selection-actions" style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:5, overflowX:'auto', flex:'1 1 auto', minWidth:0, paddingBottom:1 }}>
+          <div className="om-selection-actions" style={{ display:'flex', alignItems:'center', justifyContent:'flex-end', gap:4, overflowX:'auto', flex:'0 0 auto', minWidth:0, paddingBottom:1 }}>
             <button
               onClick={replyToSelectedMessage}
               disabled={selectedMessages.length !== 1}
               title={t(lang, 'chat.reply')}
               aria-label={t(lang, 'chat.reply')}
-              style={{ width:38, height:38, minHeight:38, borderRadius:'50%', border:'none', background:selectedMessages.length === 1 ? '#FFFFFF' : 'rgba(16,42,42,0.06)', color:selectedMessages.length === 1 ? 'var(--header-bg)' : 'rgba(100,116,139,0.70)', cursor:selectedMessages.length === 1 ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', boxShadow:selectedMessages.length === 1 ? '0 1px 4px rgba(15,23,42,0.08)' : 'none' }}
+              style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'none', background:selectedMessages.length === 1 ? '#FFFFFF' : 'rgba(16,42,42,0.05)', color:selectedMessages.length === 1 ? 'var(--header-bg)' : 'rgba(100,116,139,0.62)', cursor:selectedMessages.length === 1 ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', boxShadow:selectedMessages.length === 1 ? '0 1px 4px rgba(15,23,42,0.07)' : 'none' }}
             >
               <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10 9V5l-7 7 7 7v-4c5.2 0 8.5 1.7 11 5-1-5.2-4.2-10-11-11z" />
@@ -1133,7 +1367,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               disabled={selectedTextMessages.length === 0}
               title={t(lang, 'chat.copy')}
               aria-label={t(lang, 'chat.copy')}
-              style={{ width:38, height:38, minHeight:38, borderRadius:'50%', border:'none', background:selectedTextMessages.length ? '#FFFFFF' : 'rgba(16,42,42,0.06)', color:selectedTextMessages.length ? 'var(--header-bg)' : 'rgba(100,116,139,0.70)', cursor:selectedTextMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', boxShadow:selectedTextMessages.length ? '0 1px 4px rgba(15,23,42,0.08)' : 'none' }}
+              style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'none', background:selectedTextMessages.length ? '#FFFFFF' : 'rgba(16,42,42,0.05)', color:selectedTextMessages.length ? 'var(--header-bg)' : 'rgba(100,116,139,0.62)', cursor:selectedTextMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', boxShadow:selectedTextMessages.length ? '0 1px 4px rgba(15,23,42,0.07)' : 'none' }}
             >
               <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <rect x="9" y="9" width="11" height="11" rx="2" />
@@ -1145,7 +1379,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               disabled={!canEditSelected}
               title={t(lang, 'chat.edit')}
               aria-label={t(lang, 'chat.edit')}
-              style={{ width:38, height:38, minHeight:38, borderRadius:'50%', border:'none', background:canEditSelected ? '#FFFFFF' : 'rgba(16,42,42,0.06)', color:canEditSelected ? 'var(--header-bg)' : 'rgba(100,116,139,0.70)', cursor:canEditSelected ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', boxShadow:canEditSelected ? '0 1px 4px rgba(15,23,42,0.08)' : 'none' }}
+              style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'none', background:canEditSelected ? '#FFFFFF' : 'rgba(16,42,42,0.05)', color:canEditSelected ? 'var(--header-bg)' : 'rgba(100,116,139,0.62)', cursor:canEditSelected ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', boxShadow:canEditSelected ? '0 1px 4px rgba(15,23,42,0.07)' : 'none' }}
             >
               <svg width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2.1" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 20h9" />
@@ -1157,7 +1391,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               disabled={selectedMessages.length === 0}
               title={t(lang, 'chat.erase')}
               aria-label={t(lang, 'chat.erase')}
-              style={{ width:38, height:38, minHeight:38, borderRadius:'50%', border:'none', background:selectedMessages.length ? '#FFFFFF' : 'rgba(16,42,42,0.06)', color:selectedMessages.length ? '#dc2626' : 'rgba(100,116,139,0.70)', cursor:selectedMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', boxShadow:selectedMessages.length ? '0 1px 4px rgba(15,23,42,0.08)' : 'none' }}
+              style={{ width:34, height:34, minHeight:34, borderRadius:'50%', border:'none', background:selectedMessages.length ? '#FFFFFF' : 'rgba(16,42,42,0.05)', color:selectedMessages.length ? '#dc2626' : 'rgba(100,116,139,0.62)', cursor:selectedMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', boxShadow:selectedMessages.length ? '0 1px 4px rgba(15,23,42,0.07)' : 'none' }}
             >
               <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4h8v2m-9 0l1 14h8l1-14M10 10v7m4-7v7" />
@@ -1168,7 +1402,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               disabled={selectedMessages.length === 0}
               title={t(lang, 'chat.forward')}
               aria-label={t(lang, 'chat.forward')}
-              style={{ width:40, height:40, minHeight:40, borderRadius:'50%', border:'none', background:selectedMessages.length ? 'var(--header-bg)' : 'rgba(16,42,42,0.12)', color:selectedMessages.length ? '#fff' : 'rgba(100,116,139,0.70)', cursor:selectedMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', boxShadow:selectedMessages.length ? '0 5px 14px rgba(16,42,42,0.20)' : 'none' }}
+              style={{ width:36, height:36, minHeight:36, borderRadius:'50%', border:'none', background:selectedMessages.length ? 'var(--header-bg)' : 'rgba(16,42,42,0.10)', color:selectedMessages.length ? '#fff' : 'rgba(100,116,139,0.62)', cursor:selectedMessages.length ? 'pointer' : 'default', display:'flex', alignItems:'center', justifyContent:'center', flex:'0 0 auto', boxShadow:selectedMessages.length ? '0 4px 12px rgba(16,42,42,0.17)' : 'none' }}
             >
               <svg width="19" height="19" fill="none" stroke="currentColor" strokeWidth="2.3" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14m-6-6l6 6-6 6" />
@@ -1229,6 +1463,133 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         </div>
       )}
 
+      {showBusinessAssistant && businessCard && !isOfficialConversation && (
+        <div style={{ flexShrink:0, background:'#F8FBFA', borderBottom:'1px solid rgba(16,42,42,0.12)', padding:'10px 10px 12px', boxShadow:'0 8px 22px rgba(16,42,42,0.08)', zIndex:24 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <p style={{ margin:0, fontSize:13, fontWeight:950, color:'#102A2A', letterSpacing:0 }}>O Messenger Business Assistant</p>
+              <p style={{ margin:'2px 0 0', fontSize:11.5, fontWeight:700, color:'var(--text-muted)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                Fiche client intelligente pour {businessContactName}
+              </p>
+            </div>
+            <button
+              onClick={() => setShowBusinessAssistant(false)}
+              style={{ width:30, height:30, minHeight:30, borderRadius:'50%', border:'1px solid var(--border)', background:'#fff', color:'var(--text-secondary)', cursor:'pointer', fontSize:18, lineHeight:1 }}
+              aria-label="Fermer Business Assistant"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="om-business-assistant-strip" style={{ display:'flex', gap:7, overflowX:'auto', paddingBottom:8, WebkitOverflowScrolling:'touch' }}>
+            {(Object.keys(BUSINESS_STATUS_META) as BusinessStatus[]).map(status => {
+              const meta = BUSINESS_STATUS_META[status];
+              const active = businessCard.status === status;
+              return (
+                <button
+                  key={status}
+                  onClick={() => updateBusinessCard({ status })}
+                  style={{ flex:'0 0 auto', border:'1px solid var(--border)', borderRadius:999, padding:'7px 11px', background:active ? meta.bg : '#fff', color:active ? meta.color : 'var(--text-secondary)', fontSize:12, fontWeight:900, cursor:'pointer' }}
+                >
+                  {meta.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display:'grid', gridTemplateColumns:'minmax(0, 1fr) minmax(0, 1fr)', gap:8, marginBottom:8 }}>
+            <label style={{ minWidth:0 }}>
+              <span style={{ display:'block', fontSize:11, fontWeight:900, color:'var(--text-muted)', marginBottom:4 }}>Valeur estimée</span>
+              <input
+                inputMode="decimal"
+                value={businessCard.value || ''}
+                onChange={event => updateBusinessCard({ value: Number(event.target.value.replace(',', '.')) || 0 })}
+                placeholder="0"
+                style={{ width:'100%', minWidth:0, boxSizing:'border-box', border:'1px solid var(--border)', background:'#fff', color:'var(--text-primary)', borderRadius:12, padding:'9px 10px', fontSize:13, fontWeight:800, outline:'none' }}
+              />
+            </label>
+            <label style={{ minWidth:0 }}>
+              <span style={{ display:'block', fontSize:11, fontWeight:900, color:'var(--text-muted)', marginBottom:4 }}>Prochaine relance</span>
+              <input
+                type="date"
+                value={businessCard.reminderAt}
+                onChange={event => updateBusinessCard({ reminderAt: event.target.value })}
+                style={{ width:'100%', minWidth:0, boxSizing:'border-box', border:'1px solid var(--border)', background:'#fff', color:'var(--text-primary)', borderRadius:12, padding:'9px 10px', fontSize:13, fontWeight:800, outline:'none' }}
+              />
+            </label>
+          </div>
+
+          <input
+            value={businessCard.interests}
+            onChange={event => updateBusinessCard({ interests: event.target.value })}
+            placeholder="Besoin, produit, service ou intérêt du client"
+            style={{ width:'100%', boxSizing:'border-box', border:'1px solid var(--border)', background:'#fff', color:'var(--text-primary)', borderRadius:12, padding:'9px 10px', fontSize:13, fontWeight:700, outline:'none', marginBottom:8 }}
+          />
+
+          <textarea
+            value={businessCard.notes}
+            onChange={event => updateBusinessCard({ notes: event.target.value })}
+            rows={2}
+            placeholder="Notes internes : contexte, objection, promesse, prochaine action..."
+            style={{ width:'100%', boxSizing:'border-box', border:'1px solid var(--border)', background:'#fff', color:'var(--text-primary)', borderRadius:12, padding:'9px 10px', fontSize:13, lineHeight:1.35, fontWeight:650, outline:'none', resize:'none', marginBottom:8 }}
+          />
+
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(4, minmax(0, 1fr))', gap:7, marginBottom:8 }}>
+            {[
+              ['Photos', mediaSummary.images],
+              ['Vidéos', mediaSummary.videos],
+              ['Vocaux', mediaSummary.audios],
+              ['Docs', mediaSummary.documents],
+            ].map(([label, count]) => (
+              <div key={label} style={{ border:'1px solid var(--border)', background:'#fff', borderRadius:12, padding:'8px 6px', textAlign:'center' }}>
+                <p style={{ margin:0, fontSize:15, fontWeight:950, color:'#102A2A', lineHeight:1 }}>{count}</p>
+                <p style={{ margin:'4px 0 0', fontSize:10.5, fontWeight:800, color:'var(--text-muted)', lineHeight:1 }}>{label}</p>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(2, minmax(0, 1fr))', gap:7 }}>
+            <button
+              onClick={() => {
+                insertTextAtCursor(summarizeConversationForBusiness(convMessages, businessContactName));
+                showNotice('Résumé préparé dans la zone de message.');
+              }}
+              style={{ border:'none', background:'#102A2A', color:'#fff', borderRadius:12, padding:'10px 8px', fontSize:12, fontWeight:900, cursor:'pointer' }}
+            >
+              Résumer
+            </button>
+            <button
+              onClick={() => {
+                insertTextAtCursor(professionalReplyDraft(businessContactName, businessCard));
+                showNotice('Réponse professionnelle préparée.');
+              }}
+              style={{ border:'1px solid var(--border)', background:'#fff', color:'var(--text-primary)', borderRadius:12, padding:'10px 8px', fontSize:12, fontWeight:900, cursor:'pointer' }}
+            >
+              Réponse pro
+            </button>
+            <button
+              onClick={() => {
+                insertTextAtCursor(followUpDraft(businessContactName, businessCard));
+                updateBusinessCard({ status: 'relancer' });
+                showNotice('Message de relance préparé.');
+              }}
+              style={{ border:'1px solid var(--border)', background:'#fff', color:'var(--text-primary)', borderRadius:12, padding:'10px 8px', fontSize:12, fontWeight:900, cursor:'pointer' }}
+            >
+              Relancer
+            </button>
+            <button
+              onClick={() => {
+                insertTextAtCursor(paymentDraft(businessContactName, businessCard));
+                showNotice('Message paiement préparé.');
+              }}
+              style={{ border:'1px solid var(--border)', background:'#fff', color:'var(--text-primary)', borderRadius:12, padding:'10px 8px', fontSize:12, fontWeight:900, cursor:'pointer' }}
+            >
+              Paiement
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div
         className="om-messages-viewport"
@@ -1255,6 +1616,8 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                 message={msg}
                 isOwn={msg.senderId === userId}
                 currentUserId={userId}
+                currentUserAvatar={String((session?.user as any)?.image || '')}
+                currentUserName={String((session?.user as any)?.name || '')}
                 onReply={setReplyTo}
                 onDelete={handleDelete}
                 onEdit={setEditMsg}
@@ -1265,7 +1628,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                 selected={selectedMessageIds.includes(msg.id)}
                 onCallMessageClick={!isOfficialConversation ? startConversationCall : undefined}
                 onMediaLoad={() => {
-                  if (isNearBottomRef.current) requestAnimationFrame(() => scrollMessagesToBottom('auto'));
+                  requestAnimationFrame(() => scrollMessagesToBottom('auto'));
                 }}
               />
             </div>
@@ -1323,8 +1686,27 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         </div>
       )}
 
+      {isBlockedDirect && !selectionMode && other?.id && (
+        <div style={{ padding:'12px 14px max(12px, env(safe-area-inset-bottom))', background:'#FEF2F2', borderTop:'1px solid rgba(180,35,24,0.18)', color:'#7A271A', flexShrink:0, display:'flex', alignItems:'center', gap:10 }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <p style={{ margin:0, fontSize:13.5, fontWeight:900, lineHeight:1.35 }}>
+              Contact bloqué
+            </p>
+            <p style={{ margin:'2px 0 0', fontSize:12.5, fontWeight:650, lineHeight:1.35 }}>
+              Débloquez ce contact pour envoyer des messages ou lancer des appels.
+            </p>
+          </div>
+          <button
+            onClick={() => unblockUser(other.id)}
+            style={{ border:'none', background:'#B42318', color:'#fff', cursor:'pointer', borderRadius:999, padding:'9px 13px', fontSize:12.5, fontWeight:900, flexShrink:0 }}
+          >
+            Débloquer
+          </button>
+        </div>
+      )}
+
       {/* Input — toujours visible, safe-area iOS */}
-      {!selectionMode && !isOfficialConversation && (
+      {!selectionMode && !isOfficialConversation && !isBlockedDirect && (
       <div className="chat-composer-safe om-chat-composer" style={{ position:'relative', padding:'5px 8px', paddingBottom:'max(6px, env(safe-area-inset-bottom))', background:'#F0F2F5', borderTop:'1px solid #D7DBDF', flexShrink:0 }}>
         {/* Emoji picker */}
         {showEmoji && (
@@ -1332,6 +1714,45 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             onSelect={e => insertTextAtCursor(e)}
             onClose={() => setShowEmoji(false)}
           />
+        )}
+
+        {showAiComposer && (
+          <>
+            <div style={{ position:'fixed', inset:0, zIndex:38 }} onClick={() => setShowAiComposer(false)} />
+            <div
+              className="om-slide-up"
+              style={{ position:'absolute', right:52, bottom:'calc(56px + env(safe-area-inset-bottom, 0px))', zIndex:55, width:'min(310px, calc(100vw - 28px))', background:'#fff', border:'1px solid var(--border)', borderRadius:18, boxShadow:'var(--shadow-premium)', padding:14 }}
+            >
+              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+                <div style={{ width:34, height:34, borderRadius:'50%', background:'linear-gradient(135deg,#102A2A,#1D9BF0)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:900 }}>✦</div>
+                <div style={{ minWidth:0 }}>
+                  <p style={{ margin:0, fontSize:14, fontWeight:950, color:'var(--text-primary)' }}>Gemini IA</p>
+                  <p style={{ margin:'2px 0 0', fontSize:11.5, color:'var(--text-muted)', fontWeight:700 }}>Prépare un brouillon, sans l’envoyer.</p>
+                </div>
+              </div>
+              <button
+                onClick={generateAiReplyDraft}
+                disabled={aiGenerating}
+                style={{ width:'100%', border:'none', borderRadius:12, background:'var(--brand)', color:'#fff', padding:'12px 14px', fontSize:14, fontWeight:900, cursor:aiGenerating ? 'default' : 'pointer', opacity:aiGenerating ? .72 : 1 }}
+              >
+                {aiGenerating ? 'Préparation...' : 'Répondre avec l’IA'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowAiComposer(false);
+                  window.location.href = '/tools?tab=ai';
+                }}
+                style={{ marginTop:8, width:'100%', border:'1px solid var(--border)', borderRadius:12, background:'var(--bg-input)', color:'var(--text-primary)', padding:'10px 12px', fontSize:13, fontWeight:850, cursor:'pointer' }}
+              >
+                Ouvrir Outils / IA
+              </button>
+              {aiComposerError && (
+                <p style={{ margin:'10px 0 0', borderRadius:10, background:'#FEF2F2', color:'#B42318', padding:'9px 10px', fontSize:12.5, lineHeight:1.35, fontWeight:750 }}>
+                  {aiComposerError}
+                </p>
+              )}
+            </div>
+          </>
         )}
 
         {/* Recording UI */}
@@ -1389,7 +1810,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
               {showAttachMenu && (
                 <>
                   <div style={{ position:'fixed', inset:0, zIndex:40 }} onClick={() => setShowAttachMenu(false)} />
-                  <div style={{ position:'absolute', bottom:50, left:0, zIndex:50, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:16, boxShadow:'0 4px 24px rgba(0,0,0,.15)', overflow:'hidden', minWidth:210 }}>
+                  <div className="om-attachment-menu om-slide-up" style={{ position:'absolute', bottom:50, left:0, zIndex:50, background:'var(--bg-surface)', border:'1px solid var(--border)', borderRadius:20, boxShadow:'var(--shadow-premium)', overflow:'hidden', minWidth:220, backdropFilter:'blur(14px) saturate(1.04)' }}>
                     <button onClick={() => { setShowAttachMenu(false); setShowCamera(true); }}
                       style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:14, color:'var(--text-primary)' }}>
                       <span style={{ fontSize:20 }}>📷</span> {t(lang, 'chat.camera')}
@@ -1406,7 +1827,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                       style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:14, color:'var(--text-primary)' }}>
                       <span style={{ fontSize:20 }}>🎧</span> Audio
                     </button>
-                    <button onClick={() => { setShowAttachMenu(false); showNotice('Le partage de contact sera activé après validation Android réelle.'); }}
+                    <button onClick={() => { setShowAttachMenu(false); shareMyOracleContact(); }}
                       style={{ width:'100%', display:'flex', alignItems:'center', gap:12, padding:'13px 16px', border:'none', background:'transparent', cursor:'pointer', fontSize:14, color:'var(--text-primary)' }}>
                       <span style={{ fontSize:20 }}>👤</span> Contact
                     </button>
@@ -1444,11 +1865,39 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
                 onFocus={() => setTimeout(() => { if (isNearBottomRef.current) scrollMessagesToBottom('smooth'); }, 120)}
                 onInput={e => resizeTextarea(e.target as HTMLTextAreaElement)}
               />
-              <button onClick={pasteFromClipboard}
-                className="om-composer-paste"
-                title="Coller"
-                style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--text-muted)', flexShrink:0, fontSize:19, lineHeight:1, padding:0 }}>
-                📋
+              <button
+                onClick={() => {
+                  setShowEmoji(false);
+                  setAiComposerError('');
+                  setShowAiComposer(v => !v);
+                }}
+                className="om-composer-ai"
+                title="Gemini IA"
+                aria-label="Gemini IA"
+                style={{
+                  width:40,
+                  height:42,
+                  minHeight:42,
+                  border:'none',
+                  borderRadius:14,
+                  background:showAiComposer ? 'linear-gradient(135deg,rgba(29,155,240,.18),rgba(16,42,42,.10))' : 'rgba(29,155,240,.08)',
+                  cursor:'pointer',
+                  color:showAiComposer ? '#0B63CE' : '#1D9BF0',
+                  flexShrink:0,
+                  padding:'3px 0 4px',
+                  display:'flex',
+                  flexDirection:'column',
+                  alignItems:'center',
+                  justifyContent:'center',
+                  gap:1,
+                  boxShadow:showAiComposer ? '0 0 0 3px rgba(29,155,240,.12), 0 5px 16px rgba(29,155,240,.18)' : '0 0 0 2px rgba(29,155,240,.08)',
+                  animation:'omAiPulse 2.6s ease-in-out infinite',
+                }}>
+                <span style={{ fontSize:10, lineHeight:1, fontWeight:950, letterSpacing:.2, color:'#0F172A' }}>IA</span>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M12 2.8l1.7 4.7 4.7 1.7-4.7 1.7-1.7 4.7-1.7-4.7-4.7-1.7 4.7-1.7L12 2.8z" fill="currentColor"/>
+                  <path d="M18.3 13.2l.9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9.9-2.4z" fill="currentColor" opacity=".72"/>
+                </svg>
               </button>
               {/* Emoji button */}
               <button onClick={() => setShowEmoji(v => !v)}
@@ -1627,7 +2076,36 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
             {/* Infos */}
             <div style={{ paddingTop:56, paddingLeft:24, paddingRight:24, textAlign:'center' }}>
               <p style={{ fontSize:20, fontWeight:800, color:'var(--text-primary)', margin:'0 0 4px' }}>{name}</p>
-              {other?.username && <p style={{ fontSize:13, color:'var(--text-muted)', margin:'0 0 4px' }}>@{other.username}</p>}
+              {!isOfficialConversation && conv?.type !== 'group' && other?.id && (
+                <button
+                  onClick={() => {
+                    if (isBlockedDirect) {
+                      unblockUser(other.id);
+                      notify(`${name} est débloqué.`, 'success');
+                    } else {
+                      blockUser(other.id);
+                      notify(`${name} est bloqué sur cet appareil.`, 'success');
+                    }
+                  }}
+                  style={{
+                    display:'inline-flex',
+                    alignItems:'center',
+                    justifyContent:'center',
+                    minHeight:30,
+                    borderRadius:999,
+                    border:isBlockedDirect ? '1px solid rgba(15,118,110,0.18)' : '1px solid rgba(180,35,24,0.16)',
+                    background:isBlockedDirect ? '#EAF4F1' : '#FEF2F2',
+                    color:isBlockedDirect ? 'var(--brand)' : '#B42318',
+                    padding:'6px 14px',
+                    margin:'2px 0 8px',
+                    fontSize:13,
+                    fontWeight:900,
+                    cursor:'pointer',
+                  }}
+                >
+                  {isBlockedDirect ? 'Débloquer' : 'Bloquer'}
+                </button>
+              )}
               <div style={{ display:'inline-flex', alignItems:'center', gap:6, background: isOnline ? 'rgba(52,211,153,0.12)' : 'rgba(100,116,139,0.10)', borderRadius:20, padding:'4px 14px', marginBottom:20 }}>
                 <div style={{ width:8, height:8, borderRadius:'50%', background: isOnline ? '#25D366' : 'var(--text-muted)' }}/>
                 <span style={{ fontSize:13, color: isOnline ? '#16A34A' : 'var(--text-muted)', fontWeight:700 }}>{isOnline ? t(lang, 'chat.online') : t(lang, 'chat.offline')}</span>

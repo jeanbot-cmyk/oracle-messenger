@@ -56,8 +56,8 @@ export class NotificationsService {
   }
 
   async sendPush(userId: string, payload: {
-    title: string; body: string; url?: string; image?: string; tag?: string;
-    type?: string; callId?: string; conversationId?: string;
+    title?: string; body?: string; url?: string; image?: string; tag?: string;
+    type?: string; callId?: string; conversationId?: string; status?: string;
     requireInteraction?: boolean; vibrate?: number[];
   }) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -68,6 +68,20 @@ export class NotificationsService {
     const results = await Promise.allSettled(
       subscriptions.map(subscription => this.sendOne(subscription, payload)),
     );
+
+    const fulfilled = results.filter(result => result.status === 'fulfilled').length;
+    const rejected = results.length - fulfilled;
+    if (payload.type === 'call' || rejected > 0) {
+      console.info('[push:send]', {
+        userId,
+        type: payload.type ?? 'message',
+        callId: payload.callId,
+        tag: payload.tag,
+        targets: subscriptions.length,
+        delivered: fulfilled,
+        failed: rejected,
+      });
+    }
 
     const stillValid = subscriptions.filter((_, index) => {
       const result = results[index];
@@ -94,17 +108,73 @@ export class NotificationsService {
   }
 
   private async sendOne(subscription: StoredPushTarget, payload: {
-    title: string; body: string; url?: string; image?: string; tag?: string;
-    type?: string; callId?: string; conversationId?: string;
+    title?: string; body?: string; url?: string; image?: string; tag?: string;
+    type?: string; callId?: string; conversationId?: string; status?: string;
     requireInteraction?: boolean; vibrate?: number[];
   }) {
     if (subscription.type === 'fcm') {
       if (!getApps().length) return;
+      if (payload.type === 'call-sync') {
+        await getMessaging().send({
+          token: subscription.token,
+          data: Object.fromEntries(
+            Object.entries({
+              url: payload.url,
+              tag: payload.tag,
+              type: payload.type,
+              callId: payload.callId,
+              conversationId: payload.conversationId,
+              status: payload.status,
+              title: payload.title ?? 'Oracle Messenger',
+              body: payload.body ?? '',
+            }).filter(([, value]) => value !== undefined && value !== null),
+          ) as Record<string, string>,
+          android: { priority: 'high' },
+        });
+        return;
+      }
+      if (payload.type === 'call') {
+        await getMessaging().send({
+          token: subscription.token,
+          notification: {
+            title: payload.title ?? 'Appel Oracle Messenger',
+            body: payload.body ?? 'Appuyez pour répondre.',
+          },
+          data: Object.fromEntries(
+            Object.entries({
+              url: payload.url,
+              tag: payload.tag,
+              type: payload.type,
+              callId: payload.callId,
+              conversationId: payload.conversationId,
+              status: payload.status,
+              title: payload.title ?? 'Appel Oracle Messenger',
+              body: payload.body ?? 'Appuyez pour répondre.',
+              requireInteraction: payload.requireInteraction ? 'true' : undefined,
+            }).filter(([, value]) => value !== undefined && value !== null),
+          ) as Record<string, string>,
+          android: {
+            priority: 'high',
+            ttl: 45_000,
+            notification: {
+              channelId: 'oracle_messenger_incoming_calls_v4',
+              sound: 'oracle_call',
+              priority: 'max',
+              visibility: 'public',
+              tag: payload.tag,
+              eventTimestamp: new Date(),
+              defaultVibrateTimings: false,
+              vibrateTimingsMillis: payload.vibrate ?? [0, 650, 250, 650, 250, 1100],
+            },
+          },
+        });
+        return;
+      }
       await getMessaging().send({
         token: subscription.token,
         notification: {
-          title: payload.title,
-          body: payload.body,
+          title: payload.title ?? 'Oracle Messenger',
+          body: payload.body ?? '',
           imageUrl: payload.image,
         },
         data: Object.fromEntries(
@@ -114,14 +184,17 @@ export class NotificationsService {
             type: payload.type,
             callId: payload.callId,
             conversationId: payload.conversationId,
+            status: payload.status,
+            title: payload.title,
+            body: payload.body,
             requireInteraction: payload.requireInteraction ? 'true' : undefined,
           }).filter(([, value]) => value !== undefined && value !== null),
         ) as Record<string, string>,
         android: {
           priority: 'high',
           notification: {
-            channelId: payload.type === 'call' ? 'oracle_messenger_incoming_calls' : undefined,
-            sound: 'default',
+            channelId: payload.type === 'call' ? 'oracle_messenger_incoming_calls_v4' : 'oracle_messenger_messages_v3',
+            sound: payload.type === 'call' ? 'oracle_call' : 'oracle_message',
             priority: 'high',
             visibility: 'public',
             tag: payload.tag,

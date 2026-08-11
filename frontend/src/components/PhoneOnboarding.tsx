@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { matchesSearch } from '../lib/search';
+import { BACKEND_URL } from '../lib/config';
 
 const COUNTRIES = [
   { code:'CI', name:"Côte d'Ivoire", dial:'+225', flag:'🇨🇮' },
@@ -27,10 +28,10 @@ const COUNTRIES = [
   { code:'US', name:'États-Unis',    dial:'+1',   flag:'🇺🇸' },
   { code:'GB', name:'Royaume-Uni',   dial:'+44',  flag:'🇬🇧' },
 ];
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
-
 export function PhoneOnboarding({ onDone }: { onDone: () => void }) {
-  const { data: session } = useSession();
+  const { data: session, update } = useSession();
+  const ownerId = (session?.user as any)?.id || session?.user?.email || '';
+  const profileKey = ownerId ? `oracle-profile:${ownerId}` : '';
   const [country, setCountry] = useState(COUNTRIES[0]);
   const [showPicker, setShowPicker] = useState(false);
   const [search, setSearch] = useState('');
@@ -48,21 +49,48 @@ export function PhoneOnboarding({ onDone }: { onDone: () => void }) {
     const dialDigits = country.dial.replace(/\D/g, '');
     const full = digits.startsWith(dialDigits)
       ? `+${digits}`
-      : `${country.dial}${digits.replace(/^0+/, '')}`;
+      : `${country.dial}${digits}`;
     const token = (session?.user as any)?.backendToken;
-    if (token) {
-      fetch(`${BACKEND_URL}/users/me/phone`, {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
-        body: JSON.stringify({ phone: full }),
-      }).catch(() => {});
-    }
     try {
-      const local = JSON.parse(localStorage.getItem('oracle-profile') ?? '{}');
-      localStorage.setItem('oracle-profile', JSON.stringify({ ...local, phone: full }));
-    } catch {}
-    await new Promise(r => setTimeout(r, 3000));
-    onDone();
+      if (token) {
+        const res = await fetch(`${BACKEND_URL}/users/me/phone`, {
+          method:'POST',
+          headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${token}` },
+          body: JSON.stringify({ phone: full }),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(text || `HTTP ${res.status}`);
+        }
+        const saved = await res.json().catch(() => null);
+        if (saved?.token || saved?.phone) {
+          await update({
+            user: {
+              id: saved.id,
+              backendToken: saved.token || token,
+              phone: saved.phone || full,
+              username: saved.username,
+              isNew: false,
+            },
+          });
+        }
+      }
+      if (profileKey) {
+        const local = JSON.parse(localStorage.getItem(profileKey) ?? '{}');
+        localStorage.setItem(profileKey, JSON.stringify({ ...local, phone: full }));
+        localStorage.removeItem('oracle-profile');
+      }
+      await new Promise(r => setTimeout(r, 300));
+      onDone();
+    } catch (err: any) {
+      const raw = String(err?.message ?? '');
+      setStep('form');
+      setError(raw.includes('votre compte Oracle Messenger')
+        ? 'Ce numéro appartient déjà à votre compte. Déconnectez-vous puis reconnectez-vous avec le même compte Google pour l’ouvrir.'
+        : raw.includes('autre compte Google') || raw.includes('409')
+        ? 'Ce numéro est déjà lié à un autre compte Google. Connectez-vous avec le Gmail associé à ce numéro.'
+        : 'Impossible de vérifier ce numéro. Réessayez.');
+    }
   }
 
   const F = '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif';

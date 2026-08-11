@@ -9,6 +9,8 @@ import { UsersService } from '../users/users.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CallsService } from '../calls/calls.service';
 import { SocketStateService } from './socket-state.service';
+import { AiAutoService } from '../ai-auto/ai-auto.service';
+import { BusinessService } from '../business/business.service';
 
 @WebSocketGateway({
   cors: {
@@ -50,6 +52,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private notif: NotificationsService,
     private callsSvc: CallsService,
     private socketState: SocketStateService,
+    private aiAuto: AiAutoService,
+    private business: BusinessService,
   ) {}
 
   afterInit(server: Server) {
@@ -131,6 +135,30 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  private syncCallNotifications(
+    callId: string,
+    call: {
+      callerId: string; callerName: string; conversationId: string;
+      type: 'audio' | 'video'; startedAt: number; answered: boolean; answeredAt?: number;
+      participants: Set<string>;
+    },
+    status: 'accepted' | 'refused' | 'ended' | 'missed' | 'cancelled',
+  ) {
+    for (const uid of call.participants) {
+      this.notif.sendPush(uid, {
+        title: 'Oracle Messenger',
+        body: '',
+        tag: `incoming-call-${callId}`,
+        type: 'call-sync',
+        callId,
+        conversationId: call.conversationId,
+        status,
+        requireInteraction: false,
+        url: `/chat?conv=${encodeURIComponent(call.conversationId)}`,
+      }).catch(() => {});
+    }
+  }
+
   private emitPendingCallsToClient(userId: string, client: Socket) {
     for (const [callId, call] of this.activeCalls.entries()) {
       if (!call.participants.has(userId) || call.callerId === userId) continue;
@@ -166,6 +194,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const timer = setTimeout(async () => {
       const call = this.activeCalls.get(callId);
       if (!call || call.answered) return;
+      this.syncCallNotifications(callId, call, 'missed');
 
       for (const uid of call.participants) {
         const socketIds = this.socketState.getSocketIds(uid);
@@ -315,15 +344,87 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             url: `/chat?conv=${encodeURIComponent(data.conversationId)}`,
             tag: `msg-${data.conversationId}`,
             type: 'message',
+            conversationId: data.conversationId,
           }).catch(() => {});
         }
       }
+
+      this.scheduleAiAutoReplies(msg, participantIds, client.data.userId);
 
       // Return msg as acknowledgement to sender. "Delivered" is now confirmed
       // only by the receiver device through message:delivered.
       return { ...msg, status: 'sent' };
     } catch (err: any) {
       client.emit('message:error', { message: err?.message ?? 'Erreur envoi' });
+    }
+  }
+
+  private scheduleAiAutoReplies(msg: any, participantIds: string[], senderId: string) {
+    if (!msg?.id || msg.type !== 'text') return;
+    for (const recipientId of participantIds) {
+      if (recipientId === senderId) continue;
+      this.aiAuto.shouldAutoReply(recipientId, senderId, msg.conversationId, msg)
+        .then(rule => {
+          if (!rule) return;
+          const timer = setTimeout(() => {
+            this.sendAiAutoReply(recipientId, msg, rule.prompt).catch(error => {
+              console.warn('[ai-auto] reply failed', { recipientId, conversationId: msg.conversationId, error: error?.message ?? error });
+            });
+          }, Math.max(0, rule.delayMs));
+          timer.unref?.();
+        })
+        .catch(error => {
+          console.warn('[ai-auto] rule check failed', { recipientId, conversationId: msg.conversationId, error: error?.message ?? error });
+        });
+    }
+  }
+
+  private async sendAiAutoReply(aiUserId: string, incomingMsg: any, prompt: string) {
+    const generated = await this.aiAuto.generateAutoReply(
+      aiUserId,
+      incomingMsg.content,
+      prompt,
+      incomingMsg.conversationId,
+      incomingMsg.id,
+    );
+    this.business.applyAiMessageInsight(
+      aiUserId,
+      incomingMsg.senderId,
+      incomingMsg.conversationId,
+      incomingMsg.content,
+    ).catch(error => {
+      console.warn('[business-ai] crm action failed', { ownerId: aiUserId, conversationId: incomingMsg.conversationId, error: error?.message ?? error });
+    });
+    const reply = await this.chat.createMessage(
+      incomingMsg.conversationId,
+      aiUserId,
+      generated.response,
+      'text',
+      incomingMsg.id,
+    );
+    const participantIds = await this.chat.getParticipantIds(incomingMsg.conversationId);
+    const room = `conv:${incomingMsg.conversationId}`;
+    this.server.to(room).emit('message:new', reply);
+    const senderName = reply.sender?.name ?? 'Assistant IA';
+    const preview = reply.content.length > 80 ? `${reply.content.slice(0, 80)}…` : reply.content;
+    for (const pid of participantIds) {
+      if (pid === aiUserId) continue;
+      const socketIds = this.socketState.getSocketIds(pid);
+      if (socketIds.length) {
+        for (const sid of socketIds) {
+          if (this.isSocketInRoom(sid, room)) continue;
+          this.server.to(sid).emit('message:new', reply);
+        }
+      } else {
+        this.notif.sendPush(pid, {
+          title: senderName,
+          body: preview,
+          url: `/chat?conv=${encodeURIComponent(incomingMsg.conversationId)}`,
+          tag: `msg-${incomingMsg.conversationId}`,
+          type: 'message',
+          conversationId: incomingMsg.conversationId,
+        }).catch(() => {});
+      }
     }
   }
 
@@ -622,6 +723,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       call.answered = true;
       call.answeredAt = Date.now();
       this.clearCallTimeout(data.callId);
+      this.syncCallNotifications(data.callId, call, 'accepted');
       console.info('[call:answer]', { callId: data.callId, responderId, accepted: true });
       this.server.to(`call:${data.callId}`).emit('call:answered', {
         callId: data.callId,
@@ -633,6 +735,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!data.accepted && call) {
       const shouldEndCall = call.participants.size <= 2;
       console.info('[call:answer]', { callId: data.callId, responderId, accepted: false, ended: shouldEndCall });
+      this.syncCallNotifications(data.callId, call, 'refused');
       this.server.to(`call:${data.callId}`).emit('call:answered', {
         callId: data.callId,
         userId: responderId,
@@ -670,6 +773,43 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return { ok: true, accepted: false, ended: shouldEndCall };
     }
     return { ok: false, message: 'Réponse appel invalide' };
+  }
+
+  @SubscribeMessage('call:get-active')
+  handleCallGetActive(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { callId: string },
+  ) {
+    const userId = client.data.userId;
+    const callId = typeof data?.callId === 'string' ? data.callId.slice(0, 120) : '';
+    const call = callId ? this.activeCalls.get(callId) : null;
+    if (!call || !call.participants.has(userId)) {
+      return { ok: false, message: 'Appel introuvable ou termine' };
+    }
+
+    client.join(`call:${callId}`);
+    if (userId !== call.callerId) {
+      client.emit('call:incoming', {
+        callId,
+        conversationId: call.conversationId,
+        callerId: call.callerId,
+        callerName: call.callerName,
+        type: call.type,
+        participants: [...call.participants].filter(id => id !== call.callerId),
+      });
+    }
+
+    return {
+      ok: true,
+      call: {
+        callId,
+        conversationId: call.conversationId,
+        callerId: call.callerId,
+        callerName: call.callerName,
+        type: call.type,
+        participants: [...call.participants].filter(id => id !== call.callerId),
+      },
+    };
   }
 
   @SubscribeMessage('call:incoming:received')
@@ -840,6 +980,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       this.clearCallTimeout(data.callId);
+      this.syncCallNotifications(data.callId, call, enderId === call.callerId ? 'cancelled' : 'ended');
       for (const uid of call.participants) {
         const socketIds = this.socketState.getSocketIds(uid);
         for (const sid of socketIds) {

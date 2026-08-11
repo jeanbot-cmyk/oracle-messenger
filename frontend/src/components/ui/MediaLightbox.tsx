@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 interface Props {
   src: string;
@@ -30,11 +30,27 @@ function srcSafeExt(fileName: string) {
   return match?.[0] ?? '';
 }
 
+function profileHdSrc(src: string) {
+  if (!src) return src;
+  try {
+    const url = new URL(src, window.location.origin);
+    if (/googleusercontent\.com$/i.test(url.hostname) || /googleusercontent\.com$/i.test(url.hostname.replace(/^lh\d+\./i, ''))) {
+      const resized = url.href
+        .replace(/=s\d+(-c)?$/i, '=s1024-c')
+        .replace(/\/s\d+(-c)?\//i, '/s1024-c/');
+      return resized;
+    }
+  } catch {}
+  return src;
+}
+
 export function MediaLightbox({ src, type, onClose, onSave, title, subtitle, fileName, mime, qualityMode = 'media', profileActions = [] }: Props) {
   const [scale, setScale]     = useState(1);
   const [offset, setOffset]   = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
+  const isProfileImage = type === 'image' && qualityMode === 'profile';
+  const displaySrc = useMemo(() => isProfileImage ? profileHdSrc(src) : src, [isProfileImage, src]);
   const lastTouch  = useRef<{ x: number; y: number } | null>(null);
   const lastDist   = useRef<number>(0);
   const dragStart  = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
@@ -54,10 +70,33 @@ export function MediaLightbox({ src, type, onClose, onSave, title, subtitle, fil
   }, []);
 
   useEffect(() => {
+    if (!isProfileImage) return;
+    const nativeSecure = (window as any).OracleAndroid?.setSecureProfileViewer;
+    try {
+      if (typeof nativeSecure === 'function') nativeSecure.call((window as any).OracleAndroid, true);
+    } catch {}
+
+    const previousUserSelect = document.documentElement.style.userSelect;
+    document.documentElement.style.userSelect = 'none';
+    const prevent = (event: Event) => event.preventDefault();
+    document.addEventListener('contextmenu', prevent);
+    document.addEventListener('dragstart', prevent);
+
+    return () => {
+      try {
+        if (typeof nativeSecure === 'function') nativeSecure.call((window as any).OracleAndroid, false);
+      } catch {}
+      document.documentElement.style.userSelect = previousUserSelect;
+      document.removeEventListener('contextmenu', prevent);
+      document.removeEventListener('dragstart', prevent);
+    };
+  }, [isProfileImage]);
+
+  useEffect(() => {
     setScale(1);
     setOffset({ x: 0, y: 0 });
     setNaturalSize(null);
-  }, [src]);
+  }, [displaySrc]);
 
   // ── Pinch-to-zoom (touch) ──────────────────────────────────────────────
   function onTouchStart(e: React.TouchEvent) {
@@ -150,18 +189,22 @@ export function MediaLightbox({ src, type, onClose, onSave, title, subtitle, fil
   }
 
   const canPreviewDocument = type === 'document' && isPreviewableDocument(mime, fileName);
-  const isProfileImage = type === 'image' && qualityMode === 'profile';
-  const profileMaxUpscale = 1.35;
   const mediaImageBox = {
     width: 'auto',
     height: 'auto',
     maxWidth: 'calc(100dvw - 18px)',
     maxHeight: 'calc(100dvh - 118px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))',
   };
-  const profileImageBox = qualityMode === 'profile' && naturalSize
+  const profileImageBox = qualityMode === 'profile'
     ? {
-        width: `min(100dvw, ${Math.round(naturalSize.width * profileMaxUpscale)}px)`,
-        height: `min(${profileActions.length ? 'calc(100dvh - 112px)' : '100dvh'}, ${Math.round(naturalSize.height * profileMaxUpscale)}px)`,
+        width: '100dvw',
+        height: profileActions.length
+          ? 'calc(100dvh - 112px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))'
+          : 'calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))',
+        maxWidth: '100dvw',
+        maxHeight: profileActions.length
+          ? 'calc(100dvh - 112px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))'
+          : '100dvh',
       }
     : mediaImageBox;
 
@@ -178,23 +221,23 @@ export function MediaLightbox({ src, type, onClose, onSave, title, subtitle, fil
     >
       {isProfileImage && (
         <img
-          src={src}
+          src={displaySrc}
           alt=""
           aria-hidden="true"
           style={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            filter: 'blur(28px)',
-            transform: 'scale(1.12)',
-            opacity: 0.34,
+        position: 'absolute',
+        inset: 0,
+        width: '100%',
+        height: '100%',
+        objectFit: 'cover',
+        filter: 'blur(22px)',
+        transform: 'scale(1.12)',
+        opacity: 0.28,
           }}
         />
       )}
       {isProfileImage && (
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,.72), rgba(0,0,0,.2) 44%, rgba(0,0,0,.86))' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,.72), rgba(0,0,0,.08) 44%, rgba(0,0,0,.82))' }} />
       )}
       {/* Barre du haut */}
       <div style={{
@@ -231,21 +274,23 @@ export function MediaLightbox({ src, type, onClose, onSave, title, subtitle, fil
             <svg width="19" height="19" fill="none" stroke="currentColor" strokeWidth="2.1" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M14 3h7v7M10 14L21 3M21 14v5a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h5"/></svg>
           </button>
         )}
-        <button onClick={handleDownload} style={{
-          width: 40, height: 40, borderRadius: '50%', border: 'none',
-          background: 'rgba(255,255,255,0.15)', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          flexShrink: 0,
-        }} aria-label="Télécharger">
-          <svg width="20" height="20" fill="white" viewBox="0 0 24 24">
-            <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
-          </svg>
-        </button>
+        {!isProfileImage && (
+          <button onClick={handleDownload} style={{
+            width: 40, height: 40, borderRadius: '50%', border: 'none',
+            background: 'rgba(255,255,255,0.15)', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+          }} aria-label="Télécharger">
+            <svg width="20" height="20" fill="white" viewBox="0 0 24 24">
+              <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* Contenu */}
       <div
-        style={{ flex: 1, width: '100dvw', height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: type === 'document' ? '82px 12px 18px' : isProfileImage && profileActions.length ? '74px 0 102px' : '74px 9px calc(44px + env(safe-area-inset-bottom, 0px))', zIndex: 1 }}
+        style={{ flex: 1, width: '100dvw', height: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: type === 'document' ? '82px 12px 18px' : isProfileImage && profileActions.length ? '74px 0 102px' : isProfileImage ? '0' : '74px 9px calc(44px + env(safe-area-inset-bottom, 0px))', zIndex: 1 }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -257,9 +302,14 @@ export function MediaLightbox({ src, type, onClose, onSave, title, subtitle, fil
       >
         {type === 'image' ? (
           <img
-            src={src}
+            src={displaySrc}
             alt={title || 'media'}
+            decoding="async"
+            loading="eager"
+            fetchPriority={isProfileImage ? 'high' : 'auto'}
+            referrerPolicy="no-referrer"
             draggable={false}
+            onContextMenu={event => isProfileImage && event.preventDefault()}
             onLoad={event => {
               const img = event.currentTarget;
               if (img.naturalWidth && img.naturalHeight) {
@@ -268,14 +318,16 @@ export function MediaLightbox({ src, type, onClose, onSave, title, subtitle, fil
             }}
             style={{
               ...(isProfileImage ? profileImageBox : mediaImageBox),
-              objectFit: 'contain',
+              objectFit: isProfileImage ? 'contain' : 'contain',
               transform: `scale(${scale}) translate(${offset.x / scale}px, ${offset.y / scale}px)`,
               transition: dragging ? 'none' : 'transform 0.16s ease',
               cursor: scale > 1 ? (dragging ? 'grabbing' : 'grab') : 'zoom-in',
               userSelect: 'none',
+              WebkitUserSelect: 'none',
+              WebkitTouchCallout: 'none',
               imageRendering: 'auto',
-              borderRadius: isProfileImage ? 18 : 0,
-              boxShadow: isProfileImage ? '0 20px 70px rgba(0,0,0,.48)' : undefined,
+              borderRadius: 0,
+              boxShadow: isProfileImage ? '0 12px 48px rgba(0,0,0,.34)' : undefined,
             }}
           />
         ) : type === 'video' ? (

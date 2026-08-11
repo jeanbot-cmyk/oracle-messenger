@@ -1,0 +1,2 @@
+f21cb255a7d4754185fa23f1c32e2c31810b1aa24de1b1c8ce336278637dbe38  frontend/public/downloads/oracle-messenger-release-vc2026080930-google-json-final.apk
+5a7685031f1601ca889922010edbff4f3888e6ed8d0d1bfa28e4b4d9592f2548  frontend/public/downloads/oracle-messenger-release-vc2026080930-google-json-final.aab

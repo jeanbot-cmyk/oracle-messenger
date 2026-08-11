@@ -1,0 +1,2 @@
+b60435608b99d66ed2d3d5024edf1691b1a9ffeef2157d43b095b7fd497ab4a3  frontend/public/downloads/oracle-messenger-release-vc2026080929-native-oauth-applinks.apk
+d3ae890b958cf3a4110dd67ec6ecff264e02760a846062880f9cd8dc913b28be  frontend/public/downloads/oracle-messenger-release-vc2026080929-native-oauth-applinks.aab

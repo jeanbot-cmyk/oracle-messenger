@@ -1,0 +1,2 @@
+e9878d3abc27218b0ceb7f6433777e79ed70ea5873272f80d78f77d219f848dc  frontend/public/downloads/oracle-messenger-release-vc2026080934-native-bridge.apk
+ee793115140e730ed9472fcf707549aac3118e4ac909a707e245f54b32b19355  frontend/public/downloads/oracle-messenger-release-vc2026080934-native-bridge.aab

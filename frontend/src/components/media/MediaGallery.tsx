@@ -4,6 +4,7 @@ import { getMediaStream } from '../../lib/media';
 
 interface MediaItem {
   id: string;
+  ownerId?: string;
   type: 'image' | 'video';
   dataUrl: string;
   name: string;
@@ -17,8 +18,14 @@ const STORE   = 'files';
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath:'id' });
+    const req = indexedDB.open(DB_NAME, 2);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      const store = db.objectStoreNames.contains(STORE)
+        ? req.transaction?.objectStore(STORE)
+        : db.createObjectStore(STORE, { keyPath:'id' });
+      if (store && !store.indexNames.contains('ownerId')) store.createIndex('ownerId', 'ownerId');
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror   = () => reject(req.error);
   });
@@ -34,12 +41,15 @@ async function saveMedia(item: MediaItem) {
   });
 }
 
-async function loadAllMedia(): Promise<MediaItem[]> {
+async function loadAllMedia(ownerId?: string): Promise<MediaItem[]> {
   const db = await openDB();
   return new Promise((res, rej) => {
     const tx = db.transaction(STORE, 'readonly');
     const req = tx.objectStore(STORE).getAll();
-    req.onsuccess = () => res(req.result ?? []);
+    req.onsuccess = () => {
+      const all = (req.result ?? []) as MediaItem[];
+      res(ownerId ? all.filter(item => item.ownerId === ownerId) : []);
+    };
     req.onerror   = () => rej(req.error);
   });
 }
@@ -55,11 +65,12 @@ async function deleteMedia(id: string) {
 }
 
 interface Props {
+  ownerId?: string;
   onSend?: (item: MediaItem) => void;
   onClose?: () => void;
 }
 
-export function MediaGallery({ onSend, onClose }: Props) {
+export function MediaGallery({ ownerId, onSend, onClose }: Props) {
   const [items, setItems]       = useState<MediaItem[]>([]);
   const [selected, setSelected] = useState<MediaItem | null>(null);
   const [tab, setTab]           = useState<'gallery' | 'camera' | 'edit'>('gallery');
@@ -71,8 +82,8 @@ export function MediaGallery({ onSend, onClose }: Props) {
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
 
   useEffect(() => {
-    loadAllMedia().then(all => setItems(all.sort((a,b) => b.createdAt - a.createdAt)));
-  }, []);
+    loadAllMedia(ownerId).then(all => setItems(all.sort((a,b) => b.createdAt - a.createdAt)));
+  }, [ownerId]);
 
   async function importFiles(files: FileList | null) {
     if (!files) return;
@@ -81,6 +92,7 @@ export function MediaGallery({ onSend, onClose }: Props) {
       reader.onload = async () => {
         const item: MediaItem = {
           id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          ownerId,
           type: file.type.startsWith('video') ? 'video' : 'image',
           dataUrl: reader.result as string,
           name: file.name,
@@ -117,6 +129,7 @@ export function MediaGallery({ onSend, onClose }: Props) {
     const dataUrl = c.toDataURL('image/jpeg', 0.9);
     const item: MediaItem = {
       id: `photo_${Date.now()}`,
+      ownerId,
       type: 'image',
       dataUrl,
       name: `photo_${Date.now()}.jpg`,
@@ -145,7 +158,7 @@ export function MediaGallery({ onSend, onClose }: Props) {
       ctx.filter = getFilterStyle();
       ctx.drawImage(img, 0, 0);
       const newDataUrl = c.toDataURL('image/jpeg', 0.9);
-      const edited: MediaItem = { ...selected, id: `edited_${Date.now()}`, dataUrl: newDataUrl, createdAt: Date.now() };
+      const edited: MediaItem = { ...selected, id: `edited_${Date.now()}`, ownerId, dataUrl: newDataUrl, createdAt: Date.now() };
       await saveMedia(edited);
       setItems(prev => [edited, ...prev]);
       setSelected(edited);

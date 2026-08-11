@@ -1,3 +1,5 @@
+import { Capacitor } from '@capacitor/core';
+
 /**
  * Request camera/mic access with persistent permission check.
  * - If already granted: opens stream silently (no browser prompt).
@@ -5,8 +7,13 @@
  * - If denied: throws a user-friendly error.
  */
 export async function getMediaStream(constraints: MediaStreamConstraints): Promise<MediaStream> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Les appels ne sont pas disponibles sur ce navigateur. Utilisez Chrome Android, Safari iPhone ou l'application Android.");
+  }
+  const isNativeAndroid = Capacitor.isNativePlatform?.() === true && Capacitor.getPlatform?.() === 'android';
+
   // Check existing permission state silently before prompting
-  if (navigator.permissions) {
+  if (!isNativeAndroid && navigator.permissions) {
     try {
       const checks: Promise<PermissionStatus>[] = [
         navigator.permissions.query({ name: 'microphone' as PermissionName }),
@@ -18,24 +25,44 @@ export async function getMediaStream(constraints: MediaStreamConstraints): Promi
       const denied = results.find(r => r.state === 'denied');
       if (denied) {
         throw new Error(
-          "L'accès au micro ou à la caméra est bloqué. Activez-le dans les paramètres de votre navigateur."
+          "Votre caméra ou microphone est désactivé. Activez les autorisations pour continuer."
         );
       }
       // If all granted or prompt — proceed directly, no extra UI shown
     } catch (e: any) {
       // If the error is our own message, rethrow
-      if (e.message?.includes('bloqué')) throw e;
+      if (e.message?.includes('désactivé') || e.message?.includes('bloqué')) throw e;
       // Otherwise permissions API not supported — fall through to getUserMedia
     }
   }
 
   try {
-    return await navigator.mediaDevices.getUserMedia(constraints);
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    if (constraints.audio && stream.getAudioTracks().length === 0) {
+      stream.getTracks().forEach(track => track.stop());
+      throw new Error("Aucun microphone disponible. Activez le micro pour continuer l'appel.");
+    }
+    if (constraints.video && stream.getVideoTracks().length === 0) {
+      stream.getTracks().forEach(track => track.stop());
+      throw new Error("Aucune caméra disponible. Activez la caméra pour continuer l'appel vidéo.");
+    }
+    return stream;
   } catch (err: any) {
     if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
       throw new Error(
-        "Accès refusé. Veuillez autoriser le micro et la caméra dans les paramètres de votre navigateur."
+        isNativeAndroid
+          ? "Autorisation caméra ou micro refusée. Ouvrez les paramètres Android d’Oracle Messenger, autorisez Caméra et Microphone, puis réessayez."
+          : "Votre caméra ou microphone est désactivé. Activez les autorisations pour continuer."
       );
+    }
+    if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+      throw new Error("Caméra ou microphone introuvable sur cet appareil.");
+    }
+    if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+      throw new Error("Caméra ou microphone déjà utilisé par une autre application. Fermez-la puis réessayez.");
+    }
+    if (err.name === 'OverconstrainedError') {
+      throw new Error("La caméra ne supporte pas cette qualité. Réessayez avec la caméra disponible.");
     }
     throw err;
   }

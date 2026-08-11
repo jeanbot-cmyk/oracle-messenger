@@ -1,0 +1,61 @@
+{
+  "name": "oracle-messenger-native",
+  "version": "1.0.20260811.2",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "dev": "expo start",
+    "android": "expo run:android",
+    "prebuild:android": "expo prebuild --platform android",
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "android:assemble-release": "NODE_ENV=production ./android/gradlew -p android :app:assembleRelease",
+    "android:bundle-release": "NODE_ENV=production ./android/gradlew -p android :app:bundleRelease",
+    "verify:android-release-config": "node scripts/verify-android-release-config.js",
+    "verify:android-release-signing": "node scripts/verify-android-release-config.js --require-signing"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.0.3",
+    "@react-native-async-storage/async-storage": "^2.1.2",
+    "@react-native-google-signin/google-signin": "^16.1.4",
+    "@react-navigation/native": "^7.1.8",
+    "expo": "~55.0.28",
+    "expo-constants": "~55.0.17",
+    "expo-contacts": "~55.0.16",
+    "expo-crypto": "~55.0.17",
+    "expo-document-picker": "~55.0.15",
+    "expo-file-system": "~55.0.24",
+    "expo-haptics": "~55.0.16",
+    "expo-image": "~55.0.6",
+    "expo-image-picker": "~55.0.22",
+    "expo-linking": "~55.0.16",
+    "expo-notifications": "~55.0.25",
+    "expo-router": "~55.0.17",
+    "expo-secure-store": "~55.0.16",
+    "expo-splash-screen": "~55.0.23",
+    "expo-status-bar": "~55.0.4",
+    "expo-system-ui": "~55.0.20",
+    "lucide-react-native": "^0.577.0",
+    "react": "19.2.0",
+    "react-native": "0.83.10",
+    "react-native-gesture-handler": "~2.30.0",
+    "react-native-incall-manager": "^4.2.1",
+    "react-native-reanimated": "4.2.1",
+    "react-native-safe-area-context": "~5.6.0",
+    "react-native-screens": "~4.23.0",
+    "react-native-svg": "15.15.3",
+    "react-native-webrtc": "^124.0.5",
+    "react-native-worklets": "^0.7.4",
+    "socket.io-client": "^4.7.5",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.10",
+    "eslint": "^9.25.0",
+    "eslint-config-expo": "~55.0.0",
+    "typescript": "~5.9.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

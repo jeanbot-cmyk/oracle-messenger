@@ -9,7 +9,7 @@ export interface NativeDeviceContact {
 
 type NativeContactsResult =
   | { supported: true; denied: false; contacts: NativeDeviceContact[] }
-  | { supported: true; denied: true; contacts: NativeDeviceContact[] }
+  | { supported: true; denied: true; contacts: NativeDeviceContact[]; reason?: string }
   | { supported: false; denied: false; contacts: NativeDeviceContact[] };
 
 export function isCapacitorNativeRuntime() {
@@ -86,7 +86,14 @@ export async function importNativeDeviceContacts(): Promise<NativeContactsResult
       denied: false,
       contacts: normalizeNativeContacts(result.contacts ?? []),
     };
-  } catch {
-    return { supported: true, denied: true, contacts: [] };
+  } catch (error: any) {
+    const message = String(error?.message || error || '').toLowerCase();
+    const denied = /permission|denied|required|not granted/.test(message);
+    return {
+      supported: true,
+      denied,
+      contacts: [],
+      reason: message ? String(error?.message || error).slice(0, 180) : undefined,
+    };
   }
 }

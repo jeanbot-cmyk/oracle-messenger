@@ -1,7 +1,7 @@
 FROM node:22-alpine AS builder
 WORKDIR /app
-# OpenSSL requis par Prisma sur Alpine
-RUN apk add --no-cache openssl
+# OpenSSL requis par Prisma sur Alpine. FFmpeg assemble les fragments IA vidéo.
+RUN apk add --no-cache openssl ffmpeg
 ENV NODE_ENV=development
 COPY package*.json ./
 RUN npm install --legacy-peer-deps
@@ -11,8 +11,8 @@ RUN npm run build
 
 FROM node:22-alpine AS runner
 WORKDIR /app
-# OpenSSL requis par Prisma au runtime
-RUN apk add --no-cache openssl
+# OpenSSL requis par Prisma au runtime. FFmpeg assemble les fragments IA vidéo.
+RUN apk add --no-cache openssl ffmpeg
 ENV NODE_ENV=production
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules

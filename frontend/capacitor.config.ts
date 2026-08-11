@@ -16,12 +16,18 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      launchShowDuration: 2000,
+      launchShowDuration: 650,
       backgroundColor: '#128C7E',
       showSpinner: false,
     },
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert'],
+    },
+    GoogleAuth: {
+      scopes: ['profile', 'email'],
+      androidClientId: process.env.NEXT_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '734297398479-irrshc48k2d7kotc696gofbellvll43i.apps.googleusercontent.com',
+      clientId: process.env.NEXT_PUBLIC_GOOGLE_WEB_CLIENT_ID || '734297398479-rids78si56kck1u3sjrgnivfdtpr7e89.apps.googleusercontent.com',
+      forceCodeForRefreshToken: false,
     },
   },
 };

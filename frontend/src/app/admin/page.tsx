@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { getSocket } from '../../lib/socket';
 import { api as apiClient } from '../../lib/api';
+import { BACKEND_URL } from '../../lib/config';
 
 const ADMIN_EMAILS = ['tchingankonggeorges@gmail.com', 'tchingangankonggeorges@gmail.com'];
 const ADMIN_PHONES = ['+2250504673829', '+2250700508618'];
@@ -14,6 +15,8 @@ const isAdminUser  = (s: any) => ADMIN_EMAILS.includes(s?.user?.email) || ADMIN_
 interface Stats { totalUsers:number; onlineUsers:number; pwaInstalls:number; totalMessages:number; totalConversations:number; premiumUsers?:number; }
 interface Metrics { cpu:number; ramPct:number; ramUsed:number; ramTotal:number; uptime:number; loadAvg1m?:number; platform?:string; }
 interface CountryStat { country:string; count:number; online:number; }
+interface AiAdminPlan { code:string; label:string; type:string; priceFcfa:number; words:number; enabled:boolean; sortOrder:number; }
+interface AiAdminState { plans:AiAdminPlan[]; settings:Array<{ key:string; value:string }>; stats:{ usageCount:number; wordsConsumed:number; activeUsers:number } }
 interface BroadcastMedia {
   dataUrl: string;
   type: string;
@@ -42,6 +45,7 @@ export default function AdminPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [countries, setCountries] = useState<CountryStat[]>([]);
+  const [aiAdmin, setAiAdmin] = useState<AiAdminState | null>(null);
   const [notif, setNotif] = useState({ title:'', body:'' });
   const [broadcast, setBroadcast] = useState('');
   const [broadcastMedia, setBroadcastMedia] = useState<BroadcastMedia | null>(null);
@@ -54,10 +58,11 @@ export default function AdminPage() {
   const [liveOnline, setLiveOnline] = useState<number | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [aiSaving, setAiSaving] = useState(false);
   const systemMessageRef = useRef<HTMLDivElement | null>(null);
 
   const token = session?.user?.backendToken;
-  const api = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'https://api-messenger.oracle-plus.online';
+  const api = BACKEND_URL;
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -128,17 +133,19 @@ export default function AdminPage() {
           window.clearTimeout(timeout);
         }
       };
-      const [s, m, u, c] = await Promise.allSettled([
+      const [s, m, u, c, ai] = await Promise.allSettled([
         fetchJson('/admin/stats'),
         fetchJson('/admin/metrics'),
         fetchJson('/admin/users'),
         fetchJson('/admin/countries'),
+        fetchJson('/admin/ai-auto'),
       ]);
       const errors: string[] = [];
       if (s.status === 'fulfilled') setStats(s.value as Stats); else errors.push('stats');
       if (m.status === 'fulfilled') setMetrics(m.value as Metrics); else errors.push('serveur');
       if (u.status === 'fulfilled') setUsers(Array.isArray(u.value) ? u.value : []); else errors.push('utilisateurs');
       if (c.status === 'fulfilled') setCountries(Array.isArray(c.value) ? c.value : []); else setCountries([]);
+      if (ai.status === 'fulfilled') setAiAdmin(ai.value as AiAdminState);
       if (s.status === 'fulfilled' || m.status === 'fulfilled' || u.status === 'fulfilled') setLastRefresh(new Date());
       if (errors.length) setLoadError(`Données partielles : ${errors.join(', ')} indisponible${errors.length > 1 ? 's' : ''}.`);
     } catch (e: any) {
@@ -210,6 +217,7 @@ export default function AdminPage() {
           name: uploaded.name || broadcastMedia.name,
           mime: uploaded.mime || broadcastMedia.mime,
           size: uploaded.size || broadcastMedia.size,
+          checksum: uploaded.checksum,
           caption: broadcast.trim() || undefined,
         });
         setBroadcastMsg('Fichier prêt. Envoi du message système...');
@@ -252,6 +260,52 @@ export default function AdminPage() {
     } catch { setMsg('Erreur envoi'); }
     setSending(false);
     setTimeout(() => setMsg(''), 4000);
+  }
+
+  async function saveAiPlans() {
+    if (!api || !token || !aiAdmin) return;
+    setAiSaving(true);
+    try {
+      const res = await fetch(`${api}/admin/ai-auto/plans`, {
+        method:'POST',
+        headers:{ Authorization:`Bearer ${token}`, 'Content-Type':'application/json' },
+        body: JSON.stringify({ plans: aiAdmin.plans }),
+      });
+      if (!res.ok) throw new Error('Sauvegarde plans IA impossible');
+      setAiAdmin(await res.json());
+    } catch {
+      setLoadError('Sauvegarde des plans IA impossible.');
+    } finally {
+      setAiSaving(false);
+    }
+  }
+
+  async function saveAiSettings(next?: AiAdminState) {
+    const source = next ?? aiAdmin;
+    if (!api || !token || !source) return;
+    setAiSaving(true);
+    try {
+      const settings = Object.fromEntries(source.settings.map(item => [item.key, item.value]));
+      const res = await fetch(`${api}/admin/ai-auto/settings`, {
+        method:'POST',
+        headers:{ Authorization:`Bearer ${token}`, 'Content-Type':'application/json' },
+        body: JSON.stringify({ settings }),
+      });
+      if (!res.ok) throw new Error('Sauvegarde réglages IA impossible');
+      setAiAdmin(await res.json());
+    } catch {
+      setLoadError('Sauvegarde des réglages IA impossible.');
+    } finally {
+      setAiSaving(false);
+    }
+  }
+
+  function updateAiPlan(code: string, patch: Partial<AiAdminPlan>) {
+    setAiAdmin(prev => prev ? { ...prev, plans: prev.plans.map(plan => plan.code === code ? { ...plan, ...patch } : plan) } : prev);
+  }
+
+  function updateAiSetting(key: string, value: string) {
+    setAiAdmin(prev => prev ? { ...prev, settings: prev.settings.map(item => item.key === key ? { ...item, value } : item) } : prev);
   }
 
   if (!mounted || status === 'loading' || status === 'unauthenticated' || (status === 'authenticated' && !isAdminUser(session))) return (
@@ -309,12 +363,58 @@ export default function AdminPage() {
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(210px,1fr))', gap:12, marginBottom:18 }}>
           {card('Utilisateurs', formatNumber(stats?.totalUsers), '👥', 'var(--brand)', `${formatNumber(stats?.premiumUsers ?? 0)} premium`)}
           {card('En ligne maintenant', formatNumber(liveOnline ?? stats?.onlineUsers), '●', '#22c55e', 'WebSocket + API')}
-          {card('Installations PWA', formatNumber(stats?.pwaInstalls), '📲', '#8b5cf6', 'installations enregistrées')}
+          {card('Installations web/PWA suivies', formatNumber(stats?.pwaInstalls), '📲', '#8b5cf6', 'installations internes enregistrées')}
+          {card('Installations Android Play', 'Play Console', '▶', '#0ea5e9', 'source officielle hors API interne')}
           {card('Messages', formatNumber(stats?.totalMessages), '💬', '#3b82f6', `${formatNumber(stats?.totalConversations)} conversations`)}
           {card('CPU serveur', metrics ? `${metrics.cpu}%` : '—', '⚡', '#f59e0b', `charge ${metrics?.loadAvg1m ?? '—'}`)}
           {card('RAM serveur', metrics ? `${metrics.ramPct}%` : '—', '▰', '#ef4444', metrics ? `${formatNumber(metrics.ramUsed)} / ${formatNumber(metrics.ramTotal)} MB` : undefined)}
           {card('Disponibilité', formatUptime(metrics?.uptime), '↻', '#0ea5e9', metrics?.platform ? `système ${metrics.platform}` : 'uptime serveur')}
         </div>
+
+        {/* Gemini Auto-Réponse */}
+        {aiAdmin && (
+          <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, marginBottom:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)', border:'1px solid rgba(16,42,42,.12)' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', gap:12, alignItems:'flex-start', marginBottom:16 }}>
+              <div>
+                <h2 style={{ fontSize:20, fontWeight:900, color:'var(--text-primary)', margin:'0 0 6px' }}>🤖 Gemini Auto-Réponse</h2>
+                <p style={{ fontSize:13, color:'var(--text-muted)', margin:0 }}>
+                  {formatNumber(aiAdmin.stats.activeUsers)} actifs · {formatNumber(aiAdmin.stats.usageCount)} réponses · {formatNumber(aiAdmin.stats.wordsConsumed)} mots consommés
+                </p>
+              </div>
+              <button onClick={() => saveAiSettings()} disabled={aiSaving} style={{ background:'var(--brand)', color:'var(--accent-text)', border:'none', borderRadius:12, padding:'10px 14px', fontSize:13, fontWeight:900, cursor:'pointer', opacity:aiSaving ? .6 : 1 }}>
+                Sauver réglages
+              </button>
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))', gap:10, marginBottom:16 }}>
+              {aiAdmin.settings.map(setting => (
+                <label key={setting.key} style={{ display:'grid', gap:6, fontSize:11.5, fontWeight:900, color:'var(--brand)', textTransform:'uppercase' }}>
+                  {setting.key}
+                  <input value={setting.value} onChange={e => updateAiSetting(setting.key, e.target.value)}
+                    style={{ border:'1px solid var(--border)', borderRadius:10, padding:'9px 10px', fontSize:13, color:'var(--text-primary)', background:'var(--bg-input)', outline:'none', textTransform:'none', fontWeight:700 }} />
+                </label>
+              ))}
+            </div>
+
+            <p style={{ fontSize:12, fontWeight:900, color:'var(--brand)', margin:'0 0 8px', textTransform:'uppercase' }}>Plans Paystack</p>
+            <div style={{ display:'grid', gap:10 }}>
+              {aiAdmin.plans.map(plan => (
+                <div key={plan.code} style={{ display:'grid', gridTemplateColumns:'1.4fr .8fr .8fr .7fr', gap:8, alignItems:'center', border:'1px solid var(--border)', borderRadius:12, padding:10, background:'var(--bg-input)' }}>
+                  <input value={plan.label} onChange={e => updateAiPlan(plan.code, { label:e.target.value })} style={{ minWidth:0, border:'none', background:'transparent', fontWeight:850, color:'var(--text-primary)', outline:'none' }} />
+                  <input type="number" value={plan.priceFcfa} onChange={e => updateAiPlan(plan.code, { priceFcfa:Number(e.target.value) })} style={{ minWidth:0, border:'1px solid var(--border)', borderRadius:8, padding:'8px 7px', fontSize:13 }} />
+                  <input type="number" value={plan.words} onChange={e => updateAiPlan(plan.code, { words:Number(e.target.value) })} style={{ minWidth:0, border:'1px solid var(--border)', borderRadius:8, padding:'8px 7px', fontSize:13 }} />
+                  <label style={{ display:'flex', gap:6, alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:800, color:'var(--text-secondary)' }}>
+                    <input type="checkbox" checked={plan.enabled} onChange={e => updateAiPlan(plan.code, { enabled:e.target.checked })} />
+                    actif
+                  </label>
+                </div>
+              ))}
+            </div>
+            <button onClick={saveAiPlans} disabled={aiSaving} style={{ width:'100%', marginTop:12, background:'var(--accent)', color:'var(--accent-text)', border:'none', borderRadius:12, padding:12, fontSize:14, fontWeight:900, cursor:'pointer', opacity:aiSaving ? .6 : 1 }}>
+              Enregistrer les plans IA
+            </button>
+          </div>
+        )}
 
         {/* Notif push */}
         <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, marginBottom:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)' }}>

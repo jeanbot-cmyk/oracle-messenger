@@ -7,14 +7,17 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
-    "postinstall": "node scripts/patch-capacitor-cli.js"
+    "postinstall": "node scripts/patch-capacitor-cli.js && node scripts/patch-google-auth-plugin.js"
   },
   "dependencies": {
     "@capacitor-community/contacts": "^6.1.1",
     "@capacitor/android": "6.2.1",
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/browser": "^6.0.6",
     "@capacitor/cli": "6.2.1",
     "@capacitor/core": "6.2.1",
     "@capacitor/push-notifications": "^6.0.5",
+    "@codetrix-studio/capacitor-google-auth": "^3.4.0-rc.4",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
     "emoji-picker-react": "^4.9.2",

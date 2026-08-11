@@ -10,7 +10,7 @@ const ACCENT = 'var(--brand)';
 const ACCENT_TEXT = 'var(--accent-text)';
 
 export default function GalleryPage() {
-  const { status } = useSession();
+  const { data: session, status } = useSession();
   const router     = useRouter();
   const [items,    setItems]    = useState<MediaItem[]>([]);
   const [lightbox, setLightbox] = useState<MediaItem | null>(null);
@@ -18,6 +18,7 @@ export default function GalleryPage() {
   const [tab,      setTab]      = useState<'all' | MediaItem['type']>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const suppressNextClick = useRef(false);
+  const ownerId = session?.user?.id || session?.user?.email || '';
 
   useEffect(() => {
     setMounted(true);
@@ -26,18 +27,20 @@ export default function GalleryPage() {
 
   const reload = useCallback(() => {
     try {
-      const saved = readGalleryItems();
+      const saved = readGalleryItems(ownerId);
       setItems(saved);
-      writeGalleryItems(saved);
+      writeGalleryItems(saved, ownerId);
     } catch {}
-  }, []);
+  }, [ownerId]);
 
-  useEffect(() => { if (mounted) reload(); }, [mounted, reload]);
+  useEffect(() => {
+    if (mounted && status === 'authenticated' && ownerId) reload();
+  }, [mounted, status, ownerId, reload]);
 
   function handleDelete(item: MediaItem) {
     const updated = items.filter(i => i.src !== item.src);
     setItems(updated);
-    writeGalleryItems(updated);
+    writeGalleryItems(updated, ownerId);
     if (lightbox?.src === item.src) setLightbox(null);
   }
 
@@ -59,7 +62,7 @@ export default function GalleryPage() {
     const selectedSrc = new Set(selected);
     const updated = items.filter(item => !selectedSrc.has(item.src));
     setItems(updated);
-    writeGalleryItems(updated);
+    writeGalleryItems(updated, ownerId);
     if (lightbox && selectedSrc.has(lightbox.src)) setLightbox(null);
     clearSelection();
   }
@@ -84,7 +87,27 @@ export default function GalleryPage() {
     } catch {}
   }
 
-  if (!mounted) return (
+  async function shareItem(item: MediaItem) {
+    try {
+      const file = await fileFromMediaItem(item);
+      if (navigator.canShare?.({ files: [file] }) && navigator.share) {
+        await navigator.share({ title: item.name || 'Oracle Messenger', files: [file] });
+        return;
+      }
+      await navigator.clipboard?.writeText(item.src);
+    } catch {}
+  }
+
+  function renameItem(item: MediaItem) {
+    const name = window.prompt('Nouveau nom', item.name || '')?.trim();
+    if (!name) return;
+    const updated = items.map(entry => entry.src === item.src ? { ...entry, name } : entry);
+    setItems(updated);
+    writeGalleryItems(updated, ownerId);
+    if (lightbox?.src === item.src) setLightbox({ ...lightbox, name });
+  }
+
+  if (!mounted || status === 'loading' || (status === 'authenticated' && !ownerId)) return (
     <div style={{ minHeight:'100dvh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg-input)' }}>
       <div style={{ width:32, height:32, border:'3px solid var(--border)', borderTopColor:ACCENT, borderRadius:'50%', animation:'spin .8s linear infinite' }} />
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
@@ -137,7 +160,7 @@ export default function GalleryPage() {
         ))}
       </div>
       <div style={{ background:'#EAF4F1', borderBottom:'1px solid rgba(16,42,42,0.12)', color:'#102A2A', padding:'10px 16px', fontSize:12.5, lineHeight:1.45, fontWeight:700 }}>
-        Les médias reçus dans les conversations sont conservés ici localement sur ce téléphone. Les retouches photo enregistrées apparaissent aussi dans cette galerie.
+        Les médias reçus et les créations IA sont conservés ici localement sur ce téléphone, uniquement pour votre compte.
       </div>
       {filtered.length === 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 'calc(100dvh - 120px)', gap: 16, color: 'var(--text-muted)', padding: 24, textAlign: 'center' }}>
@@ -217,11 +240,19 @@ export default function GalleryPage() {
       {lightbox && (lightbox.type === 'image' || lightbox.type === 'video') && (
         <>
           <MediaLightbox src={lightbox.src} type={lightbox.type} onClose={() => setLightbox(null)} onSave={() => downloadToPhone(lightbox)} />
-          <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1001, display: 'flex', gap: 10, padding: '12px 16px', background: 'linear-gradient(transparent, rgba(0,0,0,0.85))' }}>
+          <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1001, display: 'flex', flexWrap:'wrap', gap: 10, padding: '12px 16px', background: 'linear-gradient(transparent, rgba(0,0,0,0.85))' }}>
             <button onClick={() => downloadToPhone(lightbox)}
               style={{ flex: 1, background: '#fff', color: 'var(--text-primary)', border: 'none', borderRadius: 12, padding: '12px', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
               <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
               Enregistrer sur le téléphone
+            </button>
+            <button onClick={() => shareItem(lightbox)}
+              style={{ flex: 1, background: '#fff', color: 'var(--text-primary)', border: 'none', borderRadius: 12, padding: '12px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+              Partager
+            </button>
+            <button onClick={() => renameItem(lightbox)}
+              style={{ flex: 1, background: '#fff', color: 'var(--text-primary)', border: 'none', borderRadius: 12, padding: '12px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+              Renommer
             </button>
             {(lightbox.type === 'image' || lightbox.type === 'video') && (
               <button onClick={() => { setLightbox(null); handleEdit(lightbox); }}
@@ -248,6 +279,9 @@ export default function GalleryPage() {
               <button onClick={() => setLightbox(null)} style={{ width:38, height:38, borderRadius:'50%', border:'none', background:'var(--bg-input)', fontSize:20, cursor:'pointer' }}>×</button>
             </div>
             {lightbox.type === 'audio' && <audio src={lightbox.src} controls style={{ width:'100%', marginBottom:12 }} />}
+            <button onClick={() => renameItem(lightbox)} style={{ width:'100%', border:'none', borderRadius:14, background:'var(--bg-input)', color:'var(--text-primary)', padding:14, fontSize:15, fontWeight:900, cursor:'pointer', marginBottom:10 }}>
+              Renommer
+            </button>
             <button onClick={() => downloadToPhone(lightbox)} style={{ width:'100%', border:'none', borderRadius:14, background:ACCENT, color:ACCENT_TEXT, padding:14, fontSize:15, fontWeight:900, cursor:'pointer' }}>
               Enregistrer sur le téléphone
             </button>
@@ -256,4 +290,13 @@ export default function GalleryPage() {
       )}
     </div>
   );
+}
+
+async function fileFromMediaItem(item: MediaItem) {
+  const res = await fetch(item.src);
+  const blob = await res.blob();
+  const extension = item.type === 'video' ? 'mp4' : item.type === 'audio' ? 'webm' : item.type === 'file' ? 'bin' : 'png';
+  return new File([blob], item.name || `oracle-${item.type}-${Date.now()}.${extension}`, {
+    type: item.mime || blob.type || 'application/octet-stream',
+  });
 }

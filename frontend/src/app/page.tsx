@@ -1,32 +1,17 @@
 'use client';
 export const dynamic = 'force-dynamic';
+
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { buildChromeInstallIntentUrl, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
+import { buildChromeInstallIntentUrl, isAndroidDevice, isInstalledAppMode, isIosDevice, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
+import { ensureServiceWorkerReady, getInstallPrompt, logPwaInstall, openInstallPrompt, resetPwaInstallState, setInstallPrompt, waitForInstallPrompt } from '../lib/pwaInstall';
 
 const ACCENT = 'var(--brand)';
-const ACCENT_TEXT = 'var(--accent-text)';
-
-type OS = 'android' | 'ios' | 'other';
-
-function detectOS(): OS {
-  if (typeof navigator === 'undefined') return 'other';
-  const ua = navigator.userAgent.toLowerCase();
-  if (/iphone|ipad|ipod/.test(ua)) return 'ios';
-  if (/android/.test(ua)) return 'android';
-  return 'other';
-}
 
 function isStandalone() {
   if (typeof window === 'undefined') return false;
-  return window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true;
-}
-
-function isCapacitorNative() {
-  if (typeof window === 'undefined') return false;
-  // Capacitor injecte window.Capacitor quand l'app tourne en natif (APK)
-  return !!(window as any).Capacitor?.isNativePlatform?.();
+  return isInstalledAppMode();
 }
 
 function pendingRoute() {
@@ -37,309 +22,138 @@ function pendingRoute() {
 export default function HomePage() {
   const { status } = useSession();
   const router = useRouter();
-  const [os, setOs] = useState<OS>('other');
-  const [mounted, setMounted] = useState(false);
-  const [iosStep, setIosStep] = useState(0);
-  const [showIos, setShowIos] = useState(false);
   const promptRef = useRef<any>(null);
+  const [mounted, setMounted] = useState(false);
   const [installing, setInstalling] = useState(false);
-  const [manualInstall, setManualInstall] = useState(false);
-  const [installMessage, setInstallMessage] = useState('');
+  const [message, setMessage] = useState('');
+  const [nativeMode, setNativeMode] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    setOs(detectOS());
-
+    setNativeMode(isStandalone());
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
-        .then(r => r.update()).catch(() => {});
+        .then(reg => reg.update().catch(() => {}))
+        .catch(() => {});
     }
-
-    if ((window as any).__installPrompt) {
-      promptRef.current = (window as any).__installPrompt;
-    }
-
-    const handler = (e: any) => { e.preventDefault(); promptRef.current = e; };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    if (getInstallPrompt()) promptRef.current = getInstallPrompt();
+    const onPrompt = (e: any) => {
+      e.preventDefault();
+      promptRef.current = e;
+      setInstallPrompt(e);
+      setMessage('');
+    };
+    const onPromptReady = () => {
+      promptRef.current = getInstallPrompt();
+      setMessage('');
+    };
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    window.addEventListener('oracle:pwa-prompt-ready', onPromptReady);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onPrompt);
+      window.removeEventListener('oracle:pwa-prompt-ready', onPromptReady);
+    };
   }, []);
 
-  // Redirection si déjà connecté, standalone ou APK natif
   useEffect(() => {
     if (status === 'loading') return;
-    // APK Capacitor natif → aller directement au chat ou login
-    if (isCapacitorNative()) {
-      const pending = pendingRoute();
-      router.replace(status === 'authenticated' ? (pending || '/chat') : '/login');
+    if (nativeMode && status === 'unauthenticated') {
+      router.replace('/login');
       return;
     }
-    const pending = pendingRoute();
-    if (status === 'authenticated') { router.replace(pending || '/chat'); return; }
-    if (isStandalone()) { router.replace('/chat'); return; }
-  }, [status]);
+    if (status === 'authenticated') {
+      router.replace(pendingRoute() || '/chat');
+    }
+  }, [nativeMode, router, status]);
 
-  function handleOpen() {
-    router.replace('/chat');
-  }
-
-  function handleAndroidPWA() {
+  async function install() {
+    if (nativeMode) {
+      router.replace(status === 'authenticated' ? (pendingRoute() || '/chat') : '/login');
+      return;
+    }
+    setMessage('');
+    setInstalling(true);
+    logPwaInstall('home-install-click', { hasPrompt: !!getInstallPrompt(), android: isAndroidDevice() });
     if (shouldOpenAndroidLinkInChrome()) {
+      logPwaInstall('home-open-chrome-intent');
       window.location.assign(buildChromeInstallIntentUrl());
       return;
     }
-    const prompt = promptRef.current || (window as any).__installPrompt || (window as any).__pwaPrompt;
-    setManualInstall(false);
-    setInstallMessage('');
-    if (prompt) {
-      setInstalling(true);
-      prompt.prompt();
-      prompt.userChoice
-        .then((choice: any) => {
-          if (choice?.outcome !== 'accepted') {
-            setManualInstall(true);
-            setInstallMessage('Installation annulée. Appuie de nouveau sur Installer l’application ou utilise le menu ⋮ de Chrome.');
-          }
-        })
-        .catch(() => {
-          setManualInstall(true);
-          setInstallMessage('Chrome n’a pas pu ouvrir l’invite native. Utilise le menu ⋮ puis Installer l’application.');
-        })
-        .finally(() => setInstalling(false));
-    } else {
-      setManualInstall(true);
-      setInstallMessage('Chrome ne propose pas encore l’installation native. Reste sur cette page, attends quelques secondes, puis réessaie. Si Chrome affiche blanc, utilise Réparer Chrome.');
+    try {
+      await ensureServiceWorkerReady();
+      const prompt = promptRef.current || getInstallPrompt() || await waitForInstallPrompt(6500);
+      if (!prompt) {
+        logPwaInstall('home-prompt-missing-after-wait');
+        if (isAndroidDevice()) {
+          await resetPwaInstallState();
+          window.location.assign(buildChromeInstallIntentUrl({
+            retry: '1',
+            v: '197-20260808-playstore-stability',
+            t: String(Date.now()),
+          }));
+          return;
+        }
+        if (isIosDevice()) {
+          setMessage("Sur iPhone, touchez Partager puis Ajouter à l’écran d’accueil.");
+          return;
+        }
+        setMessage("Installation non disponible sur ce navigateur.");
+        return;
+      }
+      const choice = await openInstallPrompt(prompt);
+      promptRef.current = null;
+      if (choice?.outcome === 'accepted') {
+        logPwaInstall('home-install-accepted-open-app', { entry: pendingRoute() || '/chat' });
+        document.cookie = 'pwa-installed=1; path=/; max-age=31536000; SameSite=Lax';
+        localStorage.setItem('oracle-pwa-install-pending', '1');
+        router.replace(pendingRoute() || '/chat');
+      } else {
+        setMessage(isAndroidDevice() ? '' : 'Installation annulée.');
+      }
+    } catch (err: any) {
+      logPwaInstall('home-install-error', { message: err?.message || String(err) });
+      setMessage(isAndroidDevice() ? '' : 'Installation non disponible sur ce navigateur.');
+    } finally {
+      setInstalling(false);
     }
   }
 
-  if (!mounted) return (
-    <div style={{ minHeight:'100dvh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg-app)' }}>
-      <div style={{ width:32, height:32, border:'3px solid var(--border)', borderTopColor:'var(--brand)', borderRadius:'50%', animation:'spin .8s linear infinite' }} />
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-    </div>
-  );
+  function openWithoutInstall() {
+    logPwaInstall('home-open-without-install', { entry: pendingRoute() || '/chat' });
+    router.replace(pendingRoute() || '/chat');
+  }
 
-  // ── iOS : guide PWA ────────────────────────────────────────────────────────
-  if (showIos) {
-    const steps = [
-      { icon: '📤', title: 'Appuyez sur Partager', desc: 'En bas de Safari, appuyez sur le bouton Partager (carré avec flèche vers le haut).' },
-      { icon: '➕', title: '"Sur l\'écran d\'accueil"', desc: 'Faites défiler le menu et appuyez sur "Sur l\'écran d\'accueil".' },
-      { icon: '✅', title: 'Appuyez sur "Ajouter"', desc: 'En haut à droite, appuyez sur "Ajouter". Oracle Messenger est maintenant sur votre écran d\'accueil !' },
-    ];
-    const step = steps[iosStep];
+  if (!mounted || nativeMode) {
     return (
-      <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: '#fff', fontFamily: 'system-ui,-apple-system,sans-serif' }}>
-        <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}`}</style>
-        <div style={{ padding: '20px 24px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => iosStep > 0 ? setIosStep(s => s - 1) : setShowIos(false)}
-            style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: 'var(--bg-input)', cursor: 'pointer', fontSize: 18 }}>←</button>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            iPhone · Étape {iosStep + 1} / {steps.length}
-          </p>
-        </div>
-        <div style={{ margin: '12px 24px 0', height: 4, background: 'var(--bg-input)', borderRadius: 2 }}>
-          <div style={{ height: '100%', background: ACCENT, borderRadius: 2, width: `${((iosStep + 1) / steps.length) * 100}%`, transition: 'width 0.3s' }} />
-        </div>
-        <div key={iosStep} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, animation: 'fadeIn 0.25s ease', gap: 24, textAlign: 'center' }}>
-          <div style={{ width: 90, height: 90, borderRadius: '50%', background: 'rgba(16,42,42,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48 }}>{step.icon}</div>
-          <div>
-            <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 12px' }}>{step.title}</h2>
-            <p style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{step.desc}</p>
-          </div>
-        </div>
-        <div style={{ padding: '0 24px 44px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {iosStep < steps.length - 1
-            ? <button onClick={() => setIosStep(s => s + 1)} style={{ width: '100%', background: ACCENT, color: ACCENT_TEXT, border: 'none', borderRadius: 28, padding: 18, fontSize: 17, fontWeight: 700, cursor: 'pointer' }}>Suivant →</button>
-            : <button onClick={handleOpen} style={{ width: '100%', background: ACCENT, color: ACCENT_TEXT, border: 'none', borderRadius: 28, padding: 18, fontSize: 17, fontWeight: 700, cursor: 'pointer' }}>Ouvrir Oracle Messenger →</button>
-          }
-          <button onClick={handleOpen} style={{ width: '100%', background: 'transparent', color: 'var(--text-muted)', border: '1.5px solid var(--border)', borderRadius: 28, padding: 14, fontSize: 14, cursor: 'pointer' }}>
-            Accéder sans installer
-          </button>
-        </div>
+      <div style={{ minHeight:'100dvh', display:'flex', alignItems:'center', justifyContent:'center', background:'#fff' }}>
+        <div style={{ width:32, height:32, border:'3px solid var(--border)', borderTopColor:ACCENT, borderRadius:'50%', animation:'spin .8s linear infinite' }} />
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       </div>
     );
   }
 
-  // ── Page principale avec détection OS ─────────────────────────────────────
-  const needsChrome = os === 'android' && shouldOpenAndroidLinkInChrome();
-  const chromeInstallHref = buildChromeInstallIntentUrl();
-
   return (
-    <div style={{ height: '100dvh', overflowY: 'auto', background: '#fff', display: 'flex', flexDirection: 'column', fontFamily: 'system-ui,-apple-system,sans-serif', WebkitOverflowScrolling: 'touch' }}>
-      <style>{`@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}} @keyframes spin{to{transform:rotate(360deg)}}`}</style>
-
-      {/* Hero */}
-      <div style={{ background: `linear-gradient(160deg,${ACCENT} 0%,var(--header-bg) 100%)`, padding: '60px 32px 72px', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', top: -40, right: -40, width: 200, height: 200, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
-        <div style={{ position: 'absolute', bottom: -60, left: -30, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
-        <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 96, height: 96, borderRadius: 28, background: 'rgba(255,255,255,0.15)', marginBottom: 20, animation: 'float 3s ease-in-out infinite', border: '1.5px solid rgba(255,255,255,0.2)' }}>
-          <svg width="54" height="54" fill="none" viewBox="0 0 24 24">
-            <path fill="white" d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.05 21.95l4.782-1.388A9.953 9.953 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2z" />
-            <circle cx="8.5" cy="12" r="1.4" fill={ACCENT} /><circle cx="12" cy="12" r="1.4" fill={ACCENT} /><circle cx="15.5" cy="12" r="1.4" fill={ACCENT} />
-          </svg>
-        </div>
-        <h1 style={{ fontSize: 30, fontWeight: 900, color: '#fff', margin: '0 0 10px', letterSpacing: -0.5 }}>Oracle Messenger</h1>
-        <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.88)', margin: '0 0 6px' }}>Messagerie · Appels · Entreprise</p>
-
-        {/* Badge OS détecté */}
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12, background: 'rgba(255,255,255,0.15)', borderRadius: 20, padding: '6px 14px' }}>
-          <span style={{ fontSize: 16 }}>{os === 'android' ? '🤖' : os === 'ios' ? '🍎' : '💻'}</span>
-          <span style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>
-            {os === 'android' ? 'Android détecté' : os === 'ios' ? 'iPhone détecté' : 'Navigateur détecté'}
-          </span>
-        </div>
-      </div>
-
-      {/* Contenu selon OS */}
-      <div style={{ flex: '1 0 auto', padding: '28px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-        {/* ── ANDROID ── */}
-        {os === 'android' && (
-          <>
-            <div style={{ background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 16, padding: 20 }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: '#15803d', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: 0.5 }}>🤖 Android</p>
-              <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>Installer l'application</h2>
-              <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
-                Installe Oracle Messenger sur l'écran d'accueil depuis le navigateur.
-              </p>
-            </div>
-
-            {needsChrome && (
-              <div style={{ background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 16, padding: 16 }}>
-                <p style={{ fontSize: 14, color: '#102A2A', margin: '0 0 10px', lineHeight: 1.5, fontWeight: 750 }}>
-                  Pour éviter les alertes Samsung Internet, ouvre Oracle Messenger avec Chrome.
-                </p>
-                <a href={chromeInstallHref}
-                  style={{ width: '100%', border: 'none', borderRadius: 14, background: 'var(--header-bg)', color: '#fff', padding: '12px 14px', fontSize: 14, fontWeight: 900, cursor: 'pointer', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none', boxSizing:'border-box' }}>
-                  Ouvrir dans Chrome
-                </a>
-              </div>
-            )}
-
-            {/* Option 1 : PWA — installation sûre */}
-            {needsChrome ? (
-              <a href={chromeInstallHref}
-                style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '18px 20px', background: ACCENT, borderRadius: 20, border: 'none', textDecoration: 'none', color: '#fff', cursor: 'pointer', textAlign: 'left' }}>
-                <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <svg width="26" height="26" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
-                  </svg>
-                </div>
-                <div>
-                  <p style={{ fontSize: 16, fontWeight: 800, margin: '0 0 2px' }}>Ouvrir dans Chrome</p>
-                  <p style={{ fontSize: 12, margin: 0, opacity: 0.85 }}>Méthode recommandée · Installation sécurisée</p>
-                </div>
-                <svg style={{ marginLeft: 'auto' }} width="20" height="20" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-              </a>
-            ) : (
-              <button onClick={handleAndroidPWA} disabled={installing}
-              style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '18px 20px', background: ACCENT, borderRadius: 20, border: 'none', textDecoration: 'none', color: '#fff', cursor: installing ? 'wait' : 'pointer', textAlign: 'left' }}>
-                <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <svg width="26" height="26" fill="none" stroke="#fff" strokeWidth="2.2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <div>
-                  <p style={{ fontSize: 16, fontWeight: 800, margin: '0 0 2px' }}>{installing ? 'Installation...' : 'Installer l’application'}</p>
-                  <p style={{ fontSize: 12, margin: 0, opacity: 0.85 }}>Méthode recommandée · Installation sécurisée</p>
-                </div>
-                <svg style={{ marginLeft: 'auto' }} width="20" height="20" fill="none" stroke="#fff" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-              </button>
-            )}
-
-            {manualInstall && (
-              <div style={{ background: '#EAF4F1', border: '1px solid rgba(16,42,42,0.14)', borderRadius: 16, padding: 14 }}>
-                <p style={{ fontSize: 13, color: '#102A2A', margin: 0, lineHeight: 1.5, fontWeight: 650 }}>
-                  {installMessage || 'Si Chrome ne lance pas l’installation automatique, utilise le menu ⋮ puis “Installer l’application”.'}
-                </p>
-                <a href="/reset-pwa.html?next=/install"
-                  style={{ marginTop: 10, width: '100%', border: '1px solid rgba(16,42,42,0.16)', borderRadius: 999, background: '#fff', color: '#102A2A', padding: '10px 12px', fontSize: 13, fontWeight: 900, cursor: 'pointer', display:'flex', alignItems:'center', justifyContent:'center', textDecoration:'none', boxSizing:'border-box' }}>
-                  Réparer Chrome
-                </a>
-              </div>
-            )}
-
-            {/* Guide installation PWA */}
-            <div style={{ background: '#f8fffe', border: '1px solid #e8f5f3', borderRadius: 16, padding: 16 }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: ACCENT, margin: '0 0 10px' }}>📋 Installation recommandée</p>
-              {[
-                '1. Utilise Chrome Android',
-                '2. Clique sur "Installer l’application"',
-                '3. Confirme l’ajout proposé par Chrome',
-                '4. Active les notifications après connexion',
-                '5. Oracle Messenger apparaît sur ton écran d’accueil',
-              ].map((s, i) => (
-                <p key={i} style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 4px' }}>{s}</p>
-              ))}
-            </div>
-
-          </>
-        )}
-
-        {/* ── iOS ── */}
-        {os === 'ios' && (
-          <>
-            <div style={{ background: '#f0f9ff', border: '1.5px solid #bae6fd', borderRadius: 16, padding: 20 }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: '#0369a1', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: 0.5 }}>🍎 iPhone</p>
-              <h2 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 8px' }}>Installer sur iPhone</h2>
-              <p style={{ fontSize: 14, color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
-                Ajoute Oracle Messenger sur ton écran d'accueil en 3 étapes simples via Safari.
-              </p>
-            </div>
-
-            <button onClick={() => setShowIos(true)}
-              style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '18px 20px', background: 'var(--text-primary)', borderRadius: 20, border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left' }}>
-              <div style={{ width: 48, height: 48, borderRadius: 14, background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <span style={{ fontSize: 26 }}>📲</span>
-              </div>
-              <div>
-                <p style={{ fontSize: 16, fontWeight: 800, color: '#fff', margin: '0 0 2px' }}>Guide d'installation</p>
-                <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', margin: 0 }}>3 étapes · 30 secondes</p>
-              </div>
-              <svg style={{ marginLeft: 'auto' }} width="20" height="20" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-            </button>
-
-            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 14, padding: 14 }}>
-              <p style={{ fontSize: 13, color: '#92400e', margin: 0, lineHeight: 1.5 }}>
-                ⚠️ Utilise <strong>Safari</strong> pour installer. Chrome et Firefox ne supportent pas l'installation sur iPhone.
-              </p>
-            </div>
-          </>
-        )}
-
-        {/* ── Desktop / Autre ── */}
-        {os === 'other' && (
-          <>
-            <h2 style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Choisissez votre plateforme</h2>
-            <button onClick={handleAndroidPWA}
-              style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', background: '#f0fdf4', border: '1.5px solid #bbf7d0', borderRadius: 16, cursor: 'pointer', width: '100%', textAlign: 'left' }}>
-              <span style={{ fontSize: 32 }}>📲</span>
-              <div>
-                <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 2px' }}>Android — Installer la PWA</p>
-                <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>Installation sécurisée depuis le navigateur</p>
-              </div>
-            </button>
-            <button onClick={() => setShowIos(true)}
-              style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px', background: '#f0f9ff', border: '1.5px solid #bae6fd', borderRadius: 16, cursor: 'pointer', width: '100%', textAlign: 'left' }}>
-              <span style={{ fontSize: 32 }}>🍎</span>
-              <div>
-                <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 2px' }}>iPhone — Guide PWA</p>
-                <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: 0 }}>Ajouter à l'écran d'accueil via Safari</p>
-              </div>
-            </button>
-          </>
-        )}
-      </div>
-
-      {/* Bouton accéder */}
-      <div style={{ padding: '0 24px 44px' }}>
-        <button onClick={handleOpen}
-          style={{ width: '100%', background: 'transparent', color: 'var(--text-muted)', border: '1.5px solid var(--border)', borderRadius: 28, padding: 14, fontSize: 15, cursor: 'pointer' }}>
-          Accéder sans installer
-        </button>
-        <p style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', margin: '10px 0 0', lineHeight: 1.6 }}>
-          En continuant, vous acceptez nos <a href="/terms" style={{ color: ACCENT }}>Conditions</a> et <a href="/privacy" style={{ color: ACCENT }}>Politique de confidentialité</a>.
+    <div style={{ minHeight:'100dvh', background:'#fff', display:'flex', alignItems:'center', justifyContent:'center', padding:'24px max(20px, env(safe-area-inset-left)) calc(24px + env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-right))', boxSizing:'border-box', fontFamily:'system-ui,-apple-system,sans-serif' }}>
+      <main style={{ width:'100%', maxWidth:390, display:'flex', flexDirection:'column', alignItems:'center', textAlign:'center' }}>
+        <img src="/icons/icon-192-v20260809-premium.png" alt="" style={{ width:96, height:96, borderRadius:26, marginBottom:20, boxShadow:'0 14px 34px rgba(16,42,42,0.14)' }} />
+        <h1 style={{ margin:'0 0 8px', fontSize:28, lineHeight:1.12, fontWeight:900, color:'var(--text-primary)' }}>Oracle Messenger</h1>
+        <p style={{ margin:'0 0 28px', maxWidth:300, fontSize:15, lineHeight:1.5, fontWeight:650, color:'var(--text-secondary)' }}>
+          Messages, appels, outils créatifs IA et automatisation Business dans une seule application.
         </p>
-      </div>
+        <button onClick={install} disabled={installing}
+          style={{ width:'100%', minHeight:58, border:'none', borderRadius:999, background:installing ? 'var(--text-muted)' : ACCENT, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', gap:10, fontSize:17, fontWeight:900, boxShadow:'0 12px 26px rgba(16,42,42,0.18)', cursor:installing ? 'wait' : 'pointer' }}>
+          {nativeMode ? 'Commencer' : installing ? 'Installation...' : "Installer l'application"}
+        </button>
+        {!nativeMode && <button onClick={openWithoutInstall}
+          style={{ marginTop:10, width:'100%', minHeight:46, border:'1px solid color-mix(in srgb, var(--brand) 28%, transparent)', borderRadius:999, background:'transparent', color:ACCENT, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:850, cursor:'pointer' }}>
+          Accéder sans installer
+        </button>}
+        {message && !isAndroidDevice() && (
+          <p style={{ margin:'16px 0 0', fontSize:13, lineHeight:1.45, color:'var(--text-secondary)', fontWeight:650 }}>
+            {message}
+          </p>
+        )}
+      </main>
     </div>
   );
 }

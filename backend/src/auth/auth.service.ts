@@ -3,6 +3,15 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { createHash } from 'crypto';
 
+const ORACLE_MESSENGER_GOOGLE_WEB_CLIENT_ID =
+  '734297398479-rids78si56kck1u3sjrgnivfdtpr7e89.apps.googleusercontent.com';
+const ORACLE_MESSENGER_GOOGLE_ANDROID_CLIENT_ID =
+  '734297398479-irrshc48k2d7kotc696gofbellvll43i.apps.googleusercontent.com';
+const ORACLE_MESSENGER_GOOGLE_ANDROID_APK_CLIENT_ID =
+  '734297398479-f164rp1c083d77vftt76mk7qm32l2u21.apps.googleusercontent.com';
+const ORACLE_MESSENGER_GOOGLE_ANDROID_UPLOAD_CLIENT_ID =
+  '734297398479-49duf58ok258ni2di43aq7df4pn5tp4d.apps.googleusercontent.com';
+
 @Injectable()
 export class AuthService {
   constructor(private prisma: PrismaService, private jwt: JwtService) {}
@@ -16,8 +25,20 @@ export class AuthService {
 
     const allowedClientIds = [
       process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_WEB_CLIENT_ID,
       process.env.GOOGLE_CLIENT_ID_WEB,
       process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+      process.env.NEXT_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+      ORACLE_MESSENGER_GOOGLE_WEB_CLIENT_ID,
+      process.env.GOOGLE_ANDROID_CLIENT_ID,
+      process.env.NEXT_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+      ORACLE_MESSENGER_GOOGLE_ANDROID_CLIENT_ID,
+      process.env.GOOGLE_ANDROID_APK_CLIENT_ID,
+      process.env.NEXT_PUBLIC_GOOGLE_ANDROID_APK_CLIENT_ID,
+      ORACLE_MESSENGER_GOOGLE_ANDROID_APK_CLIENT_ID,
+      process.env.GOOGLE_ANDROID_UPLOAD_CLIENT_ID,
+      process.env.NEXT_PUBLIC_GOOGLE_ANDROID_UPLOAD_CLIENT_ID,
+      ORACLE_MESSENGER_GOOGLE_ANDROID_UPLOAD_CLIENT_ID,
     ].filter(Boolean);
 
     if (!allowedClientIds.length) {
@@ -42,8 +63,8 @@ export class AuthService {
     const verified = await this.verifyGoogleToken(dto.idToken ?? '');
     const googleId = verified.googleId;
     const email = verified.email;
-    const name = verified.name.trim() || email.split('@')[0] || 'Utilisateur';
-    const avatar = verified.avatar;
+    const googleName = verified.name.trim() || email.split('@')[0] || 'Utilisateur';
+    const googleAvatar = verified.avatar;
 
     if (!googleId || !email) throw new BadRequestException('Compte Google invalide');
 
@@ -52,15 +73,30 @@ export class AuthService {
       throw new ConflictException('Cette adresse Gmail est déjà liée à un autre compte Oracle Messenger.');
     }
 
-    let username = name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
+    const existingUser = await this.prisma.user.findUnique({ where: { googleId } });
+    if (existingUser) {
+      const user = await this.prisma.user.update({
+        where: { id: existingUser.id },
+        data: { email, status: 'online' },
+      });
+      const token = this.jwt.sign({ sub: user.id, email: user.email });
+      return { token, user };
+    }
+
+    let username = googleName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
     if (!username) username = email.split('@')[0].replace(/[^a-z0-9]/g, '').slice(0, 20) || 'user';
     const exists = await this.prisma.user.findUnique({ where: { username } });
     if (exists && exists.googleId !== googleId) username = `${username}${Math.floor(Math.random() * 9999)}`;
 
-    const user = await this.prisma.user.upsert({
-      where: { googleId },
-      update: { email, name, avatar, status: 'online' },
-      create: { googleId, email, name, username, avatar, status: 'online' },
+    const user = await this.prisma.user.create({
+      data: {
+        googleId,
+        email,
+        name: googleName,
+        username,
+        avatar: googleAvatar,
+        status: 'online',
+      },
     });
 
     const token = this.jwt.sign({ sub: user.id, email: user.email });

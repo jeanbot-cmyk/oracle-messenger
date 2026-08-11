@@ -27,11 +27,37 @@ function hasMediaPayload(msg: Message) {
   return isMediaMessage(msg.type) && typeof msg.content === 'string' && msg.content.trim().length > 0;
 }
 
-async function persistMediaThenConfirm(socket: any, msg: Message) {
-  if (!hasMediaPayload(msg)) return;
+const MEDIA_SAVE_RETRY_LIMIT = 8;
+const mediaSaveRetries = new Map<string, { attempts: number; timer?: ReturnType<typeof setTimeout> }>();
+
+function clearMediaRetry(messageId: string) {
+  const existing = mediaSaveRetries.get(messageId);
+  if (existing?.timer) clearTimeout(existing.timer);
+  mediaSaveRetries.delete(messageId);
+}
+
+function scheduleMediaRetry(socket: any, msg: Message, options: { confirmDelivered?: boolean }) {
+  const existing = mediaSaveRetries.get(msg.id) ?? { attempts: 0 };
+  if (existing.attempts >= MEDIA_SAVE_RETRY_LIMIT) return;
+  if (existing.timer) clearTimeout(existing.timer);
+
+  const attempts = existing.attempts + 1;
+  const delay = Math.min(45_000, 1500 * 2 ** Math.max(0, attempts - 1));
+  const timer = setTimeout(() => {
+    void persistMediaThenConfirm(socket, msg, options);
+  }, delay);
+
+  mediaSaveRetries.set(msg.id, { attempts, timer });
+}
+
+async function persistMediaThenConfirm(socket: any, msg: Message, options: { confirmDelivered?: boolean } = {}) {
+  if (!hasMediaPayload(msg)) return true;
   try {
-    const saved = await persistMessageMedia(msg);
-    if (!saved?.checksum) return;
+    const saved = await persistMessageMedia(msg, useChatStore.getState().currentUser?.id);
+    if (!saved?.checksum) {
+      scheduleMediaRetry(socket, msg, options);
+      return false;
+    }
     useChatStore.getState().updateMessage(msg.id, { content: saved.content });
     socket.emit('message:media-saved', {
       messageId: msg.id,
@@ -39,11 +65,18 @@ async function persistMediaThenConfirm(socket: any, msg: Message) {
       size: saved.size,
       opfsPath: saved.opfsPath,
     });
+    if (options.confirmDelivered) {
+      socket.emit('message:delivered', { messageId: msg.id });
+    }
+    clearMediaRetry(msg.id);
+    return true;
   } catch (error) {
     console.warn('[media] local persistence failed; server cleanup blocked', {
       messageId: msg.id,
       error,
     });
+    scheduleMediaRetry(socket, msg, options);
+    return false;
   }
 }
 
@@ -67,15 +100,20 @@ export function useSocket() {
 
     socket.on('message:new', (msg: Message) => {
       store.addMessage(msg);
-      persistMediaThenConfirm(socket, msg);
       // Notifier seulement si le message vient de quelqu'un d'autre
       if (msg.senderId !== userId) {
-        socket.emit('message:delivered', { messageId: msg.id });
+        if (hasMediaPayload(msg)) {
+          void persistMediaThenConfirm(socket, msg, { confirmDelivered: true });
+        } else {
+          socket.emit('message:delivered', { messageId: msg.id });
+        }
         const senderName = msg.sender?.name ?? 'Nouveau message';
         const content = attachmentPreview(msg);
         notifyMessage(senderName, content, msg.conversationId);
         // Sonnerie moderne à la réception
         import('../lib/sounds').then(({ playMessageSound }) => playMessageSound()).catch(() => {});
+      } else {
+        void persistMediaThenConfirm(socket, msg);
       }
     });
 
@@ -209,5 +247,15 @@ export function useSocket() {
     socket.emit('message:react', { messageId, emoji: emoji ?? null });
   }
 
-  return { joinConversation, sendTyping, sendMessage, deleteMessage, editMessage, markRead, reactToMessage };
+  function confirmMediaSavedForMessages(msgs: Message[]) {
+    if (!token) return;
+    const socket = getSocket(token);
+    if (!socket) return;
+    for (const msg of msgs) {
+      if (!hasMediaPayload(msg)) continue;
+      void persistMediaThenConfirm(socket, msg, { confirmDelivered: msg.senderId !== userId });
+    }
+  }
+
+  return { joinConversation, sendTyping, sendMessage, deleteMessage, editMessage, markRead, reactToMessage, confirmMediaSavedForMessages };
 }

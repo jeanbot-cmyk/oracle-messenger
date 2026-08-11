@@ -37,6 +37,11 @@ export class ChatController {
     return this.chat.getMessages(id, req.user.id, before);
   }
 
+  @Get('messages/media-pending')
+  pendingMedia(@Query('limit') limit: string, @Request() req: any) {
+    return this.chat.getPendingMedia(req.user.id, Number(limit) || 50);
+  }
+
   @Post('conversations/:id/messages')
   send(
     @Param('id') id: string,
@@ -44,6 +49,15 @@ export class ChatController {
     @Request() req: any,
   ) {
     return this.chat.createMessage(id, req.user.id, body.content, body.type, body.replyToId);
+  }
+
+  @Post('messages/:id/media-local-save')
+  markMediaSavedLocally(
+    @Param('id') id: string,
+    @Body() body: { checksum?: string; size?: number },
+    @Request() req: any,
+  ) {
+    return this.chat.markMediaSavedLocally(id, req.user.id, body?.checksum, body?.size);
   }
 
   @Delete('messages/:id')

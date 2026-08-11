@@ -23,6 +23,8 @@ interface Props {
   selected?: boolean;
   onMediaLoad?: () => void;
   onCallMessageClick?: (type: 'audio' | 'video') => void;
+  currentUserAvatar?: string;
+  currentUserName?: string;
 }
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '😡'];
@@ -59,8 +61,21 @@ function looksLikeRawEncodedMedia(s: string) {
   return trimmed.length > 500 && /^[A-Za-z0-9+/=\r\n]+$/.test(trimmed);
 }
 
-function detectType(content: string, declaredType: string): 'image' | 'video' | 'audio' | 'file' | 'text' {
+function isLocalGallerySource(src: string, content: string) {
+  const clean = String(src || '').trim();
+  if (!clean) return false;
+  if (clean.startsWith('data:') || clean.startsWith('blob:')) return true;
+  try {
+    const parsed = JSON.parse(content);
+    return Boolean(parsed && typeof parsed === 'object' && parsed.local === true);
+  } catch {
+    return false;
+  }
+}
+
+function detectType(content: string, declaredType: string): 'image' | 'video' | 'audio' | 'file' | 'contact' | 'text' {
   const src = attachmentUrl(content);
+  if (declaredType === 'contact') return 'contact';
   if (declaredType === 'image' || declaredType === 'gif' || declaredType === 'sticker' || (isDataUrl(src) && src.startsWith('data:image'))) return 'image';
   if (declaredType === 'video' || (isDataUrl(src) && src.startsWith('data:video'))) return 'video';
   if (declaredType === 'audio' || declaredType === 'voice' || (isDataUrl(src) && src.startsWith('data:audio'))) return 'audio';
@@ -85,6 +100,7 @@ function messagePreview(message?: Message | null) {
   if (effective === 'video') return t(lang, 'common.video');
   if (effective === 'audio') return t(lang, 'common.audio');
   if (effective === 'file') return t(lang, 'common.file');
+  if (effective === 'contact') return t(lang, 'common.contact');
   return src.length > 90 ? `${src.slice(0, 90)}…` : src;
 }
 
@@ -107,6 +123,23 @@ function parseFilePayload(content: string) {
     }
   } catch {}
   return { url: attachmentUrl(content), name: t(useSettings.getState().lang, 'chat.attachedFile'), size: undefined as number | undefined, mime: '', caption: '', thumbnail: '', duration: undefined as number | undefined, width: undefined as number | undefined, height: undefined as number | undefined, waveform: undefined as number[] | undefined };
+}
+
+function parseContactPayload(content: string) {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        name: typeof parsed.name === 'string' ? parsed.name.trim() : '',
+        phone: typeof parsed.phone === 'string' ? parsed.phone.trim() : '',
+        email: typeof parsed.email === 'string' ? parsed.email.trim() : '',
+        username: typeof parsed.username === 'string' ? parsed.username.trim() : '',
+        avatar: typeof parsed.avatar === 'string' ? parsed.avatar.trim() : '',
+        url: typeof parsed.url === 'string' ? parsed.url.trim() : '',
+      };
+    }
+  } catch {}
+  return { name: content.trim(), phone: '', email: '', username: '', avatar: '', url: '' };
 }
 
 function attachmentCaption(content: string) {
@@ -185,7 +218,7 @@ function parseCallTraceMessage(content: string): { type: 'audio' | 'video'; labe
   return { type, label };
 }
 
-function AudioPlayer({ src, timeRow, waveform, declaredDuration }: { src: string; timeRow: React.ReactNode; waveform?: number[]; declaredDuration?: number }) {
+function AudioPlayer({ src, timeRow, waveform, declaredDuration, avatar, name, isOwn }: { src: string; timeRow: React.ReactNode; waveform?: number[]; declaredDuration?: number; avatar?: string; name?: string; isOwn?: boolean }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const normalizedSrc = src.replace(/^data:(audio\/[^;]+);codecs=[^;]+;base64,/i, 'data:$1;base64,');
   const [playing, setPlaying] = useState(false);
@@ -248,8 +281,10 @@ function AudioPlayer({ src, timeRow, waveform, declaredDuration }: { src: string
   const bars = waveform?.length ? waveform.slice(0, 48) : Array.from({ length: 36 }, (_, index) => 24 + ((index * 17) % 64));
   const nextSpeed = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1;
 
+  const initial = (name || 'O').trim().slice(0, 1).toUpperCase();
+
   return (
-    <div style={{ padding: '7px 9px', minWidth: 244, maxWidth: 340 }}>
+    <div style={{ padding: '7px 9px', minWidth: 258, maxWidth: 360 }}>
       <audio ref={audioRef} src={normalizedSrc} preload="metadata" />
       <div style={{ display:'flex', alignItems:'center', gap:10 }}>
         <button onClick={toggle} disabled={error}
@@ -291,6 +326,28 @@ function AudioPlayer({ src, timeRow, waveform, declaredDuration }: { src: string
             <span style={{ fontSize:12, color:'var(--text-muted)' }}>{duration ? fmt(duration) : t(useSettings.getState().lang, 'chat.voiceMessage')}</span>
           </div>
         </div>
+        <div
+          aria-hidden="true"
+          style={{
+            width:36,
+            height:36,
+            borderRadius:'50%',
+            overflow:'hidden',
+            background:isOwn ? 'rgba(16,42,42,0.10)' : 'rgba(16,42,42,0.08)',
+            border:'1px solid rgba(16,42,42,0.10)',
+            color:'var(--header-bg)',
+            fontSize:15,
+            fontWeight:950,
+            display:'flex',
+            alignItems:'center',
+            justifyContent:'center',
+            flexShrink:0,
+            alignSelf:'flex-end',
+            marginBottom:16,
+          }}
+        >
+          {avatar ? <img src={avatar} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : initial}
+        </div>
       </div>
       {error && (
         <div style={{ marginTop:8, padding:'8px 10px', borderRadius:10, background:'rgba(220,38,38,0.08)', color:'#991b1b', fontSize:12, lineHeight:1.4 }}>
@@ -302,7 +359,7 @@ function AudioPlayer({ src, timeRow, waveform, declaredDuration }: { src: string
   );
 }
 
-export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete, onEdit, onForward, onSelect, onReact, selectionMode = false, selected = false, onMediaLoad, onCallMessageClick }: Props) {
+export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete, onEdit, onForward, onSelect, onReact, selectionMode = false, selected = false, onMediaLoad, onCallMessageClick, currentUserAvatar = '', currentUserName = '' }: Props) {
   const [showMenu, setShowMenu]       = useState(false);
   const [imgError, setImgError]       = useState(false);
   const [lightbox, setLightbox]       = useState(false);
@@ -322,11 +379,14 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
   const effectiveTypeEarly = detectType(message.content, message.type ?? 'text');
   const mediaSrcEarly = attachmentUrl(message.content);
 
-  // Auto-save silencieux des médias reçus dans la galerie.
+  // Auto-save silencieux seulement quand le média est déjà local sur ce téléphone.
+  // Les URLs serveur /uploads restent temporaires: elles ne doivent pas alimenter
+  // la galerie locale avant confirmation de persistance.
   // Doit rester dans un effet React: écrire dans localStorage pendant le rendu
   // peut provoquer des ralentissements et des écritures répétées.
   useEffect(() => {
     if (isOwn || message.isDeleted || !mediaSrcEarly) return;
+    if (!isLocalGallerySource(mediaSrcEarly, message.content)) return;
     if (effectiveTypeEarly === 'image' || effectiveTypeEarly === 'video' || effectiveTypeEarly === 'audio' || effectiveTypeEarly === 'file') {
       let name: string | undefined;
       let mime: string | undefined;
@@ -341,9 +401,9 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
           }
         } catch {}
       }
-      saveToGallery(mediaSrcEarly, effectiveTypeEarly, name, { mime, size, source: 'conversation' });
+      saveToGallery(mediaSrcEarly, effectiveTypeEarly, name, { mime, size, source: 'conversation' }, currentUserId);
     }
-  }, [isOwn, message.id, message.isDeleted, mediaSrcEarly, effectiveTypeEarly]);
+  }, [isOwn, message.id, message.isDeleted, mediaSrcEarly, effectiveTypeEarly, currentUserId]);
 
   // Double-tap → répondre
   function handleTap() {
@@ -637,24 +697,24 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
           onClick={e => { e.stopPropagation(); onSelect(message); }}
           style={{
             position:'absolute',
-            left:10,
+            left:6,
             top:'50%',
             transform:'translateY(-50%)',
-            width:22,
-            height:22,
+            width:20,
+            height:20,
             borderRadius:'50%',
-            border:selected ? '2px solid #fff' : '2px solid rgba(16,42,42,0.28)',
-            background:selected ? 'var(--header-bg)' : 'var(--bg-surface)',
+            border:selected ? '2px solid #fff' : '2px solid rgba(16,42,42,0.24)',
+            background:selected ? 'var(--header-bg)' : 'rgba(255,255,255,0.92)',
             color:selected ? '#fff' : 'transparent',
             display:'flex',
             alignItems:'center',
             justifyContent:'center',
             zIndex:2,
             cursor:'pointer',
-            boxShadow:'0 2px 8px rgba(16,42,42,0.22)',
+            boxShadow:'0 1px 5px rgba(16,42,42,0.18)',
           }}
         >
-          <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+          <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
         </button>
@@ -678,6 +738,8 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
         position: 'relative',
         maxWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(72vw, 350px)' : 'min(73vw, 520px)',
         minWidth: effectiveType === 'image' || effectiveType === 'video' ? 'min(54vw, 232px)' : effectiveType === 'text' ? 48 : undefined,
+        marginLeft: selectionMode && !isOwn ? 2 : undefined,
+        marginRight: selectionMode && isOwn ? 2 : undefined,
         transform: swipeX ? `translateX(${swipeX}px)` : undefined,
         transition: swiping ? 'none' : 'transform 0.2s ease',
       }}>
@@ -761,7 +823,15 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
           {/* AUDIO */}
           {effectiveType === 'audio' && !missingLocalMedia && (
             <div>
-              <AudioPlayer src={mediaSrc} timeRow={caption ? null : <TimeRow />} waveform={mediaMeta.waveform} declaredDuration={mediaMeta.duration} />
+              <AudioPlayer
+                src={mediaSrc}
+                timeRow={caption ? null : <TimeRow />}
+                waveform={mediaMeta.waveform}
+                declaredDuration={mediaMeta.duration}
+                avatar={message.sender?.avatar || (isOwn ? currentUserAvatar : '')}
+                name={message.sender?.name || (isOwn ? currentUserName : '')}
+                isOwn={isOwn}
+              />
               <CaptionBlock />
             </div>
           )}
@@ -800,6 +870,46 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
             </div>
           )}
 
+          {/* CONTACT */}
+          {effectiveType === 'contact' && (
+            <div style={{ padding: '9px 12px', minWidth: 240 }}>
+              {(() => {
+                const contact = parseContactPayload(message.content);
+                const initials = (contact.name || contact.username || t(lang, 'common.contact')).slice(0, 1).toUpperCase();
+                return (
+                  <>
+                    <div style={{ display:'flex', alignItems:'center', gap:11 }}>
+                      <div style={{ width:44, height:44, borderRadius:'50%', background:'linear-gradient(135deg,#102A2A,#1D9BF0)', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', overflow:'hidden', flexShrink:0, fontWeight:950 }}>
+                        {contact.avatar ? <img src={contact.avatar} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /> : initials}
+                      </div>
+                      <div style={{ minWidth:0, flex:1 }}>
+                        <p style={{ margin:0, fontSize:14.5, fontWeight:900, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {contact.name || t(lang, 'common.contact')}
+                        </p>
+                        <p style={{ margin:'2px 0 0', fontSize:12.5, fontWeight:700, color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {contact.phone || contact.email || contact.username || 'Oracle Messenger'}
+                        </p>
+                      </div>
+                    </div>
+                    {contact.url && (
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation();
+                          window.location.href = contact.url;
+                        }}
+                        style={{ marginTop:9, width:'100%', border:'1px solid rgba(16,42,42,0.12)', borderRadius:999, background:'rgba(16,42,42,0.04)', color:'var(--header-bg)', padding:'8px 12px', fontSize:12.5, fontWeight:900, cursor:'pointer' }}
+                      >
+                        Ouvrir le contact
+                      </button>
+                    )}
+                    <TimeRow />
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
           {/* TEXT */}
           {effectiveType === 'text' && callTrace && (
             <>
@@ -812,33 +922,33 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
                   border: 'none',
                   background: onCallMessageClick && !selectionMode ? (isOwn ? 'rgba(16,42,42,.045)' : 'rgba(16,42,42,.035)') : 'transparent',
                   color: 'inherit',
-                  padding: onCallMessageClick && !selectionMode ? '8px 10px' : 0,
+                  padding: onCallMessageClick && !selectionMode ? '7px 9px' : 0,
                   margin: 0,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 9,
-                  minWidth: 220,
+                  gap: 8,
+                  minWidth: 176,
                   textAlign: 'left',
                   cursor: onCallMessageClick && !selectionMode ? 'pointer' : 'default',
-                  borderRadius: 14,
+                  borderRadius: 13,
                 }}
               >
-                <span style={{ fontSize: 20, lineHeight: 1, flexShrink: 0 }}>
+                <span style={{ fontSize: 17, lineHeight: 1, flexShrink: 0 }}>
                   {message.content.trim().startsWith('📵') ? '📵' : callTrace.type === 'video' ? '📹' : '📞'}
                 </span>
                 <span style={{ minWidth: 0, flex: 1 }}>
-                  <span style={{ display: 'block', fontSize: 16.2, lineHeight: 1.2, fontWeight: 850, letterSpacing: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <span style={{ display: 'block', fontSize: 14.8, lineHeight: 1.2, fontWeight: 820, letterSpacing: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {callTrace.label}
                   </span>
                   {onCallMessageClick && !selectionMode && (
-                    <span style={{ display: 'block', marginTop: 3, fontSize: 12, lineHeight: 1.15, color: isOwn ? 'rgba(0,0,0,.54)' : 'var(--text-muted)', fontWeight: 820 }}>
+                    <span style={{ display: 'block', marginTop: 2, fontSize: 11.5, lineHeight: 1.15, color: isOwn ? 'rgba(0,0,0,.54)' : 'var(--text-muted)', fontWeight: 760 }}>
                       Appuyer pour rappeler
                     </span>
                   )}
                 </span>
                 {onCallMessageClick && !selectionMode && (
-                  <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: '50%', background: isOwn ? 'rgba(16,42,42,0.08)' : 'rgba(16,42,42,0.07)', color: 'var(--header-bg)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24">
+                  <span aria-hidden="true" style={{ width: 26, height: 26, borderRadius: '50%', background: isOwn ? 'rgba(16,42,42,0.08)' : 'rgba(16,42,42,0.07)', color: 'var(--header-bg)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <svg width="13" height="13" fill="currentColor" viewBox="0 0 24 24">
                       {callTrace.type === 'video'
                         ? <path d="M3 7a3 3 0 013-3h8a3 3 0 013 3v10a3 3 0 01-3 3H6a3 3 0 01-3-3V7zm15 3.2l3.2-2A.5.5 0 0122 8.6v6.8a.5.5 0 01-.8.4L18 13.8v-3.6z"/>
                         : <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1-9.4 0-17-7.6-17-17 0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/>}
@@ -1026,7 +1136,7 @@ export function MessageBubble({ message, isOwn, currentUserId, onReply, onDelete
           subtitle={timeStr}
           onClose={() => setLightbox(false)}
           onSave={() => {
-            saveToGallery(mediaSrc, effectiveType as 'image' | 'video');
+            saveToGallery(mediaSrc, effectiveType as 'image' | 'video', undefined, undefined, currentUserId);
           }}
         />,
         document.body

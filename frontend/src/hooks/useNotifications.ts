@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
+import { getSession } from 'next-auth/react';
+import { BACKEND_URL } from '../lib/config';
 import {
   playMessageSound as playCentralMessageSound,
   playMissedCallSound as playCentralMissedCallSound,
@@ -15,6 +17,29 @@ export function useNotifications() {
   const [supported, setSupported] = useState(false);
   const nativePushRegisteredRef = useRef(false);
   const activeCallNotificationRef = useRef<Notification | null>(null);
+
+  async function saveSubscription(subscription: any) {
+    const session = await getSession().catch(() => null);
+    const backendToken = (session?.user as any)?.backendToken;
+    if (backendToken) {
+      const res = await fetch(`${BACKEND_URL}/notifications/subscribe`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${backendToken}`,
+        },
+        body: JSON.stringify(subscription),
+      });
+      if (res.ok) return;
+    }
+
+    const fallback = await fetch('/api/push-subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(subscription),
+    });
+    if (!fallback.ok) throw new Error('Push subscription backend save failed');
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -45,11 +70,16 @@ export function useNotifications() {
     window.addEventListener('touchend', unlock, { passive: true });
     window.addEventListener('click', unlock);
     window.addEventListener('keydown', unlock);
+    const onServiceWorkerMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'CALL_SYNC') stopRingtone();
+    };
+    navigator.serviceWorker?.addEventListener?.('message', onServiceWorkerMessage);
     return () => {
       window.removeEventListener('touchstart', unlock);
       window.removeEventListener('touchend', unlock);
       window.removeEventListener('click', unlock);
       window.removeEventListener('keydown', unlock);
+      navigator.serviceWorker?.removeEventListener?.('message', onServiceWorkerMessage);
     };
   }, []);
 
@@ -81,15 +111,35 @@ export function useNotifications() {
     if (nativePushRegisteredRef.current) return;
     nativePushRegisteredRef.current = true;
     try {
+      if (Capacitor.getPlatform() === 'android') {
+        await PushNotifications.createChannel({
+          id: 'oracle_messenger_incoming_calls_v3',
+          name: 'Appels Oracle Messenger',
+          description: 'Appels audio et vidéo entrants avec sonnerie Oracle Messenger',
+          importance: 5,
+          visibility: 1,
+          sound: 'oracle_call',
+          vibration: true,
+        }).catch(error => {
+          console.warn('[Push] incoming call channel creation failed:', error);
+        });
+        await PushNotifications.createChannel({
+          id: 'oracle_messenger_messages_v2',
+          name: 'Messages Oracle Messenger',
+          description: 'Messages et alertes Oracle Messenger',
+          importance: 4,
+          visibility: 1,
+          sound: 'oracle_message',
+          vibration: true,
+        }).catch(error => {
+          console.warn('[Push] message channel creation failed:', error);
+        });
+      }
       await PushNotifications.addListener('registration', async token => {
-        await fetch('/api/push-subscribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'fcm',
-            token: token.value,
-            platform: Capacitor.getPlatform(),
-          }),
+        await saveSubscription({
+          type: 'fcm',
+          token: token.value,
+          platform: Capacitor.getPlatform(),
         }).catch(error => {
           console.warn('[Push] native token backend save failed:', error);
         });
@@ -97,8 +147,22 @@ export function useNotifications() {
       await PushNotifications.addListener('registrationError', error => {
         console.warn('[Push] native registration error:', error);
       });
+      await PushNotifications.addListener('pushNotificationReceived', notification => {
+        const data = notification.data ?? {};
+        console.info('[Push] native foreground notification received:', {
+          type: data.type,
+          callId: data.callId,
+          tag: data.tag,
+        });
+        if (data.type === 'call-sync') {
+          stopCentralRingtone();
+        } else if (data.type === 'call') {
+          startCentralRingtone();
+        }
+      });
       await PushNotifications.addListener('pushNotificationActionPerformed', action => {
         const url = action.notification.data?.url;
+        if (action.notification.data?.type === 'call') stopCentralRingtone();
         if (typeof url === 'string' && url) window.location.href = url;
       });
       await PushNotifications.register();
@@ -114,8 +178,7 @@ export function useNotifications() {
       const reg = await navigator.serviceWorker.ready;
 
       // Récupérer la clé VAPID publique depuis le backend
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
-      const res = await fetch(`${backendUrl}/notifications/vapid-public-key`);
+      const res = await fetch(`${BACKEND_URL}/notifications/vapid-public-key`);
       if (!res.ok) return;
       const { key } = await res.json();
       if (!key) return;
@@ -132,13 +195,7 @@ export function useNotifications() {
         });
       }
 
-      // On passe par l'API Next.js pour récupérer la session serveur
-      // et transmettre le token backend sans l'exposer côté client.
-      await fetch('/api/push-subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sub.toJSON()),
-      });
+      await saveSubscription(sub.toJSON());
     } catch (e) {
       console.warn('[Push] subscription failed:', e);
     }
@@ -188,8 +245,8 @@ export function useNotifications() {
     if (!supported || permission !== 'granted') return;
     try {
       const notificationOptions = {
-        icon: opts?.icon ?? '/icons/icon-192-v20260804.png',
-        badge: '/icons/icon-72-v20260804.png',
+        icon: opts?.icon ?? '/icons/icon-192-v20260809-premium.png',
+        badge: '/icons/icon-72-v20260809-premium.png',
         body: opts?.body,
         tag: opts?.tag,
         data: opts?.data,
