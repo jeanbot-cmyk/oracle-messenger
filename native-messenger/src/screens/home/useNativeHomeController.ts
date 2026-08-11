@@ -1,17 +1,15 @@
-import { useMemo, useState } from 'react';
-import { ANDROID_PACKAGE, NATIVE_BASELINE } from '@/config/env';
+import { useState } from 'react';
 import { useNativeCallNotificationRouting } from '@/screens/home/useNativeCallNotificationRouting';
 import { useNativeComposerController } from '@/screens/home/useNativeComposerController';
 import { useNativeConversationBrowser } from '@/screens/home/useNativeConversationBrowser';
 import { useNativeConversationController } from '@/screens/home/useNativeConversationController';
 import { useNativeConversationState } from '@/screens/home/useNativeConversationState';
-import { useNativeHomeShellProps } from '@/screens/home/useNativeHomeShellProps';
 import { useNativeHomeUiState } from '@/screens/home/useNativeHomeUiState';
+import { useNativeHomeViewModel } from '@/screens/home/useNativeHomeViewModel';
 import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
 import { useNativeMediaSyncLifecycle } from '@/screens/home/useNativeMediaSyncLifecycle';
 import { useNativeRealtimeEvents } from '@/screens/home/useNativeRealtimeEvents';
 import { useNativeSessionLifecycle } from '@/screens/home/useNativeSessionLifecycle';
-import { useVisibleTabs } from '@/screens/NativeFeaturePages';
 import type { AuthSession } from '@/types/messenger';
 
 export function useNativeHomeController() {
@@ -34,8 +32,6 @@ export function useNativeHomeController() {
   } = useNativeConversationState({ session, messageSearch: ui.messageSearch });
 
   const token = session?.token;
-  const visibleTabs = useVisibleTabs(session);
-  const needsOnboarding = Boolean(session && (session.user.isNew || !session.user.phone));
   const { localMediaByMessageId, refreshLocalMediaIndex, clearMediaRefreshTimers, runMediaSync } = useNativeMediaSync();
 
   const { refreshConversations } = useNativeConversationBrowser({
@@ -146,33 +142,18 @@ export function useNativeHomeController() {
     setSession,
   });
 
-  const headerSubtitle = useMemo(() => {
-    if (session?.user?.name) return `${session.user.name} • ${ANDROID_PACKAGE}`;
-    return `${ANDROID_PACKAGE} • baseline ${NATIVE_BASELINE}`;
-  }, [session?.user?.name]);
-
-  const shellProps = useNativeHomeShellProps({
+  const { needsOnboarding, shellProps } = useNativeHomeViewModel({
     session,
-    needsOnboarding,
     nativeCall,
-    headerSubtitle,
-    tabs: visibleTabs,
-    activeTab: ui.activeTab,
-    notice: ui.notice,
     conversations,
     selected,
-    conversationSearch: ui.conversationSearch,
-    busy: ui.busy,
-    messageSearch: ui.messageSearch,
-    messages: visibleMessages,
+    visibleMessages,
     localMediaByMessageId,
     composer,
     conversationsController,
     refreshConversations,
     logout,
-    setActiveTab: ui.setActiveTab,
-    setConversationSearch: ui.setConversationSearch,
-    setMessageSearch: ui.setMessageSearch,
+    ui,
     setSelected,
   });
 
