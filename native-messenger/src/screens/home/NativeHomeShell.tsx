@@ -32,6 +32,7 @@ export type NativeHomeShellProps = {
   editingMessage: Message | null;
   voiceRecording: boolean;
   voiceStartedAt: number | null;
+  aiBusy: boolean;
   onRefreshConversations: () => Promise<void>;
   onTabPress: (tab: NativeTabKey) => void;
   onOpenConversationFromFeature: (conversation: Conversation) => void;
@@ -52,6 +53,7 @@ export type NativeHomeShellProps = {
   onAttachImage: () => void | Promise<void>;
   onAttachDocument: () => void | Promise<void>;
   onToggleVoiceRecording: () => void | Promise<void>;
+  onAskAiDraft: () => void | Promise<void>;
   onSend: () => void | Promise<void>;
   onConversationSearchChange: (value: string) => void;
   onOpenConversationFromList: (conversation: Conversation) => void;
@@ -81,6 +83,7 @@ export function NativeHomeShell({
   editingMessage,
   voiceRecording,
   voiceStartedAt,
+  aiBusy,
   onRefreshConversations,
   onTabPress,
   onOpenConversationFromFeature,
@@ -101,6 +104,7 @@ export function NativeHomeShell({
   onAttachImage,
   onAttachDocument,
   onToggleVoiceRecording,
+  onAskAiDraft,
   onSend,
   onConversationSearchChange,
   onOpenConversationFromList,
@@ -145,6 +149,7 @@ export function NativeHomeShell({
           editingMessage={editingMessage}
           voiceRecording={voiceRecording}
           voiceStartedAt={voiceStartedAt}
+          aiBusy={aiBusy}
           busy={busy}
           onBack={onBackFromChat}
           onStartAudioCall={() => nativeCall.startCall(selected, 'audio')}
@@ -164,6 +169,7 @@ export function NativeHomeShell({
           onAttachImage={onAttachImage}
           onAttachDocument={onAttachDocument}
           onToggleVoiceRecording={onToggleVoiceRecording}
+          onAskAiDraft={onAskAiDraft}
           onSend={onSend}
         />
       ) : (

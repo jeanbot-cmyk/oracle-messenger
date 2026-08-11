@@ -1,5 +1,5 @@
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Image as ImageIcon, Mic, Paperclip, Send } from 'lucide-react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image as ImageIcon, Mic, Paperclip, Send, Sparkles } from 'lucide-react-native';
 import { colors } from '@/theme/colors';
 import type { Message } from '@/types/messenger';
 import { messagePreview } from './homeUtils';
@@ -11,12 +11,14 @@ type NativeChatComposerProps = {
   voiceRecording: boolean;
   voiceStartedAt: number | null;
   busy: boolean;
+  aiBusy: boolean;
   onDraftChange: (value: string) => void;
   onClearContext: () => void;
   onCancelVoiceRecording: () => void | Promise<void>;
   onAttachImage: () => void | Promise<void>;
   onAttachDocument: () => void | Promise<void>;
   onToggleVoiceRecording: () => void | Promise<void>;
+  onAskAiDraft: () => void | Promise<void>;
   onSend: () => void | Promise<void>;
 };
 
@@ -27,12 +29,14 @@ export function NativeChatComposer({
   voiceRecording,
   voiceStartedAt,
   busy,
+  aiBusy,
   onDraftChange,
   onClearContext,
   onCancelVoiceRecording,
   onAttachImage,
   onAttachDocument,
   onToggleVoiceRecording,
+  onAskAiDraft,
   onSend,
 }: NativeChatComposerProps) {
   const contextMessage = editingMessage || replyTo;
@@ -70,6 +74,9 @@ export function NativeChatComposer({
       <Pressable style={[styles.attachButton, voiceRecording && styles.recordingButton]} onPress={onToggleVoiceRecording} disabled={busy && !voiceRecording}>
         <Mic size={19} color={voiceRecording ? '#FFFFFF' : colors.header} />
       </Pressable>
+      <Pressable accessibilityLabel="Gemini" style={[styles.attachButton, styles.aiButton]} onPress={onAskAiDraft} disabled={busy || aiBusy || voiceRecording}>
+        {aiBusy ? <ActivityIndicator size="small" color={colors.header} /> : <Sparkles size={19} color={colors.header} />}
+      </Pressable>
       <TextInput value={draft} onChangeText={onDraftChange} placeholder="Message" placeholderTextColor={colors.muted} style={styles.input} />
       <Pressable style={styles.sendButton} onPress={onSend}>
         <Send size={20} color="#FFFFFF" />
@@ -90,7 +97,8 @@ const styles = StyleSheet.create({
   recordingDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger },
   voiceRecordingText: { flex: 1, color: colors.danger, fontSize: 12.5, fontWeight: '900' },
   attachButton: { width: 44, height: 46, borderRadius: 16, backgroundColor: '#EAF4F1', alignItems: 'center', justifyContent: 'center' },
+  aiButton: { backgroundColor: '#F8E7B3' },
   recordingButton: { backgroundColor: colors.danger },
-  input: { flex: 1, minHeight: 46, borderRadius: 16, backgroundColor: colors.input, paddingHorizontal: 14, color: colors.text, fontWeight: '700' },
+  input: { flex: 1, minWidth: 120, minHeight: 46, borderRadius: 16, backgroundColor: colors.input, paddingHorizontal: 14, color: colors.text, fontWeight: '700' },
   sendButton: { width: 46, height: 46, borderRadius: 16, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center' },
 });

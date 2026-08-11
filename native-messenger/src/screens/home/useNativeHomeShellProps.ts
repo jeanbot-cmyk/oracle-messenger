@@ -85,6 +85,7 @@ export function useNativeHomeShellProps({
     editingMessage: composer.editingMessage,
     voiceRecording: composer.voiceRecording,
     voiceStartedAt: composer.voiceStartedAt,
+    aiBusy: composer.aiBusy,
     onRefreshConversations: refreshConversations,
     onTabPress: tab => {
       setActiveTab(tab);
@@ -108,6 +109,7 @@ export function useNativeHomeShellProps({
     onAttachImage: composer.attachImage,
     onAttachDocument: composer.attachDocument,
     onToggleVoiceRecording: composer.toggleVoiceRecording,
+    onAskAiDraft: composer.askAiDraft,
     onSend: composer.send,
     onConversationSearchChange: setConversationSearch,
     onOpenConversationFromList: conversation => {

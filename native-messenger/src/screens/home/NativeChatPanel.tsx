@@ -23,6 +23,7 @@ type NativeChatPanelProps = {
   editingMessage: Message | null;
   voiceRecording: boolean;
   voiceStartedAt: number | null;
+  aiBusy: boolean;
   busy: boolean;
   onBack: () => void;
   onStartAudioCall: () => void;
@@ -42,6 +43,7 @@ type NativeChatPanelProps = {
   onAttachImage: () => void | Promise<void>;
   onAttachDocument: () => void | Promise<void>;
   onToggleVoiceRecording: () => void | Promise<void>;
+  onAskAiDraft: () => void | Promise<void>;
   onSend: () => void | Promise<void>;
 };
 
@@ -62,6 +64,7 @@ export function NativeChatPanel({
   editingMessage,
   voiceRecording,
   voiceStartedAt,
+  aiBusy,
   busy,
   onBack,
   onStartAudioCall,
@@ -81,6 +84,7 @@ export function NativeChatPanel({
   onAttachImage,
   onAttachDocument,
   onToggleVoiceRecording,
+  onAskAiDraft,
   onSend,
 }: NativeChatPanelProps) {
   return (
@@ -125,12 +129,14 @@ export function NativeChatPanel({
         voiceRecording={voiceRecording}
         voiceStartedAt={voiceStartedAt}
         busy={busy}
+        aiBusy={aiBusy}
         onDraftChange={onDraftChange}
         onClearContext={onClearContext}
         onCancelVoiceRecording={onCancelVoiceRecording}
         onAttachImage={onAttachImage}
         onAttachDocument={onAttachDocument}
         onToggleVoiceRecording={onToggleVoiceRecording}
+        onAskAiDraft={onAskAiDraft}
         onSend={onSend}
       />
     </KeyboardAvoidingView>
