@@ -6,21 +6,17 @@ import { useNativeConversationBrowser } from '@/screens/home/useNativeConversati
 import { useNativeConversationController } from '@/screens/home/useNativeConversationController';
 import { useNativeConversationState } from '@/screens/home/useNativeConversationState';
 import { useNativeHomeShellProps } from '@/screens/home/useNativeHomeShellProps';
+import { useNativeHomeUiState } from '@/screens/home/useNativeHomeUiState';
 import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
 import { useNativeMediaSyncLifecycle } from '@/screens/home/useNativeMediaSyncLifecycle';
 import { useNativeRealtimeEvents } from '@/screens/home/useNativeRealtimeEvents';
 import { useNativeSessionLifecycle } from '@/screens/home/useNativeSessionLifecycle';
-import { type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
+import { useVisibleTabs } from '@/screens/NativeFeaturePages';
 import type { AuthSession } from '@/types/messenger';
 
 export function useNativeHomeController() {
   const [session, setSession] = useState<AuthSession | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
-  const [conversationSearch, setConversationSearch] = useState('');
-  const [messageSearch, setMessageSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<NativeTabKey>('chats');
+  const ui = useNativeHomeUiState();
   const {
     conversations,
     setConversations,
@@ -35,7 +31,7 @@ export function useNativeHomeController() {
     patchMessage,
     markMessageDeleted,
     visibleMessages,
-  } = useNativeConversationState({ session, messageSearch });
+  } = useNativeConversationState({ session, messageSearch: ui.messageSearch });
 
   const token = session?.token;
   const visibleTabs = useVisibleTabs(session);
@@ -43,13 +39,13 @@ export function useNativeHomeController() {
   const { localMediaByMessageId, refreshLocalMediaIndex, clearMediaRefreshTimers, runMediaSync } = useNativeMediaSync();
 
   const { refreshConversations } = useNativeConversationBrowser({
-    activeTab,
-    conversationSearch,
+    activeTab: ui.activeTab,
+    conversationSearch: ui.conversationSearch,
     selected,
     token,
-    setBusy,
+    setBusy: ui.setBusy,
     setConversations,
-    setNotice,
+    setNotice: ui.setNotice,
   });
 
   const composer = useNativeComposerController({
@@ -59,8 +55,8 @@ export function useNativeHomeController() {
     patchMessage,
     refreshConversations,
     upsertMessage,
-    setBusy,
-    setNotice,
+    setBusy: ui.setBusy,
+    setNotice: ui.setNotice,
   });
 
   const {
@@ -101,14 +97,14 @@ export function useNativeHomeController() {
     markMessageDeleted,
     upsertMessage,
     runMediaSync,
-    setActiveTab,
-    setBusy,
+    setActiveTab: ui.setActiveTab,
+    setBusy: ui.setBusy,
     setConversations,
     setDraft,
     setEditingMessage,
-    setMessageSearch,
+    setMessageSearch: ui.setMessageSearch,
     setMessages,
-    setNotice,
+    setNotice: ui.setNotice,
     setReplyTo,
     setSelected,
   });
@@ -118,10 +114,10 @@ export function useNativeHomeController() {
     selectedRef,
     openConversationById: conversationsController.openConversationById,
     refreshConversations,
-    setActiveTab,
+    setActiveTab: ui.setActiveTab,
     setSelected,
-    setBusy,
-    setNotice,
+    setBusy: ui.setBusy,
+    setNotice: ui.setNotice,
   });
 
   useNativeMediaSyncLifecycle({
@@ -137,14 +133,14 @@ export function useNativeHomeController() {
     refreshLocalMediaIndex,
     resetMessageActions: conversationsController.resetMessageActions,
     runMediaSync,
-    setActiveTab,
-    setBusy,
+    setActiveTab: ui.setActiveTab,
+    setBusy: ui.setBusy,
     setConversations,
     setEditingMessage,
-    setLoading,
-    setMessageSearch,
+    setLoading: ui.setLoading,
+    setMessageSearch: ui.setMessageSearch,
     setMessages,
-    setNotice,
+    setNotice: ui.setNotice,
     setReplyTo,
     setSelected,
     setSession,
@@ -161,31 +157,31 @@ export function useNativeHomeController() {
     nativeCall,
     headerSubtitle,
     tabs: visibleTabs,
-    activeTab,
-    notice,
+    activeTab: ui.activeTab,
+    notice: ui.notice,
     conversations,
     selected,
-    conversationSearch,
-    busy,
-    messageSearch,
+    conversationSearch: ui.conversationSearch,
+    busy: ui.busy,
+    messageSearch: ui.messageSearch,
     messages: visibleMessages,
     localMediaByMessageId,
     composer,
     conversationsController,
     refreshConversations,
     logout,
-    setActiveTab,
-    setConversationSearch,
-    setMessageSearch,
+    setActiveTab: ui.setActiveTab,
+    setConversationSearch: ui.setConversationSearch,
+    setMessageSearch: ui.setMessageSearch,
     setSelected,
   });
 
   return {
-    loading,
+    loading: ui.loading,
     session,
     needsOnboarding,
-    notice,
-    busy,
+    notice: ui.notice,
+    busy: ui.busy,
     completeOnboarding,
     signInWithGoogle,
     logout,
