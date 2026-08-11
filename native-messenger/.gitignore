@@ -4,6 +4,7 @@ node_modules/
 ios/
 dist/
 web-build/
+.release/
 android/.gradle/
 android/build/
 android/app/build/

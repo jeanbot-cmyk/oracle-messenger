@@ -1,5 +1,7 @@
 # Oracle Messenger - publication Play Store
 
+> Historique: cette page decrit l'ancien flux Android Capacitor/PWA. La release Play Store finale de l'application Android native doit partir de `native-messenger/` et suivre `native-messenger/docs/play-store-production-runbook.md`.
+
 Cette procédure prépare l'application Android Capacitor pour Google Play tout en gardant la PWA actuelle disponible sur `https://messenger.oracle-plus.online`.
 
 ## Impact sur la PWA

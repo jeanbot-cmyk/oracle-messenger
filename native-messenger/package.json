@@ -14,8 +14,10 @@
     "android:assemble-debug-arm64": "./android/gradlew -p android :app:assembleDebug -PreactNativeArchitectures=arm64-v8a",
     "android:assemble-release": "NODE_ENV=production ./android/gradlew -p android :app:assembleRelease",
     "android:bundle-release": "NODE_ENV=production ./android/gradlew -p android :app:bundleRelease",
+    "android:production-release": "npm run typecheck && npm run lint && npm run verify:android-production-ready && npm run android:bundle-release && npm run verify:android-production-ready -- --require-aab",
     "verify:android-release-config": "node scripts/verify-android-release-config.js",
-    "verify:android-release-signing": "node scripts/verify-android-release-config.js --require-signing"
+    "verify:android-release-signing": "node scripts/verify-android-release-config.js --require-signing",
+    "verify:android-production-ready": "node scripts/verify-android-production-ready.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

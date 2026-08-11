@@ -1,4 +1,4 @@
-name: Build Android APK and AAB
+name: Build Native Android APK and AAB
 
 on:
   workflow_dispatch:
@@ -6,27 +6,23 @@ on:
     branches:
       - main
     paths:
-      - "frontend/**"
+      - "native-messenger/**"
       - ".github/workflows/android-apk.yml"
 
 permissions:
   contents: read
 
 jobs:
-  android-apk:
-    name: Build Capacitor Android
+  native-android:
+    name: Build React Native Android
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
 
     defaults:
       run:
-        working-directory: frontend
+        working-directory: native-messenger
 
     env:
-      NEXT_PUBLIC_BACKEND_URL: https://api-messenger.oracle-plus.online
-      CAPACITOR_ANDROID_STUDIO_PATH: /usr/bin/true
-      ORACLE_MESSENGER_VERSION_CODE: ${{ github.run_number }}
-      ORACLE_MESSENGER_VERSION_NAME: 1.0.${{ github.run_number }}
       ORACLE_MESSENGER_KEYSTORE_BASE64: ${{ secrets.ORACLE_MESSENGER_KEYSTORE_BASE64 }}
 
     steps:
@@ -37,8 +33,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -53,40 +47,27 @@ jobs:
         run: yes | sdkmanager --licenses >/dev/null
         working-directory: .
 
-      - name: Install Android platform
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Install Android packages
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools" "ndk;27.1.12297006"
         working-directory: .
 
-      - name: Install frontend dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Build Next.js frontend
-        run: npm run build
-
-      - name: Prepare Capacitor web directory
-        run: |
-          mkdir -p out
-          cat > out/index.html <<'HTML'
-          <!doctype html>
-          <html lang="fr">
-            <head>
-              <meta charset="utf-8" />
-              <meta name="viewport" content="width=device-width, initial-scale=1" />
-              <title>Oracle Messenger</title>
-            </head>
-            <body>
-              <script>
-                location.replace("https://messenger.oracle-plus.online");
-              </script>
-            </body>
-          </html>
-          HTML
-
-      - name: Sync Capacitor Android project
-        run: npx cap sync android
+      - name: Install native dependencies
+        run: npm install --legacy-peer-deps
 
       - name: Make Gradle executable
         run: chmod +x android/gradlew
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Verify Android release config
+        run: npm run verify:android-release-config
+
+      - name: Build debug APK arm64
+        run: npm run android:assemble-debug-arm64
 
       - name: Decode Android upload keystore
         if: ${{ env.ORACLE_MESSENGER_KEYSTORE_BASE64 != '' }}
@@ -98,62 +79,37 @@ jobs:
           test -n "$ORACLE_MESSENGER_KEYSTORE_PASSWORD" || { echo "Missing ORACLE_MESSENGER_KEYSTORE_PASSWORD"; exit 1; }
           test -n "$ORACLE_MESSENGER_KEY_ALIAS" || { echo "Missing ORACLE_MESSENGER_KEY_ALIAS"; exit 1; }
           test -n "$ORACLE_MESSENGER_KEY_PASSWORD" || { echo "Missing ORACLE_MESSENGER_KEY_PASSWORD"; exit 1; }
-          printf '%s' "$ORACLE_MESSENGER_KEYSTORE_BASE64" | base64 --decode > android/app/oracle-messenger-upload.jks
-
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace --warning-mode all
-        working-directory: frontend/android
-
-      - name: Build release APK unsigned
-        if: ${{ env.ORACLE_MESSENGER_KEYSTORE_BASE64 == '' }}
-        run: ./gradlew assembleRelease --stacktrace --warning-mode all
-        working-directory: frontend/android
-
-      - name: Build signed release APK
-        if: ${{ env.ORACLE_MESSENGER_KEYSTORE_BASE64 != '' }}
-        env:
-          ORACLE_MESSENGER_KEYSTORE_FILE: ${{ github.workspace }}/frontend/android/app/oracle-messenger-upload.jks
-          ORACLE_MESSENGER_KEYSTORE_PASSWORD: ${{ secrets.ORACLE_MESSENGER_KEYSTORE_PASSWORD }}
-          ORACLE_MESSENGER_KEY_ALIAS: ${{ secrets.ORACLE_MESSENGER_KEY_ALIAS }}
-          ORACLE_MESSENGER_KEY_PASSWORD: ${{ secrets.ORACLE_MESSENGER_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --stacktrace --warning-mode all
-        working-directory: frontend/android
-
-      - name: Build unsigned Play Store AAB
-        if: ${{ env.ORACLE_MESSENGER_KEYSTORE_BASE64 == '' }}
-        run: ./gradlew bundleRelease --stacktrace --warning-mode all
-        working-directory: frontend/android
+          mkdir -p .release
+          printf '%s' "$ORACLE_MESSENGER_KEYSTORE_BASE64" | base64 --decode > .release/oracle-messenger-upload.jks
 
       - name: Build signed Play Store AAB
         if: ${{ env.ORACLE_MESSENGER_KEYSTORE_BASE64 != '' }}
         env:
-          ORACLE_MESSENGER_KEYSTORE_FILE: ${{ github.workspace }}/frontend/android/app/oracle-messenger-upload.jks
+          ORACLE_MESSENGER_KEYSTORE_FILE: ${{ github.workspace }}/native-messenger/.release/oracle-messenger-upload.jks
           ORACLE_MESSENGER_KEYSTORE_PASSWORD: ${{ secrets.ORACLE_MESSENGER_KEYSTORE_PASSWORD }}
           ORACLE_MESSENGER_KEY_ALIAS: ${{ secrets.ORACLE_MESSENGER_KEY_ALIAS }}
           ORACLE_MESSENGER_KEY_PASSWORD: ${{ secrets.ORACLE_MESSENGER_KEY_PASSWORD }}
-        run: ./gradlew bundleRelease --stacktrace --warning-mode all
-        working-directory: frontend/android
+        run: npm run android:production-release
+
+      - name: Report missing release signing
+        if: ${{ env.ORACLE_MESSENGER_KEYSTORE_BASE64 == '' }}
+        run: |
+          echo "Skipping signed AAB because ORACLE_MESSENGER_KEYSTORE_BASE64 is not configured."
+          echo "Debug APK is for device smoke tests only, not Play Store production."
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: oracle-messenger-debug-apk
-          path: frontend/android/app/build/outputs/apk/debug/*.apk
+          name: oracle-messenger-native-debug-apk
+          path: native-messenger/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload unsigned release APK
+      - name: Upload signed Play Store AAB
+        if: ${{ env.ORACLE_MESSENGER_KEYSTORE_BASE64 != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: oracle-messenger-release-apk
-          path: frontend/android/app/build/outputs/apk/release/*.apk
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Upload Play Store AAB
-        uses: actions/upload-artifact@v4
-        with:
-          name: oracle-messenger-playstore-aab
-          path: frontend/android/app/build/outputs/bundle/release/*.aab
+          name: oracle-messenger-native-playstore-aab
+          path: native-messenger/android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
           retention-days: 14

@@ -8,8 +8,8 @@ Cette base est separee de la PWA `frontend/` et du wrapper Capacitor actuel.
 
 - Nom: Oracle Messenger
 - Package Android: `online.oracle_plus.messenger`
-- Version native de migration: `1.0.20260810.2`
-- VersionCode natif de migration: `2026081002`
+- Version native de migration: `1.0.20260811.2`
+- VersionCode natif de migration: `2026081102`
 - Backend production: `https://api-messenger.oracle-plus.online`
 - Domaine web conserve: `https://messenger.oracle-plus.online`
 
@@ -41,6 +41,36 @@ npm run verify:native
 ```
 
 L'APK debug local est genere dans `android/app/build/outputs/apk/debug/`. Il ne doit pas etre committe.
+
+## Release Play Store
+
+La release Play Store doit etre generee depuis cette base native, pas depuis le wrapper Capacitor.
+
+Variables de signature requises dans le shell de release:
+
+```bash
+ORACLE_MESSENGER_KEYSTORE_FILE
+ORACLE_MESSENGER_KEYSTORE_PASSWORD
+ORACLE_MESSENGER_KEY_ALIAS
+ORACLE_MESSENGER_KEY_PASSWORD
+```
+
+Gate strict sans generer d'AAB:
+
+```bash
+cd native-messenger
+npm run verify:android-production-ready
+```
+
+Generation complete de l'AAB signe:
+
+```bash
+cd native-messenger
+npm run android:production-release
+```
+
+L'AAB release attendu est `android/app/build/outputs/bundle/release/app-release.aab`.
+Il ne doit pas etre committe.
 
 ## Regle de publication
 
