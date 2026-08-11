@@ -11,6 +11,7 @@ import { ANDROID_PACKAGE, GOOGLE_WEB_CLIENT_ID, NATIVE_BASELINE } from '@/config
 import { useNativeCall } from '@/hooks/useNativeCall';
 import { NativeCallOverlay } from '@/screens/home/NativeCallOverlay';
 import { NativeChatMediaMessage } from '@/screens/home/NativeChatMediaMessage';
+import { NativeConversationList } from '@/screens/home/NativeConversationList';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
 import { conversationName, initials, messagePreview, parseCallActionDeepLink, parseConversationTarget, parsePaystackDeepLink, socketAck, sortMessages } from '@/screens/home/homeUtils';
 import { NativeFeaturePage, type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
@@ -1241,46 +1242,15 @@ export function NativeHomeScreen() {
           </View>
         </KeyboardAvoidingView>
       ) : (
-        <View style={styles.listPanel}>
-          <View style={styles.conversationSearchRow}>
-            <TextInput
-              value={conversationSearch}
-              onChangeText={setConversationSearch}
-              placeholder="Rechercher une conversation"
-              placeholderTextColor={colors.muted}
-              style={styles.conversationSearchInput}
-            />
-            {conversationSearch ? (
-              <Pressable onPress={() => setConversationSearch('')} style={styles.messageSearchClear}>
-                <Text style={styles.messageSearchClearText}>×</Text>
-              </Pressable>
-            ) : null}
-          </View>
-          {busy ? <ActivityIndicator color={colors.brand} style={{ marginTop: 12 }} /> : null}
-          <FlatList
-            data={conversations}
-            keyExtractor={item => item.id}
-            contentContainerStyle={styles.conversationList}
-            ListEmptyComponent={!busy ? <Text style={styles.emptySearch}>{conversationSearch.trim() ? 'Aucune conversation trouvée.' : 'Aucune conversation.'}</Text> : null}
-            ListFooterComponent={<Pressable onPress={logout} style={styles.logoutButton}><Text style={styles.logoutText}>Déconnexion</Text></Pressable>}
-            renderItem={({ item }) => (
-              <Pressable
-                style={styles.conversationRow}
-                onPress={() => { setActiveTab('chats'); loadMessages(item); }}
-                onLongPress={() => openConversationActions(item)}
-              >
-                <View style={styles.avatar}>
-                  {item.avatar ? <Image source={{ uri: item.avatar }} style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initials(conversationName(item))}</Text>}
-                </View>
-                <View style={styles.conversationText}>
-                  <Text style={styles.conversationTitle}>{conversationName(item)}</Text>
-                  <Text numberOfLines={1} style={styles.conversationPreview}>{messagePreview(item.lastMessage)}</Text>
-                </View>
-                {item.unreadCount ? <View style={styles.unread}><Text style={styles.unreadText}>{item.unreadCount}</Text></View> : null}
-              </Pressable>
-            )}
-          />
-        </View>
+        <NativeConversationList
+          conversations={conversations}
+          search={conversationSearch}
+          busy={busy}
+          onSearchChange={setConversationSearch}
+          onOpenConversation={conversation => { setActiveTab('chats'); loadMessages(conversation); }}
+          onConversationActions={openConversationActions}
+          onLogout={logout}
+        />
       )}
     </SafeAreaView>
   );
@@ -1315,21 +1285,7 @@ const styles = StyleSheet.create({
   tabText: { color: 'rgba(255,255,255,0.76)', fontSize: 12.5, fontWeight: '900' },
   tabTextActive: { color: '#FFFFFF' },
   banner: { margin: 12, padding: 10, borderRadius: 12, backgroundColor: '#FFF7ED', color: '#9A3412', fontSize: 12.5, fontWeight: '800' },
-  listPanel: { flex: 1 },
-  conversationSearchRow: { marginHorizontal: 12, marginTop: 12, minHeight: 46, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10 },
-  conversationSearchInput: { flex: 1, minHeight: 44, color: colors.text, fontWeight: '800', paddingHorizontal: 4 },
-  conversationList: { padding: 12, paddingBottom: 24 },
-  conversationRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: 18, borderWidth: 1, borderColor: colors.border, padding: 12, marginBottom: 10 },
-  avatar: { width: 50, height: 50, borderRadius: 18, backgroundColor: '#EAF4F1', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarImage: { width: '100%', height: '100%' },
-  avatarText: { color: colors.header, fontWeight: '900', fontSize: 16 },
-  conversationText: { flex: 1, minWidth: 0, marginLeft: 12 },
-  conversationTitle: { color: colors.text, fontSize: 15.5, fontWeight: '900' },
-  conversationPreview: { color: colors.muted, fontSize: 13, fontWeight: '700', marginTop: 3 },
-  unread: { minWidth: 26, height: 26, borderRadius: 13, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 7 },
-  unreadText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
-  logoutButton: { marginTop: 8, alignItems: 'center', padding: 14 },
-  logoutText: { color: colors.danger, fontWeight: '900' },
   chatPanel: { flex: 1 },
   chatTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingRight: 12 },
   backRow: { paddingHorizontal: 16, paddingVertical: 12 },
