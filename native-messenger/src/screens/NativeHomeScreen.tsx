@@ -6,11 +6,9 @@ import { NativeLoginScreen } from '@/screens/home/NativeLoginScreen';
 import { NativeLoadingScreen } from '@/screens/home/NativeLoadingScreen';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
 import { useNativeComposerController } from '@/screens/home/useNativeComposerController';
-import { useNativeConversationActions } from '@/screens/home/useNativeConversationActions';
+import { useNativeConversationController } from '@/screens/home/useNativeConversationController';
 import { useNativeConversationBrowser } from '@/screens/home/useNativeConversationBrowser';
 import { useNativeConversationState } from '@/screens/home/useNativeConversationState';
-import { useNativeMessageActions } from '@/screens/home/useNativeMessageActions';
-import { useNativeMessageLoader } from '@/screens/home/useNativeMessageLoader';
 import { usePendingNativeCallAction } from '@/screens/home/usePendingNativeCallAction';
 import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
 import { useNativeMediaSyncLifecycle } from '@/screens/home/useNativeMediaSyncLifecycle';
@@ -116,46 +114,25 @@ export function NativeHomeScreen() {
     handleUserOffline,
   });
 
-  const {
-    selectedMessageIds,
-    selectedMessages,
-    forwardMessages,
-    clearMessageSelection,
-    clearForwardMessages,
-    resetMessageActions,
-    toggleMessageSelection,
-    shareMessages,
-    beginForward,
-    forwardToConversation,
-    deleteSelectedOwnMessages,
-    openMessageActions,
-  } = useNativeMessageActions({
+  const conversationsController = useNativeConversationController({
     messages,
     selected,
     token,
     currentUserId: session?.user.id,
+    sessionRef,
     refreshConversations,
     markMessageDeleted,
     upsertMessage,
-    setBusy,
-    setNotice,
-    setReplyTo,
-    setEditingMessage,
-    setDraft,
-  });
-
-  const { loadMessages, openConversationById, openConversationFromFeature } = useNativeMessageLoader({
-    token,
-    currentUserId: session?.user.id,
-    sessionRef,
-    resetMessageActions,
     runMediaSync,
     setActiveTab,
     setBusy,
     setConversations,
+    setDraft,
+    setEditingMessage,
     setMessageSearch,
     setMessages,
     setNotice,
+    setReplyTo,
     setSelected,
   });
 
@@ -167,25 +144,12 @@ export function NativeHomeScreen() {
     prepareIncomingCall,
     clearPendingCallAction,
     queuePendingCallAction,
-    openConversationById,
+    openConversationById: conversationsController.openConversationById,
     refreshConversations,
     setActiveTab,
     setSelected,
     setBusy,
     setNotice,
-  });
-
-  const { openConversationActions } = useNativeConversationActions({
-    token,
-    selectedId: selected?.id,
-    loadMessages,
-    refreshConversations,
-    setActiveTab,
-    setBusy,
-    setNotice,
-    setSelected,
-    setMessages,
-    setConversations,
   });
 
   useNativeMediaSyncLifecycle({
@@ -199,7 +163,7 @@ export function NativeHomeScreen() {
     cancelVoiceRecording,
     refreshConversations,
     refreshLocalMediaIndex,
-    resetMessageActions,
+    resetMessageActions: conversationsController.resetMessageActions,
     runMediaSync,
     setActiveTab,
     setBusy,
@@ -252,9 +216,9 @@ export function NativeHomeScreen() {
       presenceText={presenceText}
       messageSearch={messageSearch}
       messages={visibleMessages}
-      selectedMessageIds={selectedMessageIds}
-      selectedMessages={selectedMessages}
-      forwardMessages={forwardMessages}
+      selectedMessageIds={conversationsController.selectedMessageIds}
+      selectedMessages={conversationsController.selectedMessages}
+      forwardMessages={conversationsController.forwardMessages}
       localMediaByMessageId={localMediaByMessageId}
       draft={draft}
       replyTo={replyTo}
@@ -263,18 +227,18 @@ export function NativeHomeScreen() {
       voiceStartedAt={voiceStartedAt}
       onRefreshConversations={refreshConversations}
       onTabPress={tab => { setActiveTab(tab); if (tab !== 'chats') setSelected(null); }}
-      onOpenConversationFromFeature={openConversationFromFeature}
+      onOpenConversationFromFeature={conversationsController.openConversationFromFeature}
       onLogout={logout}
       onBackFromChat={() => setSelected(null)}
       onMessageSearchChange={setMessageSearch}
-      onShareMessages={shareMessages}
-      onBeginForward={beginForward}
-      onDeleteSelectedMessages={deleteSelectedOwnMessages}
-      onClearMessageSelection={clearMessageSelection}
-      onClearForwardMessages={clearForwardMessages}
-      onForwardToConversation={forwardToConversation}
-      onToggleMessageSelection={toggleMessageSelection}
-      onOpenMessageActions={openMessageActions}
+      onShareMessages={conversationsController.shareMessages}
+      onBeginForward={conversationsController.beginForward}
+      onDeleteSelectedMessages={conversationsController.deleteSelectedOwnMessages}
+      onClearMessageSelection={conversationsController.clearMessageSelection}
+      onClearForwardMessages={conversationsController.clearForwardMessages}
+      onForwardToConversation={conversationsController.forwardToConversation}
+      onToggleMessageSelection={conversationsController.toggleMessageSelection}
+      onOpenMessageActions={conversationsController.openMessageActions}
       onDraftChange={handleDraftChange}
       onClearComposerContext={clearComposerContext}
       onCancelVoiceRecording={cancelVoiceRecording}
@@ -283,8 +247,8 @@ export function NativeHomeScreen() {
       onToggleVoiceRecording={toggleVoiceRecording}
       onSend={send}
       onConversationSearchChange={setConversationSearch}
-      onOpenConversationFromList={conversation => { setActiveTab('chats'); loadMessages(conversation); }}
-      onConversationActions={openConversationActions}
+      onOpenConversationFromList={conversation => { setActiveTab('chats'); conversationsController.loadMessages(conversation); }}
+      onConversationActions={conversationsController.openConversationActions}
     />
   );
 }
