@@ -1,11 +1,7 @@
 import { useMemo, useState } from 'react';
-import { SafeAreaView, StyleSheet, Text } from 'react-native';
 import { ANDROID_PACKAGE, NATIVE_BASELINE } from '@/config/env';
 import { useNativeCall } from '@/hooks/useNativeCall';
-import { NativeChatPanel } from '@/screens/home/NativeChatPanel';
-import { NativeCallOverlay } from '@/screens/home/NativeCallOverlay';
-import { NativeConversationList } from '@/screens/home/NativeConversationList';
-import { NativeHomeShellHeader } from '@/screens/home/NativeHomeShellHeader';
+import { NativeHomeShell } from '@/screens/home/NativeHomeShell';
 import { NativeLoginScreen } from '@/screens/home/NativeLoginScreen';
 import { NativeLoadingScreen } from '@/screens/home/NativeLoadingScreen';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
@@ -24,8 +20,7 @@ import { useNativeSessionLifecycle } from '@/screens/home/useNativeSessionLifecy
 import { useNativeTextMessageSender } from '@/screens/home/useNativeTextMessageSender';
 import { useNativeTypingPresence } from '@/screens/home/useNativeTypingPresence';
 import { useNativeVoiceRecorder } from '@/screens/home/useNativeVoiceRecorder';
-import { NativeFeaturePage, type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
-import { colors } from '@/theme/colors';
+import { type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
 import type { AuthSession, Message } from '@/types/messenger';
 
 export function NativeHomeScreen() {
@@ -261,81 +256,53 @@ export function NativeHomeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.app}>
-      <NativeCallOverlay call={nativeCall} />
-      <NativeHomeShellHeader
-        subtitle={headerSubtitle}
-        tabs={visibleTabs}
-        activeTab={activeTab}
-        onRefresh={() => refreshConversations()}
-        onTabPress={tab => { setActiveTab(tab); if (tab !== 'chats') setSelected(null); }}
-      />
-
-      {notice ? <Text style={styles.banner}>{notice}</Text> : null}
-
-      {activeTab !== 'chats' && session ? (
-        <NativeFeaturePage
-          tab={activeTab}
-          session={session}
-          onOpenConversation={openConversationFromFeature}
-          onRefreshConversations={() => refreshConversations()}
-          onLogout={logout}
-        />
-      ) : selected ? (
-        <NativeChatPanel
-          conversation={selected}
-          conversations={conversations}
-          session={session}
-          presenceText={presenceText}
-          callNotice={nativeCall.callNotice}
-          messageSearch={messageSearch}
-          messages={visibleMessages}
-          selectedMessageIds={selectedMessageIds}
-          selectedMessages={selectedMessages}
-          forwardMessages={forwardMessages}
-          localMediaByMessageId={localMediaByMessageId}
-          draft={draft}
-          replyTo={replyTo}
-          editingMessage={editingMessage}
-          voiceRecording={voiceRecording}
-          voiceStartedAt={voiceStartedAt}
-          busy={busy}
-          onBack={() => setSelected(null)}
-          onStartAudioCall={() => nativeCall.startCall(selected, 'audio')}
-          onStartVideoCall={() => nativeCall.startCall(selected, 'video')}
-          onMessageSearchChange={setMessageSearch}
-          onShare={shareMessages}
-          onBeginForward={beginForward}
-          onDeleteSelected={deleteSelectedOwnMessages}
-          onClearSelection={clearMessageSelection}
-          onClearForward={clearForwardMessages}
-          onForwardToConversation={forwardToConversation}
-          onToggleSelection={toggleMessageSelection}
-          onOpenMessageActions={openMessageActions}
-          onDraftChange={handleDraftChange}
-          onClearContext={() => { setReplyTo(null); setEditingMessage(null); setDraft(''); }}
-          onCancelVoiceRecording={cancelVoiceRecording}
-          onAttachImage={attachImage}
-          onAttachDocument={attachDocument}
-          onToggleVoiceRecording={toggleVoiceRecording}
-          onSend={send}
-        />
-      ) : (
-        <NativeConversationList
-          conversations={conversations}
-          search={conversationSearch}
-          busy={busy}
-          onSearchChange={setConversationSearch}
-          onOpenConversation={conversation => { setActiveTab('chats'); loadMessages(conversation); }}
-          onConversationActions={openConversationActions}
-          onLogout={logout}
-        />
-      )}
-    </SafeAreaView>
+    <NativeHomeShell
+      session={session}
+      nativeCall={nativeCall}
+      headerSubtitle={headerSubtitle}
+      tabs={visibleTabs}
+      activeTab={activeTab}
+      notice={notice}
+      conversations={conversations}
+      selected={selected}
+      conversationSearch={conversationSearch}
+      busy={busy}
+      presenceText={presenceText}
+      messageSearch={messageSearch}
+      messages={visibleMessages}
+      selectedMessageIds={selectedMessageIds}
+      selectedMessages={selectedMessages}
+      forwardMessages={forwardMessages}
+      localMediaByMessageId={localMediaByMessageId}
+      draft={draft}
+      replyTo={replyTo}
+      editingMessage={editingMessage}
+      voiceRecording={voiceRecording}
+      voiceStartedAt={voiceStartedAt}
+      onRefreshConversations={refreshConversations}
+      onTabPress={tab => { setActiveTab(tab); if (tab !== 'chats') setSelected(null); }}
+      onOpenConversationFromFeature={openConversationFromFeature}
+      onLogout={logout}
+      onBackFromChat={() => setSelected(null)}
+      onMessageSearchChange={setMessageSearch}
+      onShareMessages={shareMessages}
+      onBeginForward={beginForward}
+      onDeleteSelectedMessages={deleteSelectedOwnMessages}
+      onClearMessageSelection={clearMessageSelection}
+      onClearForwardMessages={clearForwardMessages}
+      onForwardToConversation={forwardToConversation}
+      onToggleMessageSelection={toggleMessageSelection}
+      onOpenMessageActions={openMessageActions}
+      onDraftChange={handleDraftChange}
+      onClearComposerContext={() => { setReplyTo(null); setEditingMessage(null); setDraft(''); }}
+      onCancelVoiceRecording={cancelVoiceRecording}
+      onAttachImage={attachImage}
+      onAttachDocument={attachDocument}
+      onToggleVoiceRecording={toggleVoiceRecording}
+      onSend={send}
+      onConversationSearchChange={setConversationSearch}
+      onOpenConversationFromList={conversation => { setActiveTab('chats'); loadMessages(conversation); }}
+      onConversationActions={openConversationActions}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  app: { flex: 1, backgroundColor: colors.background },
-  banner: { margin: 12, padding: 10, borderRadius: 12, backgroundColor: '#FFF7ED', color: '#9A3412', fontSize: 12.5, fontWeight: '800' },
-});
