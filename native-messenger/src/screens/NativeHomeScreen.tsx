@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, KeyboardAvoidingView, Linking, NativeModules, PermissionsAndroid, Platform, SafeAreaView, Share, StyleSheet, Text } from 'react-native';
+import { Alert, AppState, KeyboardAvoidingView, Linking, Platform, SafeAreaView, Share, StyleSheet, Text } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
@@ -21,6 +21,7 @@ import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
 import { conversationName, messagePreview, parseCallActionDeepLink, parseConversationTarget, parsePaystackDeepLink, socketAck, sortMessages } from '@/screens/home/homeUtils';
 import { usePendingNativeCallAction } from '@/screens/home/usePendingNativeCallAction';
 import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
+import { useNativeVoiceRecorder } from '@/screens/home/useNativeVoiceRecorder';
 import { NativeFeaturePage, type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
 import { api } from '@/services/api';
 import { ensureNativeSocket } from '@/services/nativeSocket';
@@ -33,14 +34,6 @@ async function fileToDataUrl(uri: string, mime = 'application/octet-stream') {
   const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
   return `data:${mime};base64,${base64}`;
 }
-
-type VoiceRecordingResult = { uri: string; name: string; mime: string; size: number; durationMs: number };
-
-const OracleVoiceRecorder = NativeModules.OracleVoiceRecorder as {
-  start?: () => Promise<{ uri: string; startedAt: number }>;
-  stop?: () => Promise<VoiceRecordingResult>;
-  cancel?: () => Promise<boolean>;
-} | undefined;
 
 export function NativeHomeScreen() {
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -57,8 +50,6 @@ export function NativeHomeScreen() {
   const [messageSearch, setMessageSearch] = useState('');
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [forwardMessages, setForwardMessages] = useState<Message[]>([]);
-  const [voiceRecording, setVoiceRecording] = useState(false);
-  const [voiceStartedAt, setVoiceStartedAt] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<NativeTabKey>('chats');
   const [typingByConversation, setTypingByConversation] = useState<Record<string, Record<string, string>>>({});
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
@@ -633,6 +624,13 @@ export function NativeHomeScreen() {
     }
   }, [refreshConversations, selected, token, upsertMessage]);
 
+  const { voiceRecording, voiceStartedAt, toggleVoiceRecording, cancelVoiceRecording } = useNativeVoiceRecorder({
+    enabled: Boolean(selected && token),
+    sendMedia,
+    setBusy,
+    setNotice,
+  });
+
   const attachImage = useCallback(async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -669,74 +667,6 @@ export function NativeHomeScreen() {
       kind: asset.mimeType?.startsWith('audio/') ? 'audio' : 'file',
     });
   }, [sendMedia]);
-
-  const ensureRecordAudioPermission = useCallback(async () => {
-    if (Platform.OS !== 'android') return true;
-    const granted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
-    if (granted) return true;
-    const response = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, {
-      title: 'Microphone',
-      message: 'Oracle Messenger utilise le microphone pour enregistrer les messages vocaux.',
-      buttonPositive: 'Autoriser',
-      buttonNegative: 'Refuser',
-    });
-    return response === PermissionsAndroid.RESULTS.GRANTED;
-  }, []);
-
-  const toggleVoiceRecording = useCallback(async () => {
-    if (!selected || !token) return;
-    if (!OracleVoiceRecorder?.start || !OracleVoiceRecorder?.stop) {
-      setNotice('Enregistrement vocal natif indisponible sur cette build.');
-      return;
-    }
-    if (!voiceRecording) {
-      const permitted = await ensureRecordAudioPermission();
-      if (!permitted) {
-        setNotice('Permission microphone refusee. Message vocal impossible.');
-        return;
-      }
-      try {
-        const started = await OracleVoiceRecorder.start();
-        setVoiceRecording(true);
-        setVoiceStartedAt(started.startedAt || Date.now());
-        setNotice('Enregistrement vocal en cours.');
-      } catch (error) {
-        setVoiceRecording(false);
-        setVoiceStartedAt(null);
-        setNotice(error instanceof Error ? error.message : 'Demarrage vocal impossible.');
-      }
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const recording = await OracleVoiceRecorder.stop();
-      setVoiceRecording(false);
-      setVoiceStartedAt(null);
-      if (!recording.uri || !recording.size) {
-        setNotice('Message vocal vide.');
-        return;
-      }
-      const sent = await sendMedia({
-        uri: recording.uri,
-        name: recording.name || `voice-${Date.now()}.m4a`,
-        mime: recording.mime || 'audio/mp4',
-        kind: 'voice',
-      });
-      if (sent) setNotice('Message vocal envoye.');
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Envoi vocal impossible.');
-    } finally {
-      setBusy(false);
-    }
-  }, [ensureRecordAudioPermission, selected, sendMedia, token, voiceRecording]);
-
-  const cancelVoiceRecording = useCallback(async () => {
-    await OracleVoiceRecorder?.cancel?.().catch(() => null);
-    setVoiceRecording(false);
-    setVoiceStartedAt(null);
-    setNotice('Enregistrement vocal annule.');
-  }, []);
 
   const deleteOwnMessage = useCallback((message: Message) => {
     if (!token || message.senderId !== session?.user.id) return;
@@ -899,7 +829,7 @@ export function NativeHomeScreen() {
   }, [selected, token]);
 
   const logout = useCallback(async () => {
-    await OracleVoiceRecorder?.cancel?.().catch(() => null);
+    await cancelVoiceRecording(false);
     await clearSession();
     setSession(null);
     setSelected(null);
@@ -908,12 +838,10 @@ export function NativeHomeScreen() {
     setMessageSearch('');
     setSelectedMessageIds([]);
     setForwardMessages([]);
-    setVoiceRecording(false);
-    setVoiceStartedAt(null);
     setActiveTab('chats');
     setMessages([]);
     setConversations([]);
-  }, []);
+  }, [cancelVoiceRecording]);
 
   const headerSubtitle = useMemo(() => {
     if (session?.user?.name) return `${session.user.name} • ${ANDROID_PACKAGE}`;
