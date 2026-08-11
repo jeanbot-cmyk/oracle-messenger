@@ -1359,7 +1359,7 @@ export function NativeHomeScreen() {
 
   const openMessageActions = useCallback((message: Message) => {
     const mine = message.senderId === session?.user.id;
-    const buttons: Array<{ text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }> = [
+    const buttons: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = [
       { text: 'Répondre', onPress: () => { setReplyTo(message); setEditingMessage(null); } },
       { text: 'Réagir ❤️', onPress: () => reactToMessage(message, '❤️') },
       { text: 'Sélectionner', onPress: () => toggleMessageSelection(message.id) },
@@ -1475,7 +1475,7 @@ export function NativeHomeScreen() {
     return (
       <SafeAreaView style={styles.loading}>
         <ActivityIndicator color="#FFFFFF" />
-        <Text style={styles.loadingText}>Ouverture d'Oracle Messenger...</Text>
+        <Text style={styles.loadingText}>Ouverture d&apos;Oracle Messenger...</Text>
       </SafeAreaView>
     );
   }
