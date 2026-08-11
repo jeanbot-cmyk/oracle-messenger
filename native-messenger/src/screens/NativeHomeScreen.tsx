@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, Text } from 'react-native';
-import * as Haptics from 'expo-haptics';
-import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
-import { ANDROID_PACKAGE, GOOGLE_WEB_CLIENT_ID, NATIVE_BASELINE } from '@/config/env';
+import { ANDROID_PACKAGE, NATIVE_BASELINE } from '@/config/env';
 import { useNativeCall } from '@/hooks/useNativeCall';
 import { NativeChatComposer } from '@/screens/home/NativeChatComposer';
 import { NativeChatHeader } from '@/screens/home/NativeChatHeader';
@@ -23,12 +21,12 @@ import { useNativeMessageMedia } from '@/screens/home/useNativeMessageMedia';
 import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
 import { useNativeNotificationRouting } from '@/screens/home/useNativeNotificationRouting';
 import { useNativeRealtimeEvents } from '@/screens/home/useNativeRealtimeEvents';
+import { useNativeSessionLifecycle } from '@/screens/home/useNativeSessionLifecycle';
 import { useNativeTypingPresence } from '@/screens/home/useNativeTypingPresence';
 import { useNativeVoiceRecorder } from '@/screens/home/useNativeVoiceRecorder';
 import { NativeFeaturePage, type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
 import { api } from '@/services/api';
 import { ensureNativeSocket } from '@/services/nativeSocket';
-import { clearSession, loadSession, saveSession } from '@/services/session';
 import { colors } from '@/theme/colors';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
 
@@ -170,17 +168,6 @@ export function NativeHomeScreen() {
     return () => clearTimeout(timer);
   }, [activeTab, conversationSearch, selected, setConversations, token]);
 
-  const completeOnboarding = useCallback(async (nextSession: AuthSession) => {
-    await saveSession(nextSession);
-    setSession(nextSession);
-    setNotice('');
-    setSelected(null);
-    setActiveTab('chats');
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    await refreshConversations(nextSession.token);
-    runMediaSync(nextSession.token, nextSession.user.id);
-  }, [refreshConversations, runMediaSync, setSelected]);
-
   const loadMessages = useCallback(async (conversation: Conversation, activeToken = token) => {
     if (!activeToken) return;
     setActiveTab('chats');
@@ -261,34 +248,6 @@ export function NativeHomeScreen() {
     setConversations,
   });
 
-  const restore = useCallback(async () => {
-    setLoading(true);
-    try {
-      const saved = await loadSession();
-      if (saved) {
-        setSession(saved);
-        await refreshConversations(saved.token);
-        await refreshLocalMediaIndex();
-        runMediaSync(saved.token, saved.user.id);
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [refreshConversations, refreshLocalMediaIndex, runMediaSync]);
-
-  useEffect(() => {
-    void restore();
-  }, [restore]);
-
-  useEffect(() => {
-    GoogleSignin.configure({
-      webClientId: GOOGLE_WEB_CLIENT_ID,
-      offlineAccess: false,
-      forceCodeForRefreshToken: false,
-      profileImageSize: 240,
-    });
-  }, []);
-
   useEffect(() => {
     if (!session?.token) return;
     refreshLocalMediaIndex().catch(() => null);
@@ -304,35 +263,6 @@ export function NativeHomeScreen() {
   useEffect(() => () => {
     clearMediaRefreshTimers();
   }, [clearMediaRefreshTimers]);
-
-  const signInWithGoogle = useCallback(async () => {
-    setBusy(true);
-    setNotice('');
-    try {
-      await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-      await GoogleSignin.signOut().catch(() => {});
-      const result = await GoogleSignin.signIn();
-      const idToken = result.data?.idToken;
-      if (!idToken) {
-        setNotice('Google n’a pas renvoyé de jeton de connexion.');
-        return;
-      }
-      const next = await api.authGoogle(idToken);
-      await saveSession(next);
-      setSession(next);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      await refreshConversations(next.token);
-    } catch (error: any) {
-      if (error?.code === statusCodes.SIGN_IN_CANCELLED) return;
-      const message = error instanceof Error ? error.message : 'Connexion Google impossible.';
-      setNotice(message.includes('DEVELOPER_ERROR')
-        ? 'Connexion Google bloquée par la configuration Google Cloud.'
-        : message);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-    } finally {
-      setBusy(false);
-    }
-  }, [refreshConversations]);
 
   const send = useCallback(async () => {
     const clean = draft.trim();
@@ -378,19 +308,24 @@ export function NativeHomeScreen() {
     setNotice,
   });
 
-  const logout = useCallback(async () => {
-    await cancelVoiceRecording(false);
-    await clearSession();
-    setSession(null);
-    setSelected(null);
-    setReplyTo(null);
-    setEditingMessage(null);
-    setMessageSearch('');
-    resetMessageActions();
-    setActiveTab('chats');
-    setMessages([]);
-    setConversations([]);
-  }, [cancelVoiceRecording, resetMessageActions, setConversations, setMessages, setSelected]);
+  const { completeOnboarding, signInWithGoogle, logout } = useNativeSessionLifecycle({
+    cancelVoiceRecording,
+    refreshConversations,
+    refreshLocalMediaIndex,
+    resetMessageActions,
+    runMediaSync,
+    setActiveTab,
+    setBusy,
+    setConversations,
+    setEditingMessage,
+    setLoading,
+    setMessageSearch,
+    setMessages,
+    setNotice,
+    setReplyTo,
+    setSelected,
+    setSession,
+  });
 
   const headerSubtitle = useMemo(() => {
     if (session?.user?.name) return `${session.user.name} • ${ANDROID_PACKAGE}`;
