@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, Text } from 'react-native';
+import { useMemo, useState } from 'react';
+import { KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, Text } from 'react-native';
 import { ANDROID_PACKAGE, NATIVE_BASELINE } from '@/config/env';
 import { useNativeCall } from '@/hooks/useNativeCall';
 import { NativeChatComposer } from '@/screens/home/NativeChatComposer';
@@ -13,11 +13,14 @@ import { NativeMessageActionPanels } from '@/screens/home/NativeMessageActionPan
 import { NativeMessageList } from '@/screens/home/NativeMessageList';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
 import { useNativeConversationActions } from '@/screens/home/useNativeConversationActions';
+import { useNativeConversationBrowser } from '@/screens/home/useNativeConversationBrowser';
 import { useNativeConversationState } from '@/screens/home/useNativeConversationState';
 import { useNativeMessageActions } from '@/screens/home/useNativeMessageActions';
+import { useNativeMessageLoader } from '@/screens/home/useNativeMessageLoader';
 import { usePendingNativeCallAction } from '@/screens/home/usePendingNativeCallAction';
 import { useNativeMessageMedia } from '@/screens/home/useNativeMessageMedia';
 import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
+import { useNativeMediaSyncLifecycle } from '@/screens/home/useNativeMediaSyncLifecycle';
 import { useNativeNotificationRouting } from '@/screens/home/useNativeNotificationRouting';
 import { useNativeRealtimeEvents } from '@/screens/home/useNativeRealtimeEvents';
 import { useNativeSessionLifecycle } from '@/screens/home/useNativeSessionLifecycle';
@@ -25,10 +28,8 @@ import { useNativeTextMessageSender } from '@/screens/home/useNativeTextMessageS
 import { useNativeTypingPresence } from '@/screens/home/useNativeTypingPresence';
 import { useNativeVoiceRecorder } from '@/screens/home/useNativeVoiceRecorder';
 import { NativeFeaturePage, type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
-import { api } from '@/services/api';
-import { ensureNativeSocket } from '@/services/nativeSocket';
 import { colors } from '@/theme/colors';
-import type { AuthSession, Conversation, Message } from '@/types/messenger';
+import type { AuthSession, Message } from '@/types/messenger';
 
 export function NativeHomeScreen() {
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -41,7 +42,6 @@ export function NativeHomeScreen() {
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [messageSearch, setMessageSearch] = useState('');
   const [activeTab, setActiveTab] = useState<NativeTabKey>('chats');
-  const conversationSearchRequestRef = useRef(0);
   const {
     conversations,
     setConversations,
@@ -101,20 +101,15 @@ export function NativeHomeScreen() {
     handleUserOffline,
   });
 
-  const refreshConversations = useCallback(async (activeToken = token) => {
-    if (!activeToken) return;
-    setBusy(true);
-    try {
-      const query = conversationSearch.trim();
-      const items = query ? await api.searchConversations(query, activeToken) : await api.conversations(activeToken);
-      setConversations(items);
-      setNotice(items.length ? '' : query ? 'Aucune conversation trouvée.' : 'Aucune conversation pour ce compte.');
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Chargement conversations impossible.');
-    } finally {
-      setBusy(false);
-    }
-  }, [conversationSearch, setConversations, token]);
+  const { refreshConversations } = useNativeConversationBrowser({
+    activeTab,
+    conversationSearch,
+    selected,
+    token,
+    setBusy,
+    setConversations,
+    setNotice,
+  });
 
   const {
     selectedMessageIds,
@@ -144,80 +139,20 @@ export function NativeHomeScreen() {
     setDraft,
   });
 
-  useEffect(() => {
-    if (!token || activeTab !== 'chats' || selected) return;
-    const query = conversationSearch.trim();
-    const requestId = conversationSearchRequestRef.current + 1;
-    conversationSearchRequestRef.current = requestId;
-    const timer = setTimeout(() => {
-      setBusy(true);
-      (query ? api.searchConversations(query, token) : api.conversations(token))
-        .then(items => {
-          if (conversationSearchRequestRef.current !== requestId) return;
-          setConversations(items);
-          setNotice(items.length ? '' : query ? 'Aucune conversation trouvée.' : 'Aucune conversation pour ce compte.');
-        })
-        .catch(error => {
-          if (conversationSearchRequestRef.current !== requestId) return;
-          setNotice(error instanceof Error ? error.message : 'Recherche conversations impossible.');
-        })
-        .finally(() => {
-          if (conversationSearchRequestRef.current === requestId) setBusy(false);
-        });
-    }, query ? 280 : 0);
-    return () => clearTimeout(timer);
-  }, [activeTab, conversationSearch, selected, setConversations, token]);
-
-  const loadMessages = useCallback(async (conversation: Conversation, activeToken = token) => {
-    if (!activeToken) return;
-    setActiveTab('chats');
-    setSelected(conversation);
-    setMessageSearch('');
-    resetMessageActions();
-    setBusy(true);
-    try {
-      const socket = ensureNativeSocket(activeToken);
-      socket.emit('conversation:join', { conversationId: conversation.id });
-      const items = await api.messages(conversation.id, activeToken);
-      setMessages(items);
-      const lastIncoming = [...items].reverse().find(item => item.senderId !== sessionRef.current?.user.id);
-      if (lastIncoming) socket.emit('message:read', { conversationId: conversation.id, messageId: lastIncoming.id });
-      setConversations(current => current.map(item => item.id === conversation.id ? { ...item, unreadCount: 0 } : item));
-      setNotice('');
-      runMediaSync(activeToken, session?.user.id, items);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Messages indisponibles.');
-    } finally {
-      setBusy(false);
-    }
-  }, [resetMessageActions, runMediaSync, session?.user.id, sessionRef, setConversations, setMessages, setSelected, token]);
-
-  const openConversationById = useCallback(async (conversationId: string, activeToken = token) => {
-    if (!activeToken || !conversationId) return;
-    setBusy(true);
-    setNotice('');
-    try {
-      const items = await api.conversations(activeToken);
-      setConversations(items);
-      const conversation = items.find(item => item.id === conversationId);
-      if (!conversation) {
-        setActiveTab('chats');
-        setSelected(null);
-        setNotice('Conversation introuvable ou non autorisee pour ce compte.');
-        return;
-      }
-      await loadMessages(conversation, activeToken);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Ouverture conversation impossible.');
-    } finally {
-      setBusy(false);
-    }
-  }, [loadMessages, setConversations, setSelected, token]);
-
-  const openConversationFromFeature = useCallback((conversation: Conversation) => {
-    setActiveTab('chats');
-    void loadMessages(conversation);
-  }, [loadMessages]);
+  const { loadMessages, openConversationById, openConversationFromFeature } = useNativeMessageLoader({
+    token,
+    currentUserId: session?.user.id,
+    sessionRef,
+    resetMessageActions,
+    runMediaSync,
+    setActiveTab,
+    setBusy,
+    setConversations,
+    setMessageSearch,
+    setMessages,
+    setNotice,
+    setSelected,
+  });
 
   useNativeNotificationRouting({
     session,
@@ -248,21 +183,12 @@ export function NativeHomeScreen() {
     setConversations,
   });
 
-  useEffect(() => {
-    if (!session?.token) return;
-    refreshLocalMediaIndex().catch(() => null);
-    runMediaSync(session.token, session.user.id);
-    const subscription = AppState.addEventListener('change', state => {
-      if (state === 'active') {
-        runMediaSync(session.token, session.user.id);
-      }
-    });
-    return () => subscription.remove();
-  }, [refreshLocalMediaIndex, runMediaSync, session?.token, session?.user.id]);
-
-  useEffect(() => () => {
-    clearMediaRefreshTimers();
-  }, [clearMediaRefreshTimers]);
+  useNativeMediaSyncLifecycle({
+    session,
+    refreshLocalMediaIndex,
+    clearMediaRefreshTimers,
+    runMediaSync,
+  });
 
   const send = useNativeTextMessageSender({
     draft,
