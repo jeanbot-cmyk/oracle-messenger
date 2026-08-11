@@ -6,13 +6,13 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
-import { RefreshCcw } from 'lucide-react-native';
 import { ANDROID_PACKAGE, GOOGLE_WEB_CLIENT_ID, NATIVE_BASELINE } from '@/config/env';
 import { useNativeCall } from '@/hooks/useNativeCall';
 import { NativeChatComposer } from '@/screens/home/NativeChatComposer';
 import { NativeChatHeader } from '@/screens/home/NativeChatHeader';
 import { NativeCallOverlay } from '@/screens/home/NativeCallOverlay';
 import { NativeConversationList } from '@/screens/home/NativeConversationList';
+import { NativeHomeShellHeader } from '@/screens/home/NativeHomeShellHeader';
 import { NativeMessageActionPanels } from '@/screens/home/NativeMessageActionPanels';
 import { NativeMessageList } from '@/screens/home/NativeMessageList';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
@@ -1058,24 +1058,13 @@ export function NativeHomeScreen() {
   return (
     <SafeAreaView style={styles.app}>
       <NativeCallOverlay call={nativeCall} />
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Oracle Messenger</Text>
-          <Text style={styles.headerSubtitle}>{headerSubtitle}</Text>
-        </View>
-        <Pressable style={styles.headerButton} onPress={() => refreshConversations()}>
-          <RefreshCcw size={18} color="#FFFFFF" />
-        </Pressable>
-      </View>
-      <View style={styles.tabWrap}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBar}>
-          {visibleTabs.map(tab => (
-            <Pressable key={tab.key} onPress={() => { setActiveTab(tab.key); if (tab.key !== 'chats') setSelected(null); }} style={[styles.tabItem, activeTab === tab.key && styles.tabItemActive]}>
-              <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      </View>
+      <NativeHomeShellHeader
+        subtitle={headerSubtitle}
+        tabs={visibleTabs}
+        activeTab={activeTab}
+        onRefresh={() => refreshConversations()}
+        onTabPress={tab => { setActiveTab(tab); if (tab !== 'chats') setSelected(null); }}
+      />
 
       {notice ? <Text style={styles.banner}>{notice}</Text> : null}
 
@@ -1173,16 +1162,6 @@ const styles = StyleSheet.create({
   disabledButton: { opacity: 0.55 },
   googleMark: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#FFFFFF', color: colors.brand, textAlign: 'center', lineHeight: 24, fontSize: 15, fontWeight: '900' },
   primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
-  header: { backgroundColor: colors.header, paddingHorizontal: 18, paddingTop: 18, paddingBottom: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '900' },
-  headerSubtitle: { color: 'rgba(255,255,255,0.68)', marginTop: 3, fontSize: 12, fontWeight: '700' },
-  headerButton: { width: 42, height: 42, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
-  tabWrap: { backgroundColor: colors.header, paddingBottom: 10 },
-  tabBar: { paddingHorizontal: 12, gap: 8 },
-  tabItem: { minHeight: 38, borderRadius: 14, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.10)' },
-  tabItemActive: { backgroundColor: colors.brand },
-  tabText: { color: 'rgba(255,255,255,0.76)', fontSize: 12.5, fontWeight: '900' },
-  tabTextActive: { color: '#FFFFFF' },
   banner: { margin: 12, padding: 10, borderRadius: 12, backgroundColor: '#FFF7ED', color: '#9A3412', fontSize: 12.5, fontWeight: '800' },
   avatarImage: { width: '100%', height: '100%' },
   chatPanel: { flex: 1 },
