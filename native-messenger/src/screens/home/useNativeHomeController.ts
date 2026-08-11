@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { ANDROID_PACKAGE, NATIVE_BASELINE } from '@/config/env';
 import { useNativeCall } from '@/hooks/useNativeCall';
-import type { NativeHomeShellProps } from '@/screens/home/NativeHomeShell';
 import { useNativeComposerController } from '@/screens/home/useNativeComposerController';
 import { useNativeConversationBrowser } from '@/screens/home/useNativeConversationBrowser';
 import { useNativeConversationController } from '@/screens/home/useNativeConversationController';
 import { useNativeConversationState } from '@/screens/home/useNativeConversationState';
+import { useNativeHomeShellProps } from '@/screens/home/useNativeHomeShellProps';
 import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
 import { useNativeMediaSyncLifecycle } from '@/screens/home/useNativeMediaSyncLifecycle';
 import { useNativeNotificationRouting } from '@/screens/home/useNativeNotificationRouting';
@@ -63,28 +63,7 @@ export function useNativeHomeController() {
     setNotice,
   });
 
-  const {
-    draft,
-    setDraft,
-    replyTo,
-    setReplyTo,
-    editingMessage,
-    setEditingMessage,
-    presenceText,
-    handleDraftChange,
-    handleTypingStart,
-    handleTypingStop,
-    handleUserOnline,
-    handleUserOffline,
-    send,
-    attachImage,
-    attachDocument,
-    voiceRecording,
-    voiceStartedAt,
-    toggleVoiceRecording,
-    cancelVoiceRecording,
-    clearComposerContext,
-  } = useNativeComposerController({
+  const composer = useNativeComposerController({
     selected,
     token,
     currentUserId: session?.user.id,
@@ -94,6 +73,17 @@ export function useNativeHomeController() {
     setBusy,
     setNotice,
   });
+
+  const {
+    setDraft,
+    setReplyTo,
+    setEditingMessage,
+    handleTypingStart,
+    handleTypingStop,
+    handleUserOnline,
+    handleUserOffline,
+    cancelVoiceRecording,
+  } = composer;
 
   useNativeRealtimeEvents({
     session,
@@ -181,8 +171,9 @@ export function useNativeHomeController() {
     return `${ANDROID_PACKAGE} • baseline ${NATIVE_BASELINE}`;
   }, [session?.user?.name]);
 
-  const shellProps: NativeHomeShellProps | null = !session || needsOnboarding ? null : {
+  const shellProps = useNativeHomeShellProps({
     session,
+    needsOnboarding,
     nativeCall,
     headerSubtitle,
     tabs: visibleTabs,
@@ -192,43 +183,18 @@ export function useNativeHomeController() {
     selected,
     conversationSearch,
     busy,
-    presenceText,
     messageSearch,
     messages: visibleMessages,
-    selectedMessageIds: conversationsController.selectedMessageIds,
-    selectedMessages: conversationsController.selectedMessages,
-    forwardMessages: conversationsController.forwardMessages,
     localMediaByMessageId,
-    draft,
-    replyTo,
-    editingMessage,
-    voiceRecording,
-    voiceStartedAt,
-    onRefreshConversations: refreshConversations,
-    onTabPress: tab => { setActiveTab(tab); if (tab !== 'chats') setSelected(null); },
-    onOpenConversationFromFeature: conversationsController.openConversationFromFeature,
-    onLogout: logout,
-    onBackFromChat: () => setSelected(null),
-    onMessageSearchChange: setMessageSearch,
-    onShareMessages: conversationsController.shareMessages,
-    onBeginForward: conversationsController.beginForward,
-    onDeleteSelectedMessages: conversationsController.deleteSelectedOwnMessages,
-    onClearMessageSelection: conversationsController.clearMessageSelection,
-    onClearForwardMessages: conversationsController.clearForwardMessages,
-    onForwardToConversation: conversationsController.forwardToConversation,
-    onToggleMessageSelection: conversationsController.toggleMessageSelection,
-    onOpenMessageActions: conversationsController.openMessageActions,
-    onDraftChange: handleDraftChange,
-    onClearComposerContext: clearComposerContext,
-    onCancelVoiceRecording: cancelVoiceRecording,
-    onAttachImage: attachImage,
-    onAttachDocument: attachDocument,
-    onToggleVoiceRecording: toggleVoiceRecording,
-    onSend: send,
-    onConversationSearchChange: setConversationSearch,
-    onOpenConversationFromList: conversation => { setActiveTab('chats'); conversationsController.loadMessages(conversation); },
-    onConversationActions: conversationsController.openConversationActions,
-  };
+    composer,
+    conversationsController,
+    refreshConversations,
+    logout,
+    setActiveTab,
+    setConversationSearch,
+    setMessageSearch,
+    setSelected,
+  });
 
   return {
     loading,
