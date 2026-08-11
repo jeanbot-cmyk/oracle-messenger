@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, KeyboardAvoidingView, Linking, Platform, SafeAreaView, Share, StyleSheet, Text } from 'react-native';
+import { Alert, AppState, KeyboardAvoidingView, Linking, Platform, SafeAreaView, StyleSheet, Text } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
@@ -15,7 +15,8 @@ import { NativeLoadingScreen } from '@/screens/home/NativeLoadingScreen';
 import { NativeMessageActionPanels } from '@/screens/home/NativeMessageActionPanels';
 import { NativeMessageList } from '@/screens/home/NativeMessageList';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
-import { conversationName, messagePreview, parseCallActionDeepLink, parseConversationTarget, parsePaystackDeepLink, socketAck, sortMessages } from '@/screens/home/homeUtils';
+import { conversationName, parseCallActionDeepLink, parseConversationTarget, parsePaystackDeepLink, socketAck, sortMessages } from '@/screens/home/homeUtils';
+import { useNativeMessageActions } from '@/screens/home/useNativeMessageActions';
 import { usePendingNativeCallAction } from '@/screens/home/usePendingNativeCallAction';
 import { useNativeMessageMedia } from '@/screens/home/useNativeMessageMedia';
 import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
@@ -41,8 +42,6 @@ export function NativeHomeScreen() {
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [messageSearch, setMessageSearch] = useState('');
-  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
-  const [forwardMessages, setForwardMessages] = useState<Message[]>([]);
   const [activeTab, setActiveTab] = useState<NativeTabKey>('chats');
   const [typingByConversation, setTypingByConversation] = useState<Record<string, Record<string, string>>>({});
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
@@ -144,6 +143,34 @@ export function NativeHomeScreen() {
     }
   }, [conversationSearch, token]);
 
+  const {
+    selectedMessageIds,
+    selectedMessages,
+    forwardMessages,
+    clearMessageSelection,
+    clearForwardMessages,
+    resetMessageActions,
+    toggleMessageSelection,
+    shareMessages,
+    beginForward,
+    forwardToConversation,
+    deleteSelectedOwnMessages,
+    openMessageActions,
+  } = useNativeMessageActions({
+    messages,
+    selected,
+    token,
+    currentUserId: session?.user.id,
+    refreshConversations,
+    markMessageDeleted,
+    upsertMessage,
+    setBusy,
+    setNotice,
+    setReplyTo,
+    setEditingMessage,
+    setDraft,
+  });
+
   useEffect(() => {
     if (!token || activeTab !== 'chats' || selected) return;
     const query = conversationSearch.trim();
@@ -184,8 +211,7 @@ export function NativeHomeScreen() {
     setActiveTab('chats');
     setSelected(conversation);
     setMessageSearch('');
-    setSelectedMessageIds([]);
-    setForwardMessages([]);
+    resetMessageActions();
     setBusy(true);
     try {
       const socket = ensureNativeSocket(activeToken);
@@ -202,7 +228,7 @@ export function NativeHomeScreen() {
     } finally {
       setBusy(false);
     }
-  }, [runMediaSync, session?.user.id, token]);
+  }, [resetMessageActions, runMediaSync, session?.user.id, token]);
 
   const openConversationById = useCallback(async (conversationId: string, activeToken = token) => {
     if (!activeToken || !conversationId) return;
@@ -597,115 +623,6 @@ export function NativeHomeScreen() {
     setNotice,
   });
 
-  const deleteOwnMessage = useCallback((message: Message) => {
-    if (!token || message.senderId !== session?.user.id) return;
-    const socket = ensureNativeSocket(token);
-    socket.emit('message:delete', { conversationId: message.conversationId, messageId: message.id });
-    api.deleteMessage(message.id, token)
-      .then(() => {
-        markMessageDeleted(message.conversationId, message.id);
-        refreshConversations().catch(() => null);
-      })
-      .catch(error => setNotice(error instanceof Error ? error.message : 'Suppression impossible.'));
-  }, [markMessageDeleted, refreshConversations, session?.user.id, token]);
-
-  const selectedMessages = useMemo(() => {
-    if (!selectedMessageIds.length) return [];
-    const ids = new Set(selectedMessageIds);
-    return messages.filter(message => ids.has(message.id));
-  }, [messages, selectedMessageIds]);
-
-  const reactToMessage = useCallback((message: Message, emoji: string | null) => {
-    if (!token) return;
-    const socket = ensureNativeSocket(token);
-    socket.emit('message:react', { messageId: message.id, emoji });
-  }, [token]);
-
-  const toggleMessageSelection = useCallback((messageId: string) => {
-    setSelectedMessageIds(current => (
-      current.includes(messageId)
-        ? current.filter(id => id !== messageId)
-        : [...current, messageId]
-    ));
-  }, []);
-
-  const shareMessages = useCallback(async (items: Message[]) => {
-    const body = items.map(message => messagePreview(message) === message.content ? message.content : `${messagePreview(message)}: ${message.content}`).join('\n\n');
-    if (!body.trim()) return;
-    try {
-      await Share.share({ message: body });
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Partage impossible.');
-    }
-  }, []);
-
-  const beginForward = useCallback((items: Message[]) => {
-    const valid = items.filter(message => !message.isDeleted);
-    if (!valid.length) return;
-    setForwardMessages(valid.slice(0, 50));
-    setSelectedMessageIds([]);
-  }, []);
-
-  const forwardToConversation = useCallback(async (conversation: Conversation) => {
-    if (!token || !forwardMessages.length) return;
-    setBusy(true);
-    setNotice('');
-    try {
-      const socket = ensureNativeSocket(token);
-      for (const message of forwardMessages) {
-        const forwarded = await socketAck<Message>(socket, 'message:send', {
-          conversationId: conversation.id,
-          content: message.content,
-          type: message.type,
-        }).catch(() => api.sendMessage(conversation.id, token, message.content, message.type));
-        if (selected?.id === conversation.id) upsertMessage({ ...forwarded, status: forwarded.status || 'sent' });
-      }
-      setForwardMessages([]);
-      await refreshConversations();
-      setNotice(forwardMessages.length > 1 ? 'Messages transférés.' : 'Message transféré.');
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Transfert impossible.');
-    } finally {
-      setBusy(false);
-    }
-  }, [forwardMessages, refreshConversations, selected?.id, token, upsertMessage]);
-
-  const deleteSelectedOwnMessages = useCallback(() => {
-    const own = selectedMessages.filter(message => message.senderId === session?.user.id && !message.isDeleted);
-    if (!own.length) {
-      setNotice('Aucun message sélectionné ne peut être supprimé par ce compte.');
-      return;
-    }
-    Alert.alert('Supprimer', `${own.length} message(s) seront supprimés.`, [
-      { text: 'Annuler', style: 'cancel' },
-      {
-        text: 'Supprimer',
-        style: 'destructive',
-        onPress: () => {
-          own.forEach(message => deleteOwnMessage(message));
-          setSelectedMessageIds([]);
-        },
-      },
-    ]);
-  }, [deleteOwnMessage, selectedMessages, session?.user.id]);
-
-  const openMessageActions = useCallback((message: Message) => {
-    const mine = message.senderId === session?.user.id;
-    const buttons: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = [
-      { text: 'Répondre', onPress: () => { setReplyTo(message); setEditingMessage(null); } },
-      { text: 'Réagir ❤️', onPress: () => reactToMessage(message, '❤️') },
-      { text: 'Sélectionner', onPress: () => toggleMessageSelection(message.id) },
-      { text: 'Transférer', onPress: () => beginForward([message]) },
-      { text: 'Partager', onPress: () => shareMessages([message]) },
-    ];
-    if (mine && message.type === 'text' && !message.isDeleted) {
-      buttons.push({ text: 'Modifier', onPress: () => { setEditingMessage(message); setReplyTo(null); setDraft(message.content); } });
-      buttons.push({ text: 'Supprimer', style: 'destructive', onPress: () => deleteOwnMessage(message) });
-    }
-    buttons.push({ text: 'Annuler', style: 'cancel' });
-    Alert.alert('Message', messagePreview(message), buttons);
-  }, [beginForward, deleteOwnMessage, reactToMessage, session?.user.id, shareMessages, toggleMessageSelection]);
-
   const deleteConversation = useCallback((conversation: Conversation) => {
     if (!token) return;
     Alert.alert(
@@ -765,12 +682,11 @@ export function NativeHomeScreen() {
     setReplyTo(null);
     setEditingMessage(null);
     setMessageSearch('');
-    setSelectedMessageIds([]);
-    setForwardMessages([]);
+    resetMessageActions();
     setActiveTab('chats');
     setMessages([]);
     setConversations([]);
-  }, [cancelVoiceRecording]);
+  }, [cancelVoiceRecording, resetMessageActions]);
 
   const headerSubtitle = useMemo(() => {
     if (session?.user?.name) return `${session.user.name} • ${ANDROID_PACKAGE}`;
@@ -862,8 +778,8 @@ export function NativeHomeScreen() {
             onShare={shareMessages}
             onBeginForward={beginForward}
             onDeleteSelected={deleteSelectedOwnMessages}
-            onClearSelection={() => setSelectedMessageIds([])}
-            onClearForward={() => setForwardMessages([])}
+            onClearSelection={clearMessageSelection}
+            onClearForward={clearForwardMessages}
             onForwardToConversation={forwardToConversation}
           />
           <NativeMessageList
