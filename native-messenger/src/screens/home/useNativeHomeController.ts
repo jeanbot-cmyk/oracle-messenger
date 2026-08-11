@@ -1,15 +1,14 @@
-import { useState } from 'react';
 import { useNativeCallNotificationRouting } from '@/screens/home/useNativeCallNotificationRouting';
 import { useNativeHomeMessaging } from '@/screens/home/useNativeHomeMessaging';
+import { useNativeHomeSessionController } from '@/screens/home/useNativeHomeSessionController';
+import { useNativeHomeSessionState } from '@/screens/home/useNativeHomeSessionState';
 import { useNativeHomeUiState } from '@/screens/home/useNativeHomeUiState';
 import { useNativeHomeViewModel } from '@/screens/home/useNativeHomeViewModel';
 import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
 import { useNativeMediaSyncLifecycle } from '@/screens/home/useNativeMediaSyncLifecycle';
-import { useNativeSessionLifecycle } from '@/screens/home/useNativeSessionLifecycle';
-import type { AuthSession } from '@/types/messenger';
 
 export function useNativeHomeController() {
-  const [session, setSession] = useState<AuthSession | null>(null);
+  const { session, setSession } = useNativeHomeSessionState();
   const ui = useNativeHomeUiState();
   const { localMediaByMessageId, refreshLocalMediaIndex, clearMediaRefreshTimers, runMediaSync } = useNativeMediaSync();
   const messaging = useNativeHomeMessaging({
@@ -36,22 +35,11 @@ export function useNativeHomeController() {
     runMediaSync,
   });
 
-  const { completeOnboarding, signInWithGoogle, logout } = useNativeSessionLifecycle({
-    cancelVoiceRecording: messaging.composer.cancelVoiceRecording,
-    refreshConversations: messaging.refreshConversations,
+  const { completeOnboarding, signInWithGoogle, logout } = useNativeHomeSessionController({
+    messaging,
+    ui,
     refreshLocalMediaIndex,
-    resetMessageActions: messaging.conversationsController.resetMessageActions,
     runMediaSync,
-    setActiveTab: ui.setActiveTab,
-    setBusy: ui.setBusy,
-    setConversations: messaging.setConversations,
-    setEditingMessage: messaging.composer.setEditingMessage,
-    setLoading: ui.setLoading,
-    setMessageSearch: ui.setMessageSearch,
-    setMessages: messaging.setMessages,
-    setNotice: ui.setNotice,
-    setReplyTo: messaging.composer.setReplyTo,
-    setSelected: messaging.setSelected,
     setSession,
   });
 
