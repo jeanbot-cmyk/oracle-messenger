@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
@@ -31,7 +31,7 @@ async function fileToDataUrl(uri: string, mime = 'image/jpeg') {
   return `data:${mime};base64,${base64}`;
 }
 
-export function StoriesPage({ token, userId }: { token: string; userId: string }) {
+export function StoriesPage({ token, userId, initialMode }: { token: string; userId: string; initialMode?: 'camera' }) {
   const [stories, setStories] = useState<Story[]>([]);
   const [selectedStory, setSelectedStory] = useState<Story | null>(null);
   const [content, setContent] = useState('');
@@ -41,6 +41,7 @@ export function StoriesPage({ token, userId }: { token: string; userId: string }
   const [bg, setBg] = useState(STORY_BACKGROUNDS[0]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const initialCameraOpenedRef = useRef(false);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -101,6 +102,36 @@ export function StoriesPage({ token, userId }: { token: string; userId: string }
     setStoryType('image');
     setNotice('');
   }, []);
+
+  const takePhotoStory = useCallback(async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setNotice('Permission caméra requise pour publier une story photo.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      quality: 0.82,
+      base64: true,
+      allowsEditing: false,
+    });
+    const asset = result.assets?.[0];
+    if (result.canceled || !asset) return;
+    if (!asset.base64) {
+      setNotice('Photo capturée sans données lisibles.');
+      return;
+    }
+    setImageData(`data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`);
+    setStoryType('image');
+    setNotice('');
+  }, []);
+
+  useEffect(() => {
+    if (initialMode !== 'camera' || initialCameraOpenedRef.current) return;
+    initialCameraOpenedRef.current = true;
+    setStoryType('image');
+    void takePhotoStory();
+  }, [initialMode, takePhotoStory]);
 
   const pickVideoStory = useCallback(async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -193,7 +224,10 @@ export function StoriesPage({ token, userId }: { token: string; userId: string }
           </>
         ) : storyType === 'image' ? (
           <>
-            <PrimaryButton label={imageData ? 'Changer l’image' : 'Choisir une image'} onPress={pickImageStory} disabled={busy} />
+            <View style={styles.actionRow}>
+              <PrimaryButton label="Prendre une photo" onPress={takePhotoStory} disabled={busy} />
+              <SecondaryButton label={imageData ? 'Changer l’image' : 'Choisir une image'} onPress={pickImageStory} disabled={busy} />
+            </View>
             {imageData ? <Image source={{ uri: imageData }} style={styles.storyPreview} /> : null}
             <TextInput value={caption} onChangeText={setCaption} placeholder="Légende" placeholderTextColor={colors.muted} style={styles.input} />
           </>
@@ -284,6 +318,7 @@ const styles = StyleSheet.create({
   empty: { color: colors.muted, fontSize: 13, fontWeight: '800', paddingVertical: 10 },
   cardText: { color: colors.text, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
   cardMeta: { color: colors.muted, fontSize: 11.5, fontWeight: '800' },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
   segment: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, backgroundColor: colors.input, borderRadius: 16, padding: 5 },
   segmentItem: { minWidth: '30%', flexGrow: 1, minHeight: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   segmentActive: { backgroundColor: colors.header },

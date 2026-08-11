@@ -17,12 +17,21 @@ const ICONS: Partial<Record<NativeTabKey, typeof MessageCircle>> = {
   menu: Menu,
 };
 
+const TOOL_TABS: NativeTabKey[] = ['tools', 'meeting', 'ai', 'flyers', 'videos', 'translate', 'notes', 'events'];
+
+function isTabActive(tabKey: NativeTabKey, activeTab: NativeTabKey) {
+  if (tabKey === activeTab) return true;
+  if (tabKey === 'stories') return activeTab === 'storyCamera';
+  if (tabKey === 'tools') return TOOL_TABS.includes(activeTab);
+  return false;
+}
+
 export function NativeBottomTabs({ tabs, activeTab, onTabPress }: NativeBottomTabsProps) {
   return (
     <View style={styles.tabs}>
       {tabs.map(tab => {
         const Icon = ICONS[tab.key] || Menu;
-        const active = activeTab === tab.key;
+        const active = isTabActive(tab.key, activeTab);
         return (
           <Pressable key={tab.key} onPress={() => onTabPress(tab.key)} style={styles.tab}>
             <Icon size={21} color={active ? colors.brand : '#334155'} strokeWidth={1.9} />

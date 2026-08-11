@@ -1,7 +1,9 @@
 import { useCallback, useState } from 'react';
 import { Linking, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import * as Contacts from 'expo-contacts';
 import * as Crypto from 'expo-crypto';
+import { FRONTEND_URL } from '@/config/env';
 import { api } from '@/services/api';
 import { colors } from '@/theme/colors';
 import type { Conversation, User } from '@/types/messenger';
@@ -23,6 +25,42 @@ function whatsappPhone(raw: string) {
   return String(raw || '').replace(/\D/g, '');
 }
 
+function normalizeUsername(raw?: string | null) {
+  return String(raw || '').trim().replace(/^@+/, '').toLowerCase();
+}
+
+function inviteLink(user?: User) {
+  const username = normalizeUsername(user?.username);
+  return username ? `${FRONTEND_URL}/u/${encodeURIComponent(username)}` : `${FRONTEND_URL}/install`;
+}
+
+function formatOwnPhone(phone?: string | null) {
+  const cleaned = String(phone || '').replace(/[^\d+]/g, '');
+  const digits = cleaned.replace(/\D/g, '');
+  if (cleaned.startsWith('+') && digits.length >= 8) return `+${digits}`;
+  return digits.length >= 8 ? digits : '';
+}
+
+function invitePhoneStatus(raw: string) {
+  const cleaned = String(raw || '').replace(/[^\d+]/g, '');
+  const digits = cleaned.replace(/\D/g, '');
+  if (digits.length < 8) return { valid: false, phone: '', international: false, e164: '' };
+  if (cleaned.startsWith('+')) return { valid: true, phone: digits, international: true, e164: `+${digits}` };
+  if (cleaned.startsWith('00') && digits.length > 2) {
+    const internationalDigits = digits.replace(/^00/, '');
+    return { valid: internationalDigits.length >= 8, phone: internationalDigits, international: internationalDigits.length >= 8, e164: internationalDigits.length >= 8 ? `+${internationalDigits}` : '' };
+  }
+  return { valid: true, phone: digits, international: false, e164: '' };
+}
+
+function inviteMessage(user?: User) {
+  const senderName = user?.name?.trim() || 'Un contact';
+  const phoneLine = formatOwnPhone(user?.phone) ? `\nMon contact : ${formatOwnPhone(user?.phone)}` : '';
+  const link = inviteLink(user);
+  const text = `Bonjour !\n${senderName} t'invite à rejoindre Oracle Messenger.${phoneLine}\n\nInstalle l'app :\n${link}`;
+  return { link, text };
+}
+
 async function hashPhones(values: string[]) {
   const unique = [...new Set(values.flatMap(phoneCandidates))];
   const hashes = await Promise.all(unique.map(value => Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, value)));
@@ -31,10 +69,12 @@ async function hashPhones(values: string[]) {
 
 export function ContactsPage({
   token,
+  user,
   onOpenConversation,
   onRefreshConversations,
 }: {
   token: string;
+  user: User;
   onOpenConversation: (conversation: Conversation) => void;
   onRefreshConversations: () => Promise<void>;
 }) {
@@ -94,37 +134,45 @@ export function ContactsPage({
   }, [phone, token]);
 
   const invitePhone = useCallback(async () => {
-    const normalized = phone.trim();
-    const installLink = 'https://messenger.oracle-plus.online/install';
-    const message = `Bonjour, rejoins-moi sur Oracle Messenger: ${installLink}`;
+    const normalized = invitePhoneStatus(phone);
+    const { text } = inviteMessage(user);
     try {
-      if (normalized.startsWith('+')) {
-        await Linking.openURL(`sms:${encodeURIComponent(normalized)}?body=${encodeURIComponent(message)}`);
+      if (normalized.valid) {
+        setNotice(normalized.international
+          ? `Numéro international confirmé : ${normalized.e164}`
+          : `Numéro local sans indicatif conservé tel quel : ${normalized.phone}`);
+        await Linking.openURL(`sms:${encodeURIComponent(normalized.international ? normalized.e164 : normalized.phone)}?body=${encodeURIComponent(text)}`);
       } else {
-        await Share.share({ title: 'Oracle Messenger', message });
+        setNotice('Numéro incomplet. Partage général ouvert sans ajouter d’indicatif.');
+        await Share.share({ title: 'Oracle Messenger', message: text, url: inviteLink(user) });
       }
     } catch {
-      await Share.share({ title: 'Oracle Messenger', message });
+      await Share.share({ title: 'Oracle Messenger', message: text, url: inviteLink(user) });
     }
-  }, [phone]);
+  }, [phone, user]);
 
   const inviteWhatsApp = useCallback(async () => {
-    const normalized = phone.trim();
-    const digits = whatsappPhone(normalized);
-    const installLink = 'https://messenger.oracle-plus.online/install';
-    const message = `Bonjour, rejoins-moi sur Oracle Messenger: ${installLink}`;
-    if (!digits || !normalized.startsWith('+')) {
+    const normalized = invitePhoneStatus(phone);
+    const digits = whatsappPhone(normalized.phone);
+    const { text } = inviteMessage(user);
+    if (!digits || !normalized.international) {
       setNotice('WhatsApp demande un numéro avec indicatif, exemple +225...');
       return;
     }
     try {
-      await Linking.openURL(`whatsapp://send?phone=${digits}&text=${encodeURIComponent(message)}`);
+      await Linking.openURL(`whatsapp://send?phone=${digits}&text=${encodeURIComponent(text)}`);
     } catch {
-      await Linking.openURL(`https://wa.me/${digits}?text=${encodeURIComponent(message)}`).catch(async () => {
-        await Share.share({ title: 'Oracle Messenger', message });
+      await Linking.openURL(`https://wa.me/${digits}?text=${encodeURIComponent(text)}`).catch(async () => {
+        await Share.share({ title: 'Oracle Messenger', message: text, url: inviteLink(user) });
       });
     }
-  }, [phone]);
+  }, [phone, user]);
+
+  const copyInvite = useCallback(async () => {
+    const { text } = inviteMessage(user);
+    await Clipboard.setStringAsync(text);
+    setNotice('Lien d’invitation copié.');
+  }, [user]);
 
   const shareMessenger = useCallback(async () => {
     await Share.share({
@@ -190,7 +238,9 @@ export function ContactsPage({
         <View style={styles.actionRow}>
           <SecondaryButton label="Inviter par SMS / partage" onPress={invitePhone} disabled={busy || !phone.trim()} />
           <SecondaryButton label="Inviter WhatsApp" onPress={inviteWhatsApp} disabled={busy || !phone.trim()} />
+          <SecondaryButton label="Copier le lien" onPress={copyInvite} disabled={busy} />
         </View>
+        <Text selectable style={styles.inviteLink}>{inviteLink(user)}</Text>
         {matched ? <UserRow user={matched} actionLabel="Écrire" onPress={() => createConversation(matched)} /> : null}
       </Section>
       <View style={styles.shareCta}>
@@ -205,6 +255,7 @@ const styles = StyleSheet.create({
   pageCopy: { color: colors.muted, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
   input: { minHeight: 48, borderRadius: 15, backgroundColor: colors.input, color: colors.text, paddingHorizontal: 14, paddingVertical: 10, fontWeight: '800', borderWidth: 1, borderColor: 'transparent' },
   cardMeta: { color: colors.muted, fontSize: 11.5, fontWeight: '800' },
+  inviteLink: { color: colors.brand, fontSize: 12, lineHeight: 17, fontWeight: '900' },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
   shareCta: { marginHorizontal: 32, marginTop: 18 },
 });

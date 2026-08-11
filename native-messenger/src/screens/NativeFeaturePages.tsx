@@ -11,7 +11,26 @@ import { ProfilePage } from './features/ProfilePage';
 import { StoriesPage } from './features/StoriesPage';
 import { ToolsPage } from './features/ToolsPage';
 
-export type NativeTabKey = 'chats' | 'calls' | 'stories' | 'tools' | 'menu' | 'contacts' | 'gallery' | 'ai' | 'flyers' | 'videos' | 'payments' | 'business' | 'profile' | 'admin';
+export type NativeTabKey =
+  | 'chats'
+  | 'calls'
+  | 'stories'
+  | 'storyCamera'
+  | 'tools'
+  | 'meeting'
+  | 'translate'
+  | 'notes'
+  | 'events'
+  | 'menu'
+  | 'contacts'
+  | 'gallery'
+  | 'ai'
+  | 'flyers'
+  | 'videos'
+  | 'payments'
+  | 'business'
+  | 'profile'
+  | 'admin';
 
 export const NATIVE_TABS: { key: NativeTabKey; label: string }[] = [
   { key: 'chats', label: 'Discussions' },
@@ -32,14 +51,20 @@ type FeatureProps = {
 
 export function NativeFeaturePage({ tab, session, onOpenConversation, onRefreshConversations, onLogout, onOpenTab }: FeatureProps) {
   const token = session.token;
+  const ownerId = session.user.id || session.user.email || token;
+  const userName = session.user.name || session.user.email || 'Utilisateur';
   if (tab === 'calls') return <CallsPage token={token} onOpenContacts={() => onOpenTab('contacts')} />;
-  if (tab === 'contacts') return <ContactsPage token={token} onOpenConversation={onOpenConversation} onRefreshConversations={onRefreshConversations} />;
+  if (tab === 'contacts') return <ContactsPage token={token} user={session.user} onOpenConversation={onOpenConversation} onRefreshConversations={onRefreshConversations} />;
   if (tab === 'stories') return <StoriesPage token={token} userId={session.user.id} />;
+  if (tab === 'storyCamera') return <StoriesPage token={token} userId={session.user.id} initialMode="camera" />;
   if (tab === 'gallery') return <GalleryPage token={token} userId={session.user.id} />;
-  if (tab === 'tools') return <ToolsPage token={token} ownerId={session.user.id || session.user.email || token} userName={session.user.name || session.user.email || 'Utilisateur'} />;
-  if (tab === 'ai') return <ToolsPage token={token} ownerId={session.user.id || session.user.email || token} userName={session.user.name || session.user.email || 'Utilisateur'} initialMode="ai" />;
-  if (tab === 'flyers') return <ToolsPage token={token} ownerId={session.user.id || session.user.email || token} userName={session.user.name || session.user.email || 'Utilisateur'} initialMode="flyer" />;
-  if (tab === 'videos') return <ToolsPage token={token} ownerId={session.user.id || session.user.email || token} userName={session.user.name || session.user.email || 'Utilisateur'} initialMode="video" />;
+  if (tab === 'tools' || tab === 'meeting') return <ToolsPage token={token} ownerId={ownerId} userName={userName} initialMode="meeting" />;
+  if (tab === 'ai') return <ToolsPage token={token} ownerId={ownerId} userName={userName} initialMode="ai" />;
+  if (tab === 'flyers') return <ToolsPage token={token} ownerId={ownerId} userName={userName} initialMode="flyer" />;
+  if (tab === 'videos') return <ToolsPage token={token} ownerId={ownerId} userName={userName} initialMode="video" />;
+  if (tab === 'translate') return <ToolsPage token={token} ownerId={ownerId} userName={userName} initialMode="translate" />;
+  if (tab === 'notes') return <ToolsPage token={token} ownerId={ownerId} userName={userName} initialMode="notes" />;
+  if (tab === 'events') return <ToolsPage token={token} ownerId={ownerId} userName={userName} initialMode="events" />;
   if (tab === 'payments') return <PaymentsPage token={token} />;
   if (tab === 'business') return <BusinessPage token={token} />;
   if (tab === 'profile') return <ProfilePage session={session} onLogout={onLogout} />;

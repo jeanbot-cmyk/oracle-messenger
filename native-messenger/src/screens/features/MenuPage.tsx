@@ -1,5 +1,5 @@
 import { Linking, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { Bot, BriefcaseBusiness, Contact, CreditCard, FileText, Globe, Image, Languages, LogOut, Shield, Settings, Share2, Sparkles, User, Wand2 } from 'lucide-react-native';
+import { Bot, BriefcaseBusiness, CalendarDays, Contact, CreditCard, FileText, Globe, Image, Languages, LogOut, NotebookPen, Shield, Settings, Share2, Sparkles, User, Video, Wand2 } from 'lucide-react-native';
 import { FRONTEND_URL } from '@/config/env';
 import type { NativeTabKey } from '@/screens/NativeFeaturePages';
 import { colors } from '@/theme/colors';
@@ -55,10 +55,13 @@ export function MenuPage({ isAdmin, onOpenTab, onLogout }: { isAdmin: boolean; o
     { icon: BriefcaseBusiness, label: 'Business Assistant', sub: 'Fiches clients, relances, notes et réponses professionnelles.', tab: 'business' },
     { icon: Bot, label: 'Réponses IA', sub: 'Préparer des réponses automatiques avec un prompt contrôlé.', tab: 'ai' },
     { icon: Wand2, label: 'Créer un flyer IA', sub: "Créez des affiches et flyers professionnels avec l'intelligence artificielle.", tab: 'flyers' },
-    { icon: Sparkles, label: 'IA Vidéo', sub: 'Créez vos vidéos de présentation IA avec voix off et musique.', tab: 'videos' },
+    { icon: Video, label: 'IA Vidéo', sub: 'Créez vos vidéos de présentation IA avec voix off et musique.', tab: 'videos' },
     { icon: CreditCard, label: 'Paiements', sub: 'Paystack et vérification serveur des crédits.', tab: 'payments' },
     { icon: Image, label: 'Galerie', sub: 'Médias locaux téléchargés et validés.', tab: 'gallery' },
-    { icon: Languages, label: 'Traduction', sub: 'Rédiger, reformuler ou traduire un message avant envoi.', tab: 'tools' },
+    { icon: Languages, label: 'Traduction', sub: 'Rédiger, reformuler ou traduire un message avant envoi.', tab: 'translate' },
+    { icon: Video, label: 'Meeting', sub: 'Créer ou rejoindre une salle avec un lien partageable.', tab: 'meeting' },
+    { icon: NotebookPen, label: 'Notes', sub: 'Notes locales conservées sur ce téléphone.', tab: 'notes' },
+    { icon: CalendarDays, label: 'Rappels', sub: 'Rappels locaux avec notification Android.', tab: 'events' },
     { icon: Globe, label: 'Oracle Web', sub: 'Créer mon site web, appli ou boutique.', action: openOracleWeb },
     { icon: Sparkles, label: 'Spiritualité', sub: 'Accéder aux consultations et services Oracle Plus.', action: openSpirituality },
   ];

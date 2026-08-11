@@ -25,6 +25,7 @@
     "@react-native-google-signin/google-signin": "^16.1.4",
     "@react-navigation/native": "^7.1.8",
     "expo": "~55.0.28",
+    "expo-clipboard": "~55.0.15",
     "expo-constants": "~55.0.17",
     "expo-contacts": "~55.0.16",
     "expo-crypto": "~55.0.17",

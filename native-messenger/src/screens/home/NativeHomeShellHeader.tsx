@@ -21,7 +21,7 @@ export function NativeHomeShellHeader({ title, subtitle, onRefresh, onTabPress }
         <Pressable style={styles.headerButton} onPress={onRefresh} accessibilityLabel="Actualiser">
           <RefreshCcw size={19} color="#F8FAFC" strokeWidth={1.9} />
         </Pressable>
-        <Pressable style={styles.headerButton} onPress={() => onTabPress('stories')} accessibilityLabel="Prendre une photo">
+        <Pressable style={styles.headerButton} onPress={() => onTabPress('storyCamera')} accessibilityLabel="Prendre une photo">
           <Camera size={20} color="#F8FAFC" strokeWidth={1.9} />
         </Pressable>
         <Pressable style={styles.headerButton} onPress={() => onTabPress('menu')} accessibilityLabel="Menu">
