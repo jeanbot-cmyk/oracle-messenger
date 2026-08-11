@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import InCallManager from 'react-native-incall-manager';
 import {
-  mediaDevices,
   MediaStream,
   RTCIceCandidate,
   RTCPeerConnection,
   RTCSessionDescription,
-  type MediaStreamTrack,
 } from 'react-native-webrtc';
 import type { Socket } from 'socket.io-client';
 import {
@@ -18,6 +15,7 @@ import {
   type NativeCallState,
 } from '@/hooks/nativeCallUtils';
 import { useNativeCallAudioSession } from '@/hooks/useNativeCallAudioSession';
+import { useNativeCallMediaControls } from '@/hooks/useNativeCallMediaControls';
 import { api } from '@/services/api';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import { cancelIncomingCallNotification, showIncomingCallNotification } from '@/services/notifications';
@@ -74,41 +72,16 @@ export function useNativeCall(session: AuthSession | null) {
     trace,
   });
 
-  const getLocalStream = useCallback(async (type: 'audio' | 'video', facing: 'user' | 'environment') => {
-    const stream = await mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        channelCount: 1,
-      },
-      video: type === 'video'
-        ? {
-            facingMode: facing,
-            width: 1280,
-            height: 720,
-            frameRate: 24,
-          }
-        : false,
-    } as any);
-    const audioTracks = stream.getAudioTracks();
-    if (!audioTracks.length) {
-      stream.getTracks().forEach(track => track.stop());
-      throw new Error('Microphone indisponible.');
-    }
-    audioTracks.forEach(track => { track.enabled = true; });
-    localStreamRef.current = stream;
-    setLocalStream(stream);
-    setMuted(false);
-    setCameraOff(false);
-    trace('media:local-ready', {
-      type,
-      audioTracks: stream.getAudioTracks().length,
-      videoTracks: stream.getVideoTracks().length,
-      facing,
-    });
-    return stream;
-  }, [trace]);
+  const { getLocalStream, toggleMute, toggleCamera, switchCamera } = useNativeCallMediaControls({
+    localStreamRef,
+    cameraFacing,
+    setLocalStream,
+    setMuted,
+    setCameraOff,
+    setCameraFacing,
+    setCallNotice,
+    trace,
+  });
 
   const cleanup = useCallback((emitEnd = false) => {
     const info = callInfoRef.current;
@@ -312,41 +285,6 @@ export function useNativeCall(session: AuthSession | null) {
       cleanup(true);
     }
   }, [cameraFacing, cleanup, getLocalStream, session?.token, setStateSafe, startAudioSession, trace]);
-
-  const toggleMute = useCallback(() => {
-    const tracks = localStreamRef.current?.getAudioTracks() ?? [];
-    const nextMuted = tracks.some(track => track.enabled);
-    tracks.forEach(track => { track.enabled = !nextMuted; });
-    try { InCallManager.setMicrophoneMute(nextMuted); } catch {}
-    setMuted(nextMuted);
-    trace('audio:mute', { muted: nextMuted, tracks: tracks.length });
-  }, [trace]);
-
-  const toggleCamera = useCallback(() => {
-    const tracks = localStreamRef.current?.getVideoTracks() ?? [];
-    const nextOff = tracks.some(track => track.enabled);
-    tracks.forEach(track => { track.enabled = !nextOff; });
-    setCameraOff(nextOff);
-    trace('camera:toggle', { off: nextOff, tracks: tracks.length });
-  }, [trace]);
-
-  const switchCamera = useCallback(() => {
-    const track = localStreamRef.current?.getVideoTracks()[0] as (MediaStreamTrack & { _switchCamera?: () => void }) | undefined;
-    if (!track) {
-      setCallNotice('Caméra indisponible.');
-      return;
-    }
-    try {
-      track._switchCamera?.();
-      const next = cameraFacing === 'user' ? 'environment' : 'user';
-      setCameraFacing(next);
-      setCameraOff(false);
-      trace('camera:switch', { facing: next, method: '_switchCamera-no-renegotiation' });
-    } catch (error) {
-      setCallNotice(error instanceof Error ? error.message : 'Changement caméra impossible.');
-      trace('camera:switch:error', { message: error instanceof Error ? error.message : String(error) });
-    }
-  }, [cameraFacing, trace]);
 
   const toggleSpeaker = useCallback(() => {
     applyAudioRoute(!speakerOn);
