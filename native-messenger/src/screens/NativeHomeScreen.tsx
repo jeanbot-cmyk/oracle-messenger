@@ -6,9 +6,10 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
-import { Image as ImageIcon, Mic, Paperclip, Phone, RefreshCcw, Send, Video } from 'lucide-react-native';
+import { Phone, RefreshCcw, Video } from 'lucide-react-native';
 import { ANDROID_PACKAGE, GOOGLE_WEB_CLIENT_ID, NATIVE_BASELINE } from '@/config/env';
 import { useNativeCall } from '@/hooks/useNativeCall';
+import { NativeChatComposer } from '@/screens/home/NativeChatComposer';
 import { NativeCallOverlay } from '@/screens/home/NativeCallOverlay';
 import { NativeChatMediaMessage } from '@/screens/home/NativeChatMediaMessage';
 import { NativeConversationList } from '@/screens/home/NativeConversationList';
@@ -1203,43 +1204,21 @@ export function NativeHomeScreen() {
               );
             }}
           />
-          <View style={styles.inputRow}>
-            {replyTo || editingMessage ? (
-              <View style={styles.composerContext}>
-                <View style={styles.composerContextText}>
-                  <Text style={styles.composerContextTitle}>{editingMessage ? 'Modifier le message' : 'Répondre'}</Text>
-                  <Text numberOfLines={1} style={styles.composerContextPreview}>{messagePreview(editingMessage || replyTo)}</Text>
-                </View>
-                <Pressable onPress={() => { setReplyTo(null); setEditingMessage(null); setDraft(''); }} style={styles.contextClose}>
-                  <Text style={styles.contextCloseText}>×</Text>
-                </Pressable>
-              </View>
-            ) : null}
-            {voiceRecording ? (
-              <View style={styles.voiceRecordingBar}>
-                <View style={styles.recordingDot} />
-                <Text style={styles.voiceRecordingText}>
-                  Enregistrement vocal{voiceStartedAt ? ` - ${Math.max(0, Math.floor((Date.now() - voiceStartedAt) / 1000))}s` : ''}
-                </Text>
-                <Pressable onPress={cancelVoiceRecording} style={styles.contextClose}>
-                  <Text style={styles.contextCloseText}>×</Text>
-                </Pressable>
-              </View>
-            ) : null}
-            <Pressable style={styles.attachButton} onPress={attachImage} disabled={busy}>
-              <ImageIcon size={19} color={colors.header} />
-            </Pressable>
-            <Pressable style={styles.attachButton} onPress={attachDocument} disabled={busy}>
-              <Paperclip size={19} color={colors.header} />
-            </Pressable>
-            <Pressable style={[styles.attachButton, voiceRecording && styles.recordingButton]} onPress={toggleVoiceRecording} disabled={busy && !voiceRecording}>
-              <Mic size={19} color={voiceRecording ? '#FFFFFF' : colors.header} />
-            </Pressable>
-            <TextInput value={draft} onChangeText={handleDraftChange} placeholder="Message" placeholderTextColor={colors.muted} style={styles.input} />
-            <Pressable style={styles.sendButton} onPress={send}>
-              <Send size={20} color="#FFFFFF" />
-            </Pressable>
-          </View>
+          <NativeChatComposer
+            draft={draft}
+            replyTo={replyTo}
+            editingMessage={editingMessage}
+            voiceRecording={voiceRecording}
+            voiceStartedAt={voiceStartedAt}
+            busy={busy}
+            onDraftChange={handleDraftChange}
+            onClearContext={() => { setReplyTo(null); setEditingMessage(null); setDraft(''); }}
+            onCancelVoiceRecording={cancelVoiceRecording}
+            onAttachImage={attachImage}
+            onAttachDocument={attachDocument}
+            onToggleVoiceRecording={toggleVoiceRecording}
+            onSend={send}
+          />
         </KeyboardAvoidingView>
       ) : (
         <NativeConversationList
@@ -1326,18 +1305,4 @@ const styles = StyleSheet.create({
   voiceRow: { minWidth: 190, flexDirection: 'row', alignItems: 'center', gap: 10 },
   voiceAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#EAF4F1', overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   voiceAvatarText: { color: colors.header, fontSize: 12, fontWeight: '900' },
-  inputRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 12, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border },
-  composerContext: { width: '100%', minHeight: 48, borderRadius: 16, backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  composerContextText: { flex: 1, minWidth: 0 },
-  composerContextTitle: { color: colors.header, fontSize: 12, fontWeight: '900' },
-  composerContextPreview: { color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: 2 },
-  contextClose: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(16,42,42,0.10)' },
-  contextCloseText: { color: colors.header, fontSize: 21, lineHeight: 24, fontWeight: '900' },
-  voiceRecordingBar: { width: '100%', minHeight: 46, borderRadius: 16, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 9 },
-  recordingDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger },
-  voiceRecordingText: { flex: 1, color: colors.danger, fontSize: 12.5, fontWeight: '900' },
-  attachButton: { width: 44, height: 46, borderRadius: 16, backgroundColor: '#EAF4F1', alignItems: 'center', justifyContent: 'center' },
-  recordingButton: { backgroundColor: colors.danger },
-  input: { flex: 1, minHeight: 46, borderRadius: 16, backgroundColor: colors.input, paddingHorizontal: 14, color: colors.text, fontWeight: '700' },
-  sendButton: { width: 46, height: 46, borderRadius: 16, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center' },
 });
