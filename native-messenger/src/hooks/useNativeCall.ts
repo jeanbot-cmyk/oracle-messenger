@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, NativeModules, Platform, type AppStateStatus } from 'react-native';
+import { AppState, Platform, type AppStateStatus } from 'react-native';
 import InCallManager from 'react-native-incall-manager';
 import {
   mediaDevices,
@@ -10,49 +10,20 @@ import {
   type MediaStreamTrack,
 } from 'react-native-webrtc';
 import type { Socket } from 'socket.io-client';
+import {
+  createNativeCallId,
+  DEFAULT_ICE,
+  emitSocketAck,
+  OracleCallService,
+  type NativeCallInfo,
+  type NativeCallState,
+} from '@/hooks/nativeCallUtils';
 import { api } from '@/services/api';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import { cancelIncomingCallNotification, showIncomingCallNotification } from '@/services/notifications';
 import type { AuthSession, Conversation } from '@/types/messenger';
 
-export type NativeCallState = 'idle' | 'calling' | 'incoming' | 'connecting' | 'connected' | 'reconnecting' | 'ended';
-
-export type NativeCallInfo = {
-  callId: string;
-  conversationId: string;
-  callerId: string;
-  callerName?: string;
-  type: 'audio' | 'video';
-  participants: string[];
-};
-
-const DEFAULT_ICE: RTCIceServer[] = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  { urls: 'stun:stun.cloudflare.com:3478' },
-  {
-    urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443', 'turns:openrelay.metered.ca:443'],
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-];
-
-function callId() {
-  return `native-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function emitAck<T>(socket: Socket, event: string, payload: unknown, timeoutMs = 15000): Promise<T> {
-  return new Promise((resolve, reject) => {
-    socket.timeout(timeoutMs).emit(event, payload, (error: Error | null, response: T) => {
-      if (error) reject(new Error('Le serveur appel ne répond pas.'));
-      else resolve(response);
-    });
-  });
-}
-
-const OracleCallService = NativeModules.OracleCallService as
-  | { startCall?: (callType: string, callerName: string) => Promise<boolean>; stopCall?: () => Promise<boolean> }
-  | undefined;
+export type { NativeCallInfo, NativeCallState } from '@/hooks/nativeCallUtils';
 
 export function useNativeCall(session: AuthSession | null) {
   const [callState, setCallState] = useState<NativeCallState>('idle');
@@ -295,7 +266,7 @@ export function useNativeCall(session: AuthSession | null) {
       return;
     }
     const nextInfo: NativeCallInfo = {
-      callId: callId(),
+      callId: createNativeCallId(),
       conversationId: conversation.id,
       callerId: session.user.id,
       callerName: session.user.name,
@@ -312,7 +283,7 @@ export function useNativeCall(session: AuthSession | null) {
       socketRef.current = socket;
       const ice = await api.iceServers(session.token).catch(() => ({ iceServers: DEFAULT_ICE }));
       iceServersRef.current = ice.iceServers?.length ? ice.iceServers : DEFAULT_ICE;
-      await emitAck(socket, 'call:start', {
+      await emitSocketAck(socket, 'call:start', {
         callId: nextInfo.callId,
         conversationId: conversation.id,
         type,
@@ -336,7 +307,7 @@ export function useNativeCall(session: AuthSession | null) {
     try {
       const socket = ensureNativeSocket(session.token);
       socketRef.current = socket;
-      const response = await emitAck<{ ok: boolean; message?: string; call?: NativeCallInfo }>(
+      const response = await emitSocketAck<{ ok: boolean; message?: string; call?: NativeCallInfo }>(
         socket,
         'call:get-active',
         { callId: requestedCallId },
@@ -379,7 +350,7 @@ export function useNativeCall(session: AuthSession | null) {
       await getLocalStream(info.type, cameraFacing);
       const ice = await api.iceServers(session.token).catch(() => ({ iceServers: DEFAULT_ICE }));
       iceServersRef.current = ice.iceServers?.length ? ice.iceServers : DEFAULT_ICE;
-      await emitAck(socket, 'call:answer', { callId: info.callId, accepted: true });
+      await emitSocketAck(socket, 'call:answer', { callId: info.callId, accepted: true });
       trace('call:answer:accepted');
     } catch (error) {
       setCallNotice(error instanceof Error ? error.message : 'Réponse impossible.');
