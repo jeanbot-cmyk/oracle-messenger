@@ -21,6 +21,7 @@ import { useNativeMessageActions } from '@/screens/home/useNativeMessageActions'
 import { usePendingNativeCallAction } from '@/screens/home/usePendingNativeCallAction';
 import { useNativeMessageMedia } from '@/screens/home/useNativeMessageMedia';
 import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
+import { useNativeTypingPresence } from '@/screens/home/useNativeTypingPresence';
 import { useNativeVoiceRecorder } from '@/screens/home/useNativeVoiceRecorder';
 import { NativeFeaturePage, type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
 import { api } from '@/services/api';
@@ -44,9 +45,6 @@ export function NativeHomeScreen() {
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [messageSearch, setMessageSearch] = useState('');
   const [activeTab, setActiveTab] = useState<NativeTabKey>('chats');
-  const [typingByConversation, setTypingByConversation] = useState<Record<string, Record<string, string>>>({});
-  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
-  const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conversationSearchRequestRef = useRef(0);
   const selectedRef = useRef<Conversation | null>(null);
   const sessionRef = useRef<AuthSession | null>(null);
@@ -65,6 +63,19 @@ export function NativeHomeScreen() {
     answerNativeCall,
     currentCallId,
     onNotice: setNotice,
+  });
+  const {
+    presenceText,
+    handleDraftChange,
+    handleTypingStart,
+    handleTypingStop,
+    handleUserOnline,
+    handleUserOffline,
+  } = useNativeTypingPresence({
+    selected,
+    token,
+    currentUserId: session?.user.id,
+    setDraft,
   });
 
   useEffect(() => {
@@ -467,7 +478,6 @@ export function NativeHomeScreen() {
   }, [handleNotificationResponse, session?.token]);
 
   useEffect(() => () => {
-    if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
     clearMediaRefreshTimers();
   }, [clearMediaRefreshTimers]);
 
@@ -510,46 +520,15 @@ export function NativeHomeScreen() {
       markMessageDeleted(conversationId, messageId);
     };
 
-    const onTypingStart = ({ conversationId, userId, userName }: { conversationId: string; userId: string; userName?: string }) => {
-      if (userId === sessionRef.current?.user.id) return;
-      setTypingByConversation(current => ({
-        ...current,
-        [conversationId]: {
-          ...(current[conversationId] || {}),
-          [userId]: userName || 'Contact',
-        },
-      }));
-    };
-
-    const onTypingStop = ({ conversationId, userId }: { conversationId: string; userId: string }) => {
-      setTypingByConversation(current => {
-        const nextForConversation = { ...(current[conversationId] || {}) };
-        delete nextForConversation[userId];
-        return { ...current, [conversationId]: nextForConversation };
-      });
-    };
-
-    const onOnline = ({ userId }: { userId: string }) => {
-      setOnlineUsers(current => new Set([...current, userId]));
-    };
-
-    const onOffline = ({ userId }: { userId: string }) => {
-      setOnlineUsers(current => {
-        const next = new Set(current);
-        next.delete(userId);
-        return next;
-      });
-    };
-
     socket.on('message:new', onMessageNew);
     socket.on('conversation:upsert', onConversationUpsert);
     socket.on('message:update', onMessageUpdate);
     socket.on('conversation:read', onConversationRead);
     socket.on('message:delete', onMessageDelete);
-    socket.on('typing:start', onTypingStart);
-    socket.on('typing:stop', onTypingStop);
-    socket.on('user:online', onOnline);
-    socket.on('user:offline', onOffline);
+    socket.on('typing:start', handleTypingStart);
+    socket.on('typing:stop', handleTypingStop);
+    socket.on('user:online', handleUserOnline);
+    socket.on('user:offline', handleUserOffline);
 
     return () => {
       socket.off('message:new', onMessageNew);
@@ -557,12 +536,12 @@ export function NativeHomeScreen() {
       socket.off('message:update', onMessageUpdate);
       socket.off('conversation:read', onConversationRead);
       socket.off('message:delete', onMessageDelete);
-      socket.off('typing:start', onTypingStart);
-      socket.off('typing:stop', onTypingStop);
-      socket.off('user:online', onOnline);
-      socket.off('user:offline', onOffline);
+      socket.off('typing:start', handleTypingStart);
+      socket.off('typing:stop', handleTypingStop);
+      socket.off('user:online', handleUserOnline);
+      socket.off('user:offline', handleUserOffline);
     };
-  }, [markMessageDeleted, patchMessage, refreshLocalMediaIndex, runMediaSync, session?.token, session?.user.id, upsertConversation, upsertMessage]);
+  }, [handleTypingStart, handleTypingStop, handleUserOffline, handleUserOnline, markMessageDeleted, patchMessage, runMediaSync, session?.token, session?.user.id, upsertConversation, upsertMessage]);
 
   const signInWithGoogle = useCallback(async () => {
     setBusy(true);
@@ -637,19 +616,6 @@ export function NativeHomeScreen() {
     setNotice,
   });
 
-  const handleDraftChange = useCallback((value: string) => {
-    setDraft(value);
-    if (!token || !selected) return;
-    const socket = ensureNativeSocket(token);
-    socket.emit(value.trim() ? 'typing:start' : 'typing:stop', { conversationId: selected.id });
-    if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
-    if (value.trim()) {
-      typingStopTimerRef.current = setTimeout(() => {
-        socket.emit('typing:stop', { conversationId: selected.id });
-      }, 1800);
-    }
-  }, [selected, token]);
-
   const logout = useCallback(async () => {
     await cancelVoiceRecording(false);
     await clearSession();
@@ -668,16 +634,6 @@ export function NativeHomeScreen() {
     if (session?.user?.name) return `${session.user.name} • ${ANDROID_PACKAGE}`;
     return `${ANDROID_PACKAGE} • baseline ${NATIVE_BASELINE}`;
   }, [session?.user?.name]);
-
-  const selectedTypingNames = useMemo(() => {
-    if (!selected) return [];
-    return Object.values(typingByConversation[selected.id] || {});
-  }, [selected, typingByConversation]);
-
-  const selectedOnline = useMemo(() => {
-    if (!selected || !session?.user.id) return false;
-    return selected.participants.some(user => user.id !== session.user.id && onlineUsers.has(user.id));
-  }, [onlineUsers, selected, session?.user.id]);
 
   const visibleMessages = useMemo(() => {
     const needle = messageSearch.trim().toLowerCase();
@@ -735,9 +691,7 @@ export function NativeHomeScreen() {
       ) : selected ? (
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.chatPanel}>
           <NativeChatHeader
-            presenceText={selectedTypingNames.length
-              ? `${selectedTypingNames.slice(0, 2).join(', ')} écrit...`
-              : selectedOnline ? 'En ligne' : 'Hors ligne'}
+            presenceText={presenceText}
             callNotice={nativeCall.callNotice}
             messageSearch={messageSearch}
             onBack={() => setSelected(null)}
