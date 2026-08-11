@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, KeyboardAvoidingView, Linking, Platform, SafeAreaView, StyleSheet, Text } from 'react-native';
+import { AppState, KeyboardAvoidingView, Linking, Platform, SafeAreaView, StyleSheet, Text } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
@@ -15,7 +15,8 @@ import { NativeLoadingScreen } from '@/screens/home/NativeLoadingScreen';
 import { NativeMessageActionPanels } from '@/screens/home/NativeMessageActionPanels';
 import { NativeMessageList } from '@/screens/home/NativeMessageList';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
-import { conversationName, parseCallActionDeepLink, parseConversationTarget, parsePaystackDeepLink, socketAck, sortMessages } from '@/screens/home/homeUtils';
+import { parseCallActionDeepLink, parseConversationTarget, parsePaystackDeepLink, socketAck, sortMessages } from '@/screens/home/homeUtils';
+import { useNativeConversationActions } from '@/screens/home/useNativeConversationActions';
 import { useNativeMessageActions } from '@/screens/home/useNativeMessageActions';
 import { usePendingNativeCallAction } from '@/screens/home/usePendingNativeCallAction';
 import { useNativeMessageMedia } from '@/screens/home/useNativeMessageMedia';
@@ -256,6 +257,19 @@ export function NativeHomeScreen() {
     setActiveTab('chats');
     void loadMessages(conversation);
   }, [loadMessages]);
+
+  const { openConversationActions } = useNativeConversationActions({
+    token,
+    selectedId: selected?.id,
+    loadMessages,
+    refreshConversations,
+    setActiveTab,
+    setBusy,
+    setNotice,
+    setSelected,
+    setMessages,
+    setConversations,
+  });
 
   const restore = useCallback(async () => {
     setLoading(true);
@@ -622,44 +636,6 @@ export function NativeHomeScreen() {
     setBusy,
     setNotice,
   });
-
-  const deleteConversation = useCallback((conversation: Conversation) => {
-    if (!token) return;
-    Alert.alert(
-      'Supprimer la conversation',
-      `La conversation "${conversationName(conversation)}" sera retirée de ce compte. Les autres participants ne seront pas supprimés.`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: () => {
-            setBusy(true);
-            setNotice('');
-            api.deleteConversation(conversation.id, token)
-              .then(async () => {
-                if (selected?.id === conversation.id) {
-                  setSelected(null);
-                  setMessages([]);
-                }
-                setConversations(current => current.filter(item => item.id !== conversation.id));
-                await refreshConversations();
-              })
-              .catch(error => setNotice(error instanceof Error ? error.message : 'Suppression conversation impossible.'))
-              .finally(() => setBusy(false));
-          },
-        },
-      ],
-    );
-  }, [refreshConversations, selected?.id, token]);
-
-  const openConversationActions = useCallback((conversation: Conversation) => {
-    Alert.alert('Conversation', conversationName(conversation), [
-      { text: 'Ouvrir', onPress: () => { setActiveTab('chats'); loadMessages(conversation); } },
-      { text: 'Supprimer de mon compte', style: 'destructive', onPress: () => deleteConversation(conversation) },
-      { text: 'Annuler', style: 'cancel' },
-    ]);
-  }, [deleteConversation, loadMessages]);
 
   const handleDraftChange = useCallback((value: string) => {
     setDraft(value);
