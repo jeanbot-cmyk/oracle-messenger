@@ -19,10 +19,9 @@ import { NativeMessageActionPanels } from '@/screens/home/NativeMessageActionPan
 import { NativeMessageList } from '@/screens/home/NativeMessageList';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
 import { conversationName, messagePreview, parseCallActionDeepLink, parseConversationTarget, parsePaystackDeepLink, socketAck, sortMessages } from '@/screens/home/homeUtils';
+import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
 import { NativeFeaturePage, type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
 import { api } from '@/services/api';
-import { readLocalGalleryItems, type LocalGalleryItem } from '@/services/localMedia';
-import { syncPendingMedia, type MediaSyncResult } from '@/services/mediaSync';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import { configureAndroidNotifications, registerPushToken } from '@/services/notifications';
 import { clearSession, loadSession, saveSession } from '@/services/session';
@@ -58,14 +57,12 @@ export function NativeHomeScreen() {
   const [messageSearch, setMessageSearch] = useState('');
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [forwardMessages, setForwardMessages] = useState<Message[]>([]);
-  const [localMediaByMessageId, setLocalMediaByMessageId] = useState<Record<string, LocalGalleryItem>>({});
   const [voiceRecording, setVoiceRecording] = useState(false);
   const [voiceStartedAt, setVoiceStartedAt] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<NativeTabKey>('chats');
   const [typingByConversation, setTypingByConversation] = useState<Record<string, Record<string, string>>>({});
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mediaRefreshTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const pendingCallActionRef = useRef<PendingCallAction | null>(null);
   const pendingCallActionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conversationSearchRequestRef = useRef(0);
@@ -81,20 +78,7 @@ export function NativeHomeScreen() {
   const prepareIncomingCall = nativeCall.prepareIncomingCall;
   const visibleTabs = useVisibleTabs(session);
   const needsOnboarding = Boolean(session && (session.user.isNew || !session.user.phone));
-
-  const refreshLocalMediaIndex = useCallback(async () => {
-    try {
-      const items = await readLocalGalleryItems();
-      setLocalMediaByMessageId(Object.fromEntries(items.map(item => [item.messageId, item])));
-    } catch {
-      setLocalMediaByMessageId({});
-    }
-  }, []);
-
-  const clearMediaRefreshTimers = useCallback(() => {
-    for (const timer of mediaRefreshTimersRef.current) clearTimeout(timer);
-    mediaRefreshTimersRef.current = [];
-  }, []);
+  const { localMediaByMessageId, refreshLocalMediaIndex, clearMediaRefreshTimers, runMediaSync } = useNativeMediaSync();
 
   const clearPendingCallAction = useCallback(() => {
     if (pendingCallActionTimerRef.current) clearTimeout(pendingCallActionTimerRef.current);
@@ -115,26 +99,6 @@ export function NativeHomeScreen() {
       setNotice('Appel entrant introuvable ou deja termine.');
     }, 45000);
   }, [clearPendingCallAction]);
-
-  const scheduleMediaIndexRefreshes = useCallback((result?: MediaSyncResult) => {
-    if (!result?.queuedNativeMessageIds.length) return;
-    clearMediaRefreshTimers();
-    mediaRefreshTimersRef.current = [1500, 5000, 12000, 30000].map(delay => (
-      setTimeout(() => {
-        refreshLocalMediaIndex().catch(() => null);
-      }, delay)
-    ));
-  }, [clearMediaRefreshTimers, refreshLocalMediaIndex]);
-
-  const runMediaSync = useCallback((activeToken: string, currentUserId?: string, knownMessages: Message[] = []) => (
-    syncPendingMedia(activeToken, currentUserId, knownMessages)
-      .then(result => {
-        scheduleMediaIndexRefreshes(result);
-        return result;
-      })
-      .finally(() => refreshLocalMediaIndex().catch(() => null))
-      .catch(() => null)
-  ), [refreshLocalMediaIndex, scheduleMediaIndexRefreshes]);
 
   useEffect(() => {
     selectedRef.current = selected;
