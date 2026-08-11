@@ -19,6 +19,10 @@ function phoneCandidates(raw: string) {
   ].filter(Boolean);
 }
 
+function whatsappPhone(raw: string) {
+  return String(raw || '').replace(/\D/g, '');
+}
+
 async function hashPhones(values: string[]) {
   const unique = [...new Set(values.flatMap(phoneCandidates))];
   const hashes = await Promise.all(unique.map(value => Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, value)));
@@ -104,6 +108,24 @@ export function ContactsPage({
     }
   }, [phone]);
 
+  const inviteWhatsApp = useCallback(async () => {
+    const normalized = phone.trim();
+    const digits = whatsappPhone(normalized);
+    const installLink = 'https://messenger.oracle-plus.online/install';
+    const message = `Bonjour, rejoins-moi sur Oracle Messenger: ${installLink}`;
+    if (!digits || !normalized.startsWith('+')) {
+      setNotice('WhatsApp demande un numéro avec indicatif, exemple +225...');
+      return;
+    }
+    try {
+      await Linking.openURL(`whatsapp://send?phone=${digits}&text=${encodeURIComponent(message)}`);
+    } catch {
+      await Linking.openURL(`https://wa.me/${digits}?text=${encodeURIComponent(message)}`).catch(async () => {
+        await Share.share({ title: 'Oracle Messenger', message });
+      });
+    }
+  }, [phone]);
+
   const shareMessenger = useCallback(async () => {
     await Share.share({
       title: 'Oracle Messenger',
@@ -167,6 +189,7 @@ export function ContactsPage({
         <PrimaryButton label="Vérifier le numéro" onPress={matchPhone} disabled={busy || !phone.trim()} />
         <View style={styles.actionRow}>
           <SecondaryButton label="Inviter par SMS / partage" onPress={invitePhone} disabled={busy || !phone.trim()} />
+          <SecondaryButton label="Inviter WhatsApp" onPress={inviteWhatsApp} disabled={busy || !phone.trim()} />
         </View>
         {matched ? <UserRow user={matched} actionLabel="Écrire" onPress={() => createConversation(matched)} /> : null}
       </Section>

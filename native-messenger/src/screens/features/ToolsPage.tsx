@@ -12,12 +12,34 @@ type LocalEvent = { id: string; title: string; date: string; time: string; note:
 type AiMessage = { id: string; from: 'client' | 'agent'; text: string };
 type QuickTool = { mode: ToolTab; title: string; subtitle: string };
 
+const DEFAULT_AI_PROMPT = 'Tu es l’assistant commercial de mon entreprise. Réponds clairement et poliment.';
+
 const QUICK_TOOLS: QuickTool[] = [
   { mode: 'flyer', title: 'Créer IA Image', subtitle: 'Flyers et affiches' },
   { mode: 'video', title: 'IA Vidéo', subtitle: 'Vidéos de présentation' },
   { mode: 'translate', title: 'Traduction', subtitle: 'Messages multilingues' },
   { mode: 'ai', title: 'Réponse IA', subtitle: 'Texte professionnel' },
 ];
+
+const AI_DELAY_OPTIONS = [
+  { value: 0, label: 'Immédiat' },
+  { value: 1000, label: '1 s' },
+  { value: 5000, label: '5 s' },
+  { value: 10000, label: '10 s' },
+  { value: 30000, label: '30 s' },
+  { value: 60000, label: '1 min' },
+  { value: 120000, label: '2 min' },
+  { value: 300000, label: '5 min' },
+  { value: -1, label: 'Perso' },
+] as const;
+
+const AI_SCOPE_OPTIONS = [
+  { value: 'private_only', label: 'Privées' },
+  { value: 'groups_only', label: 'Groupes' },
+  { value: 'friends', label: 'Amis' },
+  { value: 'non_friends', label: 'Non amis' },
+  { value: 'everyone', label: 'Tous' },
+] as const;
 
 function ownerKey(base: string, ownerId: string) {
   return `${base}:${ownerId || 'local'}`;
@@ -256,6 +278,17 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
   const [mode, setMode] = useState<ToolTab>(initialMode);
   const [overview, setOverview] = useState<any>(null);
   const [prompt, setPrompt] = useState('');
+  const [aiConfigPrompt, setAiConfigPrompt] = useState(DEFAULT_AI_PROMPT);
+  const [aiDelayMs, setAiDelayMs] = useState(5000);
+  const [aiCustomDelaySeconds, setAiCustomDelaySeconds] = useState('');
+  const [aiRecipientScope, setAiRecipientScope] = useState('private_only');
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [videoDurationSeconds, setVideoDurationSeconds] = useState<10 | 45>(10);
+  const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '9:16'>('9:16');
+  const [videoQuality, setVideoQuality] = useState<'hd' | 'full_hd' | 'ultra'>('hd');
+  const [videoVoiceOver, setVideoVoiceOver] = useState(true);
+  const [videoMusic, setVideoMusic] = useState(true);
+  const [videoSoundEffects, setVideoSoundEffects] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [aiOpen, setAiOpen] = useState(false);
@@ -280,6 +313,13 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
           ? await api.aiFlyerOverview(token)
           : await api.aiVideoOverview(token);
       setOverview(data);
+      if (mode === 'ai') {
+        const config = data?.config || {};
+        setAiConfigPrompt(config.prompt || DEFAULT_AI_PROMPT);
+        setAiDelayMs(Number(config.delayMs ?? 5000));
+        setAiRecipientScope(config.recipientScope || 'private_only');
+        setAiEnabled(Boolean(config.isEnabled));
+      }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Outils indisponibles.');
     } finally {
@@ -297,6 +337,31 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
     }, 45000);
   }, []);
 
+  const saveAiConfig = useCallback(async (nextEnabled = aiEnabled, silent = false) => {
+    setBusy(true);
+    if (!silent) setNotice('');
+    try {
+      const selectedDelay = aiDelayMs === -1 ? Math.max(0, Number(aiCustomDelaySeconds || 0) * 1000) : aiDelayMs;
+      const limitedPrompt = aiConfigPrompt.trim().split(/\s+/).filter(Boolean).slice(0, 80).join(' ') || DEFAULT_AI_PROMPT;
+      const data = await api.aiAutoSaveConfig(token, {
+        prompt: limitedPrompt,
+        delayMs: selectedDelay,
+        recipientScope: aiRecipientScope,
+        isEnabled: nextEnabled,
+        dailyLimit: null,
+      });
+      setAiConfigPrompt(limitedPrompt);
+      setAiEnabled(nextEnabled);
+      setOverview(data?.overview || data);
+      if (!silent) setNotice(data?.blocked || 'Configuration IA enregistrée.');
+      await load();
+    } catch (error) {
+      if (!silent) setNotice(error instanceof Error ? error.message : 'Enregistrement IA impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [aiConfigPrompt, aiCustomDelaySeconds, aiDelayMs, aiEnabled, aiRecipientScope, load, token]);
+
   useEffect(() => () => {
     if (inactivityRef.current) clearTimeout(inactivityRef.current);
   }, []);
@@ -311,6 +376,7 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
     setPrompt('');
     armAutoClose();
     try {
+      await saveAiConfig(false, true);
       const data = await api.aiAutoTest(token, clientText, 'tools');
       setAiMessages(current => [...current, { id: `a-${Date.now()}`, from: 'agent', text: data.response }]);
       if (data.freeTestsRemainingToday === 0) {
@@ -323,7 +389,7 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
     } finally {
       setBusy(false);
     }
-  }, [armAutoClose, load, prompt, token]);
+  }, [armAutoClose, load, prompt, saveAiConfig, token]);
 
   const generateFlyer = useCallback(async () => {
     if (!prompt.trim()) return;
@@ -346,12 +412,12 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
     try {
       const data = await api.aiVideoGenerate(token, {
         prompt: prompt.trim(),
-        durationSeconds: 10,
-        aspectRatio: '9:16',
-        quality: 'hd',
-        voiceOver: true,
-        music: true,
-        soundEffects: true,
+        durationSeconds: videoDurationSeconds,
+        aspectRatio: videoAspectRatio,
+        quality: videoQuality,
+        voiceOver: videoVoiceOver,
+        music: videoMusic,
+        soundEffects: videoSoundEffects,
       });
       setNotice(data?.videoUrl ? `Vidéo générée: ${data.videoUrl}` : 'Vidéo demandée.');
       setPrompt('');
@@ -361,7 +427,7 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
     } finally {
       setBusy(false);
     }
-  }, [load, prompt, token]);
+  }, [load, prompt, token, videoAspectRatio, videoDurationSeconds, videoMusic, videoQuality, videoSoundEffects, videoVoiceOver]);
 
   const pay = useCallback(async () => {
     setBusy(true);
@@ -393,6 +459,9 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
       message: 'Oracle Messenger: https://messenger.oracle-plus.online',
     });
   }, []);
+
+  const aiPromptWordCount = aiConfigPrompt.trim() ? aiConfigPrompt.trim().split(/\s+/).filter(Boolean).length : 0;
+  const canEnableAi = Boolean(overview?.config?.paidActive && Number(overview?.wallet?.wordsRemaining ?? 0) > 0);
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
@@ -444,6 +513,81 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
               <Stat label="Gratuit" value={overview?.freeTestsRemainingToday ?? overview?.freeRemaining ?? overview?.free?.remaining ?? '-'} />
               <Stat label="Statut" value={overview?.access?.active || overview?.paidActive || overview?.config?.paidActive ? 'Premium' : 'Standard'} />
             </View>
+            {mode === 'ai' ? (
+              <View style={styles.configBox}>
+                <View style={styles.cardHeadRow}>
+                  <Text style={styles.cardTitle}>Gemini Auto-Réponse Premium</Text>
+                  <Text style={[styles.cardMeta, aiPromptWordCount > 80 && styles.dangerText]}>{aiPromptWordCount}/80 mots</Text>
+                </View>
+                <Text style={styles.cardText}>Configure l’agent automatique avant activation. Le test reste privé et n’envoie rien sans validation.</Text>
+                <TextInput
+                  value={aiConfigPrompt}
+                  onChangeText={text => setAiConfigPrompt(text.trim().split(/\s+/).filter(Boolean).length > 80 ? text.trim().split(/\s+/).filter(Boolean).slice(0, 80).join(' ') : text)}
+                  placeholder="Prompt principal privé"
+                  placeholderTextColor={colors.muted}
+                  multiline
+                  style={[styles.input, styles.textarea]}
+                />
+                <Text style={styles.cardMeta}>Délai</Text>
+                <View style={styles.segment}>
+                  {AI_DELAY_OPTIONS.map(option => (
+                    <Pressable key={option.value} onPress={() => setAiDelayMs(option.value)} style={[styles.segmentItem, aiDelayMs === option.value && styles.segmentActive]}>
+                      <Text style={[styles.segmentText, aiDelayMs === option.value && styles.segmentTextActive]}>{option.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                {aiDelayMs === -1 ? (
+                  <TextInput value={aiCustomDelaySeconds} onChangeText={setAiCustomDelaySeconds} placeholder="Délai personnalisé en secondes" placeholderTextColor={colors.muted} keyboardType="numeric" style={styles.input} />
+                ) : null}
+                <Text style={styles.cardMeta}>Destinataires</Text>
+                <View style={styles.segment}>
+                  {AI_SCOPE_OPTIONS.map(option => (
+                    <Pressable key={option.value} onPress={() => setAiRecipientScope(option.value)} style={[styles.segmentItem, aiRecipientScope === option.value && styles.segmentActive]}>
+                      <Text style={[styles.segmentText, aiRecipientScope === option.value && styles.segmentTextActive]}>{option.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                {!overview?.paystackReady ? <AlertText text="Paystack n’est pas configuré côté serveur. Les paiements réels restent bloqués." /> : null}
+                {!overview?.geminiReady ? <AlertText text="Clé Gemini absente ou indisponible côté serveur : mode IA limité." /> : null}
+                <View style={styles.actionRow}>
+                  <SecondaryButton label="Enregistrer les réglages" onPress={() => saveAiConfig(aiEnabled)} disabled={busy} />
+                  <SecondaryButton label={aiEnabled ? 'Désactiver' : 'Activer'} onPress={() => saveAiConfig(!aiEnabled)} disabled={busy || (!aiEnabled && !canEnableAi)} />
+                </View>
+              </View>
+            ) : null}
+            {mode === 'video' ? (
+              <View style={styles.configBox}>
+                <Text style={styles.cardTitle}>Réglages vidéo IA</Text>
+                <Text style={styles.cardText}>Options alignées sur Capacitor : durée, format, qualité, voix off, musique et effets.</Text>
+                <View style={styles.segment}>
+                  {([10, 45] as const).map(value => (
+                    <Pressable key={value} onPress={() => setVideoDurationSeconds(value)} style={[styles.segmentItem, videoDurationSeconds === value && styles.segmentActive]}>
+                      <Text style={[styles.segmentText, videoDurationSeconds === value && styles.segmentTextActive]}>{value === 10 ? 'Test 10s' : 'Premium 45s'}</Text>
+                    </Pressable>
+                  ))}
+                  {(['9:16', '16:9'] as const).map(value => (
+                    <Pressable key={value} onPress={() => setVideoAspectRatio(value)} style={[styles.segmentItem, videoAspectRatio === value && styles.segmentActive]}>
+                      <Text style={[styles.segmentText, videoAspectRatio === value && styles.segmentTextActive]}>{value}</Text>
+                    </Pressable>
+                  ))}
+                  {(['hd', 'full_hd', 'ultra'] as const).map(value => (
+                    <Pressable key={value} onPress={() => setVideoQuality(value)} style={[styles.segmentItem, videoQuality === value && styles.segmentActive]}>
+                      <Text style={[styles.segmentText, videoQuality === value && styles.segmentTextActive]}>{value === 'hd' ? 'HD' : value === 'full_hd' ? 'Full HD' : 'Très HD'}</Text>
+                    </Pressable>
+                  ))}
+                  <Pressable onPress={() => setVideoVoiceOver(current => !current)} style={[styles.segmentItem, videoVoiceOver && styles.segmentActive]}>
+                    <Text style={[styles.segmentText, videoVoiceOver && styles.segmentTextActive]}>Voix off</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setVideoMusic(current => !current)} style={[styles.segmentItem, videoMusic && styles.segmentActive]}>
+                    <Text style={[styles.segmentText, videoMusic && styles.segmentTextActive]}>Musique</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setVideoSoundEffects(current => !current)} style={[styles.segmentItem, videoSoundEffects && styles.segmentActive]}>
+                    <Text style={[styles.segmentText, videoSoundEffects && styles.segmentTextActive]}>Effets</Text>
+                  </Pressable>
+                </View>
+                {videoDurationSeconds === 45 ? <AlertText text="La vidéo Premium 45 secondes nécessite une validation Paystack côté serveur." /> : null}
+              </View>
+            ) : null}
             <TextInput
               value={prompt}
               onChangeText={text => { setPrompt(text); if (aiOpen) armAutoClose(); }}
@@ -509,8 +653,11 @@ const styles = StyleSheet.create({
   segmentText: { color: colors.muted, fontSize: 12.5, fontWeight: '900' },
   segmentTextActive: { color: '#FFFFFF' },
   subPanel: { gap: 10 },
+  configBox: { borderRadius: 18, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, padding: 12, gap: 10 },
+  cardHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
   inlineInput: { flex: 1, minWidth: 130 },
+  dangerText: { color: colors.danger },
   chatPanel: { borderRadius: 18, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, padding: 12, gap: 8 },
   aiBubble: { maxWidth: '92%', borderRadius: 16, padding: 10, gap: 4 },
   aiClient: { alignSelf: 'flex-end', backgroundColor: '#DCFCE7' },
