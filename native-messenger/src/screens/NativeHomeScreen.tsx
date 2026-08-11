@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, FlatList, Image, KeyboardAvoidingView, Linking, NativeModules, PermissionsAndroid, Platform, Pressable, requireNativeComponent, SafeAreaView, ScrollView, Share, StyleSheet, Text, TextInput, View, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Alert, AppState, FlatList, Image, KeyboardAvoidingView, Linking, NativeModules, PermissionsAndroid, Platform, Pressable, SafeAreaView, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
@@ -10,6 +10,9 @@ import { Camera, CameraOff, Image as ImageIcon, Mic, MicOff, Paperclip, Phone, P
 import { RTCView } from 'react-native-webrtc';
 import { ANDROID_PACKAGE, GOOGLE_WEB_CLIENT_ID, NATIVE_BASELINE } from '@/config/env';
 import { useNativeCall } from '@/hooks/useNativeCall';
+import { OracleAudioPlayer, OracleVideoPlayer } from '@/screens/features/NativeMediaPlayers';
+import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
+import { conversationName, formatBytes, initials, messagePreview, parseCallActionDeepLink, parseConversationTarget, parseMediaPayload, parsePaystackDeepLink, socketAck, sortMessages } from '@/screens/home/homeUtils';
 import { NativeFeaturePage, type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
 import { api } from '@/services/api';
 import { readLocalGalleryItems, type LocalGalleryItem } from '@/services/localMedia';
@@ -20,64 +23,12 @@ import { clearSession, loadSession, saveSession } from '@/services/session';
 import { colors } from '@/theme/colors';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
 
-function initials(name?: string | null) {
-  return String(name || '?').trim().slice(0, 2).toUpperCase();
-}
-
-function conversationName(conversation: Conversation) {
-  return conversation.name || conversation.participants?.[0]?.name || 'Conversation';
-}
-
-function messagePreview(message?: Message | null) {
-  if (!message) return 'Aucun message';
-  if (message.isDeleted) return 'Message supprimé';
-  if (message.type === 'text') return message.content;
-  const payload = parseMediaPayload(message.content);
-  if (message.type === 'image') return payload?.name || 'Image';
-  if (message.type === 'video') return payload?.name || 'Vidéo';
-  if (message.type === 'audio' || message.type === 'voice') return payload?.name || 'Note vocale';
-  return payload?.name || 'Fichier';
-}
-
-function parseMediaPayload(content?: string | null): MediaPayload | null {
-  if (!content) return null;
-  try {
-    const parsed = JSON.parse(content);
-    if (!parsed || typeof parsed !== 'object') return null;
-    const url = typeof parsed.url === 'string' ? parsed.url : '';
-    if (!url) return null;
-    return {
-      url,
-      size: typeof parsed.size === 'number' ? parsed.size : undefined,
-      checksum: typeof parsed.checksum === 'string' ? parsed.checksum : undefined,
-      mime: typeof parsed.mime === 'string' ? parsed.mime : undefined,
-      name: typeof parsed.name === 'string' ? parsed.name : undefined,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function formatBytes(value?: number) {
-  if (!value || value <= 0) return 'taille inconnue';
-  if (value < 1024) return `${value} o`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} Ko`;
-  return `${(value / (1024 * 1024)).toFixed(1)} Mo`;
-}
-
 async function fileToDataUrl(uri: string, mime = 'application/octet-stream') {
   const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
   return `data:${mime};base64,${base64}`;
 }
 
-function sortMessages(items: Message[]) {
-  return [...items].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-}
-
-type Country = { code: string; name: string; dial: string; flag: string };
-type PaystackScope = 'ai' | 'flyer' | 'video' | 'business';
 type VoiceRecordingResult = { uri: string; name: string; mime: string; size: number; durationMs: number };
-type MediaPayload = { url: string; size?: number; checksum?: string; mime?: string; name?: string };
 type PendingCallAction = { action: 'accept' | 'reject'; callId?: string | null; conversationId?: string | null };
 
 const OracleVoiceRecorder = NativeModules.OracleVoiceRecorder as {
@@ -85,294 +36,6 @@ const OracleVoiceRecorder = NativeModules.OracleVoiceRecorder as {
   stop?: () => Promise<VoiceRecordingResult>;
   cancel?: () => Promise<boolean>;
 } | undefined;
-const OracleVideoPlayer = requireNativeComponent<{
-  sourceUrl: string;
-  paused?: boolean;
-  muted?: boolean;
-  repeat?: boolean;
-  style?: ViewStyle;
-}>('OracleVideoPlayer');
-const OracleAudioPlayer = requireNativeComponent<{
-  sourceUrl: string;
-  paused?: boolean;
-  style?: ViewStyle;
-}>('OracleAudioPlayer');
-
-const COUNTRIES: Country[] = [
-  { code: 'CI', name: "Côte d'Ivoire", dial: '+225', flag: 'CI' },
-  { code: 'CM', name: 'Cameroun', dial: '+237', flag: 'CM' },
-  { code: 'SN', name: 'Sénégal', dial: '+221', flag: 'SN' },
-  { code: 'ML', name: 'Mali', dial: '+223', flag: 'ML' },
-  { code: 'BF', name: 'Burkina Faso', dial: '+226', flag: 'BF' },
-  { code: 'GN', name: 'Guinée', dial: '+224', flag: 'GN' },
-  { code: 'TG', name: 'Togo', dial: '+228', flag: 'TG' },
-  { code: 'BJ', name: 'Bénin', dial: '+229', flag: 'BJ' },
-  { code: 'NE', name: 'Niger', dial: '+227', flag: 'NE' },
-  { code: 'CD', name: 'Congo RDC', dial: '+243', flag: 'CD' },
-  { code: 'CG', name: 'Congo', dial: '+242', flag: 'CG' },
-  { code: 'GA', name: 'Gabon', dial: '+241', flag: 'GA' },
-  { code: 'GH', name: 'Ghana', dial: '+233', flag: 'GH' },
-  { code: 'NG', name: 'Nigeria', dial: '+234', flag: 'NG' },
-  { code: 'MA', name: 'Maroc', dial: '+212', flag: 'MA' },
-  { code: 'DZ', name: 'Algérie', dial: '+213', flag: 'DZ' },
-  { code: 'TN', name: 'Tunisie', dial: '+216', flag: 'TN' },
-  { code: 'FR', name: 'France', dial: '+33', flag: 'FR' },
-  { code: 'BE', name: 'Belgique', dial: '+32', flag: 'BE' },
-  { code: 'CH', name: 'Suisse', dial: '+41', flag: 'CH' },
-  { code: 'US', name: 'États-Unis', dial: '+1', flag: 'US' },
-  { code: 'CA', name: 'Canada', dial: '+1', flag: 'CA' },
-  { code: 'GB', name: 'Royaume-Uni', dial: '+44', flag: 'GB' },
-].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
-
-function normalizeOnboardingPhone(country: Country, rawPhone: string) {
-  const digits = rawPhone.replace(/\D/g, '');
-  const dialDigits = country.dial.replace(/\D/g, '');
-  if (!digits) return '';
-  return digits.startsWith(dialDigits) ? `+${digits}` : `${country.dial}${digits}`;
-}
-
-function socketAck<T>(socket: ReturnType<typeof ensureNativeSocket>, event: string, payload: unknown, timeoutMs = 15000): Promise<T> {
-  return new Promise((resolve, reject) => {
-    socket.timeout(timeoutMs).emit(event, payload, (error: Error | null, response: T) => {
-      if (error) reject(new Error('Temps réel indisponible.'));
-      else resolve(response);
-    });
-  });
-}
-
-function parsePaystackDeepLink(url: string): { scope: PaystackScope; reference: string } | null {
-  if (!url.startsWith('oraclemessenger://paystack')) return null;
-  const query = url.includes('?') ? url.slice(url.indexOf('?') + 1) : '';
-  const params = new URLSearchParams(query);
-  const scope = params.get('scope');
-  const reference = params.get('reference');
-  if (!reference || !['ai', 'flyer', 'video', 'business'].includes(scope || '')) return null;
-  return { scope: scope as PaystackScope, reference };
-}
-
-function parseCallActionDeepLink(url: string): { action: 'accept' | 'reject' | 'open'; callId?: string | null; conversationId?: string | null } | null {
-  if (!url.startsWith('oraclemessenger://call')) return null;
-  const query = url.includes('?') ? url.slice(url.indexOf('?') + 1) : '';
-  const params = new URLSearchParams(query);
-  const action = params.get('action') || 'open';
-  if (!['accept', 'reject', 'open'].includes(action)) return null;
-  return {
-    action: action as 'accept' | 'reject' | 'open',
-    callId: params.get('callId'),
-    conversationId: params.get('conversationId') || params.get('conv'),
-  };
-}
-
-function parseConversationTarget(input?: string | null): { conversationId: string; callId?: string | null } | null {
-  if (!input) return null;
-  const raw = input.startsWith('oraclemessenger://') ? input : `oraclemessenger://notification${input.startsWith('/') ? input : `/${input}`}`;
-  const query = raw.includes('?') ? raw.slice(raw.indexOf('?') + 1) : '';
-  const params = new URLSearchParams(query);
-  const conversationId = params.get('conv') || params.get('conversationId');
-  if (!conversationId) return null;
-  return { conversationId, callId: params.get('call') || params.get('callId') };
-}
-
-function NativeOnboarding({
-  session,
-  onComplete,
-  onLogout,
-}: {
-  session: AuthSession;
-  onComplete: (session: AuthSession) => Promise<void>;
-  onLogout: () => Promise<void>;
-}) {
-  const [name, setName] = useState(session.user.name || '');
-  const [bio, setBio] = useState(session.user.bio || '');
-  const [avatar, setAvatar] = useState(session.user.avatar || '');
-  const [phone, setPhone] = useState(session.user.phone || '');
-  const [country, setCountry] = useState<Country>(COUNTRIES.find(item => item.code === 'CI') || COUNTRIES[0]);
-  const [showCountries, setShowCountries] = useState(false);
-  const [countrySearch, setCountrySearch] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
-  const filteredCountries = useMemo(() => {
-    const needle = countrySearch.trim().toLowerCase();
-    if (!needle) return COUNTRIES;
-    return COUNTRIES.filter(item => (
-      item.name.toLowerCase().includes(needle) ||
-      item.dial.includes(needle) ||
-      item.code.toLowerCase().includes(needle)
-    ));
-  }, [countrySearch]);
-
-  const pickAvatar = useCallback(async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setError('Permission galerie requise pour ajouter une photo.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.82,
-      base64: true,
-      allowsEditing: true,
-      aspect: [1, 1],
-    });
-    const asset = result.assets?.[0];
-    if (result.canceled || !asset) return;
-    if (asset.base64) {
-      setAvatar(`data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`);
-    } else {
-      setAvatar(asset.uri);
-    }
-    setError('');
-  }, []);
-
-  const saveOnboarding = useCallback(async () => {
-    const cleanName = name.trim();
-    const cleanPhone = normalizeOnboardingPhone(country, phone);
-    if (!cleanName) {
-      setError('Le nom est requis.');
-      return;
-    }
-    if (cleanPhone.replace(/\D/g, '').length < 8) {
-      setError('Le numéro de téléphone est requis avec un format valide.');
-      return;
-    }
-
-    setSaving(true);
-    setError('');
-    try {
-      const saved: any = await api.updateMe(session.token, {
-        name: cleanName,
-        bio: bio.trim(),
-        avatar: avatar || undefined,
-        phone: cleanPhone,
-      });
-      const nextSession: AuthSession = {
-        token: saved?.token || session.token,
-        user: {
-          ...session.user,
-          ...saved,
-          name: saved?.name || cleanName,
-          bio: saved?.bio ?? bio.trim(),
-          avatar: saved?.avatar ?? avatar,
-          phone: saved?.phone || cleanPhone,
-          isNew: false,
-        },
-      };
-      delete (nextSession.user as any).token;
-      await onComplete(nextSession);
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : String(err || '');
-      setError(raw.includes('autre compte Google') || raw.includes('409') || raw.includes('déjà lié')
-        ? 'Ce numéro est déjà lié à un autre compte Google. Connectez-vous avec le Gmail associé à ce numéro.'
-        : raw.includes('votre compte Oracle Messenger') || raw.includes('même compte Google')
-          ? 'Ce numéro appartient déjà à votre compte. Reconnexion du bon profil en cours impossible, réessayez.'
-          : raw || 'Erreur lors de la sauvegarde du profil.');
-    } finally {
-      setSaving(false);
-    }
-  }, [avatar, bio, country, name, onComplete, phone, session]);
-
-  return (
-    <SafeAreaView style={styles.onboardingSafe}>
-      <ScrollView contentContainerStyle={styles.onboardingContent} keyboardShouldPersistTaps="handled">
-        <View style={styles.onboardingHeader}>
-          <Text style={styles.onboardingEyebrow}>Bienvenue sur</Text>
-          <Text style={styles.onboardingTitle}>Oracle Messenger</Text>
-          <Text style={styles.onboardingSubtitle}>Complétez votre profil pour commencer.</Text>
-        </View>
-
-        <Pressable onPress={pickAvatar} style={styles.onboardingAvatarWrap}>
-          <View style={styles.onboardingAvatar}>
-            {avatar ? <Image source={{ uri: avatar }} style={styles.avatarImage} /> : <Text style={styles.onboardingAvatarText}>{initials(name)}</Text>}
-          </View>
-          <View style={styles.onboardingCameraBadge}>
-            <Camera size={16} color="#FFFFFF" />
-          </View>
-        </Pressable>
-        <Text style={styles.onboardingHint}>Appuyez pour ajouter une photo</Text>
-
-        {error ? <Text style={styles.onboardingError}>{error}</Text> : null}
-
-        <View style={styles.onboardingForm}>
-          <View style={styles.fieldBlock}>
-            <Text style={styles.fieldLabel}>Votre nom *</Text>
-            <TextInput
-              value={name}
-              onChangeText={text => { setName(text); setError(''); }}
-              placeholder="Ex : Jean Dupont"
-              placeholderTextColor={colors.muted}
-              maxLength={50}
-              style={styles.onboardingInput}
-            />
-          </View>
-
-          <View style={styles.fieldBlock}>
-            <Text style={styles.fieldLabel}>Bio</Text>
-            <TextInput
-              value={bio}
-              onChangeText={setBio}
-              placeholder="Dites quelque chose sur vous..."
-              placeholderTextColor={colors.muted}
-              maxLength={160}
-              multiline
-              style={[styles.onboardingInput, styles.onboardingTextarea]}
-            />
-            <Text style={styles.fieldCounter}>{bio.length}/160</Text>
-          </View>
-
-          <View style={styles.fieldBlock}>
-            <Text style={styles.fieldLabel}>Numéro de téléphone *</Text>
-            <View style={styles.phoneRow}>
-              <Pressable style={styles.countryButton} onPress={() => setShowCountries(current => !current)}>
-                <Text style={styles.countryFlag}>{country.flag}</Text>
-                <Text style={styles.countryDial}>{country.dial}</Text>
-                <Text style={styles.countryChevron}>⌄</Text>
-              </Pressable>
-              <TextInput
-                value={phone}
-                onChangeText={text => { setPhone(text.replace(/[^\d\s]/g, '')); setError(''); }}
-                placeholder="Ex: 0102030405"
-                placeholderTextColor={colors.muted}
-                keyboardType="phone-pad"
-                style={[styles.onboardingInput, styles.phoneInput]}
-              />
-            </View>
-          </View>
-
-          {showCountries ? (
-            <View style={styles.countryPicker}>
-              <TextInput
-                value={countrySearch}
-                onChangeText={setCountrySearch}
-                placeholder="Rechercher un pays ou code..."
-                placeholderTextColor={colors.muted}
-                style={styles.countrySearch}
-              />
-              {filteredCountries.slice(0, 60).map(item => (
-                <Pressable key={`${item.code}-${item.dial}`} style={styles.countryOption} onPress={() => { setCountry(item); setShowCountries(false); setCountrySearch(''); }}>
-                  <Text style={styles.countryOptionFlag}>{item.flag}</Text>
-                  <Text style={styles.countryOptionName}>{item.name}</Text>
-                  <Text style={styles.countryOptionDial}>{item.dial}</Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-
-          <Pressable
-            onPress={saveOnboarding}
-            disabled={saving || !name.trim() || normalizeOnboardingPhone(country, phone).replace(/\D/g, '').length < 8}
-            style={[styles.onboardingSubmit, (saving || !name.trim() || normalizeOnboardingPhone(country, phone).replace(/\D/g, '').length < 8) && styles.disabledButton]}
-          >
-            {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.onboardingSubmitText}>Commencer à discuter →</Text>}
-          </Pressable>
-          <Pressable onPress={onLogout} disabled={saving} style={styles.onboardingLogout}>
-            <Text style={styles.onboardingLogoutText}>Changer de compte Google</Text>
-          </Pressable>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
 
 function NativeCallOverlay({ call }: { call: ReturnType<typeof useNativeCall> }) {
   if (call.callState === 'idle') return null;
@@ -1773,40 +1436,6 @@ const styles = StyleSheet.create({
   disabledButton: { opacity: 0.55 },
   googleMark: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#FFFFFF', color: colors.brand, textAlign: 'center', lineHeight: 24, fontSize: 15, fontWeight: '900' },
   primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
-  onboardingSafe: { flex: 1, backgroundColor: colors.surface },
-  onboardingContent: { flexGrow: 1, backgroundColor: colors.surface, paddingBottom: 28 },
-  onboardingHeader: { backgroundColor: colors.brand, paddingHorizontal: 24, paddingTop: 34, paddingBottom: 54, alignItems: 'center' },
-  onboardingEyebrow: { color: 'rgba(255,255,255,0.72)', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1 },
-  onboardingTitle: { color: '#FFFFFF', fontSize: 25, fontWeight: '900', marginTop: 5 },
-  onboardingSubtitle: { color: 'rgba(255,255,255,0.82)', fontSize: 14, fontWeight: '700', marginTop: 5, textAlign: 'center' },
-  onboardingAvatarWrap: { width: 104, height: 104, borderRadius: 52, alignSelf: 'center', marginTop: -46 },
-  onboardingAvatar: { width: 104, height: 104, borderRadius: 52, backgroundColor: colors.border, borderWidth: 4, borderColor: colors.surface, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', shadowColor: '#000000', shadowOpacity: 0.14, shadowRadius: 12, elevation: 5 },
-  onboardingAvatarText: { color: colors.muted, fontSize: 40, fontWeight: '900' },
-  onboardingCameraBadge: { position: 'absolute', right: 3, bottom: 3, width: 32, height: 32, borderRadius: 16, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.surface },
-  onboardingHint: { color: colors.muted, fontSize: 12, fontWeight: '700', textAlign: 'center', marginTop: 9 },
-  onboardingError: { marginHorizontal: 20, marginTop: 14, padding: 11, borderRadius: 12, backgroundColor: '#FEF2F2', color: colors.danger, borderWidth: 1, borderColor: '#FECACA', fontSize: 13, fontWeight: '800', lineHeight: 18 },
-  onboardingForm: { paddingHorizontal: 20, paddingTop: 18, gap: 12 },
-  fieldBlock: { gap: 7 },
-  fieldLabel: { color: colors.brand, fontSize: 11, fontWeight: '900', textTransform: 'uppercase', letterSpacing: 0.6 },
-  fieldCounter: { color: colors.muted, fontSize: 11, fontWeight: '700', textAlign: 'right' },
-  onboardingInput: { minHeight: 50, borderRadius: 16, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 15, paddingVertical: 11, color: colors.text, fontSize: 15.5, fontWeight: '700' },
-  onboardingTextarea: { minHeight: 82, textAlignVertical: 'top' },
-  phoneRow: { flexDirection: 'row', gap: 8, alignItems: 'stretch' },
-  countryButton: { minWidth: 112, minHeight: 50, borderRadius: 15, borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.surface, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  countryFlag: { color: colors.text, fontSize: 13, fontWeight: '900' },
-  countryDial: { color: colors.brand, fontSize: 14, fontWeight: '900' },
-  countryChevron: { color: colors.muted, fontSize: 16, fontWeight: '900', marginTop: -3 },
-  phoneInput: { flex: 1, minWidth: 0, backgroundColor: colors.surface },
-  countryPicker: { borderWidth: 1, borderColor: colors.border, borderRadius: 18, backgroundColor: colors.surface, overflow: 'hidden' },
-  countrySearch: { minHeight: 46, backgroundColor: colors.input, paddingHorizontal: 14, color: colors.text, fontWeight: '800', borderBottomWidth: 1, borderBottomColor: colors.border },
-  countryOption: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
-  countryOptionFlag: { width: 30, color: colors.text, fontSize: 12, fontWeight: '900' },
-  countryOptionName: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '800' },
-  countryOptionDial: { color: colors.brand, fontSize: 13, fontWeight: '900' },
-  onboardingSubmit: { marginTop: 10, minHeight: 56, borderRadius: 28, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', shadowColor: '#000000', shadowOpacity: 0.14, shadowRadius: 12, elevation: 4 },
-  onboardingSubmitText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
-  onboardingLogout: { minHeight: 42, alignItems: 'center', justifyContent: 'center' },
-  onboardingLogoutText: { color: colors.muted, fontSize: 13, fontWeight: '900' },
   header: { backgroundColor: colors.header, paddingHorizontal: 18, paddingTop: 18, paddingBottom: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '900' },
   headerSubtitle: { color: 'rgba(255,255,255,0.68)', marginTop: 3, fontSize: 12, fontWeight: '700' },
