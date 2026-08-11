@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api } from '@/services/api';
-import { readLocalGalleryItems, removeLocalGalleryItem, type LocalGalleryItem } from '@/services/localMedia';
+import { readLocalGalleryItems, removeLocalGalleryItem, renameLocalGalleryItem, type LocalGalleryItem } from '@/services/localMedia';
 import { syncPendingMedia } from '@/services/mediaSync';
 import { colors } from '@/theme/colors';
 import { AlertText, Loading, PageHeader, SecondaryButton, Section } from './FeatureUi';
@@ -28,6 +28,8 @@ export function GalleryPage({ token, userId }: { token: string; userId: string }
   const [pendingCount, setPendingCount] = useState(0);
   const [filter, setFilter] = useState<'all' | LocalGalleryItem['type']>('all');
   const [opened, setOpened] = useState<LocalGalleryItem | null>(null);
+  const [renameTarget, setRenameTarget] = useState<LocalGalleryItem | null>(null);
+  const [renameText, setRenameText] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -72,52 +74,104 @@ export function GalleryPage({ token, userId }: { token: string; userId: string }
     }
   }, []);
 
-  return (
-    <ScrollView contentContainerStyle={styles.page}>
-      <PageHeader title="Galerie" subtitle="Médias téléchargés et sauvegardés localement." />
-      <Section title="Galerie médias" right={<SecondaryButton label="Sync" onPress={load} disabled={busy} />}>
-        <Text style={styles.pageCopy}>Médias réellement présents dans le stockage local autorisé par Android après téléchargement, vérification et ACK serveur.</Text>
-        <Loading active={busy} />
-        <AlertText text={notice} />
-        <View style={styles.statsGrid}>
-          <Stat label="Locaux" value={items.length} />
-          <Stat label="En attente" value={pendingCount} />
-          <Stat label="Images" value={items.filter(item => item.type === 'image').length} />
-          <Stat label="Vidéos" value={items.filter(item => item.type === 'video').length} />
-        </View>
-        <View style={styles.segment}>
-          {(['all', 'image', 'video', 'audio', 'file'] as const).map(item => (
-            <Pressable key={item} onPress={() => setFilter(item)} style={[styles.segmentItem, filter === item && styles.segmentActive]}>
-              <Text style={[styles.segmentText, filter === item && styles.segmentTextActive]}>{item === 'all' ? 'Tout' : item === 'image' ? 'Photos' : item === 'video' ? 'Vidéos' : item === 'audio' ? 'Audios' : 'Fichiers'}</Text>
-            </Pressable>
-          ))}
-        </View>
-        {!filtered.length && !busy ? <Text style={styles.empty}>Aucun média local pour ce filtre.</Text> : null}
-      </Section>
+  const startRename = useCallback((item: LocalGalleryItem) => {
+    setRenameTarget(item);
+    setRenameText(item.name || '');
+  }, []);
 
-      {opened ? (
-        <Section title={opened.name || opened.type.toUpperCase()} right={<SecondaryButton label="Fermer" onPress={() => setOpened(null)} />}>
-          <GalleryPreview item={opened} />
-          <Text style={styles.cardMeta}>{opened.mime || opened.type} • {opened.size ? `${opened.size.toLocaleString('fr-FR')} octets` : 'taille inconnue'} • {new Date(opened.savedAt).toLocaleString('fr-FR')}</Text>
-          <View style={styles.actionRow}>
-            <SecondaryButton label="Partager" onPress={() => share(opened)} />
-            <SecondaryButton label="Supprimer localement" onPress={() => remove(opened)} disabled={busy} />
+  const confirmRename = useCallback(async () => {
+    if (!renameTarget) return;
+    const cleanName = renameText.trim();
+    if (!cleanName) {
+      setNotice('Nom requis pour renommer ce média.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await renameLocalGalleryItem(renameTarget.messageId, cleanName);
+      const nextItems = await readLocalGalleryItems();
+      setItems(nextItems);
+      setOpened(current => current?.messageId === renameTarget.messageId ? { ...current, name: cleanName } : current);
+      setRenameTarget(null);
+      setRenameText('');
+      setNotice('Média renommé.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Renommage impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [renameTarget, renameText]);
+
+  return (
+    <>
+      <ScrollView contentContainerStyle={styles.page}>
+        <PageHeader title="Galerie" subtitle="Médias téléchargés et sauvegardés localement." />
+        <Section title="Galerie médias" right={<SecondaryButton label="Sync" onPress={load} disabled={busy} />}>
+          <Text style={styles.pageCopy}>Médias réellement présents dans le stockage local autorisé par Android après téléchargement, vérification et ACK serveur.</Text>
+          <Loading active={busy} />
+          <AlertText text={notice} />
+          <View style={styles.statsGrid}>
+            <Stat label="Locaux" value={items.length} />
+            <Stat label="En attente" value={pendingCount} />
+            <Stat label="Images" value={items.filter(item => item.type === 'image').length} />
+            <Stat label="Vidéos" value={items.filter(item => item.type === 'video').length} />
+          </View>
+          <View style={styles.segment}>
+            {(['all', 'image', 'video', 'audio', 'file'] as const).map(item => (
+              <Pressable key={item} onPress={() => setFilter(item)} style={[styles.segmentItem, filter === item && styles.segmentActive]}>
+                <Text style={[styles.segmentText, filter === item && styles.segmentTextActive]}>{item === 'all' ? 'Tout' : item === 'image' ? 'Photos' : item === 'video' ? 'Vidéos' : item === 'audio' ? 'Audios' : 'Fichiers'}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {!filtered.length && !busy ? <Text style={styles.empty}>Aucun média local pour ce filtre.</Text> : null}
+        </Section>
+
+        {opened ? (
+          <Section title={opened.name || opened.type.toUpperCase()} right={<SecondaryButton label="Fermer" onPress={() => setOpened(null)} />}>
+            <GalleryPreview item={opened} />
+            <Text style={styles.cardMeta}>{opened.mime || opened.type} • {opened.size ? `${opened.size.toLocaleString('fr-FR')} octets` : 'taille inconnue'} • {new Date(opened.savedAt).toLocaleString('fr-FR')}</Text>
+            <View style={styles.actionRow}>
+              <SecondaryButton label="Partager" onPress={() => share(opened)} />
+              <SecondaryButton label="Renommer" onPress={() => startRename(opened)} disabled={busy} />
+              <SecondaryButton label="Supprimer localement" onPress={() => remove(opened)} disabled={busy} />
+            </View>
+          </Section>
+        ) : null}
+
+        <Section title="Bibliothèque locale">
+          <View style={styles.galleryGrid}>
+            {filtered.map(item => (
+              <Pressable key={item.messageId} onPress={() => setOpened(item)} style={styles.galleryTile}>
+                <GalleryThumb item={item} />
+                <Text numberOfLines={1} style={styles.galleryName}>{item.name || item.type}</Text>
+                <Text style={styles.galleryMeta}>{new Date(item.savedAt).toLocaleDateString('fr-FR')}</Text>
+              </Pressable>
+            ))}
           </View>
         </Section>
-      ) : null}
+      </ScrollView>
 
-      <Section title="Bibliothèque locale">
-        <View style={styles.galleryGrid}>
-          {filtered.map(item => (
-            <Pressable key={item.messageId} onPress={() => setOpened(item)} style={styles.galleryTile}>
-              <GalleryThumb item={item} />
-              <Text numberOfLines={1} style={styles.galleryName}>{item.name || item.type}</Text>
-              <Text style={styles.galleryMeta}>{new Date(item.savedAt).toLocaleDateString('fr-FR')}</Text>
-            </Pressable>
-          ))}
+      <Modal visible={Boolean(renameTarget)} transparent animationType="fade" onRequestClose={() => setRenameTarget(null)}>
+        <View style={styles.renameBackdrop}>
+          <View style={styles.renameSheet}>
+            <Text style={styles.renameTitle}>Renommer</Text>
+            <TextInput
+              value={renameText}
+              onChangeText={setRenameText}
+              placeholder="Nouveau nom"
+              placeholderTextColor={colors.muted}
+              autoFocus
+              maxLength={120}
+              style={styles.renameInput}
+            />
+            <View style={styles.renameActions}>
+              <SecondaryButton label="Annuler" onPress={() => setRenameTarget(null)} disabled={busy} />
+              <SecondaryButton label="Valider" onPress={confirmRename} disabled={busy || !renameText.trim()} />
+            </View>
+          </View>
         </View>
-      </Section>
-    </ScrollView>
+      </Modal>
+    </>
   );
 }
 
@@ -188,4 +242,9 @@ const styles = StyleSheet.create({
   galleryAudioPlayer: { width: '100%', height: 132 },
   galleryPreviewFile: { minHeight: 180, borderRadius: 18, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', padding: 16, gap: 10 },
   galleryPreviewType: { color: colors.text, fontSize: 18, fontWeight: '900', textAlign: 'center' },
+  renameBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.58)', alignItems: 'center', justifyContent: 'center', padding: 22 },
+  renameSheet: { width: '100%', maxWidth: 420, borderRadius: 22, backgroundColor: colors.surface, padding: 18, gap: 14 },
+  renameTitle: { color: colors.text, fontSize: 20, fontWeight: '900' },
+  renameInput: { minHeight: 50, borderRadius: 14, backgroundColor: colors.input, color: colors.text, paddingHorizontal: 14, fontSize: 15, fontWeight: '700' },
+  renameActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10 },
 });

@@ -141,6 +141,15 @@ export async function removeLocalGalleryItem(messageId: string) {
   await writeGalleryIndex(items.filter(entry => entry.messageId !== messageId));
 }
 
+export async function renameLocalGalleryItem(messageId: string, name: string) {
+  const cleanName = name.trim().slice(0, 120);
+  if (!cleanName) return;
+  const items = await readGalleryIndex();
+  await writeGalleryIndex(items.map(item => (
+    item.messageId === messageId ? { ...item, name: cleanName } : item
+  )));
+}
+
 function rightRotate(value: number, amount: number) {
   return (value >>> amount) | (value << (32 - amount));
 }

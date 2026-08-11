@@ -1,5 +1,6 @@
 import { Linking, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { Bot, BriefcaseBusiness, Contact, CreditCard, Globe, Image, Languages, LogOut, Shield, Settings, Share2, Sparkles, User, Wand2 } from 'lucide-react-native';
+import { Bot, BriefcaseBusiness, Contact, CreditCard, FileText, Globe, Image, Languages, LogOut, Shield, Settings, Share2, Sparkles, User, Wand2 } from 'lucide-react-native';
+import { FRONTEND_URL } from '@/config/env';
 import type { NativeTabKey } from '@/screens/NativeFeaturePages';
 import { colors } from '@/theme/colors';
 import { PageHeader, SecondaryButton, Section } from './FeatureUi';
@@ -33,6 +34,12 @@ export function MenuPage({ isAdmin, onOpenTab, onLogout }: { isAdmin: boolean; o
   const openSpirituality = () => {
     Linking.openURL('https://oracle-plus.online/consultation').catch(() => undefined);
   };
+  const openPrivacy = () => {
+    Linking.openURL(`${FRONTEND_URL}/privacy`).catch(() => undefined);
+  };
+  const openTerms = () => {
+    Linking.openURL(`${FRONTEND_URL}/terms`).catch(() => undefined);
+  };
   const shareApp = async () => {
     await Share.share({
       title: 'Oracle Messenger',
@@ -57,6 +64,8 @@ export function MenuPage({ isAdmin, onOpenTab, onLogout }: { isAdmin: boolean; o
   ];
   const settings: MenuItem[] = [
     { icon: Settings, label: 'Paramètres', sub: 'Notifications, sécurité et stockage.', tab: 'profile' },
+    { icon: Shield, label: 'Confidentialité', sub: 'Politique de confidentialité Oracle Messenger.', action: openPrivacy },
+    { icon: FileText, label: 'Conditions', sub: "Règles d'utilisation et services Oracle Messenger.", action: openTerms },
     ...(isAdmin ? [{ icon: Shield, label: 'Administration', sub: 'Statistiques, notifications et message système.', tab: 'admin' as NativeTabKey }] : []),
     { icon: Share2, label: 'Partager', sub: 'Partager Oracle Messenger.', action: shareApp },
     { icon: LogOut, label: 'Déconnexion', sub: 'Fermer la session sur ce téléphone.', action: onLogout },
