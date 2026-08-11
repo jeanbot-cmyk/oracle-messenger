@@ -9,7 +9,7 @@ import type { LocalGalleryItem } from '@/services/localMedia';
 import { colors } from '@/theme/colors';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
 
-type NativeHomeShellProps = {
+export type NativeHomeShellProps = {
   session: AuthSession;
   nativeCall: ReturnType<typeof useNativeCall>;
   headerSubtitle: string;
