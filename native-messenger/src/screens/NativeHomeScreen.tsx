@@ -14,8 +14,9 @@ import { NativeLoadingScreen } from '@/screens/home/NativeLoadingScreen';
 import { NativeMessageActionPanels } from '@/screens/home/NativeMessageActionPanels';
 import { NativeMessageList } from '@/screens/home/NativeMessageList';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
-import { socketAck, sortMessages } from '@/screens/home/homeUtils';
+import { socketAck } from '@/screens/home/homeUtils';
 import { useNativeConversationActions } from '@/screens/home/useNativeConversationActions';
+import { useNativeConversationState } from '@/screens/home/useNativeConversationState';
 import { useNativeMessageActions } from '@/screens/home/useNativeMessageActions';
 import { usePendingNativeCallAction } from '@/screens/home/usePendingNativeCallAction';
 import { useNativeMessageMedia } from '@/screens/home/useNativeMessageMedia';
@@ -36,18 +37,28 @@ export function NativeHomeScreen() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
-  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationSearch, setConversationSearch] = useState('');
-  const [selected, setSelected] = useState<Conversation | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [messageSearch, setMessageSearch] = useState('');
   const [activeTab, setActiveTab] = useState<NativeTabKey>('chats');
   const conversationSearchRequestRef = useRef(0);
-  const selectedRef = useRef<Conversation | null>(null);
-  const sessionRef = useRef<AuthSession | null>(null);
+  const {
+    conversations,
+    setConversations,
+    selected,
+    setSelected,
+    messages,
+    setMessages,
+    selectedRef,
+    sessionRef,
+    upsertConversation,
+    upsertMessage,
+    patchMessage,
+    markMessageDeleted,
+    visibleMessages,
+  } = useNativeConversationState({ session, messageSearch });
   const nativeCall = useNativeCall(session);
 
   const token = session?.token;
@@ -75,68 +86,6 @@ export function NativeHomeScreen() {
     currentUserId: session?.user.id,
     setDraft,
   });
-  useEffect(() => {
-    selectedRef.current = selected;
-  }, [selected]);
-
-  useEffect(() => {
-    sessionRef.current = session;
-  }, [session]);
-
-  const upsertConversation = useCallback((conversation: Conversation) => {
-    setConversations(current => {
-      const exists = current.some(item => item.id === conversation.id);
-      const next = exists
-        ? current.map(item => item.id === conversation.id ? { ...item, ...conversation } : item)
-        : [conversation, ...current];
-      return next.sort((a, b) => new Date(b.updatedAt || b.lastMessage?.createdAt || 0).getTime() - new Date(a.updatedAt || a.lastMessage?.createdAt || 0).getTime());
-    });
-  }, []);
-
-  const upsertMessage = useCallback((message: Message) => {
-    setMessages(current => {
-      const active = selectedRef.current;
-      if (!active || active.id !== message.conversationId) return current;
-      const exists = current.some(item => item.id === message.id);
-      return sortMessages(exists ? current.map(item => item.id === message.id ? { ...item, ...message } : item) : [...current, message]);
-    });
-    setConversations(current => {
-      let found = false;
-      const next = current.map(conversation => {
-        if (conversation.id !== message.conversationId) return conversation;
-        found = true;
-        const isCurrentOpen = selectedRef.current?.id === message.conversationId;
-        const isOwn = message.senderId === sessionRef.current?.user.id;
-        return {
-          ...conversation,
-          lastMessage: message,
-          unreadCount: isCurrentOpen || isOwn ? conversation.unreadCount || 0 : (conversation.unreadCount || 0) + 1,
-          updatedAt: message.createdAt || conversation.updatedAt,
-        };
-      });
-      if (!found) return current;
-      return next.sort((a, b) => new Date(b.updatedAt || b.lastMessage?.createdAt || 0).getTime() - new Date(a.updatedAt || a.lastMessage?.createdAt || 0).getTime());
-    });
-  }, []);
-
-  const patchMessage = useCallback((id: string, patch: Partial<Message>) => {
-    setMessages(current => current.map(item => item.id === id ? { ...item, ...patch } : item));
-    setConversations(current => current.map(conversation => (
-      conversation.lastMessage?.id === id
-        ? { ...conversation, lastMessage: { ...conversation.lastMessage, ...patch } }
-        : conversation
-    )));
-  }, []);
-
-  const markMessageDeleted = useCallback((conversationId: string, messageId: string) => {
-    setMessages(current => current.map(item => item.id === messageId ? { ...item, isDeleted: true, content: '' } : item));
-    setConversations(current => current.map(conversation => (
-      conversation.id === conversationId && conversation.lastMessage?.id === messageId
-        ? { ...conversation, lastMessage: { ...conversation.lastMessage, isDeleted: true, content: '' } }
-        : conversation
-    )));
-  }, []);
-
   useNativeRealtimeEvents({
     session,
     selectedRef,
@@ -167,7 +116,7 @@ export function NativeHomeScreen() {
     } finally {
       setBusy(false);
     }
-  }, [conversationSearch, token]);
+  }, [conversationSearch, setConversations, token]);
 
   const {
     selectedMessageIds,
@@ -219,7 +168,7 @@ export function NativeHomeScreen() {
         });
     }, query ? 280 : 0);
     return () => clearTimeout(timer);
-  }, [activeTab, conversationSearch, selected, token]);
+  }, [activeTab, conversationSearch, selected, setConversations, token]);
 
   const completeOnboarding = useCallback(async (nextSession: AuthSession) => {
     await saveSession(nextSession);
@@ -230,7 +179,7 @@ export function NativeHomeScreen() {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     await refreshConversations(nextSession.token);
     runMediaSync(nextSession.token, nextSession.user.id);
-  }, [refreshConversations, runMediaSync]);
+  }, [refreshConversations, runMediaSync, setSelected]);
 
   const loadMessages = useCallback(async (conversation: Conversation, activeToken = token) => {
     if (!activeToken) return;
@@ -254,7 +203,7 @@ export function NativeHomeScreen() {
     } finally {
       setBusy(false);
     }
-  }, [resetMessageActions, runMediaSync, session?.user.id, token]);
+  }, [resetMessageActions, runMediaSync, session?.user.id, sessionRef, setConversations, setMessages, setSelected, token]);
 
   const openConversationById = useCallback(async (conversationId: string, activeToken = token) => {
     if (!activeToken || !conversationId) return;
@@ -276,7 +225,7 @@ export function NativeHomeScreen() {
     } finally {
       setBusy(false);
     }
-  }, [loadMessages, token]);
+  }, [loadMessages, setConversations, setSelected, token]);
 
   const openConversationFromFeature = useCallback((conversation: Conversation) => {
     setActiveTab('chats');
@@ -441,26 +390,12 @@ export function NativeHomeScreen() {
     setActiveTab('chats');
     setMessages([]);
     setConversations([]);
-  }, [cancelVoiceRecording, resetMessageActions]);
+  }, [cancelVoiceRecording, resetMessageActions, setConversations, setMessages, setSelected]);
 
   const headerSubtitle = useMemo(() => {
     if (session?.user?.name) return `${session.user.name} • ${ANDROID_PACKAGE}`;
     return `${ANDROID_PACKAGE} • baseline ${NATIVE_BASELINE}`;
   }, [session?.user?.name]);
-
-  const visibleMessages = useMemo(() => {
-    const needle = messageSearch.trim().toLowerCase();
-    if (!needle) return messages;
-    return messages.filter(message => {
-      const haystack = [
-        message.content,
-        message.sender?.name,
-        message.type,
-        message.replyTo?.content,
-      ].filter(Boolean).join(' ').toLowerCase();
-      return haystack.includes(needle);
-    });
-  }, [messageSearch, messages]);
 
   if (loading) {
     return <NativeLoadingScreen />;
