@@ -12,7 +12,6 @@ import { NativeLoadingScreen } from '@/screens/home/NativeLoadingScreen';
 import { NativeMessageActionPanels } from '@/screens/home/NativeMessageActionPanels';
 import { NativeMessageList } from '@/screens/home/NativeMessageList';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
-import { socketAck } from '@/screens/home/homeUtils';
 import { useNativeConversationActions } from '@/screens/home/useNativeConversationActions';
 import { useNativeConversationState } from '@/screens/home/useNativeConversationState';
 import { useNativeMessageActions } from '@/screens/home/useNativeMessageActions';
@@ -22,6 +21,7 @@ import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
 import { useNativeNotificationRouting } from '@/screens/home/useNativeNotificationRouting';
 import { useNativeRealtimeEvents } from '@/screens/home/useNativeRealtimeEvents';
 import { useNativeSessionLifecycle } from '@/screens/home/useNativeSessionLifecycle';
+import { useNativeTextMessageSender } from '@/screens/home/useNativeTextMessageSender';
 import { useNativeTypingPresence } from '@/screens/home/useNativeTypingPresence';
 import { useNativeVoiceRecorder } from '@/screens/home/useNativeVoiceRecorder';
 import { NativeFeaturePage, type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
@@ -264,33 +264,20 @@ export function NativeHomeScreen() {
     clearMediaRefreshTimers();
   }, [clearMediaRefreshTimers]);
 
-  const send = useCallback(async () => {
-    const clean = draft.trim();
-    if (!clean || !selected || !token) return;
-    setDraft('');
-    try {
-      const socket = ensureNativeSocket(token);
-      if (editingMessage) {
-        socket.emit('message:edit', { messageId: editingMessage.id, content: clean });
-        const message = await api.editMessage(editingMessage.id, token, clean);
-        patchMessage(editingMessage.id, { content: message.content, isEdited: true, updatedAt: message.updatedAt });
-        setEditingMessage(null);
-      } else {
-        const message = await socketAck<Message>(socket, 'message:send', {
-          conversationId: selected.id,
-          content: clean,
-          type: 'text',
-          replyToId: replyTo?.id,
-        }).catch(() => api.sendMessage(selected.id, token, clean, 'text', replyTo?.id));
-        upsertMessage({ ...message, status: message.status || 'sent', replyTo: replyTo || message.replyTo });
-        setReplyTo(null);
-      }
-      await refreshConversations();
-    } catch (error) {
-      setDraft(clean);
-      setNotice(error instanceof Error ? error.message : 'Envoi impossible.');
-    }
-  }, [draft, editingMessage, patchMessage, refreshConversations, replyTo, selected, token, upsertMessage]);
+  const send = useNativeTextMessageSender({
+    draft,
+    editingMessage,
+    replyTo,
+    selected,
+    token,
+    patchMessage,
+    refreshConversations,
+    upsertMessage,
+    setDraft,
+    setEditingMessage,
+    setNotice,
+    setReplyTo,
+  });
 
   const { sendMedia, attachImage, attachDocument } = useNativeMessageMedia({
     selected,
