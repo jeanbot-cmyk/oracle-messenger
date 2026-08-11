@@ -103,6 +103,7 @@ export function useNativeHomeShellProps({
     onForwardToConversation: conversationsController.forwardToConversation,
     onToggleMessageSelection: conversationsController.toggleMessageSelection,
     onOpenMessageActions: conversationsController.openMessageActions,
+    onLoadOlderMessages: conversationsController.loadOlderMessages,
     onDraftChange: composer.handleDraftChange,
     onClearComposerContext: composer.clearComposerContext,
     onCancelVoiceRecording: composer.cancelVoiceRecording,

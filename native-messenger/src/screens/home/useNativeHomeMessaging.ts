@@ -114,5 +114,6 @@ export function useNativeHomeMessaging({ session, ui, runMediaSync }: UseNativeH
     composer,
     conversationsController,
     refreshConversations,
+    loadOlderMessages: conversationsController.loadOlderMessages,
   };
 }

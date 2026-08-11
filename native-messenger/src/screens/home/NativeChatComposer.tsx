@@ -42,7 +42,7 @@ export function NativeChatComposer({
   const contextMessage = editingMessage || replyTo;
 
   return (
-    <View style={styles.inputRow}>
+    <View style={styles.composerShell}>
       {contextMessage ? (
         <View style={styles.composerContext}>
           <View style={styles.composerContextText}>
@@ -65,28 +65,41 @@ export function NativeChatComposer({
           </Pressable>
         </View>
       ) : null}
-      <Pressable style={styles.attachButton} onPress={onAttachImage} disabled={busy}>
-        <ImageIcon size={19} color={colors.header} />
-      </Pressable>
-      <Pressable style={styles.attachButton} onPress={onAttachDocument} disabled={busy}>
-        <Paperclip size={19} color={colors.header} />
-      </Pressable>
-      <Pressable style={[styles.attachButton, voiceRecording && styles.recordingButton]} onPress={onToggleVoiceRecording} disabled={busy && !voiceRecording}>
-        <Mic size={19} color={voiceRecording ? '#FFFFFF' : colors.header} />
-      </Pressable>
-      <Pressable accessibilityLabel="Gemini" style={[styles.attachButton, styles.aiButton]} onPress={onAskAiDraft} disabled={busy || aiBusy || voiceRecording}>
-        {aiBusy ? <ActivityIndicator size="small" color={colors.header} /> : <Sparkles size={19} color={colors.header} />}
-      </Pressable>
-      <TextInput value={draft} onChangeText={onDraftChange} placeholder="Message" placeholderTextColor={colors.muted} style={styles.input} />
-      <Pressable style={styles.sendButton} onPress={onSend}>
-        <Send size={20} color="#FFFFFF" />
-      </Pressable>
+      <View style={styles.inputRow}>
+        <Pressable style={styles.roundButton} onPress={onAttachDocument} disabled={busy}>
+          <Paperclip size={21} color={colors.secondary} />
+        </Pressable>
+        <Pressable style={styles.roundButton} onPress={onAttachImage} disabled={busy}>
+          <ImageIcon size={20} color={colors.secondary} />
+        </Pressable>
+        <View style={styles.inputShell}>
+          <TextInput value={draft} onChangeText={onDraftChange} placeholder="Message" placeholderTextColor={colors.muted} multiline style={styles.input} />
+          <Pressable accessibilityLabel="Gemini IA" style={styles.aiButton} onPress={onAskAiDraft} disabled={busy || aiBusy || voiceRecording}>
+            {aiBusy ? <ActivityIndicator size="small" color="#1D9BF0" /> : (
+              <>
+                <Text style={styles.aiLabel}>IA</Text>
+                <Sparkles size={20} color="#1D9BF0" />
+              </>
+            )}
+          </Pressable>
+        </View>
+        {draft.trim() ? (
+          <Pressable style={styles.sendButton} onPress={onSend}>
+            <Send size={20} color="#FFFFFF" />
+          </Pressable>
+        ) : (
+          <Pressable style={[styles.sendButton, voiceRecording && styles.recordingButton]} onPress={onToggleVoiceRecording} disabled={busy && !voiceRecording}>
+            <Mic size={20} color="#FFFFFF" />
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  inputRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, padding: 12, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border },
+  composerShell: { paddingHorizontal: 8, paddingTop: 5, paddingBottom: 6, backgroundColor: colors.input, borderTopWidth: 1, borderTopColor: '#D7DBDF' },
+  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 7 },
   composerContext: { width: '100%', minHeight: 48, borderRadius: 16, backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
   composerContextText: { flex: 1, minWidth: 0 },
   composerContextTitle: { color: colors.header, fontSize: 12, fontWeight: '900' },
@@ -96,9 +109,11 @@ const styles = StyleSheet.create({
   voiceRecordingBar: { width: '100%', minHeight: 46, borderRadius: 16, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 9 },
   recordingDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger },
   voiceRecordingText: { flex: 1, color: colors.danger, fontSize: 12.5, fontWeight: '900' },
-  attachButton: { width: 44, height: 46, borderRadius: 16, backgroundColor: '#EAF4F1', alignItems: 'center', justifyContent: 'center' },
-  aiButton: { backgroundColor: '#F8E7B3' },
+  roundButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  inputShell: { flex: 1, minHeight: 42, borderRadius: 23, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, paddingLeft: 12, paddingRight: 6, flexDirection: 'row', alignItems: 'center', gap: 7 },
+  aiButton: { width: 40, height: 42, borderRadius: 14, backgroundColor: 'rgba(29,155,240,0.08)', alignItems: 'center', justifyContent: 'center' },
+  aiLabel: { color: colors.text, fontSize: 10, lineHeight: 11, fontWeight: '900' },
   recordingButton: { backgroundColor: colors.danger },
-  input: { flex: 1, minWidth: 120, minHeight: 46, borderRadius: 16, backgroundColor: colors.input, paddingHorizontal: 14, color: colors.text, fontWeight: '700' },
-  sendButton: { width: 46, height: 46, borderRadius: 16, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center' },
+  input: { flex: 1, minWidth: 80, minHeight: 38, maxHeight: 108, color: colors.text, fontSize: 15.5, lineHeight: 20, fontWeight: '500', paddingHorizontal: 0, paddingVertical: 8, textAlignVertical: 'center' },
+  sendButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.header, alignItems: 'center', justifyContent: 'center' },
 });

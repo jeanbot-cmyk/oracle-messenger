@@ -4,6 +4,7 @@ import { api } from '@/services/api';
 
 const CALL_CHANNEL_ID = 'oracle_messenger_incoming_calls_v4';
 const MESSAGE_CHANNEL_ID = 'oracle_messenger_messages_v3';
+const REMINDER_CHANNEL_ID = 'oracle_messenger_local_reminders_v1';
 const NativeIncomingCall = NativeModules.OracleIncomingCallNotification as
   | {
       showIncomingCall?: (callId: string, conversationId: string, callerName: string, callType: string) => Promise<boolean>;
@@ -28,7 +29,7 @@ export async function configureAndroidNotifications() {
     importance: Notifications.AndroidImportance.MAX,
     sound: 'oracle_call.wav',
     vibrationPattern: [0, 650, 250, 650, 250, 1100],
-    lightColor: '#128C7E',
+    lightColor: '#102A2A',
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
     bypassDnd: false,
   });
@@ -37,7 +38,15 @@ export async function configureAndroidNotifications() {
     importance: Notifications.AndroidImportance.HIGH,
     sound: 'oracle_message.wav',
     vibrationPattern: [0, 180, 120, 180],
-    lightColor: '#128C7E',
+    lightColor: '#102A2A',
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
+  });
+  await Notifications.setNotificationChannelAsync(REMINDER_CHANNEL_ID, {
+    name: 'Rappels Oracle Messenger',
+    importance: Notifications.AndroidImportance.HIGH,
+    sound: 'default',
+    vibrationPattern: [0, 180, 120, 180],
+    lightColor: '#102A2A',
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
   });
 }
@@ -97,4 +106,36 @@ export async function cancelIncomingCallNotification(callId?: string | null) {
     return;
   }
   await Notifications.dismissAllNotificationsAsync();
+}
+
+async function ensureNotificationPermission() {
+  const current = await Notifications.getPermissionsAsync();
+  const granted = current.granted || current.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+  const permission = granted ? current : await Notifications.requestPermissionsAsync();
+  return permission.granted || permission.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+}
+
+export async function scheduleLocalReminder(input: { title: string; body?: string; date: Date }) {
+  await configureAndroidNotifications();
+  const granted = await ensureNotificationPermission();
+  if (!granted) return '';
+  return Notifications.scheduleNotificationAsync({
+    content: {
+      title: input.title || 'Rappel Oracle Messenger',
+      body: input.body || 'Rappel enregistré dans Oracle Messenger.',
+      sound: 'default',
+      priority: Notifications.AndroidNotificationPriority.HIGH,
+      data: { type: 'local-reminder' },
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: input.date,
+      channelId: REMINDER_CHANNEL_ID,
+    },
+  });
+}
+
+export async function cancelLocalReminder(notificationId?: string | null) {
+  if (!notificationId) return;
+  await Notifications.cancelScheduledNotificationAsync(notificationId).catch(() => undefined);
 }

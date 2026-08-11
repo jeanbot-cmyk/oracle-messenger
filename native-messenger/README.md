@@ -8,8 +8,8 @@ Cette base est separee de la PWA `frontend/` et du wrapper Capacitor actuel.
 
 - Nom: Oracle Messenger
 - Package Android: `online.oracle_plus.messenger`
-- Version native de migration: `1.0.20260811.2`
-- VersionCode natif de migration: `2026081102`
+- Version native de migration: `1.0.20260811.3`
+- VersionCode natif de migration: `2026081103`
 - Backend production: `https://api-messenger.oracle-plus.online`
 - Domaine web conserve: `https://messenger.oracle-plus.online`
 

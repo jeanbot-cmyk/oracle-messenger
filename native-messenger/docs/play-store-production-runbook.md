@@ -12,8 +12,8 @@ The native Android code builds and the debug arm64 validation passes. A producti
 
 - App: `native-messenger/`
 - Package: `online.oracle_plus.messenger`
-- Version name: `1.0.20260811.2`
-- Version code: `2026081102`
+- Version name: `1.0.20260811.3`
+- Version code: `2026081103`
 - Backend: `https://api-messenger.oracle-plus.online`
 - Public web domain: `https://messenger.oracle-plus.online`
 

@@ -1,4 +1,4 @@
-import { useCallback, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useRef, type Dispatch, type SetStateAction } from 'react';
 import type { NativeTabKey } from '@/screens/NativeFeaturePages';
 import { api } from '@/services/api';
 import { ensureNativeSocket } from '@/services/nativeSocket';
@@ -9,6 +9,8 @@ type RefValue<T> = { current: T };
 type UseNativeMessageLoaderParams = {
   token?: string;
   currentUserId?: string;
+  selected: Conversation | null;
+  messages: Message[];
   sessionRef: RefValue<AuthSession | null>;
   resetMessageActions: () => void;
   runMediaSync: (activeToken: string, currentUserId?: string, knownMessages?: Message[]) => Promise<unknown>;
@@ -24,6 +26,8 @@ type UseNativeMessageLoaderParams = {
 export function useNativeMessageLoader({
   token,
   currentUserId,
+  selected,
+  messages,
   sessionRef,
   resetMessageActions,
   runMediaSync,
@@ -35,6 +39,8 @@ export function useNativeMessageLoader({
   setNotice,
   setSelected,
 }: UseNativeMessageLoaderParams) {
+  const loadingOlderRef = useRef(false);
+
   const loadMessages = useCallback(async (conversation: Conversation, activeToken = token) => {
     if (!activeToken) return;
     setActiveTab('chats');
@@ -72,6 +78,27 @@ export function useNativeMessageLoader({
     token,
   ]);
 
+  const loadOlderMessages = useCallback(async () => {
+    if (!token || !selected || !messages.length || loadingOlderRef.current) return;
+    const oldest = messages[0];
+    if (!oldest?.createdAt) return;
+    loadingOlderRef.current = true;
+    try {
+      const older = await api.messages(selected.id, token, oldest.createdAt);
+      if (!older.length) return;
+      setMessages(current => {
+        const byId = new Map<string, Message>();
+        for (const message of [...older, ...current]) byId.set(message.id, message);
+        return [...byId.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+      });
+      runMediaSync(token, currentUserId, older);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Chargement des anciens messages impossible.');
+    } finally {
+      loadingOlderRef.current = false;
+    }
+  }, [currentUserId, messages, runMediaSync, selected, setMessages, setNotice, token]);
+
   const openConversationById = useCallback(async (conversationId: string, activeToken = token) => {
     if (!activeToken || !conversationId) return;
     setBusy(true);
@@ -101,6 +128,7 @@ export function useNativeMessageLoader({
 
   return {
     loadMessages,
+    loadOlderMessages,
     openConversationById,
     openConversationFromFeature,
   };

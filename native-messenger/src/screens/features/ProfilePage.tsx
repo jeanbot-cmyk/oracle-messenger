@@ -8,7 +8,7 @@ import { api } from '@/services/api';
 import { saveSession } from '@/services/session';
 import { colors } from '@/theme/colors';
 import type { AuthSession, User } from '@/types/messenger';
-import { AlertText, Loading, PrimaryButton, SecondaryButton, Section } from './FeatureUi';
+import { AlertText, Loading, PageHeader, PrimaryButton, SecondaryButton, Section } from './FeatureUi';
 
 function initials(name?: string | null) {
   return String(name || '?').trim().slice(0, 2).toUpperCase();
@@ -154,6 +154,7 @@ export function ProfilePage({ session, onLogout }: { session: AuthSession; onLog
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
+      <PageHeader title="Profil" subtitle="Compte, photo, lien Oracle et réglages locaux." />
       <Section title="Profil">
         <View style={styles.profileHero}>
           <Pressable onPress={pickAvatar} disabled={busy} style={styles.profileAvatar}>
@@ -201,7 +202,7 @@ export function ProfilePage({ session, onLogout }: { session: AuthSession; onLog
 }
 
 const styles = StyleSheet.create({
-  page: { padding: 12, paddingBottom: 96, gap: 12 },
+  page: { paddingBottom: 96, gap: 0, backgroundColor: colors.background },
   pageCopy: { color: colors.muted, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
   input: { minHeight: 48, borderRadius: 15, backgroundColor: colors.input, color: colors.text, paddingHorizontal: 14, paddingVertical: 10, fontWeight: '800', borderWidth: 1, borderColor: 'transparent' },
   textarea: { minHeight: 96, textAlignVertical: 'top' },

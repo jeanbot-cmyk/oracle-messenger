@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { NativeChatMediaMessage } from './NativeChatMediaMessage';
 import type { LocalGalleryItem } from '@/services/localMedia';
@@ -15,6 +16,7 @@ type NativeMessageListProps = {
   messageSearch: string;
   onToggleSelection: (messageId: string) => void;
   onOpenMessageActions: (message: Message) => void;
+  onLoadOlderMessages: () => void | Promise<void>;
 };
 
 export function NativeMessageList({
@@ -27,12 +29,30 @@ export function NativeMessageList({
   messageSearch,
   onToggleSelection,
   onOpenMessageActions,
+  onLoadOlderMessages,
 }: NativeMessageListProps) {
+  const listRef = useRef<FlatList<Message>>(null);
+  const lastMessageId = messages[messages.length - 1]?.id;
+
+  useEffect(() => {
+    if (!lastMessageId || messageSearch) return;
+    const frame = requestAnimationFrame(() => {
+      listRef.current?.scrollToEnd({ animated: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [lastMessageId, messageSearch]);
+
   return (
     <FlatList
+      ref={listRef}
       data={messages}
       keyExtractor={item => item.id}
+      style={styles.list}
       contentContainerStyle={styles.messagesList}
+      onScroll={({ nativeEvent }) => {
+        if (nativeEvent.contentOffset.y <= 24 && messages.length >= 45) void onLoadOlderMessages();
+      }}
+      scrollEventThrottle={120}
       ListEmptyComponent={messageSearch ? <Text style={styles.emptySearch}>Aucun message trouvé.</Text> : null}
       renderItem={({ item }) => {
         const mine = item.senderId === currentUserId;
@@ -83,14 +103,15 @@ export function NativeMessageList({
 }
 
 const styles = StyleSheet.create({
-  messagesList: { padding: 12, gap: 8 },
-  bubble: { maxWidth: '82%', borderRadius: 18, padding: 12, marginBottom: 8 },
+  list: { flex: 1, backgroundColor: colors.background },
+  messagesList: { paddingHorizontal: 10, paddingTop: 7, paddingBottom: 9, gap: 2 },
+  bubble: { maxWidth: '82%', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 6 },
   bubbleSelected: { borderWidth: 2, borderColor: colors.accent },
-  bubbleMine: { alignSelf: 'flex-end', backgroundColor: '#DCFCE7' },
+  bubbleMine: { alignSelf: 'flex-end', backgroundColor: colors.bubbleOut },
   bubbleOther: { alignSelf: 'flex-start', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   emptySearch: { color: colors.muted, fontSize: 13, fontWeight: '800', textAlign: 'center', marginTop: 30 },
-  bubbleText: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '700' },
-  bubbleMeta: { color: colors.muted, fontSize: 10.5, marginTop: 5, fontWeight: '700' },
+  bubbleText: { color: colors.text, fontSize: 15.5, lineHeight: 20, fontWeight: '500' },
+  bubbleMeta: { color: colors.muted, fontSize: 10.5, marginTop: 4, fontWeight: '700' },
   replyPreview: { borderLeftWidth: 3, borderLeftColor: colors.brand, paddingLeft: 8, marginBottom: 7 },
   replyPreviewTitle: { color: colors.header, fontSize: 11, fontWeight: '900' },
   replyPreviewText: { color: colors.muted, fontSize: 11.5, fontWeight: '700', marginTop: 1 },

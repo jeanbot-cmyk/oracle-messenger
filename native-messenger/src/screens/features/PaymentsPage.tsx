@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api } from '@/services/api';
 import { colors } from '@/theme/colors';
-import { AlertText, Loading, PrimaryButton, SecondaryButton, Section } from './FeatureUi';
+import { AlertText, Loading, PageHeader, PrimaryButton, SecondaryButton, Section } from './FeatureUi';
 
 type PaymentScope = 'ai' | 'flyer' | 'video' | 'business';
 
@@ -58,6 +58,7 @@ export function PaymentsPage({ token }: { token: string }) {
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
+      <PageHeader title="Paiements" subtitle="Paystack, crédits IA, vidéo, flyers et Business." />
       <Section title="Paiements">
         <Text style={styles.pageCopy}>Paystack est vérifié côté serveur par référence. Le retour visuel Android ne suffit jamais à valider un crédit.</Text>
         <View style={styles.segment}>
@@ -84,7 +85,7 @@ export function PaymentsPage({ token }: { token: string }) {
 }
 
 const styles = StyleSheet.create({
-  page: { padding: 12, paddingBottom: 96, gap: 12 },
+  page: { paddingBottom: 96, gap: 0, backgroundColor: colors.background },
   pageCopy: { color: colors.muted, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
   input: { minHeight: 48, borderRadius: 15, backgroundColor: colors.input, color: colors.text, paddingHorizontal: 14, paddingVertical: 10, fontWeight: '800', borderWidth: 1, borderColor: 'transparent' },
   card: { borderRadius: 16, padding: 12, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, gap: 5 },

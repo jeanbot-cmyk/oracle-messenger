@@ -2,7 +2,7 @@
   "expo": {
     "name": "Oracle Messenger",
     "slug": "oracle-messenger-native",
-    "version": "1.0.20260811.2",
+    "version": "1.0.20260811.3",
     "orientation": "portrait",
     "scheme": "oraclemessenger",
     "userInterfaceStyle": "automatic",
@@ -15,7 +15,7 @@
     },
     "android": {
       "package": "online.oracle_plus.messenger",
-      "versionCode": 2026081102,
+      "versionCode": 2026081103,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
@@ -58,7 +58,7 @@
         "expo-notifications",
         {
           "icon": "./assets/notification-icon.png",
-          "color": "#128C7E",
+          "color": "#102A2A",
           "sounds": [
             "./assets/oracle_call.wav",
             "./assets/oracle_message.wav"
@@ -74,7 +74,7 @@
       "backendUrl": "https://api-messenger.oracle-plus.online",
       "frontendUrl": "https://messenger.oracle-plus.online",
       "playPackage": "online.oracle_plus.messenger",
-      "nativeBaseline": "20260811.2"
+      "nativeBaseline": "20260811.3"
     }
   }
 }

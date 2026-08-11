@@ -1,6 +1,6 @@
 import { NativeModules, Platform } from 'react-native';
 import { BACKEND_URL } from '@/config/env';
-import { extractPayload, isMediaMessage } from '@/services/localMedia';
+import { extractPayload, isMediaMessage, MEDIA_ROOT } from '@/services/localMedia';
 import type { Message } from '@/types/messenger';
 
 type OracleMediaDownloadModule = {
@@ -14,6 +14,7 @@ type OracleMediaDownloadModule = {
     type: string,
     mime: string,
     name: string,
+    mediaRootUri: string,
   ): Promise<boolean>;
 };
 
@@ -38,5 +39,6 @@ export async function enqueueNativeMediaDownload(message: Message, token: string
     String(message.type || ''),
     payload.mime ?? '',
     payload.name ?? '',
+    MEDIA_ROOT,
   );
 }

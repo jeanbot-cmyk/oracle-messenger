@@ -1,4 +1,5 @@
 import { SafeAreaView, StyleSheet, Text } from 'react-native';
+import { NativeBottomTabs } from '@/screens/home/NativeBottomTabs';
 import { NativeChatPanel } from '@/screens/home/NativeChatPanel';
 import { NativeCallOverlay } from '@/screens/home/NativeCallOverlay';
 import { NativeConversationList } from '@/screens/home/NativeConversationList';
@@ -47,6 +48,7 @@ export type NativeHomeShellProps = {
   onForwardToConversation: (conversation: Conversation) => void | Promise<void>;
   onToggleMessageSelection: (messageId: string) => void;
   onOpenMessageActions: (message: Message) => void;
+  onLoadOlderMessages: () => void | Promise<void>;
   onDraftChange: (value: string) => void;
   onClearComposerContext: () => void;
   onCancelVoiceRecording: () => void | Promise<void>;
@@ -98,6 +100,7 @@ export function NativeHomeShell({
   onForwardToConversation,
   onToggleMessageSelection,
   onOpenMessageActions,
+  onLoadOlderMessages,
   onDraftChange,
   onClearComposerContext,
   onCancelVoiceRecording,
@@ -112,26 +115,8 @@ export function NativeHomeShell({
 }: NativeHomeShellProps) {
   return (
     <SafeAreaView style={styles.app}>
-      <NativeCallOverlay call={nativeCall} />
-      <NativeHomeShellHeader
-        subtitle={headerSubtitle}
-        tabs={tabs}
-        activeTab={activeTab}
-        onRefresh={onRefreshConversations}
-        onTabPress={onTabPress}
-      />
-
-      {notice ? <Text style={styles.banner}>{notice}</Text> : null}
-
-      {activeTab !== 'chats' ? (
-        <NativeFeaturePage
-          tab={activeTab}
-          session={session}
-          onOpenConversation={onOpenConversationFromFeature}
-          onRefreshConversations={onRefreshConversations}
-          onLogout={onLogout}
-        />
-      ) : selected ? (
+      <NativeCallOverlay call={nativeCall} conversation={selected} currentUserId={session.user.id} />
+      {activeTab === 'chats' && selected ? (
         <NativeChatPanel
           conversation={selected}
           conversations={conversations}
@@ -163,6 +148,7 @@ export function NativeHomeShell({
           onForwardToConversation={onForwardToConversation}
           onToggleSelection={onToggleMessageSelection}
           onOpenMessageActions={onOpenMessageActions}
+          onLoadOlderMessages={onLoadOlderMessages}
           onDraftChange={onDraftChange}
           onClearContext={onClearComposerContext}
           onCancelVoiceRecording={onCancelVoiceRecording}
@@ -173,15 +159,41 @@ export function NativeHomeShell({
           onSend={onSend}
         />
       ) : (
-        <NativeConversationList
-          conversations={conversations}
-          search={conversationSearch}
-          busy={busy}
-          onSearchChange={onConversationSearchChange}
-          onOpenConversation={onOpenConversationFromList}
-          onConversationActions={onConversationActions}
-          onLogout={onLogout}
-        />
+        <>
+          {activeTab === 'chats' ? (
+            <NativeHomeShellHeader
+              title="Oracle Messenger"
+              subtitle={headerSubtitle}
+              onRefresh={onRefreshConversations}
+              onTabPress={onTabPress}
+            />
+          ) : null}
+
+          {notice ? <Text style={styles.banner}>{notice}</Text> : null}
+
+          {activeTab !== 'chats' ? (
+            <NativeFeaturePage
+              tab={activeTab}
+              session={session}
+              onOpenConversation={onOpenConversationFromFeature}
+              onRefreshConversations={onRefreshConversations}
+              onLogout={onLogout}
+              onOpenTab={onTabPress}
+            />
+          ) : (
+            <NativeConversationList
+              ownerId={session.user.id}
+              conversations={conversations}
+              search={conversationSearch}
+              busy={busy}
+              onSearchChange={onConversationSearchChange}
+              onOpenConversation={onOpenConversationFromList}
+              onConversationActions={onConversationActions}
+              onOpenContacts={() => onTabPress('contacts')}
+            />
+          )}
+          <NativeBottomTabs tabs={tabs} activeTab={activeTab} onTabPress={onTabPress} />
+        </>
       )}
     </SafeAreaView>
   );

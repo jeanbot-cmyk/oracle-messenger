@@ -1,4 +1,6 @@
-import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Image, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { api } from '@/services/api';
 import { colors } from '@/theme/colors';
 
 type NativeLoginScreenProps = {
@@ -8,20 +10,35 @@ type NativeLoginScreenProps = {
 };
 
 export function NativeLoginScreen({ notice, busy, onSignIn }: NativeLoginScreenProps) {
+  const [phone, setPhone] = useState('');
+  const [recovering, setRecovering] = useState(false);
+  const [recovery, setRecovery] = useState<{ found: boolean; name?: string; emailHint?: string; message: string } | null>(null);
+
+  const recoverPhone = useCallback(async () => {
+    if (!phone.trim()) {
+      setRecovery({ found: false, message: 'Entrez votre numéro avec indicatif, puis réessayez.' });
+      return;
+    }
+    setRecovering(true);
+    setRecovery(null);
+    try {
+      setRecovery(await api.recoverPhone(phone.trim()));
+    } catch {
+      setRecovery({ found: false, message: 'Vérification impossible maintenant. Réessayez avec une connexion stable.' });
+    } finally {
+      setRecovering(false);
+    }
+  }, [phone]);
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.loginContent}>
         <View style={styles.loginHero}>
-          <View style={styles.logo}>
-            <View style={styles.logoBubble}>
-              <Text style={styles.logoText}>O</Text>
-            </View>
-          </View>
+          <Image source={require('../../../assets/icon.png')} style={styles.logoImage} />
           <Text style={styles.title}>Oracle Messenger</Text>
           <Text style={styles.subtitle}>
-            Bienvenue. Connectez-vous pour retrouver vos messages.
+            Connectez-vous avec Google. Votre numéro sera demandé ensuite pour aider vos contacts à vous retrouver.
           </Text>
-          <View style={styles.heroLine} />
         </View>
         {notice ? <Text style={styles.notice}>{notice}</Text> : null}
         <Pressable
@@ -29,27 +46,67 @@ export function NativeLoginScreen({ notice, busy, onSignIn }: NativeLoginScreenP
           style={[styles.primaryButton, busy && styles.disabledButton]}
           onPress={onSignIn}
         >
-          {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.googleMark}>G</Text>}
-          <Text style={styles.primaryButtonText}>Continuer avec Google</Text>
+          {busy ? <ActivityIndicator color="#FFFFFF" /> : (
+            <>
+              <Text style={styles.googleMark}>G</Text>
+              <Text style={styles.primaryButtonText}>Continuer avec Google</Text>
+            </>
+          )}
         </Pressable>
+        <View style={styles.recoveryCard}>
+          <Text style={styles.recoveryTitle}>Retrouver mon compte</Text>
+          <Text style={styles.recoveryCopy}>Entrez votre numéro. Si ce numéro est lié à un compte, Oracle affiche le Gmail masqué à utiliser.</Text>
+          <View style={styles.recoveryRow}>
+            <TextInput
+              value={phone}
+              onChangeText={text => { setPhone(text); setRecovery(null); }}
+              placeholder="+225 07..."
+              placeholderTextColor={colors.muted}
+              keyboardType="phone-pad"
+              style={styles.recoveryInput}
+            />
+            <Pressable onPress={recoverPhone} disabled={recovering} style={[styles.recoveryButton, recovering && styles.disabledButton]}>
+              <Text style={styles.recoveryButtonText}>{recovering ? '...' : 'Vérifier'}</Text>
+            </Pressable>
+          </View>
+          {recovery ? (
+            <View style={[styles.recoveryResult, recovery.found ? styles.recoveryFound : styles.recoveryMissing]}>
+              {recovery.found && recovery.emailHint ? <Text style={styles.recoveryEmail}>Gmail associé : {recovery.emailHint}</Text> : null}
+              <Text style={[styles.recoveryMessage, recovery.found ? styles.recoveryMessageFound : styles.recoveryMessageMissing]}>{recovery.message}</Text>
+            </View>
+          ) : null}
+        </View>
+        <Text style={styles.privacyText}>Le numéro aide à retrouver le bon compte Google. La connexion reste protégée par Google.</Text>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.header },
-  loginContent: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 26, paddingVertical: 34 },
-  loginHero: { alignItems: 'flex-start', marginBottom: 8 },
-  logo: { width: 112, height: 112, borderRadius: 30, backgroundColor: '#10998C', alignItems: 'center', justifyContent: 'center', marginBottom: 30, shadowColor: '#000000', shadowOpacity: 0.24, shadowRadius: 18, elevation: 8 },
-  logoBubble: { width: 66, height: 66, borderRadius: 24, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
-  logoText: { color: '#0E6F66', fontSize: 38, lineHeight: 43, fontWeight: '900' },
-  title: { color: '#FFFFFF', fontSize: 36, fontWeight: '900', letterSpacing: 0, maxWidth: 330 },
-  subtitle: { color: 'rgba(255,255,255,0.76)', fontSize: 16, lineHeight: 24, marginTop: 12, fontWeight: '700', maxWidth: 340 },
-  heroLine: { width: 54, height: 4, borderRadius: 2, backgroundColor: '#E7C86A', marginTop: 22 },
-  notice: { color: '#FEE2E2', fontSize: 13, fontWeight: '800', marginTop: 16, lineHeight: 19 },
-  primaryButton: { marginTop: 30, minHeight: 58, borderRadius: 18, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 12, shadowColor: '#000000', shadowOpacity: 0.18, shadowRadius: 14, elevation: 5 },
+  safe: { flex: 1, backgroundColor: colors.surface },
+  loginContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 34 },
+  loginHero: { alignItems: 'center', marginBottom: 8, width: '100%' },
+  logoImage: { width: 92, height: 92, borderRadius: 26, marginBottom: 18, shadowColor: '#102A2A', shadowOpacity: 0.18, shadowRadius: 34, elevation: 8 },
+  title: { color: colors.text, fontSize: 26, lineHeight: 31, fontWeight: '900', letterSpacing: 0, textAlign: 'center' },
+  subtitle: { color: colors.secondary, fontSize: 14, lineHeight: 21, marginTop: 6, marginBottom: 16, fontWeight: '700', maxWidth: 340, textAlign: 'center' },
+  notice: { width: '100%', maxWidth: 360, color: colors.danger, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, fontSize: 13, fontWeight: '800', marginBottom: 14, lineHeight: 18, textAlign: 'center' },
+  primaryButton: { width: '100%', maxWidth: 360, minHeight: 58, borderRadius: 28, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 12, shadowColor: '#102A2A', shadowOpacity: 0.22, shadowRadius: 22, elevation: 5 },
   disabledButton: { opacity: 0.55 },
-  googleMark: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#FFFFFF', color: colors.brand, textAlign: 'center', lineHeight: 24, fontSize: 15, fontWeight: '900' },
+  googleMark: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#FFFFFF', color: colors.text, textAlign: 'center', lineHeight: 24, fontSize: 15, fontWeight: '900' },
   primaryButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
+  recoveryCard: { width: '100%', maxWidth: 360, marginTop: 18, borderWidth: 1, borderColor: colors.border, borderRadius: 18, backgroundColor: colors.elevated, padding: 14 },
+  recoveryTitle: { color: colors.text, fontSize: 14, fontWeight: '900', marginBottom: 5 },
+  recoveryCopy: { color: colors.muted, fontSize: 12.5, lineHeight: 18, fontWeight: '700', marginBottom: 10 },
+  recoveryRow: { flexDirection: 'row', gap: 8 },
+  recoveryInput: { flex: 1, minWidth: 0, minHeight: 46, borderWidth: 1, borderColor: colors.border, borderRadius: 14, backgroundColor: colors.surface, color: colors.text, paddingHorizontal: 12, fontSize: 14, fontWeight: '700' },
+  recoveryButton: { minWidth: 86, minHeight: 46, borderRadius: 14, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 13 },
+  recoveryButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '900' },
+  recoveryResult: { marginTop: 10, borderRadius: 12, borderWidth: 1, paddingHorizontal: 11, paddingVertical: 10 },
+  recoveryFound: { backgroundColor: '#ECFDF5', borderColor: '#BBF7D0' },
+  recoveryMissing: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+  recoveryEmail: { color: '#065F46', fontSize: 13, lineHeight: 18, fontWeight: '900', marginBottom: 4 },
+  recoveryMessage: { fontSize: 12.5, lineHeight: 18, fontWeight: '800' },
+  recoveryMessageFound: { color: '#047857' },
+  recoveryMessageMissing: { color: '#B91C1C' },
+  privacyText: { color: colors.muted, fontSize: 11, lineHeight: 17, textAlign: 'center', maxWidth: 320, marginTop: 22, fontWeight: '700' },
 });

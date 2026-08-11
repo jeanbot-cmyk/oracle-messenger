@@ -1,5 +1,6 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import { Alert } from 'react-native';
+import type { NativeTabKey } from '@/screens/NativeFeaturePages';
 import { conversationName } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
 import type { Conversation, Message } from '@/types/messenger';
@@ -9,7 +10,7 @@ type UseNativeConversationActionsParams = {
   selectedId?: string;
   loadMessages: (conversation: Conversation) => void | Promise<void>;
   refreshConversations: () => Promise<void>;
-  setActiveTab: (tab: 'chats') => void;
+  setActiveTab: (tab: NativeTabKey) => void;
   setBusy: (busy: boolean) => void;
   setNotice: (message: string) => void;
   setSelected: (conversation: Conversation | null) => void;

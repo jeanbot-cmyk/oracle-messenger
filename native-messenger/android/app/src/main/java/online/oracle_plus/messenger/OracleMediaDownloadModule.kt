@@ -27,6 +27,7 @@ class OracleMediaDownloadModule(
     type: String?,
     mime: String?,
     name: String?,
+    mediaRootUri: String?,
     promise: Promise
   ) {
     try {
@@ -50,6 +51,7 @@ class OracleMediaDownloadModule(
         .putString(OracleMediaDownloadWorker.KEY_TYPE, type?.trim().orEmpty())
         .putString(OracleMediaDownloadWorker.KEY_MIME, mime?.trim().orEmpty())
         .putString(OracleMediaDownloadWorker.KEY_NAME, name?.trim().orEmpty())
+        .putString(OracleMediaDownloadWorker.KEY_MEDIA_ROOT_URI, mediaRootUri?.trim().orEmpty())
         .build()
 
       val constraints = Constraints.Builder()

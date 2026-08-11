@@ -5,7 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { api } from '@/services/api';
 import { colors } from '@/theme/colors';
 import type { User } from '@/types/messenger';
-import { AlertText, Loading, PrimaryButton, SecondaryButton, Section } from './FeatureUi';
+import { AlertText, Loading, PageHeader, PrimaryButton, SecondaryButton, Section } from './FeatureUi';
 import { OracleVideoPlayer } from './NativeMediaPlayers';
 
 type Story = {
@@ -172,6 +172,7 @@ export function StoriesPage({ token, userId }: { token: string; userId: string }
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
+      <PageHeader title="Actus" subtitle="Stories texte, photo et vidéo." />
       <Section title="Stories">
         <Text style={styles.pageCopy}>Publiez du texte, une image ou une vidéo. Les vues sont confirmées au serveur, et le propriétaire peut supprimer sa story.</Text>
         <View style={styles.segment}>
@@ -276,7 +277,7 @@ function StoryRow({ story, userId, onOpen }: { story: Story; userId: string; onO
 }
 
 const styles = StyleSheet.create({
-  page: { padding: 12, paddingBottom: 96, gap: 12 },
+  page: { paddingBottom: 96, gap: 0, backgroundColor: colors.background },
   pageCopy: { color: colors.muted, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
   input: { minHeight: 48, borderRadius: 15, backgroundColor: colors.input, color: colors.text, paddingHorizontal: 14, paddingVertical: 10, fontWeight: '800', borderWidth: 1, borderColor: 'transparent' },
   textarea: { minHeight: 96, textAlignVertical: 'top' },

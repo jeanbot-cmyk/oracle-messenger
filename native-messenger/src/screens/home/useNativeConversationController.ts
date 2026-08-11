@@ -68,6 +68,8 @@ export function useNativeConversationController({
   const messageLoader = useNativeMessageLoader({
     token,
     currentUserId,
+    selected,
+    messages,
     sessionRef,
     resetMessageActions: messageActions.resetMessageActions,
     runMediaSync,

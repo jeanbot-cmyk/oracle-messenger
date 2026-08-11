@@ -1,14 +1,25 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Camera, CameraOff, Mic, MicOff, Phone, PhoneOff, RotateCcw, Volume2 } from 'lucide-react-native';
+import { Camera, CameraOff, Mic, MicOff, Phone, PhoneOff, RotateCcw, UserPlus, Users, Volume2 } from 'lucide-react-native';
 import { RTCView } from 'react-native-webrtc';
 import type { useNativeCall } from '@/hooks/useNativeCall';
+import type { Conversation } from '@/types/messenger';
 
 type NativeCallController = ReturnType<typeof useNativeCall>;
 
-export function NativeCallOverlay({ call }: { call: NativeCallController }) {
+type NativeCallOverlayProps = {
+  call: NativeCallController;
+  conversation?: Conversation | null;
+  currentUserId?: string;
+};
+
+export function NativeCallOverlay({ call, conversation, currentUserId }: NativeCallOverlayProps) {
   if (call.callState === 'idle') return null;
   const remoteEntries = Array.from(call.remoteStreams.entries());
   const isVideo = call.callInfo?.type === 'video';
+  const participantCount = Math.max(1, 1 + (call.callInfo?.participants.length || remoteEntries.length));
+  const addableParticipantIds = (conversation?.participants || [])
+    .map(participant => participant.id)
+    .filter(userId => userId && userId !== currentUserId && !call.callInfo?.participants.includes(userId));
   const status =
     call.callState === 'incoming' ? 'Appel entrant' :
     call.callState === 'calling' ? 'Appel en cours...' :
@@ -18,8 +29,16 @@ export function NativeCallOverlay({ call }: { call: NativeCallController }) {
 
   return (
     <View style={styles.callOverlay}>
-      {isVideo && remoteEntries[0]?.[1] ? (
-        <RTCView streamURL={remoteEntries[0][1].toURL()} objectFit="cover" style={styles.remoteVideo} />
+      {isVideo && remoteEntries.length ? (
+        remoteEntries.length === 1 ? (
+          <RTCView streamURL={remoteEntries[0][1].toURL()} objectFit="cover" style={styles.remoteVideo} />
+        ) : (
+          <View style={styles.remoteGrid}>
+            {remoteEntries.slice(0, 6).map(([userId, stream]) => (
+              <RTCView key={userId} streamURL={stream.toURL()} objectFit="cover" style={styles.remoteGridVideo} />
+            ))}
+          </View>
+        )
       ) : (
         <View style={styles.callAvatar}>
           <Text style={styles.callAvatarText}>{(call.callInfo?.callerName || 'O').slice(0, 1).toUpperCase()}</Text>
@@ -39,6 +58,10 @@ export function NativeCallOverlay({ call }: { call: NativeCallController }) {
       <View style={styles.callTop}>
         <Text style={styles.callTitle}>{call.callInfo?.callerName || 'Oracle Messenger'}</Text>
         <Text style={styles.callStatus}>{status}</Text>
+        <View style={styles.participantPill}>
+          <Users size={14} color="#FFFFFF" />
+          <Text style={styles.participantPillText}>{participantCount}</Text>
+        </View>
         {call.callNotice ? <Text style={styles.callNotice}>{call.callNotice}</Text> : null}
       </View>
 
@@ -74,6 +97,12 @@ export function NativeCallOverlay({ call }: { call: NativeCallController }) {
                 </Pressable>
               </>
             ) : null}
+            {addableParticipantIds.length ? (
+              <Pressable style={styles.callControl} onPress={() => call.addParticipants(addableParticipantIds)}>
+                <UserPlus size={22} color="#FFFFFF" />
+                <Text style={styles.callControlLabel}>Ajouter</Text>
+              </Pressable>
+            ) : null}
             <Pressable style={[styles.callButton, styles.rejectButton]} onPress={call.endCall}>
               <PhoneOff size={24} color="#FFFFFF" />
             </Pressable>
@@ -87,10 +116,14 @@ export function NativeCallOverlay({ call }: { call: NativeCallController }) {
 const styles = StyleSheet.create({
   callOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 50, backgroundColor: '#061514', alignItems: 'center', justifyContent: 'space-between', padding: 18, paddingTop: 48 },
   remoteVideo: { ...StyleSheet.absoluteFillObject, backgroundColor: '#000000' },
+  remoteGrid: { ...StyleSheet.absoluteFillObject, flexDirection: 'row', flexWrap: 'wrap', gap: 2, padding: 2, backgroundColor: '#000000' },
+  remoteGridVideo: { width: '49.6%', height: '49.6%', backgroundColor: '#000000' },
   callTop: { width: '100%', alignItems: 'center', paddingTop: 12 },
   callTitle: { color: '#FFFFFF', fontSize: 25, fontWeight: '900', textAlign: 'center' },
   callStatus: { color: 'rgba(255,255,255,0.76)', fontSize: 14, fontWeight: '800', marginTop: 6 },
   callNotice: { color: '#FDE68A', fontSize: 12, fontWeight: '800', marginTop: 8, textAlign: 'center' },
+  participantPill: { marginTop: 8, minHeight: 28, borderRadius: 14, paddingHorizontal: 10, backgroundColor: 'rgba(255,255,255,0.14)', flexDirection: 'row', alignItems: 'center', gap: 6 },
+  participantPillText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
   callAvatar: { width: 132, height: 132, borderRadius: 48, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', marginTop: 120 },
   callAvatarText: { color: '#FFFFFF', fontSize: 58, fontWeight: '900' },
   localVideoWrap: { position: 'absolute', right: 18, top: 110, width: 104, height: 144, borderRadius: 18, overflow: 'hidden', borderWidth: 2, borderColor: 'rgba(255,255,255,0.28)', backgroundColor: '#111827' },

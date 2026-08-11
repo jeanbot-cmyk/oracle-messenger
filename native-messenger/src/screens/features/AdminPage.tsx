@@ -6,7 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { api } from '@/services/api';
 import { colors } from '@/theme/colors';
 import type { User } from '@/types/messenger';
-import { AlertText, Loading, PrimaryButton, SecondaryButton, Section, UserRow } from './FeatureUi';
+import { AlertText, Loading, PageHeader, PrimaryButton, SecondaryButton, Section, UserRow } from './FeatureUi';
 
 function valueText(value: unknown) {
   if (value === null || value === undefined || value === '') return '0';
@@ -35,6 +35,8 @@ export function AdminPage({ token }: { token: string }) {
   const [broadcastMedia, setBroadcastMedia] = useState<{ url: string; type: string; name: string } | null>(null);
   const [notifTitle, setNotifTitle] = useState('');
   const [notifBody, setNotifBody] = useState('');
+  const [settingKey, setSettingKey] = useState('');
+  const [settingValue, setSettingValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -150,8 +152,44 @@ export function AdminPage({ token }: { token: string }) {
     }
   }, [notifBody, notifTitle, token]);
 
+  const togglePlan = useCallback(async (code: string) => {
+    const plans = Array.isArray(data?.ai?.plans) ? data.ai.plans : [];
+    const nextPlans = plans.map((plan: any) => (
+      plan.code === code ? { ...plan, enabled: !plan.enabled } : plan
+    ));
+    setBusy(true);
+    setNotice('');
+    try {
+      const ai = await api.adminSaveAiPlans(token, nextPlans);
+      setData((current: any) => ({ ...current, ai }));
+      setNotice('Plan IA mis à jour.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Mise à jour plan IA impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [data?.ai?.plans, token]);
+
+  const saveAiSetting = useCallback(async () => {
+    if (!settingKey.trim()) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      const ai = await api.adminSaveAiSettings(token, { [settingKey.trim()]: settingValue });
+      setData((current: any) => ({ ...current, ai }));
+      setSettingKey('');
+      setSettingValue('');
+      setNotice('Réglage IA mis à jour.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Mise à jour réglage IA impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [settingKey, settingValue, token]);
+
   return (
     <ScrollView contentContainerStyle={styles.page}>
+      <PageHeader title="Administration" subtitle="Statistiques, IA, notifications et message système." />
       <Section title="Administration" right={<SecondaryButton label="Actualiser" onPress={load} disabled={busy} />}>
         <Text style={styles.pageCopy}>Statistiques, utilisateurs, règles IA, notifications et message système admin. Toutes les données viennent du backend.</Text>
         <Loading active={busy} />
@@ -214,15 +252,19 @@ export function AdminPage({ token }: { token: string }) {
           <View key={plan.code} style={styles.card}>
             <Text style={styles.cardTitle}>{plan.label || plan.code}</Text>
             <Text style={styles.cardMeta}>{plan.enabled ? 'Actif' : 'Inactif'} • {valueText(plan.priceFcfa)} FCFA • {valueText(plan.words)} mots</Text>
+            <SecondaryButton label={plan.enabled ? 'Désactiver' : 'Activer'} onPress={() => togglePlan(plan.code)} disabled={busy} />
           </View>
         ))}
+        <TextInput value={settingKey} onChangeText={setSettingKey} placeholder="Clé réglage IA" placeholderTextColor={colors.muted} autoCapitalize="none" style={styles.input} />
+        <TextInput value={settingValue} onChangeText={setSettingValue} placeholder="Valeur" placeholderTextColor={colors.muted} multiline style={[styles.input, styles.textarea]} />
+        <PrimaryButton label="Enregistrer réglage IA" onPress={saveAiSetting} disabled={busy || !settingKey.trim()} />
       </Section>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  page: { padding: 12, paddingBottom: 96, gap: 12 },
+  page: { paddingBottom: 96, gap: 0, backgroundColor: colors.background },
   pageCopy: { color: colors.muted, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
   input: { minHeight: 48, borderRadius: 15, backgroundColor: colors.input, color: colors.text, paddingHorizontal: 14, paddingVertical: 10, fontWeight: '800', borderWidth: 1, borderColor: 'transparent' },
   textarea: { minHeight: 96, textAlignVertical: 'top' },

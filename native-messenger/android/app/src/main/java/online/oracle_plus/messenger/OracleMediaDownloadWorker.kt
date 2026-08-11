@@ -1,6 +1,7 @@
 package online.oracle_plus.messenger
 
 import android.content.Context
+import android.net.Uri
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import org.json.JSONArray
@@ -25,11 +26,12 @@ class OracleMediaDownloadWorker(
     val type = inputData.getString(KEY_TYPE).orEmpty()
     val mime = inputData.getString(KEY_MIME).orEmpty()
     val name = inputData.getString(KEY_NAME).orEmpty()
+    val mediaRootUri = inputData.getString(KEY_MEDIA_ROOT_URI).orEmpty()
 
     if (messageId.isBlank() || mediaUrl.isBlank() || token.isBlank() || backendUrl.isBlank()) return Result.failure()
 
     return try {
-      val directory = File(applicationContext.filesDir, "oracle-media").apply { mkdirs() }
+      val directory = mediaDirectory(mediaRootUri)
       val target = File(directory, "$messageId${extension(type, mime, name, mediaUrl)}")
       val existing = validateLocalFile(target, expectedChecksum, expectedSize)
       val saved = existing ?: downloadAndValidate(mediaUrl, target, expectedChecksum, expectedSize)
@@ -44,6 +46,28 @@ class OracleMediaDownloadWorker(
   }
 
   private data class SavedMedia(val size: Long, val checksum: String)
+
+  private fun mediaDirectory(mediaRootUri: String): File {
+    val fallback = File(applicationContext.filesDir, "oracle-media")
+    val rawPath = mediaRootUri
+      .takeIf { it.isNotBlank() }
+      ?.let { value -> if (value.startsWith("file://")) Uri.parse(value).path else value }
+      .orEmpty()
+
+    if (rawPath.isBlank()) return fallback.apply { mkdirs() }
+
+    return try {
+      val candidate = File(rawPath).canonicalFile
+      val appDataRoot = applicationContext.filesDir.parentFile?.canonicalFile
+      if (!candidate.isAbsolute || appDataRoot == null || !candidate.path.startsWith(appDataRoot.path)) {
+        fallback.apply { mkdirs() }
+      } else {
+        candidate.apply { mkdirs() }
+      }
+    } catch (_: Exception) {
+      fallback.apply { mkdirs() }
+    }
+  }
 
   private fun validateLocalFile(file: File, expectedChecksum: String?, expectedSize: Long?): SavedMedia? {
     if (!file.exists() || !file.isFile || file.length() <= 0L) return null
@@ -201,5 +225,6 @@ class OracleMediaDownloadWorker(
     const val KEY_TYPE = "type"
     const val KEY_MIME = "mime"
     const val KEY_NAME = "name"
+    const val KEY_MEDIA_ROOT_URI = "mediaRootUri"
   }
 }

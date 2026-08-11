@@ -1,11 +1,11 @@
 import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput } from 'react-native';
+import { Linking, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as Contacts from 'expo-contacts';
 import * as Crypto from 'expo-crypto';
 import { api } from '@/services/api';
 import { colors } from '@/theme/colors';
 import type { Conversation, User } from '@/types/messenger';
-import { AlertText, Loading, PrimaryButton, Section, UserRow } from './FeatureUi';
+import { AlertText, Loading, PageHeader, PrimaryButton, SecondaryButton, Section, UserRow } from './FeatureUi';
 
 function phoneCandidates(raw: string) {
   const cleaned = String(raw || '').replace(/[^\d+]/g, '');
@@ -89,6 +89,28 @@ export function ContactsPage({
     }
   }, [phone, token]);
 
+  const invitePhone = useCallback(async () => {
+    const normalized = phone.trim();
+    const installLink = 'https://messenger.oracle-plus.online/install';
+    const message = `Bonjour, rejoins-moi sur Oracle Messenger: ${installLink}`;
+    try {
+      if (normalized.startsWith('+')) {
+        await Linking.openURL(`sms:${encodeURIComponent(normalized)}?body=${encodeURIComponent(message)}`);
+      } else {
+        await Share.share({ title: 'Oracle Messenger', message });
+      }
+    } catch {
+      await Share.share({ title: 'Oracle Messenger', message });
+    }
+  }, [phone]);
+
+  const shareMessenger = useCallback(async () => {
+    await Share.share({
+      title: 'Oracle Messenger',
+      message: 'Oracle Messenger: https://messenger.oracle-plus.online',
+    });
+  }, []);
+
   const importContacts = useCallback(async () => {
     setBusy(true);
     setNotice('');
@@ -124,11 +146,15 @@ export function ContactsPage({
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
-      <Section title="Contacts">
-        <Text style={styles.pageCopy}>Recherchez, ajoutez ou invitez un contact sans mélanger les comptes.</Text>
-        <PrimaryButton label="Importer mes contacts" onPress={importContacts} disabled={busy} />
+      <PageHeader title="Contacts" />
+      <Section title="Retrouver vos proches">
+        <Text style={styles.pageCopy}>Importez, invitez et démarrez une discussion sans mélanger les comptes.</Text>
+        <View style={styles.actionRow}>
+          <PrimaryButton label="Importer mes contacts" onPress={importContacts} disabled={busy} />
+          <SecondaryButton label="Partager Oracle Messenger" onPress={shareMessenger} disabled={busy} />
+        </View>
         {importedCount ? <Text style={styles.cardMeta}>{importedCount} numéro(s) lus dans le carnet local.</Text> : null}
-        <TextInput value={query} onChangeText={setQuery} placeholder="Nom, email ou username" placeholderTextColor={colors.muted} style={styles.input} />
+        <TextInput value={query} onChangeText={setQuery} placeholder="Rechercher par nom, email ou username" placeholderTextColor={colors.muted} style={styles.input} />
         <PrimaryButton label="Rechercher" onPress={search} disabled={busy || !query.trim()} />
         <Loading active={busy} />
         <AlertText text={notice} />
@@ -139,15 +165,23 @@ export function ContactsPage({
         <Text style={styles.pageCopy}>Si le numéro n’a pas d’indicatif, Oracle Messenger demande de le compléter avant invitation.</Text>
         <TextInput value={phone} onChangeText={setPhone} placeholder="+225..." placeholderTextColor={colors.muted} keyboardType="phone-pad" style={styles.input} />
         <PrimaryButton label="Vérifier le numéro" onPress={matchPhone} disabled={busy || !phone.trim()} />
+        <View style={styles.actionRow}>
+          <SecondaryButton label="Inviter par SMS / partage" onPress={invitePhone} disabled={busy || !phone.trim()} />
+        </View>
         {matched ? <UserRow user={matched} actionLabel="Écrire" onPress={() => createConversation(matched)} /> : null}
       </Section>
+      <View style={styles.shareCta}>
+        <PrimaryButton label="Partager Oracle Messenger" onPress={shareMessenger} disabled={busy} />
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  page: { padding: 12, paddingBottom: 96, gap: 12 },
+  page: { paddingBottom: 96, gap: 0, backgroundColor: colors.background },
   pageCopy: { color: colors.muted, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
   input: { minHeight: 48, borderRadius: 15, backgroundColor: colors.input, color: colors.text, paddingHorizontal: 14, paddingVertical: 10, fontWeight: '800', borderWidth: 1, borderColor: 'transparent' },
   cardMeta: { color: colors.muted, fontSize: 11.5, fontWeight: '800' },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
+  shareCta: { marginHorizontal: 32, marginTop: 18 },
 });

@@ -46,6 +46,11 @@ export const api = {
       token,
     ),
   iceServers: (token: string) => apiGet<{ iceServers?: RTCIceServer[] }>('/calls/ice-servers', token),
+  callHistory: (token: string, limit = 100) => apiGet<any[]>(`/calls/history?limit=${encodeURIComponent(String(limit))}`, token),
+  clearCallHistory: (token: string) =>
+    apiRequest<{ ok?: boolean }>('/calls/history', { method: 'DELETE' }, token),
+  deleteCallHistoryEntry: (token: string, id: string) =>
+    apiRequest<{ ok?: boolean }>(`/calls/history/${encodeURIComponent(id)}`, { method: 'DELETE' }, token),
   subscribePush: (token: string, subscription: { type: 'fcm'; token: string; platform: 'android' }) =>
     apiRequest<{ ok?: boolean }>(
       '/notifications/subscribe',
@@ -56,6 +61,11 @@ export const api = {
     apiRequest<AuthSession>('/auth/google', {
       method: 'POST',
       body: JSON.stringify({ idToken }),
+    }),
+  recoverPhone: (phone: string) =>
+    apiRequest<{ found: boolean; name?: string; emailHint?: string; message: string }>('/auth/recover-phone', {
+      method: 'POST',
+      body: JSON.stringify({ phone }),
     }),
   me: (token: string) => apiGet<User>('/users/me', token),
   updateMe: (token: string, data: { name?: string; bio?: string; avatar?: string; phone?: string }) =>
@@ -76,8 +86,11 @@ export const api = {
     apiRequest<Conversation>('/conversations', { method: 'POST', body: JSON.stringify({ participantId }) }, token),
   deleteConversation: (conversationId: string, token: string) =>
     apiRequest<{ ok?: boolean }>(`/conversations/${encodeURIComponent(conversationId)}`, { method: 'DELETE' }, token),
-  messages: (conversationId: string, token: string) =>
-    apiGet<Message[]>(`/conversations/${encodeURIComponent(conversationId)}/messages`, token),
+  messages: (conversationId: string, token: string, before?: string) =>
+    apiGet<Message[]>(
+      `/conversations/${encodeURIComponent(conversationId)}/messages${before ? `?before=${encodeURIComponent(before)}` : ''}`,
+      token,
+    ),
   pendingMedia: (token: string) => apiGet<Message[]>('/messages/media-pending?limit=80', token),
   sendMessage: (conversationId: string, token: string, content: string, type = 'text', replyToId?: string) =>
     apiRequest<Message>(
@@ -160,6 +173,10 @@ export const api = {
   adminUsers: (token: string) => apiGet<any[]>('/admin/users', token),
   adminCountries: (token: string) => apiGet<any[]>('/admin/countries', token),
   adminAiAuto: (token: string) => apiGet<any>('/admin/ai-auto', token),
+  adminSaveAiPlans: (token: string, plans: any[]) =>
+    apiRequest<any>('/admin/ai-auto/plans', { method: 'POST', body: JSON.stringify({ plans }) }, token),
+  adminSaveAiSettings: (token: string, settings: Record<string, string>) =>
+    apiRequest<any>('/admin/ai-auto/settings', { method: 'POST', body: JSON.stringify({ settings }) }, token),
   adminNotify: (token: string, data: { title: string; body: string; url?: string }) =>
     apiRequest<any>('/admin/notify', { method: 'POST', body: JSON.stringify(data) }, token),
   adminBroadcast: (token: string, data: { content?: string; mediaUrl?: string; type?: string }) =>

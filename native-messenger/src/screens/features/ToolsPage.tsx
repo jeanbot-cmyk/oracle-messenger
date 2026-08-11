@@ -2,13 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '@/services/api';
+import { cancelLocalReminder, scheduleLocalReminder } from '@/services/notifications';
 import { colors } from '@/theme/colors';
-import { AlertText, Loading, PrimaryButton, SecondaryButton, Section } from './FeatureUi';
+import { AlertText, Loading, PageHeader, PrimaryButton, SecondaryButton, Section } from './FeatureUi';
 
 type ToolTab = 'meeting' | 'ai' | 'flyer' | 'video' | 'translate' | 'notes' | 'events';
 type LocalNote = { id: string; title: string; body: string; updatedAt: number };
-type LocalEvent = { id: string; title: string; date: string; time: string; note: string; createdAt: number };
+type LocalEvent = { id: string; title: string; date: string; time: string; note: string; createdAt: number; notificationId?: string };
 type AiMessage = { id: string; from: 'client' | 'agent'; text: string };
+type QuickTool = { mode: ToolTab; title: string; subtitle: string };
+
+const QUICK_TOOLS: QuickTool[] = [
+  { mode: 'flyer', title: 'Créer IA Image', subtitle: 'Flyers et affiches' },
+  { mode: 'video', title: 'IA Vidéo', subtitle: 'Vidéos de présentation' },
+  { mode: 'translate', title: 'Traduction', subtitle: 'Messages multilingues' },
+  { mode: 'ai', title: 'Réponse IA', subtitle: 'Texte professionnel' },
+];
 
 function ownerKey(base: string, ownerId: string) {
   return `${base}:${ownerId || 'local'}`;
@@ -19,6 +28,16 @@ function valueText(value: unknown) {
   if (typeof value === 'number') return value.toLocaleString('fr-FR');
   if (typeof value === 'boolean') return value ? 'Oui' : 'Non';
   return String(value);
+}
+
+function parseReminderDate(date: string, time: string) {
+  const cleanDate = date.trim();
+  if (!cleanDate) return null;
+  const cleanTime = time.trim() || '09:00';
+  const candidate = cleanDate.includes('T') ? cleanDate : `${cleanDate}T${cleanTime}:00`;
+  const parsed = new Date(candidate);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
 }
 
 function Stat({ label, value }: { label: string; value: unknown }) {
@@ -189,7 +208,16 @@ function EventsTool({ ownerId }: { ownerId: string }) {
 
   const save = useCallback(async () => {
     if (!title.trim() || !date.trim()) return;
-    const event: LocalEvent = { id: `${Date.now()}`, title: title.trim(), date: date.trim(), time: time.trim() || '09:00', note: note.trim(), createdAt: Date.now() };
+    const scheduledAt = parseReminderDate(date, time);
+    let notificationId = '';
+    if (scheduledAt && scheduledAt.getTime() > Date.now()) {
+      notificationId = await scheduleLocalReminder({
+        title: title.trim(),
+        body: note.trim() || 'Rappel Oracle Messenger',
+        date: scheduledAt,
+      });
+    }
+    const event: LocalEvent = { id: `${Date.now()}`, title: title.trim(), date: date.trim(), time: time.trim() || '09:00', note: note.trim(), createdAt: Date.now(), notificationId };
     await persist([event, ...events].slice(0, 120));
     setTitle('');
     setDate('');
@@ -197,13 +225,14 @@ function EventsTool({ ownerId }: { ownerId: string }) {
     setNote('');
   }, [date, events, note, persist, time, title]);
 
-  const remove = useCallback(async (id: string) => {
-    await persist(events.filter(event => event.id !== id));
+  const remove = useCallback(async (event: LocalEvent) => {
+    await cancelLocalReminder(event.notificationId);
+    await persist(events.filter(item => item.id !== event.id));
   }, [events, persist]);
 
   return (
     <View style={styles.subPanel}>
-      <Text style={styles.pageCopy}>Rappels locaux conservés par compte. Les notifications planifiées natives restent à brancher pour parité totale avec le service worker Web.</Text>
+      <Text style={styles.pageCopy}>Rappels locaux conservés par compte avec notification native lorsque la date est future.</Text>
       <TextInput value={title} onChangeText={setTitle} placeholder="Titre du rappel" placeholderTextColor={colors.muted} style={styles.input} />
       <View style={styles.actionRow}>
         <TextInput value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.muted} style={[styles.input, styles.inlineInput]} />
@@ -215,8 +244,8 @@ function EventsTool({ ownerId }: { ownerId: string }) {
         <View key={event.id} style={styles.card}>
           <Text style={styles.cardTitle}>{event.title}</Text>
           <Text style={styles.cardText}>{event.note || 'Sans détail'}</Text>
-          <Text style={styles.cardMeta}>{event.date} à {event.time}</Text>
-          <SecondaryButton label="Supprimer" onPress={() => remove(event.id)} />
+          <Text style={styles.cardMeta}>{event.date} à {event.time}{event.notificationId ? ' • notification planifiée' : ''}</Text>
+          <SecondaryButton label="Supprimer" onPress={() => remove(event)} />
         </View>
       ))}
     </View>
@@ -350,8 +379,43 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
     }
   }, [mode, token]);
 
+  const openOracleWeb = useCallback(() => {
+    Linking.openURL('https://web.oracle-plus.online?source=messenger-native-tools').catch(() => setNotice('Ouverture Oracle Web impossible.'));
+  }, []);
+
+  const openSpirituality = useCallback(() => {
+    Linking.openURL('https://oracle-plus.online/consultation').catch(() => setNotice('Ouverture Spiritualité impossible.'));
+  }, []);
+
+  const shareMessenger = useCallback(async () => {
+    await Share.share({
+      title: 'Oracle Messenger',
+      message: 'Oracle Messenger: https://messenger.oracle-plus.online',
+    });
+  }, []);
+
   return (
     <ScrollView contentContainerStyle={styles.page}>
+      <PageHeader title="Outils" />
+      <Section title="Créer plus vite avec Oracle">
+        <Text style={styles.heroCopy}>Des modules utiles pour communiquer et vendre.</Text>
+        <View style={styles.quickGrid}>
+          {QUICK_TOOLS.map(tool => (
+            <Pressable key={tool.mode} onPress={() => setMode(tool.mode)} style={[styles.quickCard, mode === tool.mode && styles.quickCardActive]}>
+              <View style={styles.quickIcon}><Text style={styles.quickIconText}>IA</Text></View>
+              <Text style={styles.quickTitle}>{tool.title}</Text>
+              <Text style={styles.quickSubtitle}>{tool.subtitle}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <View style={styles.assistantCard}>
+          <Text style={styles.assistantTitle}>Assistant dans le chat</Text>
+          <Text style={styles.assistantCopy}>Rédige, corrige et adapte vos messages.</Text>
+          <Pressable onPress={() => setMode('ai')} style={styles.greenButton}>
+            <Text style={styles.greenButtonText}>Tester maintenant</Text>
+          </Pressable>
+        </View>
+      </Section>
       <Section title="Outils">
         <Text style={styles.pageCopy}>Meeting, IA, flyers, vidéos, traduction, notes et rappels restaurés en écrans natifs reliés aux services disponibles.</Text>
         <View style={styles.segment}>
@@ -362,6 +426,11 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
               </Text>
             </Pressable>
           ))}
+        </View>
+        <View style={styles.actionRow}>
+          <SecondaryButton label="Oracle Web" onPress={openOracleWeb} />
+          <SecondaryButton label="Spiritualité" onPress={openSpirituality} />
+          <SecondaryButton label="Partager l’app" onPress={shareMessenger} />
         </View>
         {mode === 'meeting' ? <MeetingTool userName={userName} /> : null}
         {mode === 'translate' ? <TranslateTool token={token} /> : null}
@@ -409,7 +478,20 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
 }
 
 const styles = StyleSheet.create({
-  page: { padding: 12, paddingBottom: 96, gap: 12 },
+  page: { paddingBottom: 96, gap: 0, backgroundColor: colors.background },
+  heroCopy: { color: colors.secondary, fontSize: 16, lineHeight: 22, fontWeight: '900' },
+  quickGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  quickCard: { width: '48%', minWidth: 142, flexGrow: 1, minHeight: 142, borderRadius: 24, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, padding: 18, justifyContent: 'center' },
+  quickCardActive: { borderColor: colors.header, backgroundColor: '#F8FFFA' },
+  quickIcon: { width: 54, height: 54, borderRadius: 27, backgroundColor: colors.header, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  quickIconText: { color: '#FFFFFF', fontSize: 16, lineHeight: 19, fontWeight: '900' },
+  quickTitle: { color: colors.text, fontSize: 19, lineHeight: 23, fontWeight: '900' },
+  quickSubtitle: { color: colors.secondary, fontSize: 13.5, lineHeight: 18, fontWeight: '900', marginTop: 8 },
+  assistantCard: { borderRadius: 24, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surface, padding: 20, gap: 10 },
+  assistantTitle: { color: colors.text, fontSize: 22, lineHeight: 26, fontWeight: '900' },
+  assistantCopy: { color: colors.secondary, fontSize: 15, lineHeight: 21, fontWeight: '900' },
+  greenButton: { alignSelf: 'flex-start', minHeight: 46, minWidth: 190, borderRadius: 23, backgroundColor: '#25D366', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 22, marginTop: 8 },
+  greenButtonText: { color: '#102A2A', fontSize: 14, fontWeight: '900' },
   pageCopy: { color: colors.muted, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
   input: { minHeight: 48, borderRadius: 15, backgroundColor: colors.input, color: colors.text, paddingHorizontal: 14, paddingVertical: 10, fontWeight: '800', borderWidth: 1, borderColor: 'transparent' },
   textarea: { minHeight: 96, textAlignVertical: 'top' },

@@ -37,6 +37,7 @@ type NativeChatPanelProps = {
   onForwardToConversation: (conversation: Conversation) => void | Promise<void>;
   onToggleSelection: (messageId: string) => void;
   onOpenMessageActions: (message: Message) => void;
+  onLoadOlderMessages: () => void | Promise<void>;
   onDraftChange: (value: string) => void;
   onClearContext: () => void;
   onCancelVoiceRecording: () => void | Promise<void>;
@@ -78,6 +79,7 @@ export function NativeChatPanel({
   onForwardToConversation,
   onToggleSelection,
   onOpenMessageActions,
+  onLoadOlderMessages,
   onDraftChange,
   onClearContext,
   onCancelVoiceRecording,
@@ -90,6 +92,7 @@ export function NativeChatPanel({
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.chatPanel}>
       <NativeChatHeader
+        conversation={conversation}
         presenceText={presenceText}
         callNotice={callNotice}
         messageSearch={messageSearch}
@@ -121,6 +124,7 @@ export function NativeChatPanel({
         messageSearch={messageSearch}
         onToggleSelection={onToggleSelection}
         onOpenMessageActions={onOpenMessageActions}
+        onLoadOlderMessages={onLoadOlderMessages}
       />
       <NativeChatComposer
         draft={draft}

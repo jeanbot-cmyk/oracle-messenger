@@ -98,6 +98,26 @@ export function useNativeCallSocketEvents({
       if (data.callId === callInfoRef.current?.callId) cleanup(false);
     };
 
+    const onParticipantsAdded = (data: { callId: string; userIds?: string[] }) => {
+      const info = callInfoRef.current;
+      if (!info || data.callId !== info.callId) return;
+      const nextParticipants = [...new Set([...info.participants, ...(data.userIds || [])])];
+      setInfoSafe({ ...info, participants: nextParticipants });
+      trace('call:participants-added', { count: data.userIds?.length || 0 });
+    };
+
+    const onParticipantLeft = (data: { callId: string; userId?: string }) => {
+      const info = callInfoRef.current;
+      if (!info || data.callId !== info.callId || !data.userId) return;
+      setInfoSafe({ ...info, participants: info.participants.filter(userId => userId !== data.userId) });
+      trace('call:participant-left', { userId: data.userId });
+    };
+
+    const onCallError = (data: { message?: string }) => {
+      if (data?.message) setCallNotice(data.message);
+      trace('call:error', { message: data?.message });
+    };
+
     const onDisconnect = (reason: string) => {
       if (callStateRef.current !== 'idle') {
         setStateSafe('reconnecting');
@@ -116,6 +136,9 @@ export function useNativeCallSocketEvents({
     socket.on('webrtc:answer', handleAnswer);
     socket.on('webrtc:ice', handleIce);
     socket.on('call:ended', onEnded);
+    socket.on('call:participants-added', onParticipantsAdded);
+    socket.on('call:participant-left', onParticipantLeft);
+    socket.on('call:error', onCallError);
     socket.on('disconnect', onDisconnect);
     socket.on('connect', onConnect);
 
@@ -126,6 +149,9 @@ export function useNativeCallSocketEvents({
       socket.off('webrtc:answer', handleAnswer);
       socket.off('webrtc:ice', handleIce);
       socket.off('call:ended', onEnded);
+      socket.off('call:participants-added', onParticipantsAdded);
+      socket.off('call:participant-left', onParticipantLeft);
+      socket.off('call:error', onCallError);
       socket.off('disconnect', onDisconnect);
       socket.off('connect', onConnect);
     };

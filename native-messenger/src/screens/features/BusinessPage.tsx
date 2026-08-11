@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api } from '@/services/api';
 import { colors } from '@/theme/colors';
-import { AlertText, Loading, PrimaryButton, SecondaryButton, Section } from './FeatureUi';
+import { AlertText, Loading, PageHeader, PrimaryButton, SecondaryButton, Section, StatCard } from './FeatureUi';
 
 type BusinessMode = 'clients' | 'reminders' | 'stats';
 
@@ -33,6 +33,7 @@ export function BusinessPage({ token }: { token: string }) {
   const [clientStatus, setClientStatus] = useState('prospect');
   const [clientValue, setClientValue] = useState('');
   const [clientNotes, setClientNotes] = useState('');
+  const [editingClientId, setEditingClientId] = useState('');
   const [selectedClientId, setSelectedClientId] = useState('');
   const [reminderDate, setReminderDate] = useState('');
   const [reminderNote, setReminderNote] = useState('');
@@ -53,11 +54,14 @@ export function BusinessPage({ token }: { token: string }) {
 
   useEffect(() => { void load(); }, [load]);
 
-  const clients = Array.isArray(overview?.clients) ? overview.clients : [];
-  const reminders = Array.isArray(overview?.reminders) ? overview.reminders : [];
-  const payments = Array.isArray(overview?.payments) ? overview.payments : [];
+  const clients = useMemo(() => Array.isArray(overview?.clients) ? overview.clients : [], [overview?.clients]);
+  const reminders = useMemo(() => Array.isArray(overview?.reminders) ? overview.reminders : [], [overview?.reminders]);
+  const payments = useMemo(() => Array.isArray(overview?.payments) ? overview.payments : [], [overview?.payments]);
   const access = overview?.access;
   const canAct = Boolean(access?.canAct);
+  const hotClients = clients.filter((client: any) => ['chaud', 'vip'].includes(String(client.status || '').toLowerCase())).length;
+  const paidClients = clients.filter((client: any) => String(client.status || '').toLowerCase() === 'paye').length;
+  const pendingReminders = reminders.filter((reminder: any) => !reminder.done).length;
 
   const pay = useCallback(async () => {
     setBusy(true);
@@ -78,6 +82,7 @@ export function BusinessPage({ token }: { token: string }) {
     setNotice('');
     try {
       await api.businessSaveClient(token, {
+        id: editingClientId || undefined,
         name: clientName.trim(),
         phone: clientPhone.trim() || undefined,
         email: clientEmail.trim() || undefined,
@@ -92,14 +97,46 @@ export function BusinessPage({ token }: { token: string }) {
       setClientStatus('prospect');
       setClientValue('');
       setClientNotes('');
+      setEditingClientId('');
       await load();
-      setNotice('Client Business enregistré.');
+      setNotice(editingClientId ? 'Client Business mis à jour.' : 'Client Business enregistré.');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Enregistrement client impossible.');
     } finally {
       setBusy(false);
     }
-  }, [clientEmail, clientName, clientNotes, clientPhone, clientStatus, clientValue, load, token]);
+  }, [clientEmail, clientName, clientNotes, clientPhone, clientStatus, clientValue, editingClientId, load, token]);
+
+  const editClient = useCallback((client: any) => {
+    setMode('clients');
+    setEditingClientId(client.id || '');
+    setClientName(client.name || '');
+    setClientPhone(client.phone || '');
+    setClientEmail(client.email || '');
+    setClientStatus(client.status || 'prospect');
+    setClientValue(client.value ? String(client.value) : '');
+    setClientNotes(client.notes || '');
+  }, []);
+
+  const exportClients = useCallback(async () => {
+    if (!clients.length) {
+      setNotice('Aucun client à exporter.');
+      return;
+    }
+    const headers = ['Nom', 'Téléphone', 'Email', 'Statut', 'Valeur', 'Notes'];
+    const rows = clients.map((client: any) => [
+      client.name || '',
+      client.phone || '',
+      client.email || '',
+      client.status || '',
+      valueText(client.value || 0),
+      String(client.notes || '').replace(/\n/g, ' '),
+    ]);
+    const csv = [headers, ...rows]
+      .map((row: unknown[]) => row.map((cell: unknown) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    await Share.share({ title: 'Export Business Oracle Messenger', message: csv });
+  }, [clients]);
 
   const saveReminder = useCallback(async () => {
     if (!reminderDate.trim()) return;
@@ -137,6 +174,15 @@ export function BusinessPage({ token }: { token: string }) {
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
+      <PageHeader title="Business IA" />
+      <Section title="Assistant IA Business">
+        <Text style={styles.heroCopy}>Classe les prospects, relance et aide à vendre.</Text>
+        <View style={styles.referenceStats}>
+          <StatCard label="Clients chauds" value={hotClients} highlighted />
+          <StatCard label="Rappels" value={pendingReminders || reminders.length} />
+          <StatCard label="Payés" value={paidClients} />
+        </View>
+      </Section>
       <Section title="Business Hub">
         <Text style={styles.pageCopy}>CRM, rappels et accès Business reliés aux données serveur. Aucune statistique fictive n’est affichée.</Text>
         <View style={styles.statsGrid}>
@@ -158,6 +204,18 @@ export function BusinessPage({ token }: { token: string }) {
             <PrimaryButton label="Activer / renouveler avec Paystack" onPress={pay} disabled={busy} />
           </View>
         ) : <SecondaryButton label="Renouveler Business" onPress={pay} disabled={busy} />}
+        <View style={styles.actionRow}>
+          <SecondaryButton label="Exporter clients" onPress={exportClients} disabled={!clients.length} />
+          {editingClientId ? <SecondaryButton label="Annuler édition" onPress={() => {
+            setEditingClientId('');
+            setClientName('');
+            setClientPhone('');
+            setClientEmail('');
+            setClientStatus('prospect');
+            setClientValue('');
+            setClientNotes('');
+          }} disabled={busy} /> : null}
+        </View>
         <View style={styles.segment}>
           {(['clients', 'reminders', 'stats'] as const).map(item => (
             <Pressable key={item} onPress={() => setMode(item)} style={[styles.segmentItem, mode === item && styles.segmentActive]}>
@@ -185,14 +243,22 @@ export function BusinessPage({ token }: { token: string }) {
           </View>
           <TextInput value={clientValue} onChangeText={setClientValue} placeholder="Valeur FCFA" placeholderTextColor={colors.muted} keyboardType="numeric" style={styles.input} />
           <TextInput value={clientNotes} onChangeText={setClientNotes} placeholder="Notes" placeholderTextColor={colors.muted} multiline style={[styles.input, styles.textarea]} />
-          <PrimaryButton label="Enregistrer client" onPress={saveClient} disabled={busy || !clientName.trim()} />
+          <PrimaryButton label={editingClientId ? 'Mettre à jour client' : 'Enregistrer client'} onPress={saveClient} disabled={busy || !clientName.trim()} />
           {!clients.length ? <Text style={styles.empty}>Aucun client Business.</Text> : null}
           {clients.map((client: any) => (
-            <View key={client.id} style={styles.card}>
-              <Text style={styles.cardTitle}>{client.name || 'Client'}</Text>
-              <Text style={styles.cardText}>{client.phone || client.email || 'Coordonnées non renseignées'}</Text>
-              <Text style={styles.cardMeta}>{client.status || 'prospect'} • {valueText(client.value || 0)} FCFA • {client.updatedAt ? new Date(client.updatedAt).toLocaleString('fr-FR') : ''}</Text>
+            <View key={client.id} style={[styles.card, ['chaud', 'vip'].includes(String(client.status || '').toLowerCase()) && styles.hotClientCard]}>
+              <View style={styles.clientCardHead}>
+                <View style={styles.clientCardText}>
+                  <Text style={styles.cardTitle}>{client.name || 'Client'}</Text>
+                  <Text style={styles.cardText}>{client.phone || client.email || 'Coordonnées non renseignées'}</Text>
+                </View>
+                <View style={[styles.statusBadge, String(client.status || '').toLowerCase() === 'paye' && styles.statusBadgeSoft]}>
+                  <Text style={styles.statusBadgeText}>{client.status === 'paye' ? 'Payé' : client.status || 'Prospect'}</Text>
+                </View>
+              </View>
+              <Text style={styles.cardMeta}>{valueText(client.value || 0)} FCFA • {client.updatedAt ? new Date(client.updatedAt).toLocaleString('fr-FR') : ''}</Text>
               {client.notes ? <Text numberOfLines={3} style={styles.cardText}>{client.notes}</Text> : null}
+              <SecondaryButton label="Modifier" onPress={() => editClient(client)} disabled={busy} />
             </View>
           ))}
         </Section>
@@ -246,12 +312,20 @@ export function BusinessPage({ token }: { token: string }) {
 }
 
 const styles = StyleSheet.create({
-  page: { padding: 12, paddingBottom: 96, gap: 12 },
+  page: { paddingBottom: 96, gap: 0, backgroundColor: colors.background },
+  heroCopy: { color: colors.secondary, fontSize: 16, lineHeight: 22, fontWeight: '900' },
+  referenceStats: { flexDirection: 'row', gap: 10 },
   pageCopy: { color: colors.muted, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
   input: { minHeight: 48, borderRadius: 15, backgroundColor: colors.input, color: colors.text, paddingHorizontal: 14, paddingVertical: 10, fontWeight: '800', borderWidth: 1, borderColor: 'transparent' },
   textarea: { minHeight: 96, textAlignVertical: 'top' },
   empty: { color: colors.muted, fontSize: 13, fontWeight: '800', paddingVertical: 10 },
   card: { borderRadius: 16, padding: 12, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, gap: 5 },
+  hotClientCard: { backgroundColor: '#F0FFF0', borderColor: 'rgba(37,211,102,0.18)' },
+  clientCardHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  clientCardText: { flex: 1, minWidth: 0 },
+  statusBadge: { minHeight: 34, borderRadius: 17, backgroundColor: '#25D366', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 15 },
+  statusBadgeSoft: { backgroundColor: '#DCEFEB' },
+  statusBadgeText: { color: '#102A2A', fontSize: 12, fontWeight: '900', textTransform: 'capitalize' },
   cardTitle: { color: colors.text, fontSize: 15, fontWeight: '900' },
   cardText: { color: colors.text, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
   cardMeta: { color: colors.muted, fontSize: 11.5, fontWeight: '800' },

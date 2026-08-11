@@ -4,7 +4,7 @@ import { api } from '@/services/api';
 import { readLocalGalleryItems, removeLocalGalleryItem, type LocalGalleryItem } from '@/services/localMedia';
 import { syncPendingMedia } from '@/services/mediaSync';
 import { colors } from '@/theme/colors';
-import { AlertText, Loading, SecondaryButton, Section } from './FeatureUi';
+import { AlertText, Loading, PageHeader, SecondaryButton, Section } from './FeatureUi';
 import { OracleAudioPlayer, OracleVideoPlayer } from './NativeMediaPlayers';
 
 function statValueText(value: unknown) {
@@ -74,6 +74,7 @@ export function GalleryPage({ token, userId }: { token: string; userId: string }
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
+      <PageHeader title="Galerie" subtitle="Médias téléchargés et sauvegardés localement." />
       <Section title="Galerie médias" right={<SecondaryButton label="Sync" onPress={load} disabled={busy} />}>
         <Text style={styles.pageCopy}>Médias réellement présents dans le stockage local autorisé par Android après téléchargement, vérification et ACK serveur.</Text>
         <Loading active={busy} />
@@ -155,7 +156,7 @@ function GalleryPreview({ item }: { item: LocalGalleryItem }) {
 }
 
 const styles = StyleSheet.create({
-  page: { padding: 12, paddingBottom: 96, gap: 12 },
+  page: { paddingBottom: 96, gap: 0, backgroundColor: colors.background },
   pageCopy: { color: colors.muted, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
   empty: { color: colors.muted, fontSize: 13, fontWeight: '800', paddingVertical: 10 },
   cardMeta: { color: colors.muted, fontSize: 11.5, fontWeight: '800' },

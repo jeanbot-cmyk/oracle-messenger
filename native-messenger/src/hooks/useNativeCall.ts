@@ -103,7 +103,7 @@ export function useNativeCall(session: AuthSession | null) {
     trace('call:cleanup', { emitEnd });
   }, [resetPeerConnections, setInfoSafe, setStateSafe, stopAudioSession, trace]);
 
-  const { startCall, prepareIncomingCall, answerCall } = useNativeCallActions({
+  const { startCall, prepareIncomingCall, answerCall, addParticipants } = useNativeCallActions({
     session,
     cameraFacing,
     socketRef,
@@ -160,6 +160,7 @@ export function useNativeCall(session: AuthSession | null) {
     startCall,
     prepareIncomingCall,
     answerCall,
+    addParticipants,
     endCall: () => cleanup(true),
     toggleMute,
     toggleCamera,

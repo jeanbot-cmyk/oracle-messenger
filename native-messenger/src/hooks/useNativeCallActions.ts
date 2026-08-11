@@ -171,9 +171,41 @@ export function useNativeCallActions({
     trace,
   ]);
 
+  const addParticipants = useCallback(async (targetUserIds: string[]) => {
+    const info = callInfoRef.current;
+    if (!info || !session?.token || callStateRef.current === 'idle') return;
+    const targets = [...new Set(targetUserIds)]
+      .filter(userId => userId && userId !== session.user.id && !info.participants.includes(userId));
+    if (!targets.length) {
+      setCallNotice('Aucun nouveau participant à ajouter.');
+      return;
+    }
+    try {
+      const socket = ensureNativeSocket(session.token);
+      socketRef.current = socket;
+      const response = await emitSocketAck<{ ok?: boolean; message?: string; targets?: number }>(
+        socket,
+        'call:add-participants',
+        { callId: info.callId, targetUserIds: targets },
+        12000,
+      );
+      if (response?.ok === false) {
+        setCallNotice(response.message || 'Ajout participant impossible.');
+        return;
+      }
+      setInfoSafe({ ...info, participants: [...new Set([...info.participants, ...targets])] });
+      setCallNotice(targets.length === 1 ? 'Invitation envoyée.' : `${targets.length} invitations envoyées.`);
+      trace('call:add-participants:ack', { targets: targets.length });
+    } catch (error) {
+      setCallNotice(error instanceof Error ? error.message : 'Ajout participant impossible.');
+      trace('call:add-participants:error', { message: error instanceof Error ? error.message : String(error) });
+    }
+  }, [callInfoRef, callStateRef, session?.token, session?.user.id, setCallNotice, setInfoSafe, socketRef, trace]);
+
   return {
     startCall,
     prepareIncomingCall,
     answerCall,
+    addParticipants,
   };
 }
