@@ -1,16 +1,13 @@
 import { useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, Text } from 'react-native';
+import { SafeAreaView, StyleSheet, Text } from 'react-native';
 import { ANDROID_PACKAGE, NATIVE_BASELINE } from '@/config/env';
 import { useNativeCall } from '@/hooks/useNativeCall';
-import { NativeChatComposer } from '@/screens/home/NativeChatComposer';
-import { NativeChatHeader } from '@/screens/home/NativeChatHeader';
+import { NativeChatPanel } from '@/screens/home/NativeChatPanel';
 import { NativeCallOverlay } from '@/screens/home/NativeCallOverlay';
 import { NativeConversationList } from '@/screens/home/NativeConversationList';
 import { NativeHomeShellHeader } from '@/screens/home/NativeHomeShellHeader';
 import { NativeLoginScreen } from '@/screens/home/NativeLoginScreen';
 import { NativeLoadingScreen } from '@/screens/home/NativeLoadingScreen';
-import { NativeMessageActionPanels } from '@/screens/home/NativeMessageActionPanels';
-import { NativeMessageList } from '@/screens/home/NativeMessageList';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
 import { useNativeConversationActions } from '@/screens/home/useNativeConversationActions';
 import { useNativeConversationBrowser } from '@/screens/home/useNativeConversationBrowser';
@@ -285,56 +282,44 @@ export function NativeHomeScreen() {
           onLogout={logout}
         />
       ) : selected ? (
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.chatPanel}>
-          <NativeChatHeader
-            presenceText={presenceText}
-            callNotice={nativeCall.callNotice}
-            messageSearch={messageSearch}
-            onBack={() => setSelected(null)}
-            onStartAudioCall={() => nativeCall.startCall(selected, 'audio')}
-            onStartVideoCall={() => nativeCall.startCall(selected, 'video')}
-            onMessageSearchChange={setMessageSearch}
-          />
-          <NativeMessageActionPanels
-            selectedCount={selectedMessageIds.length}
-            selectedMessages={selectedMessages}
-            forwardMessages={forwardMessages}
-            conversations={conversations}
-            activeConversationId={selected.id}
-            onShare={shareMessages}
-            onBeginForward={beginForward}
-            onDeleteSelected={deleteSelectedOwnMessages}
-            onClearSelection={clearMessageSelection}
-            onClearForward={clearForwardMessages}
-            onForwardToConversation={forwardToConversation}
-          />
-          <NativeMessageList
-            messages={visibleMessages}
-            currentUserId={session.user.id}
-            currentUserName={session.user.name}
-            currentUserAvatar={session.user.avatar}
-            selectedMessageIds={selectedMessageIds}
-            localMediaByMessageId={localMediaByMessageId}
-            messageSearch={messageSearch}
-            onToggleSelection={toggleMessageSelection}
-            onOpenMessageActions={openMessageActions}
-          />
-          <NativeChatComposer
-            draft={draft}
-            replyTo={replyTo}
-            editingMessage={editingMessage}
-            voiceRecording={voiceRecording}
-            voiceStartedAt={voiceStartedAt}
-            busy={busy}
-            onDraftChange={handleDraftChange}
-            onClearContext={() => { setReplyTo(null); setEditingMessage(null); setDraft(''); }}
-            onCancelVoiceRecording={cancelVoiceRecording}
-            onAttachImage={attachImage}
-            onAttachDocument={attachDocument}
-            onToggleVoiceRecording={toggleVoiceRecording}
-            onSend={send}
-          />
-        </KeyboardAvoidingView>
+        <NativeChatPanel
+          conversation={selected}
+          conversations={conversations}
+          session={session}
+          presenceText={presenceText}
+          callNotice={nativeCall.callNotice}
+          messageSearch={messageSearch}
+          messages={visibleMessages}
+          selectedMessageIds={selectedMessageIds}
+          selectedMessages={selectedMessages}
+          forwardMessages={forwardMessages}
+          localMediaByMessageId={localMediaByMessageId}
+          draft={draft}
+          replyTo={replyTo}
+          editingMessage={editingMessage}
+          voiceRecording={voiceRecording}
+          voiceStartedAt={voiceStartedAt}
+          busy={busy}
+          onBack={() => setSelected(null)}
+          onStartAudioCall={() => nativeCall.startCall(selected, 'audio')}
+          onStartVideoCall={() => nativeCall.startCall(selected, 'video')}
+          onMessageSearchChange={setMessageSearch}
+          onShare={shareMessages}
+          onBeginForward={beginForward}
+          onDeleteSelected={deleteSelectedOwnMessages}
+          onClearSelection={clearMessageSelection}
+          onClearForward={clearForwardMessages}
+          onForwardToConversation={forwardToConversation}
+          onToggleSelection={toggleMessageSelection}
+          onOpenMessageActions={openMessageActions}
+          onDraftChange={handleDraftChange}
+          onClearContext={() => { setReplyTo(null); setEditingMessage(null); setDraft(''); }}
+          onCancelVoiceRecording={cancelVoiceRecording}
+          onAttachImage={attachImage}
+          onAttachDocument={attachDocument}
+          onToggleVoiceRecording={toggleVoiceRecording}
+          onSend={send}
+        />
       ) : (
         <NativeConversationList
           conversations={conversations}
@@ -353,5 +338,4 @@ export function NativeHomeScreen() {
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: colors.background },
   banner: { margin: 12, padding: 10, borderRadius: 12, backgroundColor: '#FFF7ED', color: '#9A3412', fontSize: 12.5, fontWeight: '800' },
-  chatPanel: { flex: 1 },
 });
