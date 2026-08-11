@@ -5,23 +5,20 @@ import { NativeHomeShell } from '@/screens/home/NativeHomeShell';
 import { NativeLoginScreen } from '@/screens/home/NativeLoginScreen';
 import { NativeLoadingScreen } from '@/screens/home/NativeLoadingScreen';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
+import { useNativeComposerController } from '@/screens/home/useNativeComposerController';
 import { useNativeConversationActions } from '@/screens/home/useNativeConversationActions';
 import { useNativeConversationBrowser } from '@/screens/home/useNativeConversationBrowser';
 import { useNativeConversationState } from '@/screens/home/useNativeConversationState';
 import { useNativeMessageActions } from '@/screens/home/useNativeMessageActions';
 import { useNativeMessageLoader } from '@/screens/home/useNativeMessageLoader';
 import { usePendingNativeCallAction } from '@/screens/home/usePendingNativeCallAction';
-import { useNativeMessageMedia } from '@/screens/home/useNativeMessageMedia';
 import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
 import { useNativeMediaSyncLifecycle } from '@/screens/home/useNativeMediaSyncLifecycle';
 import { useNativeNotificationRouting } from '@/screens/home/useNativeNotificationRouting';
 import { useNativeRealtimeEvents } from '@/screens/home/useNativeRealtimeEvents';
 import { useNativeSessionLifecycle } from '@/screens/home/useNativeSessionLifecycle';
-import { useNativeTextMessageSender } from '@/screens/home/useNativeTextMessageSender';
-import { useNativeTypingPresence } from '@/screens/home/useNativeTypingPresence';
-import { useNativeVoiceRecorder } from '@/screens/home/useNativeVoiceRecorder';
 import { type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
-import type { AuthSession, Message } from '@/types/messenger';
+import type { AuthSession } from '@/types/messenger';
 
 export function NativeHomeScreen() {
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -29,9 +26,6 @@ export function NativeHomeScreen() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [conversationSearch, setConversationSearch] = useState('');
-  const [draft, setDraft] = useState('');
-  const [replyTo, setReplyTo] = useState<Message | null>(null);
-  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [messageSearch, setMessageSearch] = useState('');
   const [activeTab, setActiveTab] = useState<NativeTabKey>('chats');
   const {
@@ -63,18 +57,47 @@ export function NativeHomeScreen() {
     currentCallId,
     onNotice: setNotice,
   });
+
+  const { refreshConversations } = useNativeConversationBrowser({
+    activeTab,
+    conversationSearch,
+    selected,
+    token,
+    setBusy,
+    setConversations,
+    setNotice,
+  });
+
   const {
+    draft,
+    setDraft,
+    replyTo,
+    setReplyTo,
+    editingMessage,
+    setEditingMessage,
     presenceText,
     handleDraftChange,
     handleTypingStart,
     handleTypingStop,
     handleUserOnline,
     handleUserOffline,
-  } = useNativeTypingPresence({
+    send,
+    attachImage,
+    attachDocument,
+    voiceRecording,
+    voiceStartedAt,
+    toggleVoiceRecording,
+    cancelVoiceRecording,
+    clearComposerContext,
+  } = useNativeComposerController({
     selected,
     token,
     currentUserId: session?.user.id,
-    setDraft,
+    patchMessage,
+    refreshConversations,
+    upsertMessage,
+    setBusy,
+    setNotice,
   });
   useNativeRealtimeEvents({
     session,
@@ -91,16 +114,6 @@ export function NativeHomeScreen() {
     handleTypingStop,
     handleUserOnline,
     handleUserOffline,
-  });
-
-  const { refreshConversations } = useNativeConversationBrowser({
-    activeTab,
-    conversationSearch,
-    selected,
-    token,
-    setBusy,
-    setConversations,
-    setNotice,
   });
 
   const {
@@ -180,37 +193,6 @@ export function NativeHomeScreen() {
     refreshLocalMediaIndex,
     clearMediaRefreshTimers,
     runMediaSync,
-  });
-
-  const send = useNativeTextMessageSender({
-    draft,
-    editingMessage,
-    replyTo,
-    selected,
-    token,
-    patchMessage,
-    refreshConversations,
-    upsertMessage,
-    setDraft,
-    setEditingMessage,
-    setNotice,
-    setReplyTo,
-  });
-
-  const { sendMedia, attachImage, attachDocument } = useNativeMessageMedia({
-    selected,
-    token,
-    refreshConversations,
-    upsertMessage,
-    setBusy,
-    setNotice,
-  });
-
-  const { voiceRecording, voiceStartedAt, toggleVoiceRecording, cancelVoiceRecording } = useNativeVoiceRecorder({
-    enabled: Boolean(selected && token),
-    sendMedia,
-    setBusy,
-    setNotice,
   });
 
   const { completeOnboarding, signInWithGoogle, logout } = useNativeSessionLifecycle({
@@ -294,7 +276,7 @@ export function NativeHomeScreen() {
       onToggleMessageSelection={toggleMessageSelection}
       onOpenMessageActions={openMessageActions}
       onDraftChange={handleDraftChange}
-      onClearComposerContext={() => { setReplyTo(null); setEditingMessage(null); setDraft(''); }}
+      onClearComposerContext={clearComposerContext}
       onCancelVoiceRecording={cancelVoiceRecording}
       onAttachImage={attachImage}
       onAttachDocument={attachDocument}
