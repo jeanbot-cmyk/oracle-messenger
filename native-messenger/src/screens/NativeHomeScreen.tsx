@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, KeyboardAvoidingView, Linking, NativeModules, PermissionsAndroid, Platform, SafeAreaView, Share, StyleSheet, Text } from 'react-native';
+import { Alert, AppState, KeyboardAvoidingView, Linking, NativeModules, PermissionsAndroid, Platform, SafeAreaView, Share, StyleSheet, Text } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
@@ -14,6 +14,7 @@ import { NativeCallOverlay } from '@/screens/home/NativeCallOverlay';
 import { NativeConversationList } from '@/screens/home/NativeConversationList';
 import { NativeHomeShellHeader } from '@/screens/home/NativeHomeShellHeader';
 import { NativeLoginScreen } from '@/screens/home/NativeLoginScreen';
+import { NativeLoadingScreen } from '@/screens/home/NativeLoadingScreen';
 import { NativeMessageActionPanels } from '@/screens/home/NativeMessageActionPanels';
 import { NativeMessageList } from '@/screens/home/NativeMessageList';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
@@ -1008,12 +1009,7 @@ export function NativeHomeScreen() {
   }, [messageSearch, messages]);
 
   if (loading) {
-    return (
-      <SafeAreaView style={styles.loading}>
-        <ActivityIndicator color="#FFFFFF" />
-        <Text style={styles.loadingText}>Ouverture d&apos;Oracle Messenger...</Text>
-      </SafeAreaView>
-    );
+    return <NativeLoadingScreen />;
   }
 
   if (!session) {
@@ -1121,8 +1117,6 @@ export function NativeHomeScreen() {
 
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: colors.background },
-  loading: { flex: 1, backgroundColor: colors.header, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  loadingText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
   banner: { margin: 12, padding: 10, borderRadius: 12, backgroundColor: '#FFF7ED', color: '#9A3412', fontSize: 12.5, fontWeight: '800' },
   chatPanel: { flex: 1 },
 });
