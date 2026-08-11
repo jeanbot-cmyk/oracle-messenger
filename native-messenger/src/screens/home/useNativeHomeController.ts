@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ANDROID_PACKAGE, NATIVE_BASELINE } from '@/config/env';
-import { useNativeCall } from '@/hooks/useNativeCall';
+import { useNativeCallNotificationRouting } from '@/screens/home/useNativeCallNotificationRouting';
 import { useNativeComposerController } from '@/screens/home/useNativeComposerController';
 import { useNativeConversationBrowser } from '@/screens/home/useNativeConversationBrowser';
 import { useNativeConversationController } from '@/screens/home/useNativeConversationController';
@@ -8,10 +8,8 @@ import { useNativeConversationState } from '@/screens/home/useNativeConversation
 import { useNativeHomeShellProps } from '@/screens/home/useNativeHomeShellProps';
 import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
 import { useNativeMediaSyncLifecycle } from '@/screens/home/useNativeMediaSyncLifecycle';
-import { useNativeNotificationRouting } from '@/screens/home/useNativeNotificationRouting';
 import { useNativeRealtimeEvents } from '@/screens/home/useNativeRealtimeEvents';
 import { useNativeSessionLifecycle } from '@/screens/home/useNativeSessionLifecycle';
-import { usePendingNativeCallAction } from '@/screens/home/usePendingNativeCallAction';
 import { type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
 import type { AuthSession } from '@/types/messenger';
 
@@ -38,20 +36,11 @@ export function useNativeHomeController() {
     markMessageDeleted,
     visibleMessages,
   } = useNativeConversationState({ session, messageSearch });
-  const nativeCall = useNativeCall(session);
 
   const token = session?.token;
-  const currentCallId = nativeCall.callInfo?.callId ?? null;
-  const answerNativeCall = nativeCall.answerCall;
-  const prepareIncomingCall = nativeCall.prepareIncomingCall;
   const visibleTabs = useVisibleTabs(session);
   const needsOnboarding = Boolean(session && (session.user.isNew || !session.user.phone));
   const { localMediaByMessageId, refreshLocalMediaIndex, clearMediaRefreshTimers, runMediaSync } = useNativeMediaSync();
-  const { clearPendingCallAction, queuePendingCallAction } = usePendingNativeCallAction({
-    answerNativeCall,
-    currentCallId,
-    onNotice: setNotice,
-  });
 
   const { refreshConversations } = useNativeConversationBrowser({
     activeTab,
@@ -124,14 +113,9 @@ export function useNativeHomeController() {
     setSelected,
   });
 
-  useNativeNotificationRouting({
+  const nativeCall = useNativeCallNotificationRouting({
     session,
     selectedRef,
-    currentCallId,
-    answerNativeCall,
-    prepareIncomingCall,
-    clearPendingCallAction,
-    queuePendingCallAction,
     openConversationById: conversationsController.openConversationById,
     refreshConversations,
     setActiveTab,
