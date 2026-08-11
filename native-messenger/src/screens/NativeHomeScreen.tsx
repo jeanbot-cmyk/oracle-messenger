@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, KeyboardAvoidingView, Linking, Platform, SafeAreaView, Share, StyleSheet, Text } from 'react-native';
-import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
-import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { ANDROID_PACKAGE, GOOGLE_WEB_CLIENT_ID, NATIVE_BASELINE } from '@/config/env';
@@ -20,6 +17,7 @@ import { NativeMessageList } from '@/screens/home/NativeMessageList';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
 import { conversationName, messagePreview, parseCallActionDeepLink, parseConversationTarget, parsePaystackDeepLink, socketAck, sortMessages } from '@/screens/home/homeUtils';
 import { usePendingNativeCallAction } from '@/screens/home/usePendingNativeCallAction';
+import { useNativeMessageMedia } from '@/screens/home/useNativeMessageMedia';
 import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
 import { useNativeVoiceRecorder } from '@/screens/home/useNativeVoiceRecorder';
 import { NativeFeaturePage, type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
@@ -29,11 +27,6 @@ import { configureAndroidNotifications, registerPushToken } from '@/services/not
 import { clearSession, loadSession, saveSession } from '@/services/session';
 import { colors } from '@/theme/colors';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
-
-async function fileToDataUrl(uri: string, mime = 'application/octet-stream') {
-  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-  return `data:${mime};base64,${base64}`;
-}
 
 export function NativeHomeScreen() {
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -588,41 +581,14 @@ export function NativeHomeScreen() {
     }
   }, [draft, editingMessage, patchMessage, refreshConversations, replyTo, selected, token, upsertMessage]);
 
-  const sendMedia = useCallback(async (input: { uri: string; name?: string; mime?: string; kind: 'image' | 'file' | 'video' | 'audio' | 'voice' }) => {
-    if (!selected || !token) return false;
-    setBusy(true);
-    setNotice('');
-    try {
-      const mime = input.mime || 'application/octet-stream';
-      const uploaded = await api.mediaUpload(token, {
-        dataUrl: await fileToDataUrl(input.uri, mime),
-        name: input.name,
-        mime,
-        kind: input.kind,
-      });
-      const payload = JSON.stringify({
-        url: uploaded.url,
-        size: uploaded.size,
-        checksum: uploaded.checksum,
-        mime: uploaded.mime,
-        name: uploaded.name,
-      });
-      const socket = ensureNativeSocket(token);
-      const message = await socketAck<Message>(socket, 'message:send', {
-        conversationId: selected.id,
-        content: payload,
-        type: input.kind,
-      }).catch(() => api.sendMessage(selected.id, token, payload, input.kind));
-      upsertMessage({ ...message, status: message.status || 'sent' });
-      await refreshConversations();
-      return true;
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Envoi média impossible.');
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  }, [refreshConversations, selected, token, upsertMessage]);
+  const { sendMedia, attachImage, attachDocument } = useNativeMessageMedia({
+    selected,
+    token,
+    refreshConversations,
+    upsertMessage,
+    setBusy,
+    setNotice,
+  });
 
   const { voiceRecording, voiceStartedAt, toggleVoiceRecording, cancelVoiceRecording } = useNativeVoiceRecorder({
     enabled: Boolean(selected && token),
@@ -630,43 +596,6 @@ export function NativeHomeScreen() {
     setBusy,
     setNotice,
   });
-
-  const attachImage = useCallback(async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setNotice('Permission galerie requise pour envoyer une image.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images', 'videos'],
-      quality: 0.86,
-      allowsEditing: false,
-    });
-    if (result.canceled || !result.assets?.[0]) return;
-    const asset = result.assets[0];
-    await sendMedia({
-      uri: asset.uri,
-      name: asset.fileName || `media-${Date.now()}`,
-      mime: asset.mimeType || (asset.type === 'video' ? 'video/mp4' : 'image/jpeg'),
-      kind: asset.type === 'video' ? 'video' : 'image',
-    });
-  }, [sendMedia]);
-
-  const attachDocument = useCallback(async () => {
-    const result = await DocumentPicker.getDocumentAsync({
-      copyToCacheDirectory: true,
-      multiple: false,
-      type: '*/*',
-    });
-    if (result.canceled || !result.assets?.[0]) return;
-    const asset = result.assets[0];
-    await sendMedia({
-      uri: asset.uri,
-      name: asset.name,
-      mime: asset.mimeType || 'application/octet-stream',
-      kind: asset.mimeType?.startsWith('audio/') ? 'audio' : 'file',
-    });
-  }, [sendMedia]);
 
   const deleteOwnMessage = useCallback((message: Message) => {
     if (!token || message.senderId !== session?.user.id) return;
