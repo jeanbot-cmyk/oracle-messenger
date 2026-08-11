@@ -23,6 +23,25 @@ npm run prebuild:android
 npm run android
 ```
 
+## Validation native
+
+```bash
+cd native-messenger
+npm run typecheck
+npm run lint
+npm run verify:android-release-config
+npm run android:assemble-debug-arm64
+```
+
+Validation complete reproductible:
+
+```bash
+cd native-messenger
+npm run verify:native
+```
+
+L'APK debug local est genere dans `android/app/build/outputs/apk/debug/`. Il ne doit pas etre committe.
+
 ## Regle de publication
 
 Ne pas envoyer cette base sur Google Play tant que les modules reels ne sont pas migres et testes sur telephone Android physique:
