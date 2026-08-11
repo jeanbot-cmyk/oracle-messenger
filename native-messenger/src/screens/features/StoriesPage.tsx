@@ -41,6 +41,7 @@ export function StoriesPage({ token, userId, initialMode }: { token: string; use
   const [bg, setBg] = useState(STORY_BACKGROUNDS[0]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [viewerProgress, setViewerProgress] = useState(0);
   const initialCameraOpenedRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -200,6 +201,22 @@ export function StoriesPage({ token, userId, initialMode }: { token: string; use
 
   const myStories = stories.filter(story => story.authorId === userId);
   const otherStories = stories.filter(story => story.authorId !== userId);
+  const selectedIndex = selectedStory ? stories.findIndex(story => story.id === selectedStory.id) : -1;
+  const selectedStoryId = selectedStory?.id || '';
+  const openAdjacentStory = useCallback((offset: -1 | 1) => {
+    if (selectedIndex < 0 || !stories.length) return;
+    const next = stories[selectedIndex + offset];
+    if (next) void openStory(next);
+  }, [openStory, selectedIndex, stories]);
+
+  useEffect(() => {
+    if (!selectedStoryId) return;
+    setViewerProgress(0);
+    const timer = setInterval(() => {
+      setViewerProgress(current => Math.min(1, current + 0.02));
+    }, 100);
+    return () => clearInterval(timer);
+  }, [selectedStoryId]);
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
@@ -253,6 +270,9 @@ export function StoriesPage({ token, userId, initialMode }: { token: string; use
           title={selectedStory.authorId === userId ? 'Ma story ouverte' : 'Story ouverte'}
           right={<SecondaryButton label="Fermer" onPress={() => setSelectedStory(null)} />}
         >
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${Math.round(viewerProgress * 100)}%` }]} />
+          </View>
           <View style={[styles.storyViewer, { backgroundColor: selectedStory.type === 'text' ? selectedStory.bg || '#102A2A' : '#050505' }]}>
             {selectedStory.type === 'image'
               ? <Image source={{ uri: selectedStory.content }} style={styles.storyViewerImage} resizeMode="contain" />
@@ -271,6 +291,10 @@ export function StoriesPage({ token, userId, initialMode }: { token: string; use
           {selectedStory.authorId === userId && selectedStory.viewers?.length ? (
             <Text style={styles.cardMeta}>Vu par: {selectedStory.viewers.slice(0, 8).map(viewer => viewer.name || viewer.username || 'Contact').join(', ')}</Text>
           ) : null}
+          <View style={styles.actionRow}>
+            <SecondaryButton label="Précédent" onPress={() => openAdjacentStory(-1)} disabled={selectedIndex <= 0} />
+            <SecondaryButton label="Suivant" onPress={() => openAdjacentStory(1)} disabled={selectedIndex < 0 || selectedIndex >= stories.length - 1} />
+          </View>
           {selectedStory.authorId === userId ? <SecondaryButton label="Supprimer cette story" onPress={() => deleteStory(selectedStory)} disabled={busy} /> : null}
         </Section>
       ) : null}
@@ -319,6 +343,8 @@ const styles = StyleSheet.create({
   cardText: { color: colors.text, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
   cardMeta: { color: colors.muted, fontSize: 11.5, fontWeight: '800' },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
+  progressTrack: { height: 4, borderRadius: 2, backgroundColor: 'rgba(16,42,42,0.10)', overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 2, backgroundColor: colors.brand },
   segment: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, backgroundColor: colors.input, borderRadius: 16, padding: 5 },
   segmentItem: { minWidth: '30%', flexGrow: 1, minHeight: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   segmentActive: { backgroundColor: colors.header },

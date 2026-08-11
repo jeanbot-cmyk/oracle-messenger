@@ -41,6 +41,7 @@ type NativeChatPanelProps = {
   onDraftChange: (value: string) => void;
   onClearContext: () => void;
   onCancelVoiceRecording: () => void | Promise<void>;
+  onAttachCamera: () => void | Promise<void>;
   onAttachImage: () => void | Promise<void>;
   onAttachDocument: () => void | Promise<void>;
   onToggleVoiceRecording: () => void | Promise<void>;
@@ -83,6 +84,7 @@ export function NativeChatPanel({
   onDraftChange,
   onClearContext,
   onCancelVoiceRecording,
+  onAttachCamera,
   onAttachImage,
   onAttachDocument,
   onToggleVoiceRecording,
@@ -137,6 +139,7 @@ export function NativeChatPanel({
         onDraftChange={onDraftChange}
         onClearContext={onClearContext}
         onCancelVoiceRecording={onCancelVoiceRecording}
+        onAttachCamera={onAttachCamera}
         onAttachImage={onAttachImage}
         onAttachDocument={onAttachDocument}
         onToggleVoiceRecording={onToggleVoiceRecording}

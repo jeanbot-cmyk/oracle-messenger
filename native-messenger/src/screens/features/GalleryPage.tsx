@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api } from '@/services/api';
 import { readLocalGalleryItems, removeLocalGalleryItem, renameLocalGalleryItem, type LocalGalleryItem } from '@/services/localMedia';
 import { syncPendingMedia } from '@/services/mediaSync';
@@ -74,6 +74,14 @@ export function GalleryPage({ token, userId }: { token: string; userId: string }
     }
   }, []);
 
+  const openWithPhoneApp = useCallback(async (item: LocalGalleryItem) => {
+    try {
+      await Linking.openURL(item.uri);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Aucune application compatible pour ouvrir ce média.');
+    }
+  }, []);
+
   const startRename = useCallback((item: LocalGalleryItem) => {
     setRenameTarget(item);
     setRenameText(item.name || '');
@@ -131,6 +139,8 @@ export function GalleryPage({ token, userId }: { token: string; userId: string }
             <GalleryPreview item={opened} />
             <Text style={styles.cardMeta}>{opened.mime || opened.type} • {opened.size ? `${opened.size.toLocaleString('fr-FR')} octets` : 'taille inconnue'} • {new Date(opened.savedAt).toLocaleString('fr-FR')}</Text>
             <View style={styles.actionRow}>
+              <SecondaryButton label="Ouvrir" onPress={() => openWithPhoneApp(opened)} />
+              <SecondaryButton label="Modifier" onPress={() => openWithPhoneApp(opened)} />
               <SecondaryButton label="Partager" onPress={() => share(opened)} />
               <SecondaryButton label="Renommer" onPress={() => startRename(opened)} disabled={busy} />
               <SecondaryButton label="Supprimer localement" onPress={() => remove(opened)} disabled={busy} />

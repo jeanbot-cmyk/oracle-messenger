@@ -107,6 +107,7 @@ export function useNativeHomeShellProps({
     onDraftChange: composer.handleDraftChange,
     onClearComposerContext: composer.clearComposerContext,
     onCancelVoiceRecording: composer.cancelVoiceRecording,
+    onAttachCamera: composer.attachCamera,
     onAttachImage: composer.attachImage,
     onAttachDocument: composer.attachDocument,
     onToggleVoiceRecording: composer.toggleVoiceRecording,

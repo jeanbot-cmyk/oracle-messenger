@@ -44,16 +44,17 @@ type FeatureProps = {
   tab: NativeTabKey;
   session: AuthSession;
   onOpenConversation: (conversation: Conversation) => void;
+  onStartCallFromPeer: (peerId: string, type: 'audio' | 'video') => Promise<void>;
   onRefreshConversations: () => Promise<void>;
   onLogout: () => Promise<void>;
   onOpenTab: (tab: NativeTabKey) => void;
 };
 
-export function NativeFeaturePage({ tab, session, onOpenConversation, onRefreshConversations, onLogout, onOpenTab }: FeatureProps) {
+export function NativeFeaturePage({ tab, session, onOpenConversation, onStartCallFromPeer, onRefreshConversations, onLogout, onOpenTab }: FeatureProps) {
   const token = session.token;
   const ownerId = session.user.id || session.user.email || token;
   const userName = session.user.name || session.user.email || 'Utilisateur';
-  if (tab === 'calls') return <CallsPage token={token} onOpenContacts={() => onOpenTab('contacts')} />;
+  if (tab === 'calls') return <CallsPage token={token} onOpenContacts={() => onOpenTab('contacts')} onStartCallFromPeer={onStartCallFromPeer} />;
   if (tab === 'contacts') return <ContactsPage token={token} user={session.user} onOpenConversation={onOpenConversation} onRefreshConversations={onRefreshConversations} />;
   if (tab === 'stories') return <StoriesPage token={token} userId={session.user.id} />;
   if (tab === 'storyCamera') return <StoriesPage token={token} userId={session.user.id} initialMode="camera" />;

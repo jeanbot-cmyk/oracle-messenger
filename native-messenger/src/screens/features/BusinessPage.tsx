@@ -1,12 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Clipboard from 'expo-clipboard';
 import { api } from '@/services/api';
 import { colors } from '@/theme/colors';
 import { AlertText, Loading, PageHeader, PrimaryButton, SecondaryButton, Section, StatCard } from './FeatureUi';
 
-type BusinessMode = 'clients' | 'reminders' | 'stats';
+type BusinessMode = 'clients' | 'reminders' | 'stats' | 'auto';
+type BusinessAiMessage = { role: 'client' | 'agent' | 'system'; text: string };
+type AutoSettings = { welcomeMessage: string; paymentProvider: string; paymentLink: string };
 
 const BUSINESS_STATUS_OPTIONS = ['prospect', 'chaud', 'froid', 'relancer', 'paye', 'vip', 'perdu'] as const;
+const AUTO_SETTINGS_KEY = 'oracle-native-business-auto-settings';
+const DEFAULT_AUTO_SETTINGS: AutoSettings = {
+  welcomeMessage: 'Bonjour {nom}, merci pour votre message. Voici le lien pour avancer : {lien}. Paiement : {paiement}',
+  paymentProvider: 'CinetPay',
+  paymentLink: '',
+};
 
 function valueText(value: unknown) {
   if (value === null || value === undefined || value === '') return '0';
@@ -27,6 +37,10 @@ function Stat({ label, value }: { label: string; value: unknown }) {
 export function BusinessPage({ token }: { token: string }) {
   const [overview, setOverview] = useState<any>(null);
   const [mode, setMode] = useState<BusinessMode>('clients');
+  const [autoSettings, setAutoSettings] = useState<AutoSettings>(DEFAULT_AUTO_SETTINGS);
+  const [businessAiMessages, setBusinessAiMessages] = useState<BusinessAiMessage[]>([
+    { role: 'system', text: 'L’IA prépare, classe et suggère. Vous gardez le contrôle final avant chaque envoi.' },
+  ]);
   const [clientName, setClientName] = useState('');
   const [clientPhone, setClientPhone] = useState('');
   const [clientEmail, setClientEmail] = useState('');
@@ -39,6 +53,21 @@ export function BusinessPage({ token }: { token: string }) {
   const [reminderNote, setReminderNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    AsyncStorage.getItem(AUTO_SETTINGS_KEY)
+      .then(raw => {
+        if (!raw) return;
+        const saved = JSON.parse(raw) as Partial<AutoSettings>;
+        setAutoSettings({ ...DEFAULT_AUTO_SETTINGS, ...saved });
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const saveAutoSettings = useCallback(async (next: AutoSettings) => {
+    setAutoSettings(next);
+    await AsyncStorage.setItem(AUTO_SETTINGS_KEY, JSON.stringify(next)).catch(() => undefined);
+  }, []);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -138,6 +167,50 @@ export function BusinessPage({ token }: { token: string }) {
     await Share.share({ title: 'Export Business Oracle Messenger', message: csv });
   }, [clients]);
 
+  const businessLink = useMemo(() => 'https://messenger.oracle-plus.online/business', []);
+
+  const formatTemplate = useCallback((template: string, client?: any) => template
+    .replace(/\{nom\}/gi, client?.name || 'client')
+    .replace(/\{lien\}/gi, businessLink)
+    .replace(/\{montant\}/gi, client?.value ? `${Number(client.value).toLocaleString('fr-FR')} FCFA` : '')
+    .replace(/\{paiement\}/gi, autoSettings.paymentLink || `[${autoSettings.paymentProvider}]`), [autoSettings.paymentLink, autoSettings.paymentProvider, businessLink]);
+
+  const openClientMessage = useCallback(async (client: any) => {
+    const phone = String(client.phone || '').replace(/\D/g, '');
+    const text = formatTemplate(client.autoMessage || autoSettings.welcomeMessage, client);
+    if (!phone) {
+      await Share.share({ title: 'Message Business', message: text });
+      return;
+    }
+    const parsedPhone = String(client.phone || '').trim();
+    const hasInternationalPrefix = parsedPhone.startsWith('+') || parsedPhone.startsWith('00');
+    const url = hasInternationalPrefix
+      ? `whatsapp://send?phone=${phone}&text=${encodeURIComponent(text)}`
+      : `sms:${encodeURIComponent(phone)}?body=${encodeURIComponent(text)}`;
+    await Linking.openURL(url).catch(async () => {
+      await Share.share({ title: 'Message Business', message: text });
+    });
+  }, [autoSettings.welcomeMessage, formatTemplate]);
+
+  const previewAiMessage = useCallback((kind: 'reply' | 'followup' | 'priority') => {
+    const client = clients[0] || { name: 'Prospect', value: 0 };
+    const clientMessage = kind === 'reply'
+      ? 'Bonjour, je veux connaître le tarif et réserver rapidement.'
+      : kind === 'followup'
+        ? 'Je n’ai pas encore finalisé, pouvez-vous me rappeler l’offre ?'
+        : 'Signal : client chaud avec intention forte et demande de paiement.';
+    const agentMessage = kind === 'reply'
+      ? `Bonjour ${client.name}, merci pour votre message. Je peux vous envoyer l’offre claire, le tarif et le lien de paiement pour finaliser rapidement.`
+      : kind === 'followup'
+        ? `Bonjour ${client.name}, je reviens vers vous simplement. Voulez-vous finaliser aujourd’hui ou recevoir une dernière précision avant de décider ?`
+        : `${client.name} est une priorité : intention d’achat forte, action recommandée maintenant avec lien de paiement et réponse rapide.`;
+    setBusinessAiMessages([
+      { role: 'client', text: clientMessage },
+      { role: 'agent', text: agentMessage },
+      { role: 'system', text: 'Simulation uniquement : aucun message n’est envoyé automatiquement.' },
+    ]);
+  }, [clients]);
+
   const saveReminder = useCallback(async () => {
     if (!reminderDate.trim()) return;
     setBusy(true);
@@ -217,9 +290,9 @@ export function BusinessPage({ token }: { token: string }) {
           }} disabled={busy} /> : null}
         </View>
         <View style={styles.segment}>
-          {(['clients', 'reminders', 'stats'] as const).map(item => (
+          {(['clients', 'reminders', 'stats', 'auto'] as const).map(item => (
             <Pressable key={item} onPress={() => setMode(item)} style={[styles.segmentItem, mode === item && styles.segmentActive]}>
-              <Text style={[styles.segmentText, mode === item && styles.segmentTextActive]}>{item === 'clients' ? 'Clients' : item === 'reminders' ? 'Rappels' : 'Stats'}</Text>
+              <Text style={[styles.segmentText, mode === item && styles.segmentTextActive]}>{item === 'clients' ? 'Clients' : item === 'reminders' ? 'Rappels' : item === 'stats' ? 'Stats' : 'Auto IA'}</Text>
             </Pressable>
           ))}
         </View>
@@ -307,6 +380,90 @@ export function BusinessPage({ token }: { token: string }) {
           ))}
         </Section>
       ) : null}
+
+      {mode === 'auto' ? (
+        <Section title="Auto IA">
+          <View style={styles.autoHero}>
+            <View style={styles.aiBadge}><Text style={styles.aiBadgeText}>IA</Text></View>
+            <View style={styles.autoHeroText}>
+              <Text style={styles.autoHeroTitle}>Automatisation commerciale</Text>
+              <Text style={styles.autoHeroSub}>L’IA prépare, classe et suggère. Vous gardez le contrôle final.</Text>
+            </View>
+          </View>
+          <View style={styles.actionRow}>
+            <SecondaryButton label="Tester réponse" onPress={() => previewAiMessage('reply')} />
+            <SecondaryButton label="Tester relance" onPress={() => previewAiMessage('followup')} />
+            <SecondaryButton label="Voir priorité" onPress={() => previewAiMessage('priority')} />
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Accueil automatique</Text>
+            <Text style={styles.cardText}>Variables disponibles : {'{nom}'}, {'{lien}'}, {'{montant}'}, {'{paiement}'}.</Text>
+            <TextInput
+              value={autoSettings.welcomeMessage}
+              onChangeText={text => void saveAutoSettings({ ...autoSettings, welcomeMessage: text })}
+              placeholder="Message automatique"
+              placeholderTextColor={colors.muted}
+              multiline
+              style={[styles.input, styles.textarea]}
+            />
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Paiements</Text>
+            <Text style={styles.cardText}>Collez votre lien CinetPay, Babimo, Flutterwave ou autre. La variable {'{paiement}'} sera remplacée dans les messages.</Text>
+            <View style={styles.actionRow}>
+              {(['CinetPay', 'Babimo', 'Flutterwave', 'Autre'] as const).map(provider => (
+                <Pressable key={provider} onPress={() => void saveAutoSettings({ ...autoSettings, paymentProvider: provider })} style={[styles.segmentItem, autoSettings.paymentProvider === provider && styles.segmentActive]}>
+                  <Text style={[styles.segmentText, autoSettings.paymentProvider === provider && styles.segmentTextActive]}>{provider}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              value={autoSettings.paymentLink}
+              onChangeText={text => void saveAutoSettings({ ...autoSettings, paymentLink: text })}
+              placeholder="https://lien-de-paiement..."
+              placeholderTextColor={colors.muted}
+              autoCapitalize="none"
+              style={styles.input}
+            />
+            <SecondaryButton label="Copier {paiement}" onPress={() => void Clipboard.setStringAsync('{paiement}')} />
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Test assistant Business</Text>
+            {businessAiMessages.map((message, index) => (
+              <View key={`${message.role}-${index}`} style={[styles.aiMessage, message.role === 'client' ? styles.aiMessageClient : message.role === 'system' ? styles.aiMessageSystem : styles.aiMessageAgent]}>
+                <Text style={styles.aiRole}>{message.role === 'client' ? 'Client' : message.role === 'agent' ? 'Agent IA' : 'Système'}</Text>
+                <Text style={styles.aiMessageText}>{message.text}</Text>
+              </View>
+            ))}
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Messages automatiques</Text>
+            {!clients.length ? <Text style={styles.empty}>Ajoutez des clients pour configurer les messages auto.</Text> : null}
+            {clients.map((client: any) => (
+              <View key={client.id} style={styles.autoClientRow}>
+                <View style={styles.clientCardText}>
+                  <Text style={styles.cardTitle}>{client.name || 'Client'}</Text>
+                  <Text numberOfLines={2} style={styles.cardText}>{formatTemplate(client.autoMessage || autoSettings.welcomeMessage, client)}</Text>
+                </View>
+                <SecondaryButton label="Ouvrir" onPress={() => openClientMessage(client)} disabled={busy} />
+              </View>
+            ))}
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Clients à relancer</Text>
+            {clients.filter((client: any) => String(client.status || '').toLowerCase() === 'relancer').map((client: any) => (
+              <View key={client.id} style={styles.autoClientRow}>
+                <View style={styles.clientCardText}>
+                  <Text style={styles.cardTitle}>{client.name || 'Client'}</Text>
+                  <Text style={styles.cardText}>{client.phone || client.email || 'Coordonnées non renseignées'}</Text>
+                </View>
+                <SecondaryButton label="Message" onPress={() => openClientMessage(client)} disabled={busy} />
+              </View>
+            ))}
+            {!clients.filter((client: any) => String(client.status || '').toLowerCase() === 'relancer').length ? <Text style={styles.empty}>Aucun client à relancer.</Text> : null}
+          </View>
+        </Section>
+      ) : null}
     </ScrollView>
   );
 }
@@ -340,4 +497,17 @@ const styles = StyleSheet.create({
   segmentTextActive: { color: '#FFFFFF' },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
   inlineInput: { flex: 1, minWidth: 130 },
+  autoHero: { minHeight: 92, borderRadius: 18, backgroundColor: colors.header, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  aiBadge: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#D9B75B', alignItems: 'center', justifyContent: 'center' },
+  aiBadgeText: { color: colors.header, fontSize: 14, fontWeight: '900' },
+  autoHeroText: { flex: 1, minWidth: 0 },
+  autoHeroTitle: { color: '#FFFFFF', fontSize: 16, lineHeight: 20, fontWeight: '900' },
+  autoHeroSub: { color: 'rgba(255,255,255,0.74)', fontSize: 12.5, lineHeight: 17, fontWeight: '700', marginTop: 2 },
+  aiMessage: { borderRadius: 14, padding: 10, gap: 4, marginTop: 8 },
+  aiMessageClient: { alignSelf: 'flex-end', maxWidth: '88%', backgroundColor: colors.header },
+  aiMessageAgent: { alignSelf: 'flex-start', maxWidth: '88%', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  aiMessageSystem: { alignSelf: 'stretch', backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' },
+  aiRole: { color: colors.muted, fontSize: 10.5, lineHeight: 13, fontWeight: '900', textTransform: 'uppercase' },
+  aiMessageText: { color: colors.text, fontSize: 13.5, lineHeight: 19, fontWeight: '700' },
+  autoClientRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 10, borderTopWidth: 1, borderTopColor: colors.border, paddingVertical: 10 },
 });

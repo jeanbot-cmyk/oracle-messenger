@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Image, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Phone, Video } from 'lucide-react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Phone } from 'lucide-react-native';
 import { api } from '@/services/api';
 import { colors } from '@/theme/colors';
 import { AlertText, Loading, PageHeader, PrimaryButton, SecondaryButton, Section } from './FeatureUi';
@@ -28,8 +28,17 @@ function directionText(direction: CallEntry['direction']) {
   return 'Émis';
 }
 
-export function CallsPage({ token, onOpenContacts }: { token: string; onOpenContacts: () => void }) {
+export function CallsPage({
+  token,
+  onOpenContacts,
+  onStartCallFromPeer,
+}: {
+  token: string;
+  onOpenContacts: () => void;
+  onStartCallFromPeer: (peerId: string, type: 'audio' | 'video') => Promise<void>;
+}) {
   const [items, setItems] = useState<CallEntry[]>([]);
+  const [filter, setFilter] = useState<'all' | CallEntry['direction']>('all');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -62,6 +71,27 @@ export function CallsPage({ token, onOpenContacts }: { token: string; onOpenCont
     }
   }, [items.length, token]);
 
+  const deleteEntry = useCallback(async (id: string) => {
+    setBusy(true);
+    setNotice('');
+    try {
+      await api.deleteCallHistoryEntry(token, id);
+      setItems(current => current.filter(item => item.id !== id));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Suppression appel impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [token]);
+
+  const filteredItems = filter === 'all' ? items : items.filter(item => item.direction === filter);
+  const filters = [
+    { id: 'all' as const, label: 'Tous', count: items.length },
+    { id: 'missed' as const, label: 'Manqués', count: items.filter(item => item.direction === 'missed').length },
+    { id: 'incoming' as const, label: 'Reçus', count: items.filter(item => item.direction === 'incoming').length },
+    { id: 'outgoing' as const, label: 'Émis', count: items.filter(item => item.direction === 'outgoing').length },
+  ];
+
   return (
     <ScrollView contentContainerStyle={styles.page}>
       <PageHeader title="Appels" subtitle="Historique audio et vidéo." />
@@ -73,16 +103,23 @@ export function CallsPage({ token, onOpenContacts }: { token: string; onOpenCont
           </View>
           <PrimaryButton label="Nouvel appel" onPress={onOpenContacts} disabled={busy} />
         </View>
+        <View style={styles.segment}>
+          {filters.map(item => (
+            <Pressable key={item.id} onPress={() => setFilter(item.id)} style={[styles.segmentItem, filter === item.id && styles.segmentActive]}>
+              <Text style={[styles.segmentText, filter === item.id && styles.segmentTextActive]}>{item.label} ({item.count})</Text>
+            </Pressable>
+          ))}
+        </View>
         <Loading active={busy} />
         <AlertText text={notice} />
-        {!items.length && !busy ? (
+        {!filteredItems.length && !busy ? (
           <View style={styles.empty}>
             <Phone size={34} color={colors.accent} />
-            <Text style={styles.emptyTitle}>Aucun appel récent</Text>
-            <Text style={styles.emptyText}>Vos appels apparaîtront ici.</Text>
+            <Text style={styles.emptyTitle}>{items.length ? 'Aucun appel pour ce filtre' : 'Aucun appel récent'}</Text>
+            <Text style={styles.emptyText}>{items.length ? 'Changez de filtre pour revoir tout l’historique.' : 'Vos appels apparaîtront ici.'}</Text>
           </View>
         ) : null}
-        {items.map(item => (
+        {filteredItems.map(item => (
           <View key={item.id} style={styles.callRow}>
             <View style={[styles.avatar, item.direction === 'missed' && styles.missedAvatar]}>
               {item.peerAvatar ? (
@@ -98,7 +135,11 @@ export function CallsPage({ token, onOpenContacts }: { token: string; onOpenCont
               </Text>
               <Text style={styles.callDate}>{item.startedAt ? new Date(item.startedAt).toLocaleString('fr-FR') : ''}</Text>
             </View>
-            {item.type === 'video' ? <Video size={20} color={colors.secondary} /> : <Phone size={20} color={colors.brand} />}
+            <View style={styles.rowActions}>
+              <SecondaryButton label="Audio" onPress={() => onStartCallFromPeer(item.peerId, 'audio')} disabled={busy || !item.peerId} />
+              <SecondaryButton label="Vidéo" onPress={() => onStartCallFromPeer(item.peerId, 'video')} disabled={busy || !item.peerId} />
+              <SecondaryButton label="Suppr." onPress={() => deleteEntry(item.id)} disabled={busy} />
+            </View>
           </View>
         ))}
       </Section>
@@ -124,4 +165,10 @@ const styles = StyleSheet.create({
   callName: { color: colors.text, fontSize: 15.5, fontWeight: '900' },
   callMeta: { color: colors.brand, fontSize: 12.5, fontWeight: '800', marginTop: 3 },
   callDate: { color: colors.muted, fontSize: 11.5, fontWeight: '700', marginTop: 4 },
+  rowActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6, maxWidth: 180 },
+  segment: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, backgroundColor: colors.input, borderRadius: 16, padding: 5 },
+  segmentItem: { minWidth: '30%', flexGrow: 1, minHeight: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  segmentActive: { backgroundColor: colors.header },
+  segmentText: { color: colors.muted, fontSize: 12.5, fontWeight: '900' },
+  segmentTextActive: { color: '#FFFFFF' },
 });

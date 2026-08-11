@@ -11,6 +11,7 @@ type LocalNote = { id: string; title: string; body: string; updatedAt: number };
 type LocalEvent = { id: string; title: string; date: string; time: string; note: string; createdAt: number; notificationId?: string };
 type AiMessage = { id: string; from: 'client' | 'agent'; text: string };
 type QuickTool = { mode: ToolTab; title: string; subtitle: string };
+type GeneratedCreation = { id: string; type: 'flyer' | 'video'; url: string; prompt: string; createdAt: number };
 
 const DEFAULT_AI_PROMPT = 'Tu es l’assistant commercial de mon entreprise. Réponds clairement et poliment.';
 
@@ -293,7 +294,9 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
   const [notice, setNotice] = useState('');
   const [aiOpen, setAiOpen] = useState(false);
   const [aiMessages, setAiMessages] = useState<AiMessage[]>([]);
+  const [creations, setCreations] = useState<GeneratedCreation[]>([]);
   const inactivityRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const creationsStorageKey = useMemo(() => ownerKey('oracle-native-ai-creations', ownerId), [ownerId]);
 
   useEffect(() => {
     setMode(initialMode);
@@ -328,6 +331,28 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
   }, [mode, token]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    let alive = true;
+    AsyncStorage.getItem(creationsStorageKey)
+      .then(raw => {
+        if (!alive) return;
+        const parsed = raw ? JSON.parse(raw) : [];
+        setCreations(Array.isArray(parsed) ? parsed : []);
+      })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [creationsStorageKey]);
+
+  const persistCreations = useCallback(async (next: GeneratedCreation[]) => {
+    const limited = next.slice(0, 80);
+    setCreations(limited);
+    await AsyncStorage.setItem(creationsStorageKey, JSON.stringify(limited));
+  }, [creationsStorageKey]);
+
+  const saveCreation = useCallback(async (creation: GeneratedCreation) => {
+    await persistCreations([creation, ...creations]);
+  }, [creations, persistCreations]);
 
   const armAutoClose = useCallback(() => {
     if (inactivityRef.current) clearTimeout(inactivityRef.current);
@@ -393,10 +418,15 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
 
   const generateFlyer = useCallback(async () => {
     if (!prompt.trim()) return;
+    const currentPrompt = prompt.trim();
     setBusy(true);
     try {
-      const data = await api.aiFlyerGenerate(token, prompt.trim());
-      setNotice(data?.imageUrl ? `Flyer généré: ${data.imageUrl}` : 'Flyer généré.');
+      const data = await api.aiFlyerGenerate(token, currentPrompt);
+      const url = data?.imageUrl || data?.url || data?.assetUrl || '';
+      if (url) {
+        await saveCreation({ id: `flyer-${Date.now()}`, type: 'flyer', url, prompt: currentPrompt, createdAt: Date.now() });
+      }
+      setNotice(url ? 'Flyer généré et enregistré dans vos créations.' : 'Flyer généré.');
       setPrompt('');
       await load();
     } catch (error) {
@@ -404,14 +434,15 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
     } finally {
       setBusy(false);
     }
-  }, [load, prompt, token]);
+  }, [load, prompt, saveCreation, token]);
 
   const generateVideo = useCallback(async () => {
     if (!prompt.trim()) return;
+    const currentPrompt = prompt.trim();
     setBusy(true);
     try {
       const data = await api.aiVideoGenerate(token, {
-        prompt: prompt.trim(),
+        prompt: currentPrompt,
         durationSeconds: videoDurationSeconds,
         aspectRatio: videoAspectRatio,
         quality: videoQuality,
@@ -419,7 +450,11 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
         music: videoMusic,
         soundEffects: videoSoundEffects,
       });
-      setNotice(data?.videoUrl ? `Vidéo générée: ${data.videoUrl}` : 'Vidéo demandée.');
+      const url = data?.videoUrl || data?.url || data?.assetUrl || '';
+      if (url) {
+        await saveCreation({ id: `video-${Date.now()}`, type: 'video', url, prompt: currentPrompt, createdAt: Date.now() });
+      }
+      setNotice(url ? 'Vidéo générée et enregistrée dans vos créations.' : 'Vidéo demandée.');
       setPrompt('');
       await load();
     } catch (error) {
@@ -427,7 +462,7 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
     } finally {
       setBusy(false);
     }
-  }, [load, prompt, token, videoAspectRatio, videoDurationSeconds, videoMusic, videoQuality, videoSoundEffects, videoVoiceOver]);
+  }, [load, prompt, saveCreation, token, videoAspectRatio, videoDurationSeconds, videoMusic, videoQuality, videoSoundEffects, videoVoiceOver]);
 
   const pay = useCallback(async () => {
     setBusy(true);
@@ -459,6 +494,18 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
       message: 'Oracle Messenger: https://messenger.oracle-plus.online',
     });
   }, []);
+
+  const openCreation = useCallback((creation: GeneratedCreation) => {
+    Linking.openURL(creation.url).catch(() => setNotice('Ouverture de la création impossible.'));
+  }, []);
+
+  const shareCreation = useCallback(async (creation: GeneratedCreation) => {
+    await Share.share({ title: creation.type === 'flyer' ? 'Flyer Oracle IA' : 'Vidéo Oracle IA', message: creation.url, url: creation.url });
+  }, []);
+
+  const deleteCreation = useCallback(async (creationId: string) => {
+    await persistCreations(creations.filter(item => item.id !== creationId));
+  }, [creations, persistCreations]);
 
   const aiPromptWordCount = aiConfigPrompt.trim() ? aiConfigPrompt.trim().split(/\s+/).filter(Boolean).length : 0;
   const canEnableAi = Boolean(overview?.config?.paidActive && Number(overview?.wallet?.wordsRemaining ?? 0) > 0);
@@ -614,6 +661,26 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
                 ))}
               </View>
             ) : null}
+            {mode === 'flyer' || mode === 'video' ? (
+              <View style={styles.configBox}>
+                <Text style={styles.cardTitle}>Créations enregistrées</Text>
+                {!creations.filter(item => item.type === mode).length ? <Text style={styles.cardMeta}>Aucune création locale pour ce module.</Text> : null}
+                {creations.filter(item => item.type === mode).map(creation => (
+                  <View key={creation.id} style={styles.creationRow}>
+                    <View style={styles.creationCopy}>
+                      <Text numberOfLines={1} style={styles.cardTitle}>{creation.type === 'flyer' ? 'Flyer IA' : 'Vidéo IA'}</Text>
+                      <Text numberOfLines={2} style={styles.cardText}>{creation.prompt}</Text>
+                      <Text style={styles.cardMeta}>{new Date(creation.createdAt).toLocaleString('fr-FR')}</Text>
+                    </View>
+                    <View style={styles.creationActions}>
+                      <SecondaryButton label="Ouvrir" onPress={() => openCreation(creation)} />
+                      <SecondaryButton label="Partager" onPress={() => shareCreation(creation)} />
+                      <SecondaryButton label="Suppr." onPress={() => deleteCreation(creation.id)} />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
         ) : null}
       </Section>
@@ -664,4 +731,7 @@ const styles = StyleSheet.create({
   aiAgent: { alignSelf: 'flex-start', backgroundColor: '#EAF4F1' },
   aiFrom: { color: colors.muted, fontSize: 10.5, fontWeight: '900' },
   aiText: { color: colors.text, fontSize: 13.5, lineHeight: 19, fontWeight: '700' },
+  creationRow: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 10, gap: 8 },
+  creationCopy: { gap: 3 },
+  creationActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
 });

@@ -54,7 +54,7 @@ export function useNativeComposerController({
     setReplyTo,
   });
 
-  const { sendMedia, attachImage, attachDocument } = useNativeMessageMedia({
+  const { sendMedia, attachCamera, attachImage, attachDocument } = useNativeMessageMedia({
     selected,
     token,
     refreshConversations,
@@ -118,6 +118,7 @@ export function useNativeComposerController({
     handleUserOnline: typing.handleUserOnline,
     handleUserOffline: typing.handleUserOffline,
     send,
+    attachCamera,
     attachImage,
     attachDocument,
     voiceRecording,

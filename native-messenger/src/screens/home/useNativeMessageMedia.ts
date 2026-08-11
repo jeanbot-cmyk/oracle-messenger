@@ -95,6 +95,27 @@ export function useNativeMessageMedia({
     });
   }, [sendMedia, setNotice]);
 
+  const attachCamera = useCallback(async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setNotice('Permission caméra requise pour prendre une photo.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images', 'videos'],
+      quality: 0.86,
+      allowsEditing: false,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    await sendMedia({
+      uri: asset.uri,
+      name: asset.fileName || `camera-${Date.now()}`,
+      mime: asset.mimeType || (asset.type === 'video' ? 'video/mp4' : 'image/jpeg'),
+      kind: asset.type === 'video' ? 'video' : 'image',
+    });
+  }, [sendMedia, setNotice]);
+
   const attachDocument = useCallback(async () => {
     const result = await DocumentPicker.getDocumentAsync({
       copyToCacheDirectory: true,
@@ -113,6 +134,7 @@ export function useNativeMessageMedia({
 
   return {
     sendMedia,
+    attachCamera,
     attachImage,
     attachDocument,
   };

@@ -6,6 +6,7 @@ import { NativeConversationList } from '@/screens/home/NativeConversationList';
 import { NativeHomeShellHeader } from '@/screens/home/NativeHomeShellHeader';
 import { NativeFeaturePage, type NativeTabKey } from '@/screens/NativeFeaturePages';
 import type { useNativeCall } from '@/hooks/useNativeCall';
+import { api } from '@/services/api';
 import type { LocalGalleryItem } from '@/services/localMedia';
 import { colors } from '@/theme/colors';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
@@ -52,6 +53,7 @@ export type NativeHomeShellProps = {
   onDraftChange: (value: string) => void;
   onClearComposerContext: () => void;
   onCancelVoiceRecording: () => void | Promise<void>;
+  onAttachCamera: () => void | Promise<void>;
   onAttachImage: () => void | Promise<void>;
   onAttachDocument: () => void | Promise<void>;
   onToggleVoiceRecording: () => void | Promise<void>;
@@ -104,6 +106,7 @@ export function NativeHomeShell({
   onDraftChange,
   onClearComposerContext,
   onCancelVoiceRecording,
+  onAttachCamera,
   onAttachImage,
   onAttachDocument,
   onToggleVoiceRecording,
@@ -113,6 +116,14 @@ export function NativeHomeShell({
   onOpenConversationFromList,
   onConversationActions,
 }: NativeHomeShellProps) {
+  const startCallFromPeer = async (peerId: string, type: 'audio' | 'video') => {
+    if (!peerId) return;
+    const existing = conversations.find(conversation => conversation.type === 'direct' && conversation.participants.some(participant => participant.id === peerId));
+    const conversation = existing || await api.createConversation(peerId, session.token);
+    await onRefreshConversations();
+    await nativeCall.startCall(conversation, type);
+  };
+
   return (
     <SafeAreaView style={styles.app}>
       <NativeCallOverlay call={nativeCall} conversation={selected} currentUserId={session.user.id} />
@@ -152,6 +163,7 @@ export function NativeHomeShell({
           onDraftChange={onDraftChange}
           onClearContext={onClearComposerContext}
           onCancelVoiceRecording={onCancelVoiceRecording}
+          onAttachCamera={onAttachCamera}
           onAttachImage={onAttachImage}
           onAttachDocument={onAttachDocument}
           onToggleVoiceRecording={onToggleVoiceRecording}
@@ -176,6 +188,7 @@ export function NativeHomeShell({
               tab={activeTab}
               session={session}
               onOpenConversation={onOpenConversationFromFeature}
+              onStartCallFromPeer={startCallFromPeer}
               onRefreshConversations={onRefreshConversations}
               onLogout={onLogout}
               onOpenTab={onTabPress}

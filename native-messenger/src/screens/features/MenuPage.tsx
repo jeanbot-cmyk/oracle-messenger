@@ -1,5 +1,7 @@
-import { Linking, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { Bot, BriefcaseBusiness, CalendarDays, Contact, CreditCard, FileText, Globe, Image, Languages, LogOut, NotebookPen, Shield, Settings, Share2, Sparkles, User, Video, Wand2 } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
+import { Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Bot, BriefcaseBusiness, CalendarDays, Contact, CreditCard, FileText, Globe, Image, Languages, LogOut, Moon, NotebookPen, Shield, Settings, Share2, Sparkles, Sun, User, Video, Wand2 } from 'lucide-react-native';
 import { FRONTEND_URL } from '@/config/env';
 import type { NativeTabKey } from '@/screens/NativeFeaturePages';
 import { colors } from '@/theme/colors';
@@ -11,7 +13,29 @@ type MenuItem = {
   sub: string;
   tab?: NativeTabKey;
   action?: () => void | Promise<void>;
+  actionLabel?: string;
+  end?: string;
 };
+
+const LANGUAGES = [
+  { code: 'fr', label: 'Français', flag: '🇫🇷' },
+  { code: 'en', label: 'English', flag: '🇬🇧' },
+  { code: 'es', label: 'Español', flag: '🇪🇸' },
+  { code: 'ar', label: 'العربية', flag: '🇸🇦' },
+  { code: 'zh', label: '中文', flag: '🇨🇳' },
+  { code: 'pt', label: 'Português', flag: '🇧🇷' },
+  { code: 'ru', label: 'Русский', flag: '🇷🇺' },
+  { code: 'hi', label: 'हिन्दी', flag: '🇮🇳' },
+  { code: 'de', label: 'Deutsch', flag: '🇩🇪' },
+  { code: 'ja', label: '日本語', flag: '🇯🇵' },
+] as const;
+
+const SETTINGS_KEY = 'oracle-native-menu-settings';
+type LanguageCode = typeof LANGUAGES[number]['code'];
+
+function isLanguageCode(value: unknown): value is LanguageCode {
+  return LANGUAGES.some(item => item.code === value);
+}
 
 function ServiceRow({ item, onOpenTab }: { item: MenuItem; onOpenTab: (tab: NativeTabKey) => void }) {
   const Icon = item.icon;
@@ -22,12 +46,38 @@ function ServiceRow({ item, onOpenTab }: { item: MenuItem; onOpenTab: (tab: Nati
         <Text style={styles.rowTitle}>{item.label}</Text>
         <Text style={styles.rowSub}>{item.sub}</Text>
       </View>
-      <SecondaryButton label="Ouvrir" onPress={() => item.tab ? onOpenTab(item.tab) : item.action?.()} />
+      {item.end ? <Text style={styles.rowEnd}>{item.end}</Text> : null}
+      <SecondaryButton label={item.actionLabel || 'Ouvrir'} onPress={() => item.tab ? onOpenTab(item.tab) : item.action?.()} />
     </View>
   );
 }
 
 export function MenuPage({ isAdmin, onOpenTab, onLogout }: { isAdmin: boolean; onOpenTab: (tab: NativeTabKey) => void; onLogout: () => void | Promise<void> }) {
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [language, setLanguage] = useState<LanguageCode>('fr');
+  const [languageOpen, setLanguageOpen] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(SETTINGS_KEY)
+      .then(raw => {
+        if (!raw) return;
+        const saved = JSON.parse(raw) as { theme?: 'light' | 'dark'; language?: unknown };
+        if (saved.theme === 'light' || saved.theme === 'dark') setTheme(saved.theme);
+        if (isLanguageCode(saved.language)) setLanguage(saved.language);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  async function saveSettings(next: { theme?: 'light' | 'dark'; language?: LanguageCode }) {
+    const value = { theme, language, ...next };
+    setTheme(value.theme);
+    setLanguage(value.language);
+    await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(value)).catch(() => undefined);
+  }
+
+  const toggleTheme = () => {
+    void saveSettings({ theme: theme === 'light' ? 'dark' : 'light' });
+  };
   const openOracleWeb = () => {
     Linking.openURL('https://web.oracle-plus.online?source=messenger-native-menu').catch(() => undefined);
   };
@@ -66,6 +116,21 @@ export function MenuPage({ isAdmin, onOpenTab, onLogout }: { isAdmin: boolean; o
     { icon: Sparkles, label: 'Spiritualité', sub: 'Accéder aux consultations et services Oracle Plus.', action: openSpirituality },
   ];
   const settings: MenuItem[] = [
+    {
+      icon: theme === 'light' ? Moon : Sun,
+      label: theme === 'light' ? 'Mode sombre' : 'Mode clair',
+      sub: 'Préférence visuelle conservée sur ce téléphone.',
+      action: toggleTheme,
+      actionLabel: 'Changer',
+    },
+    {
+      icon: Languages,
+      label: 'Langue',
+      sub: 'Choisir la langue de l’interface.',
+      action: () => setLanguageOpen(current => !current),
+      actionLabel: 'Choisir',
+      end: LANGUAGES.find(item => item.code === language)?.flag,
+    },
     { icon: Settings, label: 'Paramètres', sub: 'Notifications, sécurité et stockage.', tab: 'profile' },
     { icon: Shield, label: 'Confidentialité', sub: 'Politique de confidentialité Oracle Messenger.', action: openPrivacy },
     { icon: FileText, label: 'Conditions', sub: "Règles d'utilisation et services Oracle Messenger.", action: openTerms },
@@ -84,7 +149,29 @@ export function MenuPage({ isAdmin, onOpenTab, onLogout }: { isAdmin: boolean; o
         {services.map(item => <ServiceRow key={item.label} item={item} onOpenTab={onOpenTab} />)}
       </Section>
       <Section title="Réglages">
-        {settings.map(item => <ServiceRow key={item.label} item={item} onOpenTab={onOpenTab} />)}
+        {settings.map(item => (
+          <View key={item.label}>
+            <ServiceRow item={item} onOpenTab={onOpenTab} />
+            {item.label === 'Langue' && languageOpen ? (
+              <View style={styles.languageList}>
+                {LANGUAGES.map(option => (
+                  <Pressable
+                    key={option.code}
+                    style={[styles.languageRow, option.code === language && styles.languageRowActive]}
+                    onPress={() => {
+                      setLanguageOpen(false);
+                      void saveSettings({ language: option.code });
+                    }}
+                  >
+                    <Text style={styles.languageFlag}>{option.flag}</Text>
+                    <Text style={styles.languageLabel}>{option.label}</Text>
+                    {option.code === language ? <Text style={styles.languageCheck}>✓</Text> : null}
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        ))}
       </Section>
     </ScrollView>
   );
@@ -97,4 +184,11 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, minWidth: 0 },
   rowTitle: { color: colors.text, fontSize: 15, fontWeight: '800', marginBottom: 2 },
   rowSub: { color: colors.muted, fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  rowEnd: { color: colors.text, fontSize: 18, fontWeight: '900' },
+  languageList: { borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 6, paddingLeft: 58 },
+  languageRow: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 14, paddingHorizontal: 12, marginVertical: 2 },
+  languageRowActive: { backgroundColor: '#EAF4F1' },
+  languageFlag: { width: 28, fontSize: 18 },
+  languageLabel: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '800' },
+  languageCheck: { color: colors.brand, fontSize: 18, fontWeight: '900' },
 });
