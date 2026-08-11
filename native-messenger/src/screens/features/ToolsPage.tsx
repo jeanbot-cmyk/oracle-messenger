@@ -338,7 +338,7 @@ export function ToolsPage({ token, ownerId, userName, initialMode = 'meeting' }:
     setBusy(true);
     try {
       const data = mode === 'ai'
-        ? await api.aiAutoInitializePaystack(token, 'starter')
+        ? await api.aiAutoInitializePaystack(token, 'activation_1500')
         : mode === 'flyer'
           ? await api.aiFlyerInitializePaystack(token)
           : await api.aiVideoInitializePaystack(token);

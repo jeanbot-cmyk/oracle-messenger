@@ -19,7 +19,7 @@ export function PaymentsPage({ token }: { token: string }) {
     setResult(null);
     try {
       const data = scope === 'ai'
-        ? await api.aiAutoInitializePaystack(token, 'starter')
+        ? await api.aiAutoInitializePaystack(token, 'activation_1500')
         : scope === 'flyer'
           ? await api.aiFlyerInitializePaystack(token)
           : scope === 'video'
