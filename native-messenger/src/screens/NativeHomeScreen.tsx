@@ -19,6 +19,7 @@ import { NativeMessageActionPanels } from '@/screens/home/NativeMessageActionPan
 import { NativeMessageList } from '@/screens/home/NativeMessageList';
 import { NativeOnboarding } from '@/screens/home/NativeOnboarding';
 import { conversationName, messagePreview, parseCallActionDeepLink, parseConversationTarget, parsePaystackDeepLink, socketAck, sortMessages } from '@/screens/home/homeUtils';
+import { usePendingNativeCallAction } from '@/screens/home/usePendingNativeCallAction';
 import { useNativeMediaSync } from '@/screens/home/useNativeMediaSync';
 import { NativeFeaturePage, type NativeTabKey, useVisibleTabs } from '@/screens/NativeFeaturePages';
 import { api } from '@/services/api';
@@ -34,7 +35,6 @@ async function fileToDataUrl(uri: string, mime = 'application/octet-stream') {
 }
 
 type VoiceRecordingResult = { uri: string; name: string; mime: string; size: number; durationMs: number };
-type PendingCallAction = { action: 'accept' | 'reject'; callId?: string | null; conversationId?: string | null };
 
 const OracleVoiceRecorder = NativeModules.OracleVoiceRecorder as {
   start?: () => Promise<{ uri: string; startedAt: number }>;
@@ -63,8 +63,6 @@ export function NativeHomeScreen() {
   const [typingByConversation, setTypingByConversation] = useState<Record<string, Record<string, string>>>({});
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingCallActionRef = useRef<PendingCallAction | null>(null);
-  const pendingCallActionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const conversationSearchRequestRef = useRef(0);
   const selectedRef = useRef<Conversation | null>(null);
   const sessionRef = useRef<AuthSession | null>(null);
@@ -79,26 +77,11 @@ export function NativeHomeScreen() {
   const visibleTabs = useVisibleTabs(session);
   const needsOnboarding = Boolean(session && (session.user.isNew || !session.user.phone));
   const { localMediaByMessageId, refreshLocalMediaIndex, clearMediaRefreshTimers, runMediaSync } = useNativeMediaSync();
-
-  const clearPendingCallAction = useCallback(() => {
-    if (pendingCallActionTimerRef.current) clearTimeout(pendingCallActionTimerRef.current);
-    pendingCallActionTimerRef.current = null;
-    pendingCallActionRef.current = null;
-  }, []);
-
-  const queuePendingCallAction = useCallback((action: PendingCallAction) => {
-    if (!action.callId) {
-      setNotice('Action appel invalide ou expirée.');
-      return;
-    }
-    clearPendingCallAction();
-    pendingCallActionRef.current = action;
-    pendingCallActionTimerRef.current = setTimeout(() => {
-      pendingCallActionRef.current = null;
-      pendingCallActionTimerRef.current = null;
-      setNotice('Appel entrant introuvable ou deja termine.');
-    }, 45000);
-  }, [clearPendingCallAction]);
+  const { clearPendingCallAction, queuePendingCallAction } = usePendingNativeCallAction({
+    answerNativeCall,
+    currentCallId,
+    onNotice: setNotice,
+  });
 
   useEffect(() => {
     selectedRef.current = selected;
@@ -397,16 +380,6 @@ export function NativeHomeScreen() {
     await verifyPaystackReturn(url);
   }, [answerNativeCall, clearPendingCallAction, currentCallId, openConversationById, prepareIncomingCall, queuePendingCallAction, verifyPaystackReturn]);
 
-  useEffect(() => {
-    const pending = pendingCallActionRef.current;
-    if (!pending || !currentCallId) return;
-    if (pending.callId && pending.callId !== currentCallId) return;
-    clearPendingCallAction();
-    answerNativeCall(pending.action === 'accept').catch(error => {
-      setNotice(error instanceof Error ? error.message : 'Action appel impossible.');
-    });
-  }, [answerNativeCall, clearPendingCallAction, currentCallId]);
-
   const handleNotificationResponse = useCallback((response: Notifications.NotificationResponse) => {
     const data = response.notification.request.content.data || {};
     const url = typeof data.url === 'string' ? data.url : null;
@@ -472,8 +445,7 @@ export function NativeHomeScreen() {
   useEffect(() => () => {
     if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
     clearMediaRefreshTimers();
-    clearPendingCallAction();
-  }, [clearMediaRefreshTimers, clearPendingCallAction]);
+  }, [clearMediaRefreshTimers]);
 
   useEffect(() => {
     if (!session?.token) return;
