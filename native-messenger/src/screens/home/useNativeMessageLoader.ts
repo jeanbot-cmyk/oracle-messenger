@@ -26,6 +26,38 @@ type UseNativeMessageLoaderParams = {
   setSelected: (conversation: Conversation | null) => void;
 };
 
+function localUriFromMessage(message?: Message | null) {
+  try {
+    const parsed = JSON.parse(String(message?.content || ''));
+    const localUri = typeof parsed?.localUri === 'string' ? parsed.localUri.trim() : '';
+    return /^(file|content):\/\//i.test(localUri) ? localUri : '';
+  } catch {
+    return '';
+  }
+}
+
+function addLocalUriToMessage(message: Message, localUri: string) {
+  if (!localUri) return message;
+  try {
+    const parsed = JSON.parse(message.content);
+    if (!parsed || typeof parsed !== 'object') return message;
+    return { ...message, content: JSON.stringify({ ...parsed, localUri }) };
+  } catch {
+    return message;
+  }
+}
+
+function mergeMessagesKeepingLocalMedia(localCandidates: Message[], serverMessages: Message[]) {
+  const localUrisById = new Map<string, string>();
+  for (const message of localCandidates) {
+    const localUri = localUriFromMessage(message);
+    if (localUri) localUrisById.set(message.id, localUri);
+  }
+  return serverMessages.map(message => (
+    localUriFromMessage(message) ? message : addLocalUriToMessage(message, localUrisById.get(message.id) || '')
+  ));
+}
+
 export function useNativeMessageLoader({
   token,
   currentUserId,
@@ -66,13 +98,15 @@ export function useNativeMessageLoader({
       const socket = ensureNativeSocket(activeToken);
       socket.emit('conversation:join', { conversationId: conversation.id });
       const items = await filterHiddenMessages(conversation.id, await api.messages(conversation.id, activeToken));
-      setMessages(items);
-      await writeCachedMessages(ownerId, conversation.id, items);
-      const lastIncoming = [...items].reverse().find(item => item.senderId !== sessionRef.current?.user.id);
+      const localCandidates = selected?.id === conversation.id ? [...messages, ...cachedMessages] : cachedMessages;
+      const mergedItems = mergeMessagesKeepingLocalMedia(localCandidates, items);
+      setMessages(mergedItems);
+      await writeCachedMessages(ownerId, conversation.id, mergedItems);
+      const lastIncoming = [...mergedItems].reverse().find(item => item.senderId !== sessionRef.current?.user.id);
       if (lastIncoming) socket.emit('message:read', { conversationId: conversation.id, messageId: lastIncoming.id });
       setConversations(current => sortConversations(current.map(item => item.id === conversation.id ? markConversationReadLocally(item) : item)));
       setNotice('');
-      runMediaSync(activeToken, currentUserId, items);
+      runMediaSync(activeToken, currentUserId, mergedItems);
     } catch (error) {
       setNotice(cachedMessages.length
         ? 'Mode hors connexion : messages affichés depuis le téléphone.'
@@ -82,6 +116,7 @@ export function useNativeMessageLoader({
     }
   }, [
     currentUserId,
+    messages,
     resetMessageActions,
     runMediaSync,
     sessionRef,

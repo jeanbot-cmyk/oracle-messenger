@@ -13,10 +13,11 @@ export type MediaSyncResult = {
 
 async function storeAndAck(message: Message, token: string, currentUserId?: string) {
   if (!isMediaMessage(message)) return;
-  if (currentUserId && message.senderId === currentUserId) return;
 
   const saved = await ensureMediaStoredLocally(message);
   if (!saved) return;
+
+  if (currentUserId && message.senderId === currentUserId) return;
 
   const ack = await api.ackMediaSaved(message.id, token, saved.checksum, saved.size);
   if (ack?.ackConfirmed === false) {

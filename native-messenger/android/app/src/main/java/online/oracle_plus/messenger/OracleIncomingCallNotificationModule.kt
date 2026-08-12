@@ -100,7 +100,7 @@ class OracleIncomingCallNotificationModule(
     Uri.parse("android.resource://${reactContext.packageName}/${R.raw.oracle_call}")
 
   companion object {
-    private const val CHANNEL_ID = "oracle_messenger_incoming_calls_native_v3"
+    private const val CHANNEL_ID = "oracle_messenger_incoming_calls_v4"
     private const val CALL_TIMEOUT_MS = 220_000L
     private val CALL_VIBRATION_PATTERN = longArrayOf(0, 650, 250, 650, 250, 1100)
 

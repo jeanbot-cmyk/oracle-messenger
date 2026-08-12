@@ -136,7 +136,7 @@ export function NativeChatPanel({
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
       style={styles.chatPanel}
       {...panResponder.panHandlers}
