@@ -1,0 +1,1 @@
+7682b83b9d45d6b2f8992a95fe04f5e77f9d2aa84d579c2a807e84c40a7f2b01  frontend/public/downloads/oracle-messenger-native-v2026081214-final-audit-signed.apk

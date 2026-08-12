@@ -1,2 +1,0 @@
-6f5ea7b69f29f8662c027d04388594ec0ebaf1b2808d219c20d213fd94a7d179  frontend/public/downloads/oracle-messenger-release-vc2026080928-native-google-config.apk
-e1718376e3d59f0ab21adbae3703f6f6032945f45171afa2b1aa80d7c5659781  frontend/public/downloads/oracle-messenger-release-vc2026080928-native-google-config.aab

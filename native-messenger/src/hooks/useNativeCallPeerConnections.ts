@@ -4,7 +4,7 @@ import {
   RTCIceCandidate,
   RTCPeerConnection,
   RTCSessionDescription,
-} from 'react-native-webrtc';
+} from '@livekit/react-native-webrtc';
 import type { Socket } from 'socket.io-client';
 import { DEFAULT_ICE, type NativeCallInfo, type NativeCallState } from '@/hooks/nativeCallUtils';
 
@@ -61,6 +61,19 @@ export function useNativeCallPeerConnections({
     reconnectTimerRef.current = null;
     setRemoteStreams(new Map());
   }, [setRemoteStreams]);
+
+  const removePeerConnection = useCallback((targetUserId: string) => {
+    const peer = peersRef.current.get(targetUserId);
+    peer?.close();
+    peersRef.current.delete(targetUserId);
+    pendingIceRef.current.delete(targetUserId);
+    setRemoteStreams(current => {
+      const next = new Map(current);
+      next.delete(targetUserId);
+      return next;
+    });
+    trace('webrtc:peer-removed', { targetUserId });
+  }, [setRemoteStreams, trace]);
 
   const addRemoteTrack = useCallback((userId: string, stream: MediaStream) => {
     setRemoteStreams(current => {
@@ -186,6 +199,7 @@ export function useNativeCallPeerConnections({
   return {
     setIceServers,
     resetPeerConnections,
+    removePeerConnection,
     sendOffer,
     handleOffer,
     handleAnswer,

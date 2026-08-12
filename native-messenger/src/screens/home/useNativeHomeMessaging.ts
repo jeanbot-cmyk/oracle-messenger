@@ -38,6 +38,7 @@ export function useNativeHomeMessaging({ session, ui, runMediaSync }: UseNativeH
     conversationSearch: ui.conversationSearch,
     selected,
     token,
+    ownerId: session?.user.id || session?.user.email || session?.token,
     setBusy: ui.setBusy,
     setConversations,
     setNotice: ui.setNotice,
@@ -45,6 +46,7 @@ export function useNativeHomeMessaging({ session, ui, runMediaSync }: UseNativeH
 
   const composer = useNativeComposerController({
     selected,
+    messages,
     token,
     currentUserId: session?.user.id,
     patchMessage,

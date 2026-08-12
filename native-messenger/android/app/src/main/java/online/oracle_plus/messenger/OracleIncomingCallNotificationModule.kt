@@ -73,7 +73,7 @@ class OracleIncomingCallNotificationModule(
       .setOngoing(false)
       .setSound(callSoundUri())
       .setVibrate(CALL_VIBRATION_PATTERN)
-      .setTimeoutAfter(75_000)
+      .setTimeoutAfter(CALL_TIMEOUT_MS)
       .setContentIntent(activityIntent(callId, conversationId, "open"))
       .setFullScreenIntent(activityIntent(callId, conversationId, "open"), true)
       .addAction(0, "Refuser", activityIntent(callId, conversationId, "reject"))
@@ -100,7 +100,8 @@ class OracleIncomingCallNotificationModule(
     Uri.parse("android.resource://${reactContext.packageName}/${R.raw.oracle_call}")
 
   companion object {
-    private const val CHANNEL_ID = "oracle_messenger_incoming_calls_native_v2"
+    private const val CHANNEL_ID = "oracle_messenger_incoming_calls_native_v3"
+    private const val CALL_TIMEOUT_MS = 220_000L
     private val CALL_VIBRATION_PATTERN = longArrayOf(0, 650, 250, 650, 250, 1100)
 
     private fun notificationId(callId: String): Int = 42000 + kotlin.math.abs(callId.hashCode() % 1000)

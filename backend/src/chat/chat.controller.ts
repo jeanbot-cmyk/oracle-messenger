@@ -22,6 +22,16 @@ export class ChatController {
     return this.chat.getOrCreateDirect(req.user.id, participantId);
   }
 
+  @Post('conversations/group')
+  createGroup(@Body() body: { name?: string; participantIds?: string[]; avatar?: string }, @Request() req: any) {
+    return this.chat.createGroup(req.user.id, body ?? {});
+  }
+
+  @Post('conversations/:id/participants')
+  addGroupParticipants(@Param('id') id: string, @Body() body: { participantIds?: string[] }, @Request() req: any) {
+    return this.chat.addGroupParticipants(id, req.user.id, body?.participantIds ?? []);
+  }
+
   @Get('conversations/:id')
   get(@Param('id') id: string, @Request() req: any) {
     return this.chat.getConversation(id, req.user.id);

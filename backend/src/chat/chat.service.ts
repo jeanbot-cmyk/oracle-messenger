@@ -12,7 +12,7 @@ export class ChatService {
   private readonly allowedMessageTypes = new Set(['text', 'image', 'video', 'audio', 'voice', 'file', 'document', 'contact', 'location', 'gif', 'sticker']);
   private readonly maxMessageContentLength = 20_000;
   private readonly officialConversationType = 'official';
-  private readonly officialConversationName = 'O.messenger';
+  private readonly officialConversationName = 'O.Messenger';
   private readonly officialConversationAvatar = '/icons/oracle-system-avatar.svg';
   private readonly officialSystemEmail = 'system-aura@oracle-messenger.local';
   private readonly officialMessageTtlMs = 24 * 60 * 60 * 1000;
@@ -116,13 +116,19 @@ export class ChatService {
     };
   }
 
-  private getOfficialExpiresAt(conv: any) {
+  private getOfficialOpenedAt(conv: any) {
     const lastMessage = conv.messages?.[0] ?? null;
     if (conv.type !== this.officialConversationType || !conv.viewerLastReadAt || !lastMessage?.createdAt) return undefined;
     const readAt = new Date(conv.viewerLastReadAt);
     const messageAt = new Date(lastMessage.createdAt);
     if (Number.isNaN(readAt.getTime()) || Number.isNaN(messageAt.getTime())) return undefined;
     if (readAt.getTime() < messageAt.getTime()) return undefined;
+    return readAt;
+  }
+
+  private getOfficialExpiresAt(conv: any) {
+    const readAt = this.getOfficialOpenedAt(conv);
+    if (!readAt) return undefined;
     return new Date(readAt.getTime() + this.officialMessageTtlMs);
   }
 
@@ -143,6 +149,7 @@ export class ChatService {
     const isOfficial = conv.type === this.officialConversationType;
     const others = conv.participants.filter((pt: any) => pt.userId !== userId).map((pt: any) => pt.user);
     const lastMessage = conv.messages?.[0] ?? null;
+    const officialOpenedAt = this.getOfficialOpenedAt(conv)?.toISOString();
     const officialExpiresAt = this.getOfficialExpiresAt(conv)?.toISOString();
     return {
       id: conv.id,
@@ -152,10 +159,19 @@ export class ChatService {
       participants: others,
       lastMessage,
       unreadCount,
-      isPinned: isOfficial,
+      isPinned: isOfficial ? unreadCount > 0 : Boolean(conv.isPinned),
       isOfficial,
       isVerified: isOfficial,
+      officialOpenedAt,
       officialExpiresAt,
+      officialState: isOfficial ? {
+        received: true,
+        unread: unreadCount > 0,
+        opened_at: officialOpenedAt ?? null,
+        expires_at: officialExpiresAt ?? null,
+        openedAt: officialOpenedAt ?? null,
+        expiresAt: officialExpiresAt ?? null,
+      } : undefined,
       updatedAt: conv.updatedAt,
     };
   }
@@ -187,7 +203,7 @@ export class ChatService {
       include: {
         conversation: {
           include: {
-            participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+            participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
             messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
           },
         },
@@ -247,7 +263,7 @@ export class ChatService {
         ],
       },
       include: {
-        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
         messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
       },
       orderBy: { updatedAt: 'desc' },
@@ -281,7 +297,7 @@ export class ChatService {
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: {
-        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
             messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
       },
     });
@@ -342,7 +358,7 @@ export class ChatService {
         ],
       },
       include: {
-        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
         messages: { take: 1, orderBy: { createdAt: 'desc' }, include: { reactions: true } },
       },
     });
@@ -354,7 +370,7 @@ export class ChatService {
           participants: { create: [{ userId }, { userId: participantId }] },
         },
         include: {
-          participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+          participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
           messages: { take: 1, orderBy: { createdAt: 'desc' }, include: { reactions: true } },
         },
       });
@@ -364,6 +380,83 @@ export class ChatService {
 
     // Return same shape as getConversations — filter out self from participants
     return this.toConversationSummary(conv, userId, 0);
+  }
+
+  async createGroup(userId: string, dto: { name?: string; participantIds?: string[]; avatar?: string }) {
+    const name = String(dto?.name || '').trim().slice(0, 90) || 'Nouveau groupe';
+    const candidateIds = Array.isArray(dto?.participantIds) ? dto.participantIds : [];
+    const participantIds = [...new Set(candidateIds.map(id => String(id || '').trim()).filter(id => id && id !== userId))].slice(0, 99);
+    if (!participantIds.length) throw new BadRequestException('Ajoutez au moins un membre au groupe.');
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        id: { in: participantIds },
+        email: { not: this.officialSystemEmail },
+      },
+      select: { id: true },
+    });
+    if (!users.length) throw new BadRequestException('Aucun membre valide pour ce groupe.');
+
+    const conv = await this.prisma.conversation.create({
+      data: {
+        type: 'group',
+        name,
+        avatar: String(dto?.avatar || '').trim().slice(0, 1000) || null,
+        participants: {
+          create: [{ userId }, ...users.map(user => ({ userId: user.id }))],
+        },
+      },
+      include: {
+        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
+        messages: { take: 1, orderBy: { createdAt: 'desc' }, include: { reactions: true } },
+      },
+    });
+
+    await Promise.all(users.map(user => this.rememberConversationContacts(userId, user.id).catch(() => null)));
+    return this.toConversationSummary(conv, userId, 0);
+  }
+
+  async addGroupParticipants(conversationId: string, userId: string, participantIdsInput: string[]) {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        participants: { include: { user: { select: { id: true, email: true } } } },
+      },
+    });
+    if (!conversation || conversation.type !== 'group') throw new NotFoundException('Groupe introuvable');
+    if (!conversation.participants.some(participant => participant.userId === userId)) {
+      throw new ForbiddenException('Vous ne faites pas partie de ce groupe.');
+    }
+
+    const existingIds = new Set(conversation.participants.map(participant => participant.userId));
+    const candidateIds = Array.isArray(participantIdsInput) ? participantIdsInput : [];
+    const participantIds = [...new Set(candidateIds.map(id => String(id || '').trim()).filter(id => id && !existingIds.has(id)))].slice(0, 99);
+    if (!participantIds.length) throw new BadRequestException('Aucun nouveau membre à ajouter.');
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        id: { in: participantIds },
+        email: { not: this.officialSystemEmail },
+      },
+      select: { id: true },
+    });
+    if (!users.length) throw new BadRequestException('Aucun membre valide à ajouter.');
+
+    const updated = await this.prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        participants: {
+          create: users.map(user => ({ userId: user.id })),
+        },
+        updatedAt: new Date(),
+      },
+      include: {
+        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
+        messages: { take: 1, orderBy: { createdAt: 'desc' }, include: { reactions: true } },
+      },
+    });
+    await Promise.all(users.map(user => this.rememberConversationContacts(userId, user.id).catch(() => null)));
+    return this.toConversationSummary(updated, userId, 0);
   }
 
   // ── Messages ───────────────────────────────────────────────────────────────
@@ -581,7 +674,7 @@ export class ChatService {
     });
   }
 
-  private async rememberMediaDelivered(messageId: string, userId: string) {
+  private async rememberMessageDelivered(messageId: string, userId: string) {
     const existing = await this.prisma.messageLocalSave.findUnique({
       where: { messageId_userId: { messageId, userId } },
       select: { deliveryState: true },
@@ -612,8 +705,19 @@ export class ChatService {
     const participantIds = msg.conversation.participants.map(p => p.userId);
     if (!participantIds.includes(receiverId)) throw new ForbiddenException();
     if (msg.senderId === receiverId) return msg;
-    if (this.isMediaType(msg.type)) await this.rememberMediaDelivered(messageId, receiverId);
+    await this.rememberMessageDelivered(messageId, receiverId);
     if (msg.status === 'read' || msg.status === 'delivered') return msg;
+
+    const recipientIds = participantIds.filter(id => id !== msg.senderId);
+    const deliveredCount = await this.prisma.messageLocalSave.count({
+      where: {
+        messageId,
+        userId: { in: recipientIds },
+        ...({ deliveryState: { in: ['DELIVERED', 'ACK_CONFIRMED'] } } as any),
+      },
+    });
+    if (recipientIds.length > 1 && deliveredCount < recipientIds.length) return msg;
+
     return this.prisma.message.update({
       where: { id: messageId },
       data: { status: 'delivered' },
@@ -652,13 +756,42 @@ export class ChatService {
 
   async markConversationRead(conversationId: string, readerId: string) {
     await this.markRead(conversationId, readerId);
-    return this.prisma.message.updateMany({
+    const messages = await this.prisma.message.findMany({
       where: {
         conversationId,
         senderId: { not: readerId },
         status: { not: 'read' },
+        isDeleted: false,
       },
+      select: { id: true, senderId: true, createdAt: true },
+    });
+
+    await Promise.all(messages.map(message => this.rememberMessageDelivered(message.id, readerId)));
+
+    const participants = await this.prisma.participant.findMany({
+      where: { conversationId },
+      select: { userId: true, lastReadAt: true },
+    });
+
+    const readMessageIds = messages
+      .filter(message => {
+        const recipients = participants.filter(participant => participant.userId !== message.senderId);
+        return recipients.length > 0 && recipients.every(participant =>
+          participant.lastReadAt && participant.lastReadAt.getTime() >= message.createdAt.getTime(),
+        );
+      })
+      .map(message => message.id);
+
+    if (!readMessageIds.length) return [];
+
+    await this.prisma.message.updateMany({
+      where: { id: { in: readMessageIds }, status: { not: 'read' } },
       data: { status: 'read' },
+    });
+
+    return this.prisma.message.findMany({
+      where: { id: { in: readMessageIds } },
+      select: { id: true, conversationId: true, status: true, updatedAt: true },
     });
   }
 

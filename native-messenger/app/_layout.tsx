@@ -1,27 +1,27 @@
 import { Stack } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { registerGlobals } from '@livekit/react-native';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { colors } from '@/theme/colors';
+import { configureNativeTextScaling } from '@/theme/textScaling';
 
-SplashScreen.preventAutoHideAsync().catch(() => {});
+configureNativeTextScaling();
+registerGlobals({ autoConfigureAudioSession: false });
 
 export default function RootLayout() {
-  useEffect(() => {
-    SplashScreen.hideAsync().catch(() => {});
-  }, []);
-
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
-      <StatusBar style="light" backgroundColor={colors.header} />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          animation: 'fade',
-          contentStyle: { backgroundColor: colors.background },
-        }}
-      />
+      <SafeAreaProvider>
+        <StatusBar style="light" backgroundColor={colors.header} translucent={false} />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            animation: 'fade',
+            contentStyle: { backgroundColor: colors.background },
+          }}
+        />
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

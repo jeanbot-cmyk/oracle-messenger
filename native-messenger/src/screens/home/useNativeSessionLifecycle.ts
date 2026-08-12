@@ -61,9 +61,10 @@ export function useNativeSessionLifecycle({
       const saved = await loadSession();
       if (saved) {
         setSession(saved);
-        await refreshConversations(saved.token);
         await refreshLocalMediaIndex();
-        runMediaSync(saved.token, saved.user.id);
+        setLoading(false);
+        void refreshConversations(saved.token);
+        void runMediaSync(saved.token, saved.user.id);
       }
     } finally {
       setLoading(false);

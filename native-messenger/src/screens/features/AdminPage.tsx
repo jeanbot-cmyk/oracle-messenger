@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { api } from '@/services/api';
 import { colors } from '@/theme/colors';
 import type { User } from '@/types/messenger';
-import { AlertText, Loading, PageHeader, PrimaryButton, SecondaryButton, Section, UserRow } from './FeatureUi';
+import { AlertText, Loading, PrimaryButton, SecondaryButton, Section, UserRow } from './FeatureUi';
+
+type BroadcastMedia = {
+  url: string;
+  type: string;
+  name: string;
+  mime?: string;
+  size?: number;
+  checksum?: string;
+};
 
 function valueText(value: unknown) {
   if (value === null || value === undefined || value === '') return '0';
@@ -29,16 +38,33 @@ function Stat({ label, value }: { label: string; value: unknown }) {
   );
 }
 
-export function AdminPage({ token }: { token: string }) {
+function DashboardCard({ icon, value, label, sub, tint }: { icon: string; value: unknown; label: string; sub: string; tint: string }) {
+  return (
+    <View style={styles.dashboardCard}>
+      <View style={[styles.dashboardIcon, { backgroundColor: tint }]}>
+        <Text style={styles.dashboardIconText}>{icon}</Text>
+      </View>
+      <View style={styles.dashboardCopy}>
+        <Text style={styles.dashboardValue}>{valueText(value)}</Text>
+        <Text style={styles.dashboardLabel}>{label}</Text>
+        <Text style={styles.dashboardSub}>{sub}</Text>
+      </View>
+    </View>
+  );
+}
+
+export function AdminPage({ token, onBack }: { token: string; onBack: () => void }) {
   const [data, setData] = useState<any>(null);
   const [message, setMessage] = useState('');
-  const [broadcastMedia, setBroadcastMedia] = useState<{ url: string; type: string; name: string } | null>(null);
+  const [broadcastMedia, setBroadcastMedia] = useState<BroadcastMedia | null>(null);
   const [notifTitle, setNotifTitle] = useState('');
   const [notifBody, setNotifBody] = useState('');
   const [settingKey, setSettingKey] = useState('');
   const [settingValue, setSettingValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [systemOpen, setSystemOpen] = useState(true);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState('');
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -51,6 +77,7 @@ export function AdminPage({ token }: { token: string }) {
         api.adminAiAuto(token),
       ]);
       setData({ stats, metrics, users, countries, ai });
+      setLastUpdatedAt(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       setNotice('');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Admin indisponible ou accès réservé.');
@@ -72,8 +99,15 @@ export function AdminPage({ token }: { token: string }) {
         mime,
         kind: input.kind,
       });
-      setBroadcastMedia({ url: uploaded.url, type: uploaded.kind || input.kind, name: uploaded.name || input.name || 'media' });
-      setNotice('Media admin prepare pour le message systeme.');
+      setBroadcastMedia({
+        url: uploaded.url,
+        type: uploaded.kind || input.kind,
+        name: uploaded.name || input.name || 'media',
+        mime: uploaded.mime || mime,
+        size: uploaded.size,
+        checksum: uploaded.checksum,
+      });
+      setNotice('Média admin prêt pour le message système.');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Upload media admin impossible.');
     } finally {
@@ -84,7 +118,7 @@ export function AdminPage({ token }: { token: string }) {
   const pickBroadcastMedia = useCallback(async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      setNotice('Permission galerie requise pour joindre une image ou video.');
+      setNotice('Permission galerie requise pour joindre une image ou vidéo.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -121,17 +155,29 @@ export function AdminPage({ token }: { token: string }) {
   const broadcast = useCallback(async () => {
     if (!message.trim() && !broadcastMedia?.url) return;
     setBusy(true);
+    setNotice('');
     try {
-      await api.adminBroadcast(token, {
-        content: message.trim(),
-        mediaUrl: broadcastMedia?.url,
+      const content = broadcastMedia
+        ? JSON.stringify({
+            url: broadcastMedia.url,
+            name: broadcastMedia.name,
+            mime: broadcastMedia.mime,
+            size: broadcastMedia.size,
+            checksum: broadcastMedia.checksum,
+            caption: message.trim() || undefined,
+          })
+        : message.trim();
+      const result = await api.adminBroadcast(token, {
+        content,
         type: broadcastMedia?.type || 'text',
       });
       setMessage('');
       setBroadcastMedia(null);
-      setNotice('Message systeme envoye.');
+      const sent = Number(result?.sent ?? 0);
+      const total = Number(result?.total ?? 0);
+      setNotice(total > 0 ? `Message système envoyé à ${sent}/${total} utilisateur(s).` : 'Message système envoyé.');
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Message systeme impossible.');
+      setNotice(error instanceof Error ? error.message : 'Message système impossible.');
     } finally {
       setBusy(false);
     }
@@ -189,37 +235,62 @@ export function AdminPage({ token }: { token: string }) {
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
-      <PageHeader title="Administration" subtitle="Statistiques, IA, notifications et message système." />
-      <Section title="Administration" right={<SecondaryButton label="Actualiser" onPress={load} disabled={busy} />}>
-        <Text style={styles.pageCopy}>Statistiques, utilisateurs, règles IA, notifications et message système admin. Toutes les données viennent du backend.</Text>
+      <View style={styles.adminHero}>
+        <View style={styles.adminHeroText}>
+          <Text style={styles.adminTitle}>Panel Admin</Text>
+          <Text style={styles.adminSubtitle}>Oracle Messenger · données API réelles</Text>
+        </View>
+        <View style={styles.adminHeroActions}>
+          <Pressable style={styles.systemButton} onPress={() => setSystemOpen(current => !current)}>
+            <Text style={styles.systemButtonText}>{systemOpen ? 'Masquer message' : '📢 Message système'}</Text>
+          </Pressable>
+          <Pressable style={styles.backChatButton} onPress={onBack}>
+            <Text style={styles.backChatText}>← Retour au chat</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <View style={styles.dashboardNotice}>
+        <View style={styles.dashboardNoticeText}>
+          <Text style={styles.dashboardNoticeTitle}>Tableau de bord temps réel</Text>
+          <Text style={styles.dashboardNoticeSub}>Rafraîchissement automatique toutes les 10s · dernière mise à jour {lastUpdatedAt || '--:--:--'}</Text>
+        </View>
+        <Pressable style={styles.refreshButton} onPress={load} disabled={busy}>
+          <Text style={styles.refreshButtonText}>Actualiser</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.noticeWrap}>
         <Loading active={busy} />
         <AlertText text={notice} />
-        <View style={styles.statsGrid}>
-          <Stat label="Utilisateurs" value={data?.stats?.totalUsers ?? data?.users?.length ?? 0} />
-          <Stat label="En ligne" value={data?.stats?.onlineUsers ?? 0} />
-          <Stat label="Messages" value={data?.stats?.totalMessages ?? 0} />
-          <Stat label="IA active" value={data?.ai?.stats?.activeUsers ?? 0} />
-          <Stat label="RAM" value={`${data?.metrics?.ramPct ?? 0}%`} />
-          <Stat label="PWA" value={data?.stats?.pwaInstalls ?? 0} />
-        </View>
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Serveur</Text>
-          <Text style={styles.cardMeta}>CPU {data?.metrics?.cpu ?? 0}% • RAM {valueText(data?.metrics?.ramUsed)} / {valueText(data?.metrics?.ramTotal)} MB • Load {valueText(data?.metrics?.loadAvg1m)} • {data?.metrics?.platform || 'platform inconnue'}</Text>
-        </View>
-        <TextInput value={message} onChangeText={setMessage} placeholder="Message systeme a envoyer" placeholderTextColor={colors.muted} multiline style={[styles.input, styles.textarea]} />
+      </View>
+
+      <View style={styles.dashboardList}>
+        <DashboardCard icon="👥" value={data?.stats?.totalUsers ?? data?.users?.length ?? 0} label="Utilisateurs" sub={`${valueText(data?.stats?.premiumUsers ?? data?.stats?.premium ?? 0)} premium`} tint="#EEF2F1" />
+        <DashboardCard icon="●" value={data?.stats?.onlineUsers ?? 0} label="En ligne maintenant" sub="WebSocket + API" tint="#EAFBF1" />
+        <DashboardCard icon="📲" value={data?.stats?.pwaInstalls ?? 0} label="Installations PWA" sub="installations enregistrées" tint="#F3EFFF" />
+        <DashboardCard icon="💬" value={data?.stats?.totalMessages ?? 0} label="Messages" sub={`${valueText(data?.stats?.totalConversations ?? data?.stats?.conversations ?? 0)} conversations`} tint="#EFF6FF" />
+        <DashboardCard icon="⚡" value={`${data?.metrics?.cpu ?? 0}%`} label="CPU serveur" sub={`charge ${valueText(data?.metrics?.loadAvg1m ?? 0)}`} tint="#FFF7ED" />
+      </View>
+
+      {systemOpen ? (
+        <Section title="Message système">
+        <Text style={styles.pageCopy}>Ce message arrive dans la conversation officielle O.Messenger, comme dans Capacitor. Texte seul, média seul ou texte avec image, vidéo, audio ou document.</Text>
+        <TextInput value={message} onChangeText={setMessage} placeholder="Rédigez votre annonce, lien ou message officiel..." placeholderTextColor={colors.muted} multiline style={[styles.input, styles.textarea]} />
         <View style={styles.actionRow}>
-          <SecondaryButton label="Image/video" onPress={pickBroadcastMedia} disabled={busy} />
+          <SecondaryButton label="Image/vidéo" onPress={pickBroadcastMedia} disabled={busy} />
           <SecondaryButton label="Document" onPress={pickBroadcastDocument} disabled={busy} />
           {broadcastMedia ? <SecondaryButton label="Retirer media" onPress={() => setBroadcastMedia(null)} disabled={busy} /> : null}
         </View>
         {broadcastMedia ? (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{broadcastMedia.name}</Text>
-            <Text style={styles.cardMeta}>{broadcastMedia.type} • media pret pour diffusion admin</Text>
+            <Text style={styles.cardMeta}>{broadcastMedia.type} • média prêt pour diffusion admin{message.trim() ? ' • + texte' : ''}</Text>
           </View>
         ) : null}
-        <PrimaryButton label="Envoyer message systeme" onPress={broadcast} disabled={busy || (!message.trim() && !broadcastMedia?.url)} />
-      </Section>
+        <PrimaryButton label="Envoyer dans le canal officiel" onPress={broadcast} disabled={busy || (!message.trim() && !broadcastMedia?.url)} />
+        </Section>
+      ) : null}
 
       <Section title="Notification globale">
         <TextInput value={notifTitle} onChangeText={setNotifTitle} placeholder="Titre notification" placeholderTextColor={colors.muted} style={styles.input} />
@@ -264,7 +335,31 @@ export function AdminPage({ token }: { token: string }) {
 }
 
 const styles = StyleSheet.create({
-  page: { paddingBottom: 96, gap: 0, backgroundColor: colors.background },
+  page: { paddingBottom: 84, gap: 0, backgroundColor: colors.background },
+  adminHero: { paddingHorizontal: 10, paddingTop: 10, paddingBottom: 10, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 },
+  adminHeroText: { flex: 1, minWidth: 0 },
+  adminTitle: { color: colors.text, fontSize: 20, lineHeight: 24, fontWeight: '900' },
+  adminSubtitle: { color: colors.secondary, fontSize: 13, lineHeight: 18, fontWeight: '700', marginTop: 5 },
+  adminHeroActions: { width: 128, gap: 7, alignItems: 'stretch' },
+  systemButton: { minHeight: 38, borderRadius: 13, backgroundColor: colors.header, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  systemButtonText: { color: '#FFFFFF', fontSize: 13, lineHeight: 17, fontWeight: '900', textAlign: 'center' },
+  backChatButton: { minHeight: 38, borderRadius: 13, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, shadowColor: '#102A2A', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
+  backChatText: { color: colors.text, fontSize: 13, lineHeight: 17, fontWeight: '900', textAlign: 'center' },
+  dashboardNotice: { marginHorizontal: 16, marginTop: 4, marginBottom: 14, borderRadius: 16, backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: 'rgba(16,42,42,0.14)', padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  dashboardNoticeText: { flex: 1, minWidth: 0 },
+  dashboardNoticeTitle: { color: colors.header, fontSize: 13.5, lineHeight: 17, fontWeight: '900' },
+  dashboardNoticeSub: { color: colors.header, fontSize: 12.5, lineHeight: 17, fontWeight: '700', marginTop: 3 },
+  refreshButton: { minHeight: 40, borderRadius: 12, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  refreshButtonText: { color: colors.brand, fontSize: 13, lineHeight: 17, fontWeight: '900' },
+  noticeWrap: { paddingHorizontal: 16, gap: 8 },
+  dashboardList: { paddingHorizontal: 10, gap: 8 },
+  dashboardCard: { minHeight: 74, borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 11, flexDirection: 'row', alignItems: 'center', gap: 10, shadowColor: '#102A2A', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 1 },
+  dashboardIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  dashboardIconText: { fontSize: 18, lineHeight: 22, fontWeight: '900' },
+  dashboardCopy: { flex: 1, minWidth: 0 },
+  dashboardValue: { color: colors.text, fontSize: 17, lineHeight: 21, fontWeight: '900' },
+  dashboardLabel: { color: colors.secondary, fontSize: 12.5, lineHeight: 16, fontWeight: '900', marginTop: 2 },
+  dashboardSub: { color: colors.muted, fontSize: 12, lineHeight: 16, fontWeight: '800', marginTop: 3 },
   pageCopy: { color: colors.muted, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
   input: { minHeight: 48, borderRadius: 15, backgroundColor: colors.input, color: colors.text, paddingHorizontal: 14, paddingVertical: 10, fontWeight: '800', borderWidth: 1, borderColor: 'transparent' },
   textarea: { minHeight: 96, textAlignVertical: 'top' },

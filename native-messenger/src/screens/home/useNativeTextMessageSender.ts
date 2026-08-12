@@ -17,6 +17,7 @@ type UseNativeTextMessageSenderParams = {
   replyTo: Message | null;
   selected: Conversation | null;
   token?: string;
+  currentUserId?: string;
   patchMessage: (id: string, patch: Partial<Message>) => void;
   refreshConversations: () => Promise<void>;
   upsertMessage: (message: Message) => void;
@@ -42,6 +43,7 @@ export function useNativeTextMessageSender({
   replyTo,
   selected,
   token,
+  currentUserId,
   patchMessage,
   refreshConversations,
   upsertMessage,
@@ -72,10 +74,17 @@ export function useNativeTextMessageSender({
           await removeNativeTextMessageFromOutbox(item.id);
           sentCount += 1;
           if (selected?.id === item.conversationId) {
-            upsertMessage({ ...message, status: message.status || 'sent' });
+            if (item.localMessageId) {
+              patchMessage(item.localMessageId, { ...message, status: message.status || 'sent' });
+            } else {
+              upsertMessage({ ...message, status: message.status || 'sent' });
+            }
           }
         } catch (error) {
           await markNativeTextMessageAttempt(item.id, errorMessage(error));
+          if (item.localMessageId && selected?.id === item.conversationId) {
+            patchMessage(item.localMessageId, { status: 'failed', updatedAt: new Date().toISOString() });
+          }
           if (!isRetryableSendError(error)) {
             await removeNativeTextMessageFromOutbox(item.id);
           }
@@ -90,7 +99,7 @@ export function useNativeTextMessageSender({
     } finally {
       flushingOutboxRef.current = false;
     }
-  }, [refreshConversations, selected?.id, setNotice, token, upsertMessage]);
+  }, [patchMessage, refreshConversations, selected?.id, setNotice, token, upsertMessage]);
 
   useEffect(() => {
     if (!token) return;
@@ -104,31 +113,53 @@ export function useNativeTextMessageSender({
   return useCallback(async () => {
     const clean = draft.trim();
     if (!clean || !selected || !token) return;
+    let localMessageId = '';
+    const pendingReplyTo = replyTo;
     setDraft('');
     try {
-      const socket = ensureNativeSocket(token);
       if (editingMessage) {
+        const socket = ensureNativeSocket(token);
         socket.emit('message:edit', { messageId: editingMessage.id, content: clean });
         const message = await api.editMessage(editingMessage.id, token, clean);
         patchMessage(editingMessage.id, { content: message.content, isEdited: true, updatedAt: message.updatedAt });
         setEditingMessage(null);
       } else {
+        localMessageId = `local-text-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const optimisticMessage: Message = {
+          id: localMessageId,
+          conversationId: selected.id,
+          senderId: currentUserId || 'local-user',
+          content: clean,
+          type: 'text',
+          status: 'sending',
+          createdAt: new Date().toISOString(),
+          replyTo: pendingReplyTo || undefined,
+          replyToId: pendingReplyTo?.id,
+        };
+        upsertMessage(optimisticMessage);
+        setReplyTo(null);
+        const socket = ensureNativeSocket(token);
         const message = await socketAck<Message>(socket, 'message:send', {
           conversationId: selected.id,
           content: clean,
           type: 'text',
-          replyToId: replyTo?.id,
-        }).catch(() => api.sendMessage(selected.id, token, clean, 'text', replyTo?.id));
-        upsertMessage({ ...message, status: message.status || 'sent', replyTo: replyTo || message.replyTo });
-        setReplyTo(null);
+          replyToId: pendingReplyTo?.id,
+        }).catch(() => api.sendMessage(selected.id, token, clean, 'text', pendingReplyTo?.id));
+        patchMessage(localMessageId, { ...message, status: message.status || 'sent', replyTo: pendingReplyTo || message.replyTo });
       }
-      await refreshConversations();
+      void refreshConversations().catch(() => undefined);
     } catch (error) {
-      if (!editingMessage && isRetryableSendError(error)) {
+      if (!editingMessage && localMessageId) {
+        patchMessage(localMessageId, { status: 'failed', updatedAt: new Date().toISOString() });
+        if (!isRetryableSendError(error)) {
+          setNotice(errorMessage(error));
+          return;
+        }
         await enqueueNativeTextMessage({
+          localMessageId,
           conversationId: selected.id,
           content: clean,
-          replyToId: replyTo?.id,
+          replyToId: pendingReplyTo?.id,
           lastError: errorMessage(error),
         });
         setReplyTo(null);
@@ -139,6 +170,7 @@ export function useNativeTextMessageSender({
       setNotice(errorMessage(error));
     }
   }, [
+    currentUserId,
     draft,
     editingMessage,
     patchMessage,

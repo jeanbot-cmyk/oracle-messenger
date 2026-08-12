@@ -1,15 +1,24 @@
-import { SafeAreaView, StyleSheet, Text } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { PanResponder, StyleSheet, Text, View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeBottomTabs } from '@/screens/home/NativeBottomTabs';
 import { NativeChatPanel } from '@/screens/home/NativeChatPanel';
 import { NativeCallOverlay } from '@/screens/home/NativeCallOverlay';
 import { NativeConversationList } from '@/screens/home/NativeConversationList';
+import { NativeFeatureShell } from '@/screens/home/NativeFeatureShell';
+import { NativeHeaderOverflowMenu } from '@/screens/home/NativeHeaderOverflowMenu';
 import { NativeHomeShellHeader } from '@/screens/home/NativeHomeShellHeader';
-import { NativeFeaturePage, type NativeTabKey } from '@/screens/NativeFeaturePages';
+import { isAdminSession, NativeFeaturePage, type NativeTabKey } from '@/screens/NativeFeaturePages';
 import type { useNativeCall } from '@/hooks/useNativeCall';
 import { api } from '@/services/api';
+import { selectionHaptic } from '@/services/haptics';
 import type { LocalGalleryItem } from '@/services/localMedia';
 import { colors } from '@/theme/colors';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
+import type { VoicePreview } from './useNativeVoiceRecorder';
 
 export type NativeHomeShellProps = {
   session: AuthSession;
@@ -34,6 +43,8 @@ export type NativeHomeShellProps = {
   editingMessage: Message | null;
   voiceRecording: boolean;
   voiceStartedAt: number | null;
+  voiceLocked: boolean;
+  voicePreview: VoicePreview | null;
   aiBusy: boolean;
   onRefreshConversations: () => Promise<void>;
   onTabPress: (tab: NativeTabKey) => void;
@@ -56,13 +67,52 @@ export type NativeHomeShellProps = {
   onAttachCamera: () => void | Promise<void>;
   onAttachImage: () => void | Promise<void>;
   onAttachDocument: () => void | Promise<void>;
-  onToggleVoiceRecording: () => void | Promise<void>;
+  onStartVoiceRecording: () => void | Promise<void>;
+  onStopVoiceRecording: () => void | Promise<unknown>;
+  onLockVoiceRecording: () => void;
+  onSendVoicePreview: () => void | Promise<void>;
   onAskAiDraft: () => void | Promise<void>;
+  onOpenAiTools?: () => void;
   onSend: () => void | Promise<void>;
   onConversationSearchChange: (value: string) => void;
   onOpenConversationFromList: (conversation: Conversation) => void;
   onConversationActions: (conversation: Conversation) => void;
 };
+
+const TAB_GROUPS: Partial<Record<NativeTabKey, NativeTabKey>> = {
+  storyCamera: 'stories',
+  meeting: 'tools',
+  translate: 'tools',
+  notes: 'tools',
+  events: 'tools',
+  ai: 'tools',
+  flyers: 'tools',
+  videos: 'tools',
+  contacts: 'menu',
+  gallery: 'menu',
+  web: 'menu',
+  spirituality: 'menu',
+  payments: 'menu',
+  business: 'menu',
+  profile: 'menu',
+  admin: 'menu',
+};
+
+function rootTabFor(tab: NativeTabKey) {
+  return TAB_GROUPS[tab] || tab;
+}
+
+const DIRECT_FEATURE_TABS: NativeTabKey[] = ['calls', 'stories', 'tools', 'menu', 'business', 'admin', 'contacts', 'profile'];
+const ROOT_HEADER_TABS: NativeTabKey[] = ['chats', 'calls', 'tools', 'menu'];
+const HIDDEN_BOTTOM_TABS: NativeTabKey[] = ['profile'];
+
+function usesDirectFeatureLayout(tab: NativeTabKey) {
+  return DIRECT_FEATURE_TABS.includes(tab);
+}
+
+function usesRootHeader(tab: NativeTabKey) {
+  return ROOT_HEADER_TABS.includes(tab);
+}
 
 export function NativeHomeShell({
   session,
@@ -87,6 +137,8 @@ export function NativeHomeShell({
   editingMessage,
   voiceRecording,
   voiceStartedAt,
+  voiceLocked,
+  voicePreview,
   aiBusy,
   onRefreshConversations,
   onTabPress,
@@ -109,31 +161,84 @@ export function NativeHomeShell({
   onAttachCamera,
   onAttachImage,
   onAttachDocument,
-  onToggleVoiceRecording,
+  onStartVoiceRecording,
+  onStopVoiceRecording,
+  onLockVoiceRecording,
+  onSendVoicePreview,
   onAskAiDraft,
+  onOpenAiTools,
   onSend,
   onConversationSearchChange,
   onOpenConversationFromList,
   onConversationActions,
 }: NativeHomeShellProps) {
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const statusOnChat = activeTab === 'chats' && Boolean(selected);
   const startCallFromPeer = async (peerId: string, type: 'audio' | 'video') => {
     if (!peerId) return;
     const existing = conversations.find(conversation => conversation.type === 'direct' && conversation.participants.some(participant => participant.id === peerId));
     const conversation = existing || await api.createConversation(peerId, session.token);
-    await onRefreshConversations();
+    void onRefreshConversations().catch(() => undefined);
     await nativeCall.startCall(conversation, type);
   };
 
+  const openAdjacentRootTab = useCallback((direction: 'next' | 'previous') => {
+    const visibleTabs = tabs.map(tab => tab.key);
+    const currentRoot = rootTabFor(activeTab);
+    const currentIndex = visibleTabs.indexOf(currentRoot);
+    const nextTab = visibleTabs[direction === 'next' ? currentIndex + 1 : currentIndex - 1];
+    if (nextTab) onTabPress(nextTab);
+  }, [activeTab, onTabPress, tabs]);
+
+  const handleRootSwipe = useCallback((direction: 'next' | 'previous') => {
+    selectionHaptic();
+    openAdjacentRootTab(direction);
+  }, [openAdjacentRootTab]);
+
+  const rootSwipeGesture = useMemo(() => Gesture.Pan()
+    .activeOffsetX([-42, 42])
+    .failOffsetY([-30, 30])
+    .onEnd(event => {
+      if (Math.abs(event.translationX) > 82 && Math.abs(event.velocityX) > 180) {
+        runOnJS(handleRootSwipe)(event.translationX < 0 ? 'next' : 'previous');
+      }
+    }), [handleRootSwipe]);
+
+  const tabSwipeResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gesture) => (
+      Math.abs(gesture.dx) > 72 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.35
+    ),
+    onPanResponderRelease: (_, gesture) => {
+      if (Math.abs(gesture.dx) > 86 && Math.abs(gesture.dy) < 54) {
+        selectionHaptic();
+        openAdjacentRootTab(gesture.dx < 0 ? 'next' : 'previous');
+      }
+    },
+  }), [openAdjacentRootTab]);
+
   return (
-    <SafeAreaView style={styles.app}>
+    <SafeAreaView edges={['top']} style={styles.app}>
+      <StatusBar
+        style={statusOnChat ? 'light' : 'dark'}
+        backgroundColor={statusOnChat ? colors.header : colors.background}
+        translucent={false}
+      />
       <NativeCallOverlay call={nativeCall} conversation={selected} currentUserId={session.user.id} />
+      <NativeHeaderOverflowMenu
+        visible={headerMenuOpen}
+        isAdmin={isAdminSession(session)}
+        onClose={() => setHeaderMenuOpen(false)}
+        onOpenTab={onTabPress}
+        onLogout={onLogout}
+      />
       {activeTab === 'chats' && selected ? (
         <NativeChatPanel
           conversation={selected}
           conversations={conversations}
           session={session}
           presenceText={presenceText}
-          callNotice={nativeCall.callNotice}
+          callNotice={nativeCall.callState === 'idle' ? undefined : nativeCall.callNotice}
+          notice={notice}
           messageSearch={messageSearch}
           messages={messages}
           selectedMessageIds={selectedMessageIds}
@@ -145,11 +250,14 @@ export function NativeHomeShell({
           editingMessage={editingMessage}
           voiceRecording={voiceRecording}
           voiceStartedAt={voiceStartedAt}
+          voiceLocked={voiceLocked}
+          voicePreview={voicePreview}
           aiBusy={aiBusy}
           busy={busy}
           onBack={onBackFromChat}
           onStartAudioCall={() => nativeCall.startCall(selected, 'audio')}
           onStartVideoCall={() => nativeCall.startCall(selected, 'video')}
+          onCallMessagePress={(type) => nativeCall.startCall(selected, type)}
           onMessageSearchChange={onMessageSearchChange}
           onShare={onShareMessages}
           onBeginForward={onBeginForward}
@@ -166,35 +274,71 @@ export function NativeHomeShell({
           onAttachCamera={onAttachCamera}
           onAttachImage={onAttachImage}
           onAttachDocument={onAttachDocument}
-          onToggleVoiceRecording={onToggleVoiceRecording}
+          onStartVoiceRecording={onStartVoiceRecording}
+          onStopVoiceRecording={onStopVoiceRecording}
+          onLockVoiceRecording={onLockVoiceRecording}
+          onSendVoicePreview={onSendVoicePreview}
           onAskAiDraft={onAskAiDraft}
+          onOpenAiTools={onOpenAiTools || (() => onTabPress('ai'))}
           onSend={onSend}
         />
       ) : (
-        <>
-          {activeTab === 'chats' ? (
+        <GestureDetector gesture={rootSwipeGesture}>
+        <View style={styles.app}>
+          {usesRootHeader(activeTab) ? (
             <NativeHomeShellHeader
               title="Oracle Messenger"
               subtitle={headerSubtitle}
               onRefresh={onRefreshConversations}
               onTabPress={onTabPress}
+              onMenuPress={() => {
+                selectionHaptic();
+                setHeaderMenuOpen(true);
+              }}
             />
           ) : null}
 
           {notice ? <Text style={styles.banner}>{notice}</Text> : null}
 
-          {activeTab !== 'chats' ? (
-            <NativeFeaturePage
+          {usesDirectFeatureLayout(activeTab) ? (
+            <View style={styles.swipePage} {...tabSwipeResponder.panHandlers}>
+              <NativeFeaturePage
+                tab={activeTab}
+                session={session}
+                onOpenConversation={onOpenConversationFromFeature}
+                onStartCallFromPeer={startCallFromPeer}
+                onRefreshConversations={onRefreshConversations}
+                onLogout={onLogout}
+                onOpenTab={onTabPress}
+                onBackToChats={() => onTabPress('chats')}
+                callDiagnostics={nativeCall.callDiagnostics}
+                onClearCallDiagnostics={nativeCall.clearCallDiagnostics}
+                isAdmin={isAdminSession(session)}
+              />
+            </View>
+          ) : activeTab !== 'chats' ? (
+            <NativeFeatureShell
               tab={activeTab}
-              session={session}
-              onOpenConversation={onOpenConversationFromFeature}
-              onStartCallFromPeer={startCallFromPeer}
-              onRefreshConversations={onRefreshConversations}
-              onLogout={onLogout}
-              onOpenTab={onTabPress}
-            />
+              onBackToChats={() => onTabPress('chats')}
+              onSwipeTab={openAdjacentRootTab}
+            >
+              <NativeFeaturePage
+                tab={activeTab}
+                session={session}
+                onOpenConversation={onOpenConversationFromFeature}
+                onStartCallFromPeer={startCallFromPeer}
+                onRefreshConversations={onRefreshConversations}
+                onLogout={onLogout}
+                onOpenTab={onTabPress}
+                onBackToChats={() => onTabPress('chats')}
+                callDiagnostics={nativeCall.callDiagnostics}
+                onClearCallDiagnostics={nativeCall.clearCallDiagnostics}
+                isAdmin={isAdminSession(session)}
+              />
+            </NativeFeatureShell>
           ) : (
             <NativeConversationList
+              token={session.token}
               ownerId={session.user.id}
               conversations={conversations}
               search={conversationSearch}
@@ -203,10 +347,16 @@ export function NativeHomeShell({
               onOpenConversation={onOpenConversationFromList}
               onConversationActions={onConversationActions}
               onOpenContacts={() => onTabPress('contacts')}
+              onGroupChanged={async conversation => {
+                await onRefreshConversations();
+                onOpenConversationFromList(conversation);
+              }}
+              onSwipeTab={openAdjacentRootTab}
             />
           )}
-          <NativeBottomTabs tabs={tabs} activeTab={activeTab} onTabPress={onTabPress} />
-        </>
+          {HIDDEN_BOTTOM_TABS.includes(activeTab) ? null : <NativeBottomTabs tabs={tabs} activeTab={rootTabFor(activeTab)} onTabPress={onTabPress} />}
+        </View>
+        </GestureDetector>
       )}
     </SafeAreaView>
   );
@@ -214,5 +364,6 @@ export function NativeHomeShell({
 
 const styles = StyleSheet.create({
   app: { flex: 1, backgroundColor: colors.background },
+  swipePage: { flex: 1 },
   banner: { margin: 12, padding: 10, borderRadius: 12, backgroundColor: '#FFF7ED', color: '#9A3412', fontSize: 12.5, fontWeight: '800' },
 });

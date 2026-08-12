@@ -2,20 +2,15 @@
   "expo": {
     "name": "Oracle Messenger",
     "slug": "oracle-messenger-native",
-    "version": "1.0.20260811.3",
+    "version": "1.0.20260812.15",
     "orientation": "portrait",
     "scheme": "oraclemessenger",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "icon": "./assets/icon.png",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#102A2A"
-    },
     "android": {
       "package": "online.oracle_plus.messenger",
-      "versionCode": 2026081103,
+      "versionCode": 2026081215,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
@@ -48,10 +43,19 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/splash-icon.png",
-          "imageWidth": 180,
-          "resizeMode": "contain",
-          "backgroundColor": "#102A2A"
+          "backgroundColor": "#F6F7F9"
+        }
+      ],
+      [
+        "@livekit/react-native-expo-plugin",
+        {
+          "android": {
+            "audioType": "communication",
+            "enableScreenShareService": false
+          },
+          "ios": {
+            "enableMultitaskingCameraAccess": false
+          }
         }
       ],
       [
@@ -74,7 +78,7 @@
       "backendUrl": "https://api-messenger.oracle-plus.online",
       "frontendUrl": "https://messenger.oracle-plus.online",
       "playPackage": "online.oracle_plus.messenger",
-      "nativeBaseline": "20260811.3"
+      "nativeBaseline": "20260811.4"
     }
   }
 }

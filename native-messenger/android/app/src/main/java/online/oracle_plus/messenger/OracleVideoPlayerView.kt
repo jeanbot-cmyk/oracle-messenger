@@ -20,6 +20,8 @@ class OracleVideoPlayerView(context: Context) : FrameLayout(context) {
   private var paused = false
   private var muted = false
   private var repeat = false
+  private var videoWidth = 0
+  private var videoHeight = 0
 
   init {
     setBackgroundColor(Color.BLACK)
@@ -46,6 +48,9 @@ class OracleVideoPlayerView(context: Context) : FrameLayout(context) {
 
     videoView.setOnPreparedListener { player ->
       mediaPlayer = player
+      videoWidth = player.videoWidth
+      videoHeight = player.videoHeight
+      updateVideoLayout()
       player.isLooping = repeat
       applyMute()
       errorView.visibility = GONE
@@ -59,6 +64,11 @@ class OracleVideoPlayerView(context: Context) : FrameLayout(context) {
     }
   }
 
+  override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+    super.onSizeChanged(w, h, oldw, oldh)
+    updateVideoLayout()
+  }
+
   fun setSourceUrl(value: String?) {
     val cleanValue = value?.trim().orEmpty()
     if (cleanValue == sourceUrl.orEmpty()) return
@@ -66,6 +76,8 @@ class OracleVideoPlayerView(context: Context) : FrameLayout(context) {
     if (cleanValue.isBlank()) {
       videoView.stopPlayback()
       errorView.visibility = GONE
+      videoWidth = 0
+      videoHeight = 0
       return
     }
     errorView.visibility = GONE
@@ -101,5 +113,34 @@ class OracleVideoPlayerView(context: Context) : FrameLayout(context) {
   private fun applyMute() {
     val volume = if (muted) 0f else 1f
     mediaPlayer?.setVolume(volume, volume)
+  }
+
+  private fun updateVideoLayout() {
+    val parentWidth = width
+    val parentHeight = height
+    if (parentWidth <= 0 || parentHeight <= 0 || videoWidth <= 0 || videoHeight <= 0) {
+      videoView.layoutParams = LayoutParams(
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        ViewGroup.LayoutParams.MATCH_PARENT,
+        Gravity.CENTER
+      )
+      return
+    }
+    val parentRatio = parentWidth.toFloat() / parentHeight.toFloat()
+    val videoRatio = videoWidth.toFloat() / videoHeight.toFloat()
+    val targetWidth: Int
+    val targetHeight: Int
+    if (videoRatio > parentRatio) {
+      targetWidth = parentWidth
+      targetHeight = (parentWidth / videoRatio).toInt()
+    } else {
+      targetHeight = parentHeight
+      targetWidth = (parentHeight * videoRatio).toInt()
+    }
+    videoView.layoutParams = LayoutParams(
+      targetWidth.coerceAtLeast(1),
+      targetHeight.coerceAtLeast(1),
+      Gravity.CENTER
+    )
   }
 }

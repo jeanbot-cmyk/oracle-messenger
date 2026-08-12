@@ -3,29 +3,44 @@ import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class StoriesService {
+  private readonly officialSystemEmail = 'system-aura@oracle-messenger.local';
+
   constructor(private prisma: PrismaService) {}
 
   private async visibleAuthorIds(userId: string) {
-    const [participants, contacts] = await Promise.all([
+    const [directParticipants, contacts, contactedBy] = await Promise.all([
       this.prisma.participant.findMany({
         where: {
           userId: { not: userId },
           conversation: {
+            type: 'direct',
             participants: { some: { userId } },
           },
+          user: { email: { not: this.officialSystemEmail } },
         },
         select: { userId: true },
       }),
       this.prisma.contact.findMany({
-        where: { ownerId: userId },
+        where: {
+          ownerId: userId,
+          contactUser: { email: { not: this.officialSystemEmail } },
+        },
         select: { contactUserId: true },
+      }),
+      this.prisma.contact.findMany({
+        where: {
+          contactUserId: userId,
+          owner: { email: { not: this.officialSystemEmail } },
+        },
+        select: { ownerId: true },
       }),
     ]);
 
     return [...new Set([
       userId,
-      ...participants.map(p => p.userId),
+      ...directParticipants.map(p => p.userId),
       ...contacts.map(c => c.contactUserId),
+      ...contactedBy.map(c => c.ownerId),
     ])];
   }
 

@@ -4,11 +4,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as Contacts from 'expo-contacts';
 import * as Crypto from 'expo-crypto';
+import { RefreshCw, Search, UserPlus, X } from 'lucide-react-native';
 import { FRONTEND_URL } from '@/config/env';
+import { NativePhotoViewer } from '@/screens/home/NativePhotoViewer';
+import { highQualityImageUri } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
 import { colors } from '@/theme/colors';
 import type { Conversation, User } from '@/types/messenger';
-import { AlertText, Loading, PageHeader, PrimaryButton, SecondaryButton, Section, UserRow } from './FeatureUi';
+import { Loading } from './FeatureUi';
 
 type LocalContact = {
   id?: string;
@@ -33,6 +36,7 @@ type InvitePhoneStatus = {
 
 const CONTACT_CACHE_KEY = 'oracle-native-contacts';
 const MANUAL_CONTACT_KEY = 'oracle-native-manual-contacts';
+const ORACLE_MESSENGER_ICON = require('../../../assets/icon.png');
 const INTERNATIONAL_DIAL_CODES = [
   '225', '237', '221', '223', '226', '224', '228', '229', '227',
   '243', '242', '241', '233', '234', '212', '213', '216',
@@ -173,6 +177,14 @@ function localOnlyContacts(locals: LocalContact[]): EnrichedContact[] {
   return locals.map(local => ({ local, appUser: null }));
 }
 
+async function readDeviceContacts() {
+  const response = await Contacts.getContactsAsync({
+    fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails, Contacts.Fields.Name, Contacts.Fields.Image],
+    pageSize: 2000,
+  });
+  return response.data.map(normalizeDeviceContact).filter(Boolean) as LocalContact[];
+}
+
 function bestAppUserForLocalContact(local: LocalContact, matched: User[]) {
   const byEmail = local.emails
     .map(email => matched.find(user => user.email?.toLowerCase() === email.toLowerCase()))
@@ -258,30 +270,46 @@ function LocalContactRow({
   contact,
   creating,
   onPress,
+  onAvatarPress,
 }: {
   contact: EnrichedContact;
   creating: boolean;
   onPress: () => void;
+  onAvatarPress: (preview: { uri?: string | null; name: string }) => void;
 }) {
   const { local, appUser } = contact;
-  const avatar = appUser?.avatar || local.avatar;
+  const avatar = highQualityImageUri(appUser?.avatar || local.avatar) || appUser?.avatar || local.avatar;
+  const displayName = (local.name.trim() || appUser?.name || 'Contact').replace(/^@+/, '');
+  const displaySub = appUser
+    ? normalizeUsername(appUser.username) || appUser.phone || appUser.email || 'Envoyez-lui un message'
+    : local.phones.join(', ') || local.emails[0] || 'Pas encore inscrit';
   return (
-    <Pressable onPress={onPress} disabled={creating} style={styles.localRow}>
-      <View style={styles.localAvatarWrap}>
+    <Pressable
+      onPress={onPress}
+      disabled={creating}
+      android_ripple={{ color: appUser ? 'rgba(16,42,42,0.08)' : 'rgba(37,99,235,0.08)' }}
+      style={({ pressed }) => [styles.localRow, appUser && styles.oracleLocalRow, pressed && styles.localRowPressed]}
+    >
+      <Pressable
+        accessibilityRole="imagebutton"
+        accessibilityLabel={`Photo de ${displayName}`}
+        onPress={event => {
+          event.stopPropagation();
+          onAvatarPress({ uri: avatar, name: displayName });
+        }}
+        hitSlop={8}
+        style={styles.localAvatarWrap}
+      >
         <View style={styles.localAvatar}>
-          {avatar ? <Image source={{ uri: avatar }} style={styles.localAvatarImage} /> : <Text style={styles.localAvatarText}>{initials(local.name)}</Text>}
+          {avatar ? <Image source={{ uri: avatar }} style={styles.localAvatarImage} /> : <Text style={styles.localAvatarText}>{initials(displayName)}</Text>}
         </View>
         {appUser ? <View style={styles.onlineDot} /> : null}
-      </View>
+      </Pressable>
       <View style={styles.localRowText}>
-        <Text numberOfLines={1} style={styles.localRowTitle}>{local.name}</Text>
-        <Text numberOfLines={1} style={styles.localRowSub}>
-          {appUser
-            ? appUser.username ? `@${appUser.username}` : 'Envoyez-lui un message'
-            : local.phones.join(', ') || local.emails[0] || 'Pas encore inscrit'}
-        </Text>
+        <Text numberOfLines={1} style={styles.localRowTitle}>{displayName}</Text>
+        <Text numberOfLines={1} style={styles.localRowSub}>{displaySub}</Text>
       </View>
-      <Text style={[styles.localRowAction, !appUser && styles.inviteAction]}>{appUser ? 'Écrire' : 'Inviter'}</Text>
+      <Text style={[styles.localRowAction, appUser ? styles.writeAction : styles.inviteAction]}>{appUser ? 'Écrire' : 'Inviter'}</Text>
     </Pressable>
   );
 }
@@ -291,16 +319,15 @@ export function ContactsPage({
   user,
   onOpenConversation,
   onRefreshConversations,
+  onBack,
 }: {
   token: string;
   user: User;
   onOpenConversation: (conversation: Conversation) => void;
   onRefreshConversations: () => Promise<void>;
+  onBack?: () => void;
 }) {
   const [query, setQuery] = useState('');
-  const [phone, setPhone] = useState('');
-  const [results, setResults] = useState<User[]>([]);
-  const [matched, setMatched] = useState<User | null>(null);
   const [localContacts, setLocalContacts] = useState<LocalContact[]>([]);
   const [enrichedContacts, setEnrichedContacts] = useState<EnrichedContact[]>([]);
   const [imported, setImported] = useState(false);
@@ -313,6 +340,7 @@ export function ContactsPage({
   const [newPhone, setNewPhone] = useState('');
   const [inviteContact, setInviteContact] = useState<LocalContact | null>(null);
   const [invitePhone, setInvitePhone] = useState('');
+  const [avatarPreview, setAvatarPreview] = useState<{ uri?: string | null; name: string } | null>(null);
 
   const cacheKey = `${CONTACT_CACHE_KEY}:${user.id}`;
   const manualKey = `${MANUAL_CONTACT_KEY}:${user.id}`;
@@ -345,7 +373,15 @@ export function ContactsPage({
     async function restoreContacts() {
       const cached = await readStoredContacts(cacheKey);
       const manual = await readStoredContacts(manualKey);
-      const restored = mergeContacts(cached, manual);
+      let restored = mergeContacts(cached, manual);
+      if (!restored.length) {
+        const permission = await Contacts.getPermissionsAsync().catch(() => null);
+        if (permission?.granted) {
+          const deviceContacts = await readDeviceContacts().catch(() => []);
+          restored = mergeContacts(deviceContacts, manual);
+          if (deviceContacts.length) await writeStoredContacts(cacheKey, deviceContacts);
+        }
+      }
       if (!active || !restored.length) return;
       setLocalContacts(restored);
       setEnrichedContacts(localOnlyContacts(restored));
@@ -375,35 +411,17 @@ export function ContactsPage({
     }
   }, [onOpenConversation, onRefreshConversations, token]);
 
-  const search = useCallback(async () => {
-    if (!query.trim()) return;
-    setBusy(true);
-    setNotice('');
-    try {
-      setResults(await api.searchUsers(query.trim(), token));
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Recherche impossible.');
-    } finally {
-      setBusy(false);
-    }
-  }, [query, token]);
-
   const importContacts = useCallback(async () => {
     setBusy(true);
     setNotice('');
     setActionNotice('Recherche de vos amis sur Oracle Messenger...');
-    setMatched(null);
     try {
       const permission = await Contacts.requestPermissionsAsync();
       if (!permission.granted) {
         setNotice('Autorisez les contacts dans Android pour retrouver automatiquement vos proches inscrits sur Oracle Messenger.');
         return;
       }
-      const response = await Contacts.getContactsAsync({
-        fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails, Contacts.Fields.Name, Contacts.Fields.Image],
-        pageSize: 2000,
-      });
-      const deviceContacts = response.data.map(normalizeDeviceContact).filter(Boolean) as LocalContact[];
+      const deviceContacts = await readDeviceContacts();
       const manual = await readStoredContacts(manualKey);
       const all = mergeContacts(deviceContacts, manual);
       setLocalContacts(all);
@@ -425,30 +443,10 @@ export function ContactsPage({
     }
   }, [cacheKey, manualKey, matchLocalContacts]);
 
-  const matchPhone = useCallback(async () => {
-    const normalized = phone.trim();
-    if (!normalized) return;
-    if (!normalized.startsWith('+')) {
-      setNotice('Ajoutez le code pays avant invitation, exemple +225...');
-      return;
-    }
-    setBusy(true);
-    setNotice('');
-    try {
-      const user = await api.matchContact(token, { phone: normalized });
-      setMatched(user);
-      if (!user) setNotice('Aucun compte trouvé. Le numéro peut être invité avec son code pays.');
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Vérification contact impossible.');
-    } finally {
-      setBusy(false);
-    }
-  }, [phone, token]);
-
   const startInvite = useCallback((contact: LocalContact) => {
     setInviteContact(contact);
     setInvitePhone(contact.phones[0] || contact.emails[0] || '');
-    setActionNotice('');
+    setActionNotice('Choisissez WhatsApp, SMS ou partage pour envoyer l’invitation.');
   }, []);
 
   const handleLocalContactPress = useCallback(async (contact: EnrichedContact) => {
@@ -513,59 +511,6 @@ export function ContactsPage({
     }
   }, [createConversation, localContacts, manualKey, matchLocalContacts, newName, newPhone, token]);
 
-  const shareMessenger = useCallback(async () => {
-    await Share.share({
-      title: 'Oracle Messenger',
-      message: 'Oracle Messenger: https://messenger.oracle-plus.online',
-    });
-  }, []);
-
-  const invitePhoneDirect = useCallback(async () => {
-    const normalized = invitePhoneStatus(phone);
-    const link = inviteLink(user);
-    const senderName = user.name?.trim() || 'Un contact';
-    const phoneLine = formatOwnPhone(user.phone) ? `\nMon contact : ${formatOwnPhone(user.phone)}` : '';
-    const text = `Bonjour !\n${senderName} t'invite à rejoindre Oracle Messenger.${phoneLine}\n\nInstalle l'app :\n${link}`;
-    try {
-      if (normalized.valid) {
-        setNotice(normalized.international
-          ? `Numéro international confirmé : ${normalized.e164}`
-          : `Numéro local sans indicatif conservé tel quel : ${normalized.phone}`);
-        await Linking.openURL(`sms:${encodeURIComponent(normalized.international ? normalized.e164 : normalized.phone)}?body=${encodeURIComponent(text)}`);
-      } else {
-        setNotice('Numéro incomplet. Partage général ouvert sans ajouter d’indicatif.');
-        await Share.share({ title: 'Oracle Messenger', message: text, url: link });
-      }
-    } catch {
-      await Share.share({ title: 'Oracle Messenger', message: text, url: link });
-    }
-  }, [phone, user]);
-
-  const inviteWhatsAppDirect = useCallback(async () => {
-    const normalized = invitePhoneStatus(phone);
-    const digits = whatsappPhone(normalized.phone);
-    const senderName = user.name?.trim() || 'Un contact';
-    const text = `Bonjour !\n${senderName} t'invite à rejoindre Oracle Messenger.\n\nInstalle l'app :\n${inviteLink(user)}`;
-    if (!digits || !normalized.international) {
-      setNotice('WhatsApp demande un numéro avec indicatif, exemple +225...');
-      return;
-    }
-    try {
-      await Linking.openURL(`whatsapp://send?phone=${digits}&text=${encodeURIComponent(text)}`);
-    } catch {
-      await Linking.openURL(`https://wa.me/${digits}?text=${encodeURIComponent(text)}`).catch(async () => {
-        await Share.share({ title: 'Oracle Messenger', message: text, url: inviteLink(user) });
-      });
-    }
-  }, [phone, user]);
-
-  const copyInvite = useCallback(async () => {
-    const senderName = user.name?.trim() || 'Un contact';
-    const text = `Bonjour !\n${senderName} t'invite à rejoindre Oracle Messenger.\n\nInstalle l'app :\n${inviteLink(user)}`;
-    await Clipboard.setStringAsync(text);
-    setNotice('Lien d’invitation copié.');
-  }, [user]);
-
   const shareInvite = useCallback(async () => {
     if (!inviteContact) return;
     const { link, msg } = buildInviteMessage(inviteContact, user);
@@ -617,80 +562,130 @@ export function ContactsPage({
   }, [inviteContact, user]);
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
-      <PageHeader
-        title="Sélectionner un contact"
-        subtitle={imported ? `${localContacts.length} contact${localContacts.length !== 1 ? 's' : ''}` : 'Retrouver mes amis sur Oracle Messenger'}
-      />
-      <AlertText text={notice || actionNotice} />
-
-      {!imported ? (
-        <Section title="Retrouver mes amis">
-          <View style={styles.firstVisitCard}>
-            <View style={styles.firstVisitIcon}><Text style={styles.firstVisitIconText}>👥</Text></View>
-            <Text style={styles.firstVisitTitle}>Retrouver mes amis sur Oracle Messenger</Text>
-            <Text style={styles.pageCopy}>Oracle Messenger vérifie votre carnet pour afficher uniquement les proches déjà inscrits. Rien n’est publié.</Text>
+    <View style={styles.screen}>
+      <View style={styles.inviteHeader}>
+        <View style={styles.inviteHeaderRow}>
+          {onBack ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Retour aux discussions" onPress={onBack} style={styles.inviteBackButton}>
+              <Text style={styles.inviteBackText}>←</Text>
+            </Pressable>
+          ) : null}
+          <View style={styles.inviteHeaderCopy}>
+            <Text numberOfLines={2} maxFontSizeMultiplier={1.04} style={styles.inviteHeaderTitle}>Sélectionner un contact</Text>
+            {imported ? (
+              <Text numberOfLines={1} maxFontSizeMultiplier={1.04} style={styles.inviteHeaderSubtitle}>
+                {localContacts.length} contact{localContacts.length !== 1 ? 's' : ''}
+              </Text>
+            ) : null}
           </View>
-          <PrimaryButton label="Retrouver mes amis" onPress={importContacts} disabled={busy} />
-          <SecondaryButton label="+ Ajouter un contact manuellement" onPress={() => setShowAdd(true)} disabled={busy} />
-          <SecondaryButton label="Partager Oracle Messenger" onPress={shareMessenger} disabled={busy} />
-        </Section>
-      ) : (
-        <Section
-          title="Contacts"
-          right={<SecondaryButton label="Rafraîchir" onPress={importContacts} disabled={busy} />}
-        >
-          <TextInput value={query} onChangeText={setQuery} placeholder="Rechercher un contact..." placeholderTextColor={colors.muted} style={styles.input} />
-          <SecondaryButton label="+ Ajouter un contact manuellement" onPress={() => setShowAdd(true)} disabled={busy} />
-          {importedCount ? <Text style={styles.cardMeta}>{importedCount} numéro(s) lus dans le carnet local.</Text> : null}
-          <Loading active={busy} />
-          {visibleContacts.length === 0 ? (
-            <View style={styles.emptyBlock}>
-              <Text style={styles.pageCopy}>{query ? `Aucun résultat pour « ${query} »` : 'Aucun contact trouvé.'}</Text>
-              <PrimaryButton label="+ Ajouter un contact" onPress={() => setShowAdd(true)} disabled={busy} />
-            </View>
-          ) : (
-            <>
-              {oracleContacts.length > 0 ? (
-                <View style={styles.contactGroup}>
-                  <Text style={styles.groupTitle}>Déjà sur Oracle Messenger</Text>
-                  {oracleContacts.map((contact, index) => (
-                    <LocalContactRow key={`oracle-${contactKey(contact.local)}-${index}`} contact={contact} creating={busy} onPress={() => handleLocalContactPress(contact)} />
-                  ))}
-                </View>
-              ) : null}
-              {inviteContacts.length > 0 ? (
-                <View style={styles.contactGroup}>
-                  <Text style={styles.groupTitle}>À inviter</Text>
-                  {inviteContacts.map((contact, index) => (
-                    <LocalContactRow key={`invite-${contactKey(contact.local)}-${index}`} contact={contact} creating={busy} onPress={() => handleLocalContactPress(contact)} />
-                  ))}
-                </View>
-              ) : null}
-            </>
-          )}
-        </Section>
-      )}
-
-      <Section title="Recherche Oracle Messenger">
-        <Text style={styles.pageCopy}>Rechercher directement par nom, email ou username.</Text>
-        <TextInput value={query} onChangeText={setQuery} placeholder="Rechercher par nom, email ou username" placeholderTextColor={colors.muted} style={styles.input} />
-        <PrimaryButton label="Rechercher" onPress={search} disabled={busy || !query.trim()} />
-        {results.map(item => <UserRow key={item.id} user={item} actionLabel="Écrire" onPress={() => createConversation(item)} />)}
-      </Section>
-
-      <Section title="Invitation">
-        <Text style={styles.pageCopy}>Si le numéro n’a pas d’indicatif, Oracle Messenger le conserve tel quel et demande de le compléter avant WhatsApp.</Text>
-        <TextInput value={phone} onChangeText={setPhone} placeholder="+225..." placeholderTextColor={colors.muted} keyboardType="phone-pad" style={styles.input} />
-        <PrimaryButton label="Vérifier le numéro" onPress={matchPhone} disabled={busy || !phone.trim()} />
-        <View style={styles.actionRow}>
-          <SecondaryButton label="Inviter par SMS / partage" onPress={invitePhoneDirect} disabled={busy || !phone.trim()} />
-          <SecondaryButton label="Inviter WhatsApp" onPress={inviteWhatsAppDirect} disabled={busy || !phone.trim()} />
-          <SecondaryButton label="Copier le lien" onPress={copyInvite} disabled={busy} />
+          {imported ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Rafraîchir les contacts"
+              onPress={importContacts}
+              disabled={busy}
+              style={[styles.headerRefreshButton, busy && styles.disabledButton]}
+            >
+              <RefreshCw size={18} color="#FFFFFF" strokeWidth={2.2} />
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retrouver mes amis"
+            onPress={importContacts}
+            disabled={busy}
+            style={[styles.headerImportButton, busy && styles.disabledButton]}
+          >
+            <UserPlus size={17} color="#FFFFFF" strokeWidth={2.4} />
+            <Text numberOfLines={1} maxFontSizeMultiplier={1.04} style={styles.headerImportText}>Retrouver mes amis</Text>
+          </Pressable>
         </View>
-        <Text selectable style={styles.inviteLink}>{inviteLink(user)}</Text>
-        {matched ? <UserRow user={matched} actionLabel="Écrire" onPress={() => createConversation(matched)} /> : null}
-      </Section>
+      </View>
+
+      {notice || actionNotice ? (
+        <Text style={styles.inviteNotice}>{notice || actionNotice}</Text>
+      ) : null}
+
+      {imported ? (
+        <View style={styles.searchArea}>
+          <View style={styles.searchBox}>
+            <Search size={16} color={colors.muted} strokeWidth={2.1} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Rechercher un contact..."
+              placeholderTextColor={colors.muted}
+              style={styles.searchInput}
+            />
+            {query ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="Effacer la recherche" onPress={() => setQuery('')} hitSlop={8}>
+                <X size={16} color={colors.muted} strokeWidth={2.3} />
+              </Pressable>
+            ) : null}
+          </View>
+          <Pressable onPress={() => setShowAdd(true)} disabled={busy} style={[styles.manualButton, busy && styles.disabledButton]}>
+            <Text maxFontSizeMultiplier={1.05} style={styles.manualButtonText}>+ Ajouter un contact manuellement</Text>
+          </Pressable>
+          {importedCount ? <Text style={styles.cardMeta}>{importedCount} numéro(s) lus dans le carnet local.</Text> : null}
+        </View>
+      ) : null}
+
+      <ScrollView
+        style={styles.body}
+        contentContainerStyle={!imported ? styles.firstVisitContent : styles.listContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        {!imported ? (
+          <View style={styles.firstVisitWrap}>
+            <View style={styles.firstVisitCard}>
+              <View style={styles.firstVisitBrand}>
+                <Image source={ORACLE_MESSENGER_ICON} style={styles.firstVisitBrandImage} />
+              </View>
+              <Text maxFontSizeMultiplier={1.05} style={styles.firstVisitTitle}>Oracle Messenger</Text>
+              <Text maxFontSizeMultiplier={1.05} style={styles.firstVisitCopy}>Oracle Messenger vérifie et affiche les contacts enregistrés.</Text>
+            </View>
+            <Pressable onPress={importContacts} disabled={busy} style={[styles.invitePrimaryButton, busy && styles.disabledButton]}>
+              <UserPlus size={18} color="#FFFFFF" strokeWidth={2.3} />
+              <Text maxFontSizeMultiplier={1.05} style={styles.invitePrimaryText}>Retrouver mes amis</Text>
+            </Pressable>
+            <Pressable onPress={() => setShowAdd(true)} disabled={busy} style={[styles.inviteSoftButton, busy && styles.disabledButton]}>
+              <Text maxFontSizeMultiplier={1.05} style={styles.inviteSoftText}>+ Ajouter un contact manuellement</Text>
+            </Pressable>
+            <Loading active={busy} />
+          </View>
+        ) : (
+          <>
+            <Loading active={busy} />
+            {visibleContacts.length === 0 ? (
+              <View style={styles.emptyBlock}>
+                <Text style={styles.pageCopy}>{query ? `Aucun résultat pour « ${query} »` : 'Aucun contact trouvé.'}</Text>
+                <Pressable onPress={() => setShowAdd(true)} disabled={busy} style={[styles.emptyAddButton, busy && styles.disabledButton]}>
+                  <Text style={styles.emptyAddText}>+ Ajouter un contact</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.contactListSurface}>
+                {oracleContacts.length > 0 ? (
+                  <View style={styles.contactGroup}>
+                    <Text style={styles.groupTitle}>Déjà sur Oracle Messenger</Text>
+                    {oracleContacts.map((contact, index) => (
+                      <LocalContactRow key={`oracle-${contactKey(contact.local)}-${index}`} contact={contact} creating={busy} onPress={() => handleLocalContactPress(contact)} onAvatarPress={setAvatarPreview} />
+                    ))}
+                  </View>
+                ) : null}
+                {inviteContacts.length > 0 ? (
+                  <View style={styles.contactGroup}>
+                    <Text style={styles.groupTitle}>À inviter</Text>
+                    {inviteContacts.map((contact, index) => (
+                      <LocalContactRow key={`invite-${contactKey(contact.local)}-${index}`} contact={contact} creating={busy} onPress={() => handleLocalContactPress(contact)} onAvatarPress={setAvatarPreview} />
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+            )}
+          </>
+        )}
+      </ScrollView>
 
       <Modal visible={showAdd} transparent animationType="slide" onRequestClose={() => setShowAdd(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setShowAdd(false)}>
@@ -700,8 +695,16 @@ export function ContactsPage({
             <TextInput value={newName} onChangeText={setNewName} placeholder="Nom (optionnel)" placeholderTextColor={colors.muted} style={styles.input} />
             <TextInput value={newPhone} onChangeText={setNewPhone} placeholder="Téléphone avec indicatif ou email" placeholderTextColor={colors.muted} autoCapitalize="none" style={styles.input} />
             <Text style={styles.pageCopy}>Oracle Messenger vérifie immédiatement si ce contact possède déjà un compte.</Text>
-            <PrimaryButton label="Vérifier et ajouter" onPress={addManualContact} disabled={busy || (!newName.trim() && !newPhone.trim())} />
-            <SecondaryButton label="Annuler" onPress={() => setShowAdd(false)} disabled={busy} />
+            <Pressable
+              onPress={addManualContact}
+              disabled={busy || (!newName.trim() && !newPhone.trim())}
+              style={[styles.sheetPrimaryButton, (busy || (!newName.trim() && !newPhone.trim())) && styles.disabledButton]}
+            >
+              <Text style={styles.sheetPrimaryText}>Vérifier et ajouter</Text>
+            </Pressable>
+            <Pressable onPress={() => setShowAdd(false)} disabled={busy} style={[styles.sheetSecondaryButton, busy && styles.disabledButton]}>
+              <Text style={styles.sheetSecondaryText}>Annuler</Text>
+            </Pressable>
           </Pressable>
         </Pressable>
       </Modal>
@@ -734,58 +737,113 @@ export function ContactsPage({
                 ) : null}
               </>
             ) : null}
-            <PrimaryButton label="Partager l’invitation" onPress={shareInvite} disabled={busy} />
+            <Pressable onPress={shareInvite} disabled={busy} style={[styles.sheetPrimaryButton, busy && styles.disabledButton]}>
+              <Text style={styles.sheetPrimaryText}>Partager l’invitation</Text>
+            </Pressable>
             {inviteContact?.phones.length ? (
-              <View style={styles.actionRow}>
-                <SecondaryButton label="Inviter sur WhatsApp" onPress={inviteByWhatsApp} disabled={busy} />
-                <SecondaryButton label="SMS" onPress={inviteBySms} disabled={busy} />
+              <View style={styles.sheetSplitRow}>
+                <Pressable onPress={inviteByWhatsApp} disabled={busy} style={[styles.sheetSecondaryButton, styles.sheetSplitButton, busy && styles.disabledButton]}>
+                  <Text style={styles.sheetSecondaryText}>Inviter sur WhatsApp</Text>
+                </Pressable>
+                <Pressable onPress={inviteBySms} disabled={busy} style={[styles.sheetSecondaryButton, styles.sheetSplitButton, busy && styles.disabledButton]}>
+                  <Text style={styles.sheetSecondaryText}>SMS</Text>
+                </Pressable>
               </View>
             ) : null}
-            <SecondaryButton label="Copier le lien" onPress={copyContactInvite} disabled={busy} />
-            <SecondaryButton label="Annuler" onPress={() => setInviteContact(null)} disabled={busy} />
+            <Pressable onPress={copyContactInvite} disabled={busy} style={[styles.sheetSecondaryButton, busy && styles.disabledButton]}>
+              <Text style={styles.sheetSecondaryText}>Copier le lien</Text>
+            </Pressable>
+            <Pressable onPress={() => setInviteContact(null)} disabled={busy} style={[styles.sheetCancelButton, busy && styles.disabledButton]}>
+              <Text style={styles.sheetCancelText}>Annuler</Text>
+            </Pressable>
           </Pressable>
         </Pressable>
       </Modal>
-    </ScrollView>
+      <NativePhotoViewer
+        visible={Boolean(avatarPreview)}
+        uri={avatarPreview?.uri}
+        title={avatarPreview?.name}
+        fallbackText={initials(avatarPreview?.name)}
+        onClose={() => setAvatarPreview(null)}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  page: { paddingBottom: 96, gap: 0, backgroundColor: colors.background },
-  pageCopy: { color: colors.muted, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
-  firstVisitCard: { alignItems: 'center', gap: 10, paddingVertical: 10 },
-  firstVisitIcon: { width: 82, height: 82, borderRadius: 41, backgroundColor: colors.brandSoft, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
-  firstVisitIconText: { fontSize: 34 },
-  firstVisitTitle: { color: colors.text, fontSize: 20, lineHeight: 24, fontWeight: '900', textAlign: 'center' },
-  input: { minHeight: 48, borderRadius: 15, backgroundColor: colors.input, color: colors.text, paddingHorizontal: 14, paddingVertical: 10, fontWeight: '800', borderWidth: 1, borderColor: 'transparent' },
-  cardMeta: { color: colors.muted, fontSize: 11.5, fontWeight: '800' },
-  inviteLink: { color: colors.brand, fontSize: 12, lineHeight: 17, fontWeight: '900' },
-  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
-  emptyBlock: { gap: 12, alignItems: 'center', paddingVertical: 16 },
+  screen: { flex: 1, backgroundColor: colors.background },
+  inviteHeader: { minHeight: 66, backgroundColor: colors.header, paddingHorizontal: 16, paddingVertical: 10, justifyContent: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.10)' },
+  inviteHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  inviteBackButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.10)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
+  inviteBackText: { color: '#FFFFFF', fontSize: 22, lineHeight: 24, fontWeight: '800' },
+  inviteHeaderCopy: { flex: 1, minWidth: 0 },
+  inviteHeaderTitle: { color: '#FFFFFF', fontSize: 20, lineHeight: 23, fontWeight: '900' },
+  inviteHeaderSubtitle: { color: 'rgba(248,250,252,0.72)', fontSize: 14, lineHeight: 17, fontWeight: '700', marginTop: 2 },
+  headerRefreshButton: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.10)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)' },
+  headerImportButton: { minHeight: 42, borderRadius: 21, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 13, backgroundColor: colors.brand, shadowColor: colors.header, shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
+  headerImportText: { color: '#FFFFFF', fontSize: 13, lineHeight: 17, fontWeight: '900' },
+  inviteNotice: { marginHorizontal: 14, marginTop: 10, borderRadius: 14, backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: 'rgba(16,42,42,0.14)', color: colors.header, paddingHorizontal: 13, paddingVertical: 11, fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  searchArea: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 6, backgroundColor: colors.background },
+  searchBox: { minHeight: 44, borderRadius: 22, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, shadowColor: '#0F172A', shadowOpacity: 0.04, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  searchInput: { flex: 1, minHeight: 42, color: colors.text, fontSize: 14, lineHeight: 18, fontWeight: '700', paddingVertical: 0 },
+  manualButton: { marginTop: 10, minHeight: 42, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  manualButtonText: { color: colors.brand, fontSize: 14, lineHeight: 18, fontWeight: '900', textAlign: 'center' },
+  cardMeta: { color: colors.muted, fontSize: 12.5, lineHeight: 17, fontWeight: '700', marginTop: 7, marginLeft: 2 },
+  body: { flex: 1 },
+  firstVisitContent: { flexGrow: 1, justifyContent: 'center', paddingHorizontal: 20, paddingVertical: 20, paddingBottom: 104 },
+  listContent: { paddingTop: 8, paddingBottom: 104 },
+  firstVisitWrap: { gap: 14 },
+  pageCopy: { color: colors.muted, fontSize: 14, lineHeight: 20, fontWeight: '600' },
+  firstVisitCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 22, padding: 22, alignItems: 'center', gap: 12, shadowColor: '#0F172A', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 1 },
+  firstVisitBrand: { width: 82, height: 82, borderRadius: 24, backgroundColor: colors.header, borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center', marginBottom: 2, overflow: 'hidden', shadowColor: colors.header, shadowOpacity: 0.14, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
+  firstVisitBrandImage: { width: '100%', height: '100%' },
+  firstVisitTitle: { color: colors.text, fontSize: 22, lineHeight: 26, fontWeight: '900', textAlign: 'center' },
+  firstVisitCopy: { color: colors.secondary, fontSize: 15, lineHeight: 22, fontWeight: '800', textAlign: 'center' },
+  invitePrimaryButton: { minHeight: 52, borderRadius: 18, backgroundColor: colors.header, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 10, paddingHorizontal: 18, shadowColor: colors.header, shadowOpacity: 0.16, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
+  invitePrimaryText: { color: '#FFFFFF', fontSize: 15, lineHeight: 19, fontWeight: '900', textAlign: 'center' },
+  inviteSoftButton: { minHeight: 48, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18 },
+  inviteSoftText: { color: colors.header, fontSize: 14, lineHeight: 18, fontWeight: '800', textAlign: 'center' },
+  disabledButton: { opacity: 0.55 },
+  emptyBlock: { gap: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 44 },
+  emptyAddButton: { minHeight: 44, borderRadius: 22, backgroundColor: colors.header, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
+  emptyAddText: { color: '#FFFFFF', fontSize: 14, lineHeight: 18, fontWeight: '900' },
+  contactListSurface: { backgroundColor: colors.surface },
   contactGroup: { gap: 0 },
-  groupTitle: { color: colors.muted, fontSize: 12.5, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', marginTop: 8, marginBottom: 4 },
-  localRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
+  groupTitle: { color: colors.muted, fontSize: 13, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', marginTop: 20, marginBottom: 8, marginHorizontal: 20, letterSpacing: 0.4 },
+  localRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 10, paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
+  oracleLocalRow: { backgroundColor: colors.surface },
+  localRowPressed: { backgroundColor: '#EAF4F1' },
   localAvatarWrap: { position: 'relative', flexShrink: 0 },
   localAvatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#EAF4F1', overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border },
   localAvatarImage: { width: '100%', height: '100%' },
-  localAvatarText: { color: colors.header, fontWeight: '900', fontSize: 15 },
+  localAvatarText: { color: colors.header, fontWeight: '900', fontSize: 18 },
   onlineDot: { position: 'absolute', right: 1, bottom: 1, width: 14, height: 14, borderRadius: 7, backgroundColor: colors.online, borderWidth: 2, borderColor: colors.surface },
   localRowText: { flex: 1, minWidth: 0 },
   localRowTitle: { color: colors.text, fontSize: 16, lineHeight: 20, fontWeight: '800' },
-  localRowSub: { color: colors.muted, fontSize: 13.5, lineHeight: 18, fontWeight: '700', marginTop: 3 },
-  localRowAction: { color: colors.header, fontSize: 13, fontWeight: '900' },
+  localRowSub: { color: colors.muted, fontSize: 14, lineHeight: 18, fontWeight: '600', marginTop: 4 },
+  localRowAction: { fontSize: 14, lineHeight: 18, fontWeight: '900', flexShrink: 0 },
+  writeAction: { color: colors.header },
   inviteAction: { color: colors.brand },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.42)', paddingHorizontal: 14, paddingBottom: 14 },
-  sheet: { width: '100%', maxHeight: '88%', borderRadius: 24, backgroundColor: colors.surface, padding: 20, gap: 12 },
-  sheetHandle: { width: 44, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong, alignSelf: 'center', marginBottom: 4 },
+  sheet: { width: '100%', maxHeight: '88%', borderRadius: 24, backgroundColor: colors.surface, paddingHorizontal: 20, paddingTop: 22, paddingBottom: 18, gap: 12 },
+  sheetHandle: { width: 44, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong, alignSelf: 'center', marginBottom: 6 },
   sheetTitle: { color: colors.text, fontSize: 22, lineHeight: 26, fontWeight: '900' },
-  radioRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 8 },
+  input: { minHeight: 48, borderRadius: 14, backgroundColor: colors.surface, color: colors.text, paddingHorizontal: 14, paddingVertical: 10, fontSize: 15, fontWeight: '700', borderWidth: 1.5, borderColor: colors.border },
+  sheetPrimaryButton: { minHeight: 48, borderRadius: 16, backgroundColor: colors.header, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+  sheetPrimaryText: { color: '#FFFFFF', fontSize: 15, lineHeight: 19, fontWeight: '900', textAlign: 'center' },
+  sheetSecondaryButton: { minHeight: 46, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  sheetSecondaryText: { color: colors.header, fontSize: 14, lineHeight: 18, fontWeight: '900', textAlign: 'center' },
+  sheetSplitRow: { flexDirection: 'row', gap: 10 },
+  sheetSplitButton: { flex: 1 },
+  sheetCancelButton: { minHeight: 38, alignItems: 'center', justifyContent: 'center' },
+  sheetCancelText: { color: colors.muted, fontSize: 14, lineHeight: 18, fontWeight: '800' },
+  radioRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 10 },
   radioOuter: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: colors.muted, alignItems: 'center', justifyContent: 'center' },
   radioOuterActive: { borderColor: colors.brand },
   radioInner: { width: 12, height: 12, borderRadius: 6, backgroundColor: colors.brand },
   radioCopy: { flex: 1, minWidth: 0 },
-  radioTitle: { color: colors.text, fontSize: 13.5, fontWeight: '900' },
-  radioValue: { color: colors.muted, fontSize: 14, fontWeight: '700', marginTop: 2 },
-  warningText: { color: '#92400E', backgroundColor: '#FFFBEB', borderColor: '#F59E0B', borderWidth: 1, borderRadius: 12, padding: 10, fontSize: 12.5, lineHeight: 18, fontWeight: '800' },
-  successText: { color: '#047857', fontSize: 12.5, lineHeight: 18, fontWeight: '900' },
+  radioTitle: { color: colors.text, fontSize: 15, lineHeight: 19, fontWeight: '900' },
+  radioValue: { color: colors.muted, fontSize: 15, lineHeight: 19, fontWeight: '700', marginTop: 4 },
+  warningText: { color: '#92400E', backgroundColor: '#FFFBEB', borderColor: '#F59E0B', borderWidth: 1, borderRadius: 14, padding: 11, fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  successText: { color: '#047857', fontSize: 13, lineHeight: 18, fontWeight: '900' },
 });

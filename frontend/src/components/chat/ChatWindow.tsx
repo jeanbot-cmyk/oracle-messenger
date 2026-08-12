@@ -420,7 +420,9 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   useEffect(() => {
     if (!activeConvId || !isOfficialConversation || !conv?.officialExpiresAt || (conv.unreadCount ?? 0) > 0) return;
     const expiresAt = new Date(conv.officialExpiresAt).getTime();
-    if (!Number.isFinite(expiresAt)) return;
+    const lastMessageAt = conv.lastMessage?.createdAt ? new Date(conv.lastMessage.createdAt).getTime() : Number.NaN;
+    if (!Number.isFinite(expiresAt) || !Number.isFinite(lastMessageAt)) return;
+    if (expiresAt - 24 * 60 * 60 * 1000 < lastMessageAt) return;
     const delay = expiresAt - Date.now();
     if (delay <= 0) {
       removeConversation(activeConvId);
@@ -428,7 +430,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     }
     const timer = window.setTimeout(() => removeConversation(activeConvId), delay);
     return () => window.clearTimeout(timer);
-  }, [activeConvId, isOfficialConversation, conv?.officialExpiresAt, conv?.unreadCount, removeConversation]);
+  }, [activeConvId, isOfficialConversation, conv?.lastMessage?.createdAt, conv?.officialExpiresAt, conv?.unreadCount, removeConversation]);
 
   useEffect(() => {
     setReplyTo(null);
@@ -1031,7 +1033,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
     setVoiceDraft(null);
   }
 
-  const name = isOfficialConversation ? (conv?.name ?? 'Oracle Messenger') : conv?.type === 'group' ? conv.name : other?.name ?? t(lang, 'common.unknown');
+  const name = isOfficialConversation ? 'O.Messenger' : conv?.type === 'group' ? conv.name : other?.name ?? t(lang, 'common.unknown');
   const businessContactName = name || t(lang, 'common.contact');
   const avatar = isOfficialConversation ? '/icons/oracle-system-avatar.svg' : conv?.type === 'group' ? conv.avatar : other?.avatar;
   const forwardConversations = conversations
@@ -1681,7 +1683,7 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
       {isOfficialConversation && !selectionMode && (
         <div style={{ padding:'12px 14px max(12px, env(safe-area-inset-bottom))', background:'#EAF4F1', borderTop:'1px solid rgba(16,42,42,0.14)', color:'#102A2A', flexShrink:0 }}>
           <p style={{ margin:0, fontSize:13.5, fontWeight:850, lineHeight:1.45, textAlign:'center' }}>
-            Conversation officielle O.messenger. Les réponses sont désactivées pour ce canal.
+            Conversation officielle O.Messenger. Les réponses sont désactivées pour ce canal.
           </p>
         </div>
       )}

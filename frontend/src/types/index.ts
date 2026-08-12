@@ -23,7 +23,16 @@ export interface Conversation {
   isPinned: boolean;
   isOfficial?: boolean;
   isVerified?: boolean;
+  officialOpenedAt?: string;
   officialExpiresAt?: string;
+  officialState?: {
+    received: boolean;
+    unread: boolean;
+    opened_at?: string | null;
+    expires_at?: string | null;
+    openedAt?: string | null;
+    expiresAt?: string | null;
+  };
   updatedAt: string;
 }
 

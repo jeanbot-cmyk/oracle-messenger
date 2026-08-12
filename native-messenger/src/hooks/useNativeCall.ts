@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
-import { MediaStream } from 'react-native-webrtc';
+import { MediaStream } from '@livekit/react-native-webrtc';
 import type { Socket } from 'socket.io-client';
-import { type NativeCallInfo, type NativeCallState } from '@/hooks/nativeCallUtils';
+import { type NativeCallDiagnosticEntry, type NativeCallInfo, type NativeCallState } from '@/hooks/nativeCallUtils';
 import { useNativeCallActions } from '@/hooks/useNativeCallActions';
 import { useNativeCallAudioSession } from '@/hooks/useNativeCallAudioSession';
+import { useNativeLiveKitCall } from '@/hooks/useNativeLiveKitCall';
 import { useNativeCallMediaControls } from '@/hooks/useNativeCallMediaControls';
 import { useNativeCallPeerConnections } from '@/hooks/useNativeCallPeerConnections';
 import { useNativeCallSocketEvents } from '@/hooks/useNativeCallSocketEvents';
@@ -23,11 +24,15 @@ export function useNativeCall(session: AuthSession | null) {
   const [speakerOn, setSpeakerOn] = useState(false);
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
   const [callNotice, setCallNotice] = useState('');
+  const [callDiagnostics, setCallDiagnostics] = useState<NativeCallDiagnosticEntry[]>([]);
 
   const socketRef = useRef<Socket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const callInfoRef = useRef<NativeCallInfo | null>(null);
   const callStateRef = useRef<NativeCallState>('idle');
+  const speakerOnRef = useRef(false);
+  const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cleanupInProgressRef = useRef(false);
 
   const trace = useCallback((event: string, details: Record<string, unknown> = {}) => {
     const payload = {
@@ -38,6 +43,10 @@ export function useNativeCall(session: AuthSession | null) {
       details,
       at: new Date().toISOString(),
     };
+    setCallDiagnostics(current => [{
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      ...payload,
+    }, ...current].slice(0, 80));
     console.info('[NativeCall]', payload);
     socketRef.current?.emit('call:diagnostic', payload);
   }, []);
@@ -52,7 +61,21 @@ export function useNativeCall(session: AuthSession | null) {
     setCallInfo(next);
   }, []);
 
-  const { applyAudioRoute, startAudioSession, stopAudioSession } = useNativeCallAudioSession({
+  useEffect(() => {
+    speakerOnRef.current = speakerOn;
+  }, [speakerOn]);
+
+  const getSpeakerOn = useCallback(() => speakerOnRef.current, []);
+
+  const {
+    applyAudioRoute,
+    startAudioSession,
+    startOutgoingRingback,
+    startIncomingRingtone,
+    stopIncomingRingtone,
+    startForegroundCallService,
+    stopAudioSession,
+  } = useNativeCallAudioSession({
     callInfoRef,
     setSpeakerOn,
     trace,
@@ -70,8 +93,35 @@ export function useNativeCall(session: AuthSession | null) {
   });
 
   const {
+    liveKitActiveRef,
+    isLiveKitActive,
+    connectLiveKit,
+    disconnectLiveKit,
+    toggleLiveKitMute,
+    toggleLiveKitCamera,
+    switchLiveKitCamera,
+  } = useNativeLiveKitCall({
+    session,
+    localStreamRef,
+    callInfoRef,
+    callStateRef,
+    cameraFacing,
+    setLocalStream,
+    setRemoteStreams,
+    setMuted,
+    setCameraOff,
+    setCameraFacing,
+    setStateSafe,
+    setCallNotice,
+    getSpeakerOn,
+    applyAudioRoute,
+    trace,
+  });
+
+  const {
     setIceServers,
     resetPeerConnections,
+    removePeerConnection,
     sendOffer,
     handleOffer,
     handleAnswer,
@@ -89,19 +139,37 @@ export function useNativeCall(session: AuthSession | null) {
 
   const cleanup = useCallback((emitEnd = false) => {
     const info = callInfoRef.current;
+    if (!info && callStateRef.current === 'idle') return;
+    if (cleanupInProgressRef.current) return;
+    cleanupInProgressRef.current = true;
     if (emitEnd && info) socketRef.current?.emit('call:end', { callId: info.callId });
     cancelIncomingCallNotification(info?.callId).catch(() => null);
-    resetPeerConnections();
-    localStreamRef.current?.getTracks().forEach(track => track.stop());
-    localStreamRef.current = null;
-    setLocalStream(null);
-    setMuted(false);
-    setCameraOff(false);
-    stopAudioSession();
-    setInfoSafe(null);
-    setStateSafe('idle');
-    trace('call:cleanup', { emitEnd });
-  }, [resetPeerConnections, setInfoSafe, setStateSafe, stopAudioSession, trace]);
+    stopIncomingRingtone();
+    setCallNotice('Appel terminé.');
+    if (callStateRef.current !== 'idle') setStateSafe('ended');
+
+    if (cleanupTimerRef.current) clearTimeout(cleanupTimerRef.current);
+    cleanupTimerRef.current = setTimeout(() => {
+      const wasLiveKitActive = disconnectLiveKit(true);
+      resetPeerConnections();
+      if (!wasLiveKitActive) localStreamRef.current?.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
+      setLocalStream(null);
+      setMuted(false);
+      setCameraOff(false);
+      stopAudioSession();
+      setInfoSafe(null);
+      setStateSafe('idle');
+      setCallNotice('');
+      cleanupInProgressRef.current = false;
+      cleanupTimerRef.current = null;
+      trace('call:cleanup', { emitEnd });
+    }, 140);
+  }, [disconnectLiveKit, resetPeerConnections, setInfoSafe, setStateSafe, stopAudioSession, stopIncomingRingtone, trace]);
+
+  useEffect(() => () => {
+    if (cleanupTimerRef.current) clearTimeout(cleanupTimerRef.current);
+  }, []);
 
   const { startCall, prepareIncomingCall, answerCall, addParticipants } = useNativeCallActions({
     session,
@@ -111,7 +179,11 @@ export function useNativeCall(session: AuthSession | null) {
     callStateRef,
     cleanup,
     getLocalStream,
+    connectLiveKit,
     startAudioSession,
+    startOutgoingRingback,
+    stopIncomingRingtone,
+    startForegroundCallService,
     setIceServers,
     setInfoSafe,
     setStateSafe,
@@ -133,12 +205,46 @@ export function useNativeCall(session: AuthSession | null) {
     setInfoSafe,
     setStateSafe,
     setCallNotice,
+    startIncomingRingtone,
+    stopIncomingRingtone,
     sendOffer,
+    isLiveKitActive,
     handleOffer,
     handleAnswer,
     handleIce,
+    removePeerConnection,
     trace,
   });
+
+  const toggleMuteControl = useCallback(() => {
+    if (liveKitActiveRef.current) {
+      toggleLiveKitMute().catch(error => {
+        setCallNotice(error instanceof Error ? error.message : 'Microphone indisponible.');
+      });
+      return;
+    }
+    toggleMute();
+  }, [liveKitActiveRef, setCallNotice, toggleLiveKitMute, toggleMute]);
+
+  const toggleCameraControl = useCallback(() => {
+    if (liveKitActiveRef.current) {
+      toggleLiveKitCamera().catch(error => {
+        setCallNotice(error instanceof Error ? error.message : 'Caméra indisponible.');
+      });
+      return;
+    }
+    toggleCamera();
+  }, [liveKitActiveRef, setCallNotice, toggleCamera, toggleLiveKitCamera]);
+
+  const switchCameraControl = useCallback(() => {
+    if (liveKitActiveRef.current) {
+      switchLiveKitCamera().catch(error => {
+        setCallNotice(error instanceof Error ? error.message : 'Changement caméra impossible.');
+      });
+      return;
+    }
+    switchCamera();
+  }, [liveKitActiveRef, setCallNotice, switchCamera, switchLiveKitCamera]);
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
@@ -162,9 +268,11 @@ export function useNativeCall(session: AuthSession | null) {
     answerCall,
     addParticipants,
     endCall: () => cleanup(true),
-    toggleMute,
-    toggleCamera,
-    switchCamera,
+    toggleMute: toggleMuteControl,
+    toggleCamera: toggleCameraControl,
+    switchCamera: switchCameraControl,
     toggleSpeaker,
+    callDiagnostics,
+    clearCallDiagnostics: () => setCallDiagnostics([]),
   };
 }

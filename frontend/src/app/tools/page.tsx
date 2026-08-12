@@ -828,7 +828,7 @@ function VideoTab({ token, ownerId, paystackReference }: { token: string; ownerI
   const { lang } = useSettings();
   const [overview, setOverview] = useState<any>(null);
   const [prompt, setPrompt] = useState('');
-  const [durationSeconds, setDurationSeconds] = useState<10 | 45>(10);
+  const [durationSeconds, setDurationSeconds] = useState<8 | 45>(8);
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>('9:16');
   const [quality, setQuality] = useState<'hd' | 'full_hd' | 'ultra'>('hd');
   const [voiceOver, setVoiceOver] = useState(true);
@@ -1002,7 +1002,7 @@ function VideoTab({ token, ownerId, paystackReference }: { token: string; ownerI
           Créez automatiquement des vidéos professionnelles de présentation avec l’IA.
         </p>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:8 }}>
-          <StatPill label="Gratuit" value={overview?.free?.available ? '10s disponible' : 'Utilisé'} />
+          <StatPill label="Gratuit" value={overview?.free?.available ? '8s / semaine' : 'Utilisé'} />
           <StatPill label="Premium" value="45s assemblées" />
           <StatPill label="Stockage" value="Local" />
         </div>
@@ -1014,13 +1014,13 @@ function VideoTab({ token, ownerId, paystackReference }: { token: string; ownerI
           <div style={{ flex:1, minWidth:0 }}>
             <p style={{ margin:'0 0 4px', fontSize:17, fontWeight:950, color:'var(--text-primary)' }}>Activer la vidéo Premium</p>
             <p style={{ margin:0, fontSize:12.8, lineHeight:1.45, color:'var(--text-muted)', fontWeight:700 }}>
-              Test 10 secondes gratuit selon disponibilité. Pour une vidéo 45 secondes, payez 2 500 FCFA puis lancez la génération.
+              Test 8 secondes gratuit une fois par semaine. Pour une vidéo 45 secondes, payez 3 000 FCFA puis lancez la génération.
             </p>
           </div>
         </div>
         <button onClick={() => { setDurationSeconds(45); pay(); }} disabled={loading || !overview?.paystackReady || Boolean(paymentReference)}
           style={{ width:'100%', border:'none', borderRadius:14, background:paymentReference ? '#16A34A' : '#102A2A', color:'#fff', padding:14, fontSize:15, fontWeight:950, cursor:overview?.paystackReady && !paymentReference ? 'pointer' : 'default', opacity:overview?.paystackReady ? 1 : .48 }}>
-          {paymentReference ? 'Paiement validé - créez la vidéo' : 'Payer Premium 45s - 2 500 FCFA'}
+          {paymentReference ? 'Paiement validé - créez la vidéo' : 'Payer Premium 45s - 3 000 FCFA'}
         </button>
         {!overview?.paystackReady && <Alert text="Paiement non disponible : Paystack n’est pas encore configuré sur le serveur." />}
       </div>
@@ -1056,7 +1056,7 @@ function VideoTab({ token, ownerId, paystackReference }: { token: string; ownerI
         </div>
 
         <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:8, marginBottom:12 }}>
-          <SelectPill active={durationSeconds === 10} label="Test 10s" onClick={() => setDurationSeconds(10)} />
+          <SelectPill active={durationSeconds === 8} label="Test 8s" onClick={() => setDurationSeconds(8)} />
           <SelectPill active={durationSeconds === 45} label="Premium 45s" onClick={() => setDurationSeconds(45)} />
           <SelectPill active={voiceOver} label="Voix off" onClick={() => setVoiceOver(!voiceOver)} />
           {(['16:9','9:16'] as const).map(v => <SelectPill key={v} active={aspectRatio === v} label={v} onClick={() => setAspectRatio(v)} />)}
@@ -1087,12 +1087,12 @@ function VideoTab({ token, ownerId, paystackReference }: { token: string; ownerI
           )}
         </div>
 
-        {durationSeconds === 10 && !overview?.isAdmin && !overview?.free?.available && (
-          <Alert text={`Votre essai gratuit du mois est utilisé. ${nextFreeText ? `Prochain essai dans : ${nextFreeText}.` : ''}`} />
+        {durationSeconds === 8 && !overview?.isAdmin && !overview?.free?.available && (
+          <Alert text={`Votre essai gratuit de la semaine est utilisé. ${nextFreeText ? `Prochain essai dans : ${nextFreeText}.` : ''}`} />
         )}
         {needsPayment && (
           <div style={{ margin:'0 0 12px', background:'#FFF7ED', border:'1px solid #FED7AA', borderRadius:12, padding:'10px 12px', color:'#9A3412', fontSize:12.5, lineHeight:1.45, fontWeight:800 }}>
-            Vidéo Premium 45 secondes : 2 500 FCFA. Le paiement doit être validé avant la génération.
+            Vidéo Premium 45 secondes : 3 000 FCFA. Le paiement doit être validé avant la génération.
             <button onClick={pay} disabled={loading || !overview?.paystackReady}
               style={{ width:'100%', marginTop:10, border:'none', borderRadius:12, background:'#102A2A', color:'#fff', padding:12, fontSize:14, fontWeight:950, cursor:overview?.paystackReady ? 'pointer' : 'default', opacity:overview?.paystackReady ? 1 : .48 }}>
               Payer avec Paystack

@@ -192,7 +192,7 @@ export default function BusinessPage() {
   const businessBlockedText = !businessAccess
     ? ''
     : !businessAccess.subscriptionActive
-      ? `Abonnement Business requis : ${businessAccess.monthlyPriceFcfa?.toLocaleString?.() ?? 5000} FCFA/mois.`
+      ? `Abonnement Business requis : ${businessAccess.monthlyPriceFcfa?.toLocaleString?.() ?? 10000} FCFA/mois.`
       : !businessAccess.aiCreditsOk
         ? 'Crédit IA insuffisant pour exécuter les actions Business automatiques.'
         : '';
@@ -500,7 +500,7 @@ export default function BusinessPage() {
             </div>
             {!canUseBusinessActions && !businessAccess?.isAdmin && (
               <button onClick={payBusinessSubscription} disabled={payingBusiness || !token} style={{width:'100%',marginTop:12,border:'none',borderRadius:13,background:'var(--header-bg)',color:'#fff',padding:'12px 14px',fontSize:14,fontWeight:950,cursor:token?'pointer':'default',opacity:token?1:.5}}>
-                {payingBusiness ? 'Ouverture du paiement...' : 'Activer après mon essai - 5 000 FCFA/mois'}
+                {payingBusiness ? 'Ouverture du paiement...' : 'Activer après mon essai - 10 000 FCFA/mois'}
               </button>
             )}
           </div>

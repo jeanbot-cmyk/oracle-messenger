@@ -111,7 +111,7 @@ export const api = {
     overview: (token: string) => req<any>('/ai-video/overview', {}, token),
     generate: (token: string, data: {
       prompt: string;
-      durationSeconds: 10 | 45;
+      durationSeconds: 8 | 45;
       aspectRatio: '16:9' | '9:16';
       quality: 'hd' | 'full_hd' | 'ultra';
       voiceOver: boolean;

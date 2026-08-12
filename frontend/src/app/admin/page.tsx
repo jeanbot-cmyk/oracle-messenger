@@ -438,7 +438,7 @@ export default function AdminPage() {
         <div ref={systemMessageRef} style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, marginBottom:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)', border:'2px solid rgba(16,42,42,0.14)' }}>
           <h2 style={{ fontSize:20, fontWeight:900, color:'var(--text-primary)', margin:'0 0 6px' }}>📢 Message système à tous les utilisateurs</h2>
           <p style={{ fontSize:13, color:'var(--text-muted)', margin:'0 0 16px' }}>
-            Ce message arrive chez chaque utilisateur comme une conversation normale, épinglée en haut, envoyée par O.messenger avec le logo officiel et le badge certifié. Vous pouvez envoyer un texte seul, un fichier seul, ou un texte avec image, vidéo, audio ou document dans la même bulle.
+            Ce message arrive chez chaque utilisateur comme une conversation normale, épinglée en haut tant qu’elle n’est pas lue, envoyée par O.Messenger avec le logo officiel et le badge certifié. Après ouverture, elle reste disponible 24 heures puis disparaît automatiquement. Vous pouvez envoyer un texte seul, un fichier seul, ou un texte avec image, vidéo, audio ou document dans la même bulle.
           </p>
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
             <textarea value={broadcast} onChange={e => setBroadcast(e.target.value)}

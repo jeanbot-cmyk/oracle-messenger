@@ -1,6 +1,6 @@
 import {
   WebSocketGateway, WebSocketServer, SubscribeMessage,
-  OnGatewayConnection, OnGatewayDisconnect, ConnectedSocket, MessageBody,
+  OnGatewayConnection, OnGatewayDisconnect, ConnectedSocket, MessageBody, Ack,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
@@ -33,17 +33,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // userId → socketId (en mémoire — suffisant pour 1 instance)
   // userSockets moved to SocketStateService
 
-  private readonly callNoAnswerTimeoutMs = 75_000;
+  private readonly callNoAnswerTimeoutMs = 220_000;
 
   // callId → appel actif. La durée est comptée uniquement après acceptation réelle.
   private activeCalls = new Map<string, {
     callerId: string; callerName: string; conversationId: string;
     type: 'audio' | 'video'; startedAt: number; answered: boolean; answeredAt?: number;
+    mediaProvider?: 'livekit' | 'webrtc';
     participants: Set<string>;
   }>();
   private callTimeouts = new Map<string, NodeJS.Timeout>();
   private offlineTimers = new Map<string, NodeJS.Timeout>();
   private cleanupTimer?: NodeJS.Timeout;
+  private businessReminderTimer?: NodeJS.Timeout;
+  private businessReminderRunning = false;
 
   constructor(
     private jwt: JwtService,
@@ -63,6 +66,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.chat.cleanupOldTextMessages(5).catch(() => {});
     }, 6 * 60 * 60 * 1000);
     this.cleanupTimer.unref?.();
+    this.businessReminderTimer = setInterval(() => {
+      this.dispatchDueBusinessReminderActions().catch(error => {
+        console.warn('[business-ai] reminder dispatch failed', error?.message ?? error);
+      });
+    }, 60_000);
+    this.businessReminderTimer.unref?.();
   }
 
   // ── Connexion ─────────────────────────────────────────────────────────────
@@ -80,7 +89,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
       this.socketState.setUserSocket(payload.sub, client.id);
       await this.users.setOnline(payload.sub, true);
-      this.server.emit('user:online', { userId: payload.sub });
+      this.server.emit('user:online', { userId: payload.sub, status: 'online' });
       this.emitPendingCallsToClient(payload.sub, client);
     } catch {
       client.disconnect();
@@ -97,8 +106,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const timer = setTimeout(async () => {
         this.offlineTimers.delete(userId);
         if (this.socketState.hasUserSockets(userId)) return;
-        await this.users.setOnline(userId, false);
-        this.server.emit('user:offline', { userId });
+        const user = await this.users.setOnline(userId, false);
+        this.server.emit('user:offline', { userId, status: 'offline', lastSeen: user.lastSeen?.toISOString?.() });
       }, 75_000);
       this.offlineTimers.set(userId, timer);
     }
@@ -174,6 +183,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         callerId: call.callerId,
         callerName: call.callerName,
         type: call.type,
+        mediaProvider: call.mediaProvider,
         participants: [...call.participants].filter(id => id !== call.callerId),
       });
     }
@@ -187,6 +197,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private isSocketInRoom(socketId: string, room: string) {
     return this.server.sockets.sockets.get(socketId)?.rooms.has(room) ?? false;
+  }
+
+  private sendSocketAck(
+    ack: ((response: Record<string, unknown>) => void) | undefined,
+    response: Record<string, unknown>,
+  ) {
+    if (typeof ack === 'function') ack(response);
   }
 
   private scheduleNoAnswerTimeout(callId: string) {
@@ -350,6 +367,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       this.scheduleAiAutoReplies(msg, participantIds, client.data.userId);
+      this.scheduleBusinessMediaAnalysis(msg, participantIds, client.data.userId);
 
       // Return msg as acknowledgement to sender. "Delivered" is now confirmed
       // only by the receiver device through message:delivered.
@@ -379,10 +397,35 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  private scheduleBusinessMediaAnalysis(msg: any, participantIds: string[], senderId: string) {
+    if (!msg?.id || !this.isBusinessAnalyzableMedia(msg.type)) return;
+    const media = this.parseMessageMediaPayload(msg);
+    if (!media?.url) return;
+    for (const recipientId of participantIds) {
+      if (recipientId === senderId) continue;
+      Promise.all([
+        this.business.getAccess(recipientId),
+        this.aiAuto.shouldAnalyzeBusinessMedia(recipientId, senderId, msg.conversationId, msg),
+      ])
+        .then(([access, rule]) => {
+          if (!access.canAct || !rule) return;
+          const timer = setTimeout(() => {
+            this.sendBusinessMediaAnalysis(recipientId, msg, rule.prompt, media).catch(error => {
+              console.warn('[business-ai] media analysis failed', { recipientId, conversationId: msg.conversationId, error: error?.message ?? error });
+            });
+          }, Math.max(30_000, rule.delayMs));
+          timer.unref?.();
+        })
+        .catch(error => {
+          console.warn('[business-ai] media rule check failed', { recipientId, conversationId: msg.conversationId, error: error?.message ?? error });
+        });
+    }
+  }
+
   private async sendAiAutoReply(aiUserId: string, incomingMsg: any, prompt: string) {
     const generated = await this.aiAuto.generateAutoReply(
       aiUserId,
-      incomingMsg.content,
+      this.buildIncomingAiContext(incomingMsg),
       prompt,
       incomingMsg.conversationId,
       incomingMsg.id,
@@ -395,20 +438,173 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     ).catch(error => {
       console.warn('[business-ai] crm action failed', { ownerId: aiUserId, conversationId: incomingMsg.conversationId, error: error?.message ?? error });
     });
-    const reply = await this.chat.createMessage(
-      incomingMsg.conversationId,
+    await this.sendGeneratedAiMessages(aiUserId, incomingMsg.conversationId, incomingMsg.id, generated.response, 'Assistant IA');
+  }
+
+  private async sendBusinessMediaAnalysis(aiUserId: string, incomingMsg: any, prompt: string, media: { url: string; mime?: string; name?: string; type?: string; size?: number }) {
+    const generated = await this.aiAuto.generateAutoMediaReply(
       aiUserId,
-      generated.response,
-      'text',
+      this.buildIncomingMediaAiContext(incomingMsg, media),
+      prompt,
+      incomingMsg.conversationId,
       incomingMsg.id,
+      media,
     );
-    const participantIds = await this.chat.getParticipantIds(incomingMsg.conversationId);
-    const room = `conv:${incomingMsg.conversationId}`;
+    this.business.applyAiMessageInsight(
+      aiUserId,
+      incomingMsg.senderId,
+      incomingMsg.conversationId,
+      `[${media.type || incomingMsg.type}] ${media.name || 'document client'} ${generated.response}`,
+    ).catch(error => {
+      console.warn('[business-ai] media crm action failed', { ownerId: aiUserId, conversationId: incomingMsg.conversationId, error: error?.message ?? error });
+    });
+    await this.sendGeneratedAiMessages(aiUserId, incomingMsg.conversationId, incomingMsg.id, generated.response, 'Assistant Business IA');
+  }
+
+  private buildIncomingAiContext(incomingMsg: any) {
+    const senderName = this.publicContactName(incomingMsg?.sender?.name || incomingMsg?.sender?.username || 'ce contact');
+    return [
+      `Nom du contact: ${senderName}`,
+      `Message entrant: ${String(incomingMsg?.content || '').trim()}`,
+      'Réponds directement à ce contact selon le prompt utilisateur et le prompt système.',
+      'Respecte le nombre maximum de mots configuré dans Gemini. Le gratuit reste limité côté serveur.',
+    ].join('\n');
+  }
+
+  private buildIncomingMediaAiContext(incomingMsg: any, media: { url: string; mime?: string; name?: string; type?: string; size?: number }) {
+    const senderName = this.publicContactName(incomingMsg?.sender?.name || incomingMsg?.sender?.username || 'ce contact');
+    return [
+      `Nom du contact: ${senderName}`,
+      `Message entrant: le contact a envoyé un média ${media.type || incomingMsg?.type || 'fichier'}.`,
+      `Nom du fichier: ${media.name || 'non renseigné'}`,
+      `Type MIME: ${media.mime || 'inconnu'}`,
+      media.size ? `Taille: ${media.size} octets` : '',
+      `URL interne: ${media.url}`,
+      'Ce traitement est exécuté au moins 30 secondes après réception pour laisser le téléchargement se terminer.',
+      'Si le média est une facture, un reçu, une preuve de paiement, un devis ou une image commerciale, analyse le montant, la date, le statut et la prochaine action.',
+      'Ne confirme pas un paiement si la preuve est ambiguë. Demande une confirmation claire si nécessaire.',
+      'Réponds directement au client selon le prompt utilisateur et le prompt système.',
+    ].filter(Boolean).join('\n');
+  }
+
+  private isBusinessAnalyzableMedia(type: string) {
+    return ['image', 'video', 'file', 'document'].includes(String(type || '').toLowerCase());
+  }
+
+  private parseMessageMediaPayload(msg: any) {
+    try {
+      const parsed = JSON.parse(String(msg?.content || '{}'));
+      const url = String(parsed?.url || '').trim();
+      if (!url) return null;
+      return {
+        url,
+        mime: String(parsed?.mime || '').trim() || undefined,
+        name: String(parsed?.name || '').trim() || undefined,
+        type: String(msg?.type || parsed?.kind || parsed?.type || 'file').trim(),
+        size: Number(parsed?.size) || undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private async sendGeneratedAiMessages(senderId: string, conversationId: string, replyToId: string | null, generatedText: string, titleFallback = 'Assistant IA') {
+    const extracted = this.extractAiMediaAttachments(generatedText);
+    let sent = 0;
+    if (extracted.cleanText) {
+      const reply = await this.chat.createMessage(conversationId, senderId, extracted.cleanText, 'text', replyToId || undefined);
+      await this.emitCreatedMessageToParticipants(reply, senderId, titleFallback);
+      sent += 1;
+    }
+    for (const attachment of extracted.attachments) {
+      const payload = JSON.stringify({
+        url: attachment.url,
+        mime: attachment.mime,
+        name: attachment.name,
+      });
+      const reply = await this.chat.createMessage(conversationId, senderId, payload, attachment.type, replyToId || undefined);
+      await this.emitCreatedMessageToParticipants(reply, senderId, titleFallback);
+      sent += 1;
+    }
+    if (!sent) {
+      const reply = await this.chat.createMessage(conversationId, senderId, 'Je vérifie ce point et je reviens vers vous.', 'text', replyToId || undefined);
+      await this.emitCreatedMessageToParticipants(reply, senderId, titleFallback);
+    }
+  }
+
+  private extractAiMediaAttachments(text: string) {
+    const attachments: Array<{ type: 'image' | 'video' | 'file'; mime: string; name: string; url: string }> = [];
+    const cleanText = String(text || '').replace(/\[\[MEDIA\|([^|\]]+)\|([^|\]]+)\|([^|\]]+)\|([^\]]+)\]\]/g, (_match, rawType, rawMime, rawName, rawUrl) => {
+      const url = String(rawUrl || '').trim();
+      if (!this.isAllowedAiMediaUrl(url)) return '';
+      const type = String(rawType || '').toLowerCase() === 'image'
+        ? 'image'
+        : String(rawType || '').toLowerCase() === 'video'
+          ? 'video'
+          : 'file';
+      attachments.push({
+        type,
+        mime: String(rawMime || '').trim().slice(0, 100) || (type === 'image' ? 'image/jpeg' : type === 'video' ? 'video/mp4' : 'application/octet-stream'),
+        name: String(rawName || 'support').replace(/[\r\n]/g, ' ').trim().slice(0, 160) || 'support',
+        url,
+      });
+      return '';
+    }).replace(/\n{3,}/g, '\n\n').trim();
+    return { cleanText, attachments: attachments.slice(0, 3) };
+  }
+
+  private isAllowedAiMediaUrl(url: string) {
+    const clean = String(url || '').trim();
+    if (!clean) return false;
+    if (clean.startsWith('/uploads/')) return true;
+    try {
+      const parsed = new URL(clean);
+      return parsed.pathname.startsWith('/uploads/');
+    } catch {
+      return false;
+    }
+  }
+
+  private publicContactName(value: unknown) {
+    const clean = String(value || '').trim();
+    if (!clean) return 'ce contact';
+    if (clean.startsWith('@')) return clean.slice(1).trim() || 'ce contact';
+    if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) return clean.split('@')[0] || 'ce contact';
+    return clean;
+  }
+
+  private async dispatchDueBusinessReminderActions() {
+    if (this.businessReminderRunning) return;
+    this.businessReminderRunning = true;
+    try {
+      const actions = await this.business.collectDueAiReminderActions(20);
+      for (const action of actions) {
+        try {
+          const generated = await this.aiAuto.generateBusinessReminder(action.ownerId, action.context, action.conversationId);
+          await this.sendGeneratedAiMessages(action.ownerId, action.conversationId, null, generated.response, 'Assistant Business IA');
+          await this.business.markAiReminderExecuted(action.ownerId, action.reminderId);
+        } catch (error: any) {
+          console.warn('[business-ai] reminder action failed', {
+            ownerId: action.ownerId,
+            conversationId: action.conversationId,
+            reminderId: action.reminderId,
+            error: error?.message ?? error,
+          });
+        }
+      }
+    } finally {
+      this.businessReminderRunning = false;
+    }
+  }
+
+  private async emitCreatedMessageToParticipants(reply: any, senderId: string, titleFallback = 'Assistant IA') {
+    const participantIds = await this.chat.getParticipantIds(reply.conversationId);
+    const room = `conv:${reply.conversationId}`;
     this.server.to(room).emit('message:new', reply);
-    const senderName = reply.sender?.name ?? 'Assistant IA';
+    const senderName = reply.sender?.name ?? titleFallback;
     const preview = reply.content.length > 80 ? `${reply.content.slice(0, 80)}…` : reply.content;
     for (const pid of participantIds) {
-      if (pid === aiUserId) continue;
+      if (pid === senderId) continue;
       const socketIds = this.socketState.getSocketIds(pid);
       if (socketIds.length) {
         for (const sid of socketIds) {
@@ -419,10 +615,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.notif.sendPush(pid, {
           title: senderName,
           body: preview,
-          url: `/chat?conv=${encodeURIComponent(incomingMsg.conversationId)}`,
-          tag: `msg-${incomingMsg.conversationId}`,
+          url: `/chat?conv=${encodeURIComponent(reply.conversationId)}`,
+          tag: `msg-${reply.conversationId}`,
           type: 'message',
-          conversationId: incomingMsg.conversationId,
+          conversationId: reply.conversationId,
         }).catch(() => {});
       }
     }
@@ -451,7 +647,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { conversationId: string; messageId?: string },
   ) {
     try {
-      await this.chat.markConversationRead(data.conversationId, client.data.userId);
+      const updatedMessages = await this.chat.markConversationRead(data.conversationId, client.data.userId);
       const payload = {
         conversationId: data.conversationId,
         userId: client.data.userId,
@@ -461,6 +657,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       for (const uid of participantIds) {
         for (const sid of this.socketState.getSocketIds(uid)) {
           this.server.to(sid).emit('conversation:read', payload);
+          for (const message of updatedMessages) {
+            this.server.to(sid).emit('message:update', {
+              id: message.id,
+              patch: { status: message.status, updatedAt: message.updatedAt },
+            });
+          }
         }
       }
     } catch {}
@@ -603,27 +805,32 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       conversationId: string;
       type: 'audio' | 'video';
       targetUserIds: string[];
+      mediaProvider?: 'livekit' | 'webrtc';
     },
+    @Ack() ack?: (response: Record<string, unknown>) => void,
   ) {
     try {
       const callerId = client.data.userId;
       if (!data.callId || this.activeCalls.has(data.callId)) {
-        client.emit('call:error', { message: 'Identifiant d’appel invalide' });
-        return;
+        const message = 'Identifiant d’appel invalide';
+        client.emit('call:error', { message });
+        return this.sendSocketAck(ack, { ok: false, message });
       }
       if (data.type !== 'audio' && data.type !== 'video') {
-        client.emit('call:error', { message: 'Type d’appel invalide' });
-        return;
+        const message = 'Type d’appel invalide';
+        client.emit('call:error', { message });
+        return this.sendSocketAck(ack, { ok: false, message });
       }
       const allowed = await this.chat.isParticipant(data.conversationId, callerId);
       if (!allowed) {
-        client.emit('call:error', { message: 'Accès refusé à cette conversation' });
-        return;
+        const message = 'Accès refusé à cette conversation';
+        client.emit('call:error', { message });
+        return this.sendSocketAck(ack, { ok: false, message });
       }
       if (await this.chat.isOfficialConversation(data.conversationId)) {
         const message = 'Le compte système ne peut pas être appelé';
         client.emit('call:error', { message });
-        return { ok: false, message };
+        return this.sendSocketAck(ack, { ok: false, message });
       }
 
       const [participantIds, knownCallableIds] = await Promise.all([
@@ -634,8 +841,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const validTargets = [...new Set(data.targetUserIds ?? [])]
         .filter(targetId => targetId !== callerId && allowedTargets.has(targetId));
       if (!validTargets.length) {
-        client.emit('call:error', { message: 'Aucun destinataire valide pour cet appel' });
-        return { ok: false, message: 'Aucun destinataire valide pour cet appel' };
+        const message = 'Aucun destinataire valide pour cet appel';
+        client.emit('call:error', { message });
+        return this.sendSocketAck(ack, { ok: false, message });
       }
 
       const caller = await this.users.findById(callerId);
@@ -658,6 +866,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         callerName,
         conversationId: data.conversationId,
         type: data.type,
+        mediaProvider: data.mediaProvider === 'livekit' ? 'livekit' : 'webrtc',
         startedAt: Date.now(),
         answered: false,
         participants: new Set([callerId, ...validTargets]),
@@ -694,28 +903,32 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
               callerId,
               callerName,
               type: data.type,
+              mediaProvider: data.mediaProvider === 'livekit' ? 'livekit' : 'webrtc',
               participants: validTargets,
             });
           }
         }
       }
-      return { ok: true, callId: data.callId, targets: validTargets.length };
+      return this.sendSocketAck(ack, { ok: true, callId: data.callId, targets: validTargets.length });
     } catch (err: any) {
-      client.emit('call:error', { message: err?.message ?? 'Erreur de démarrage d’appel' });
-      return { ok: false, message: err?.message ?? 'Erreur de démarrage d’appel' };
+      const message = err?.message ?? 'Erreur de démarrage d’appel';
+      client.emit('call:error', { message });
+      return this.sendSocketAck(ack, { ok: false, message });
     }
   }
 
   @SubscribeMessage('call:answer')
   async handleCallAnswer(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { callId: string; accepted: boolean },
+    @MessageBody() data: { callId: string; accepted: boolean; mediaProvider?: 'livekit' | 'webrtc' },
+    @Ack() ack?: (response: Record<string, unknown>) => void,
   ) {
     const responderId = client.data.userId;
     const call = this.getAuthorizedCall(data.callId, responderId);
     if (!call || responderId === call.callerId) {
-      client.emit('call:error', { message: 'Appel introuvable ou non autorisé' });
-      return;
+      const message = 'Appel introuvable ou non autorisé';
+      client.emit('call:error', { message });
+      return this.sendSocketAck(ack, { ok: false, message });
     }
     client.join(`call:${data.callId}`);
 
@@ -729,8 +942,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         callId: data.callId,
         userId: responderId,
         accepted: true,
+        mediaProvider: call.mediaProvider,
       });
-      return { ok: true, accepted: true };
+      return this.sendSocketAck(ack, { ok: true, accepted: true });
     }
     if (!data.accepted && call) {
       const shouldEndCall = call.participants.size <= 2;
@@ -741,6 +955,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         userId: responderId,
         accepted: false,
         ended: shouldEndCall,
+        mediaProvider: call.mediaProvider,
       });
       this.publishCallTrace(call.conversationId, responderId, call.type, 'refused').catch(() => {});
       if (shouldEndCall) {
@@ -770,21 +985,22 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           this.scheduleNoAnswerTimeout(data.callId);
         }
       }
-      return { ok: true, accepted: false, ended: shouldEndCall };
+      return this.sendSocketAck(ack, { ok: true, accepted: false, ended: shouldEndCall });
     }
-    return { ok: false, message: 'Réponse appel invalide' };
+    return this.sendSocketAck(ack, { ok: false, message: 'Réponse appel invalide' });
   }
 
   @SubscribeMessage('call:get-active')
   handleCallGetActive(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string },
+    @Ack() ack?: (response: Record<string, unknown>) => void,
   ) {
     const userId = client.data.userId;
     const callId = typeof data?.callId === 'string' ? data.callId.slice(0, 120) : '';
     const call = callId ? this.activeCalls.get(callId) : null;
     if (!call || !call.participants.has(userId)) {
-      return { ok: false, message: 'Appel introuvable ou termine' };
+      return this.sendSocketAck(ack, { ok: false, message: 'Appel introuvable ou termine' });
     }
 
     client.join(`call:${callId}`);
@@ -795,11 +1011,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         callerId: call.callerId,
         callerName: call.callerName,
         type: call.type,
+        mediaProvider: call.mediaProvider,
         participants: [...call.participants].filter(id => id !== call.callerId),
       });
     }
 
-    return {
+    return this.sendSocketAck(ack, {
       ok: true,
       call: {
         callId,
@@ -807,9 +1024,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         callerId: call.callerId,
         callerName: call.callerName,
         type: call.type,
+        mediaProvider: call.mediaProvider,
         participants: [...call.participants].filter(id => id !== call.callerId),
       },
-    };
+    });
   }
 
   @SubscribeMessage('call:incoming:received')
@@ -863,17 +1081,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleCallAddParticipants(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string; targetUserIds: string[] },
+    @Ack() ack?: (response: Record<string, unknown>) => void,
   ) {
     const inviterId = client.data.userId;
     const call = this.activeCalls.get(data.callId);
     if (!call || !call.participants.has(inviterId)) {
-      client.emit('call:error', { message: 'Appel introuvable ou non autorisé' });
-      return;
+      const message = 'Appel introuvable ou non autorisé';
+      client.emit('call:error', { message });
+      return this.sendSocketAck(ack, { ok: false, message });
     }
     if (await this.chat.isOfficialConversation(call.conversationId)) {
       const message = 'Le compte système ne peut pas être appelé';
       client.emit('call:error', { message });
-      return { ok: false, message };
+      return this.sendSocketAck(ack, { ok: false, message });
     }
 
     const [conversationParticipants, knownCallableIds] = await Promise.all([
@@ -889,8 +1109,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       );
 
     if (!targets.length) {
-      client.emit('call:error', { message: 'Aucun contact disponible à ajouter à cet appel' });
-      return { ok: false, message: 'Aucun contact disponible à ajouter à cet appel' };
+      const message = 'Aucun contact disponible à ajouter à cet appel';
+      client.emit('call:error', { message });
+      return this.sendSocketAck(ack, { ok: false, message });
     }
     console.info('[call:add-participants]', {
       callId: data.callId,
@@ -921,6 +1142,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           callerId: call.callerId,
           callerName: call.callerName,
           type: call.type,
+          mediaProvider: call.mediaProvider,
           participants: [...call.participants].filter(id => id !== call.callerId),
         });
       }
@@ -930,7 +1152,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       callId: data.callId,
       userIds: targets,
     });
-    return { ok: true, targets: targets.length };
+    return this.sendSocketAck(ack, { ok: true, targets: targets.length });
   }
 
   @SubscribeMessage('call:end')
@@ -955,19 +1177,33 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
-      if (call.answered && enderId !== call.callerId && call.participants.size > 2) {
+      if (call.answered && call.participants.size > 2) {
         const duration = call.answeredAt ? Math.max(1, Math.round((Date.now() - call.answeredAt) / 1000)) : undefined;
-        await this.callsSvc.logCall({
-          callId: data.callId,
-          userId: enderId,
-          peerId: call.callerId,
-          peerName: call.callerName,
-          type: call.type,
-          direction: 'incoming',
-          duration,
-        }).catch(() => {});
+        const peerId = enderId === call.callerId
+          ? [...call.participants].find(userId => userId !== enderId)
+          : call.callerId;
+        if (peerId) {
+          const peer = enderId === call.callerId ? await this.users.findById(peerId).catch(() => null) : null;
+          await this.callsSvc.logCall({
+            callId: data.callId,
+            userId: enderId,
+            peerId,
+            peerName: enderId === call.callerId ? peer?.name ?? 'Participant' : call.callerName,
+            type: call.type,
+            direction: enderId === call.callerId ? 'outgoing' : 'incoming',
+            duration,
+          }).catch(() => {});
+        }
 
         call.participants.delete(enderId);
+        if (enderId === call.callerId) {
+          const nextCallerId = [...call.participants][0];
+          if (nextCallerId) {
+            const nextCaller = await this.users.findById(nextCallerId).catch(() => null);
+            call.callerId = nextCallerId;
+            call.callerName = nextCaller?.name ?? call.callerName;
+          }
+        }
         for (const sid of this.socketState.getSocketIds(enderId)) {
           const participantSocket = this.server.sockets.sockets.get(sid);
           participantSocket?.leave(`call:${data.callId}`);

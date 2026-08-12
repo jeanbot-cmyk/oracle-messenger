@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 type BusinessStatus = 'prospect' | 'chaud' | 'froid' | 'paye' | 'relancer' | 'vip' | 'perdu';
 const ADMIN_PHONE = '+2250700508618';
-const BUSINESS_MONTHLY_PRICE_FCFA = 5000;
+const BUSINESS_MONTHLY_PRICE_FCFA = 10000;
 const BUSINESS_STATUSES = new Set(['prospect', 'chaud', 'froid', 'paye', 'relancer', 'vip', 'perdu']);
 
 @Injectable()
@@ -162,7 +162,7 @@ export class BusinessService {
     return this.prisma.businessClient.create({ data: { ownerId, ...data } });
   }
 
-  async saveReminder(ownerId: string, dto: { clientId?: string; title?: string; note?: string; dueAt?: string }) {
+  async saveReminder(ownerId: string, dto: { clientId?: string; title?: string; note?: string; dueAt?: string; autoSend?: boolean }) {
     await this.requireBusinessAction(ownerId);
     const dueAt = new Date(String(dto.dueAt ?? ''));
     if (!Number.isFinite(dueAt.getTime())) throw new BadRequestException('Date de rappel invalide.');
@@ -175,6 +175,9 @@ export class BusinessService {
       });
       if (!client) throw new ForbiddenException('Client Business introuvable.');
     }
+    if (dto.autoSend && !client?.conversationId) {
+      throw new BadRequestException('Relance automatique impossible : ce client n’est pas encore relié à une conversation Oracle Messenger.');
+    }
 
     return this.prisma.businessReminder.create({
       data: {
@@ -184,7 +187,7 @@ export class BusinessService {
         title: String(dto.title || (client ? `Relancer ${client.name}` : 'Rappel Business')).trim().slice(0, 160),
         note: String(dto.note ?? '').trim().slice(0, 1200),
         dueAt,
-        source: 'manual',
+        source: dto.autoSend ? 'ai_auto' : 'manual',
       },
     });
   }
@@ -196,7 +199,64 @@ export class BusinessService {
     return this.prisma.businessReminder.update({ where: { id: existing.id }, data: { done } });
   }
 
+  async collectDueAiReminderActions(limit = 20) {
+    const reminders = await this.prisma.businessReminder.findMany({
+      where: {
+        done: false,
+        source: 'ai_auto',
+        conversationId: { not: null },
+        dueAt: { lte: new Date() },
+      },
+      include: {
+        client: {
+          select: {
+            name: true,
+            status: true,
+            tags: true,
+            notes: true,
+            lastIntent: true,
+          },
+        },
+      },
+      orderBy: { dueAt: 'asc' },
+      take: Math.max(1, Math.min(50, limit)),
+    });
+
+    const actions: Array<{ reminderId: string; ownerId: string; conversationId: string; context: string }> = [];
+    for (const reminder of reminders) {
+      const access = await this.getAccess(reminder.ownerId);
+      if (!access.canAct || !reminder.conversationId) continue;
+      const clientName = reminder.client?.name || 'Client';
+      actions.push({
+        reminderId: reminder.id,
+        ownerId: reminder.ownerId,
+        conversationId: reminder.conversationId,
+        context: [
+          'Tâche Business Oracle Messenger: relance automatique client.',
+          `Client: ${clientName}`,
+          `Statut client: ${reminder.client?.status || 'prospect'}`,
+          `Intention détectée: ${reminder.client?.lastIntent || 'non précisée'}`,
+          `Rappel: ${reminder.title}`,
+          reminder.note ? `Message ou note source: ${reminder.note}` : '',
+          reminder.client?.notes ? `Mémoire CRM courte: ${reminder.client.notes.slice(-900)}` : '',
+          'Écris une relance commerciale polie, directe et naturelle. Respecte le nombre maximum de mots configuré dans Gemini.',
+        ].filter(Boolean).join('\n'),
+      });
+    }
+    return actions;
+  }
+
+  async markAiReminderExecuted(ownerId: string, id: string) {
+    await this.prisma.businessReminder.updateMany({
+      where: { id, ownerId, source: 'ai_auto' },
+      data: { done: true },
+    });
+  }
+
   async applyAiMessageInsight(ownerId: string, customerUserId: string, conversationId: string, message: string) {
+    const access = await this.getAccess(ownerId);
+    if (!access.canAct) return null;
+
     const clean = String(message || '').trim();
     if (!clean || ownerId === customerUserId) return null;
 
@@ -349,6 +409,11 @@ export class BusinessService {
       intent = 'paiement';
       tags.push('paye');
       reason = `Paiement ou confirmation détecté : ${message.slice(0, 240)}`;
+    } else if (/(facture|invoice|re[cç]u|devis|proforma|bon de commande|preuve|capture|bordereau)/i.test(text)) {
+      status = 'chaud';
+      intent = 'facture_ou_document';
+      tags.push('chaud', 'facture');
+      reason = `Facture, devis, reçu ou document commercial à traiter : ${message.slice(0, 240)}`;
     } else if (/(prix|tarif|combien|devis|acheter|commande|abonnement|int[eé]ress[eé]|je prends|je veux|rdv|rendez-vous|disponible)/i.test(text)) {
       status = 'chaud';
       intent = 'interet_achat';
@@ -365,6 +430,12 @@ export class BusinessService {
       tags.push('relancer');
       if (status === 'prospect') status = 'relancer';
       intent = `${intent}_rappel`;
+    }
+
+    const amount = message.match(/(?:montant|total|prix|solde)?\s*((?:\d[\d\s.,]{2,}))\s*(?:f\s*cfa|fcfa|xof|€|eur|usd)?/i);
+    if (amount?.[0]) {
+      tags.push('montant');
+      reason = `${reason} Montant possible : ${amount[0].trim().slice(0, 40)}.`;
     }
 
     return { status, tags, intent, reason };

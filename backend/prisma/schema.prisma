@@ -65,6 +65,7 @@ model AiAutoConfig {
   paidActive     Boolean  @default(false)
   prompt         String   @db.Text
   delayMs        Int      @default(5000)
+  maxWords       Int      @default(30)
   recipientScope String   @default("private_only") // friends | non_friends | everyone | groups_only | private_only
   dailyLimit     Int?
   lastError      String?

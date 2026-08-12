@@ -1,2 +1,0 @@
-67b4c6250733a4f40365ecdfca012a19f1d320fd8f4d82e9d616bb51c0f4314a  frontend/public/downloads/oracle-messenger-android-2026080911.apk
-a59d097d9bc6f95417d14f98bd6b9187ad3a43255a35a24ed4ff8a7cb37a4b58  frontend/public/downloads/oracle-messenger-android-2026080911.aab

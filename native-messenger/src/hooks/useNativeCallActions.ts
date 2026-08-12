@@ -1,10 +1,12 @@
 import { useCallback } from 'react';
-import { MediaStream } from 'react-native-webrtc';
+import { MediaStream } from '@livekit/react-native-webrtc';
 import type { Socket } from 'socket.io-client';
 import {
+  CALL_OPERATION_TIMEOUT_MS,
   createNativeCallId,
   emitSocketAck,
   type NativeCallInfo,
+  type NativeCallMediaProvider,
   type NativeCallState,
 } from '@/hooks/nativeCallUtils';
 import { api } from '@/services/api';
@@ -16,6 +18,14 @@ type CameraFacing = 'user' | 'environment';
 type RefValue<T> = { current: T };
 type NativeCallTrace = (event: string, details?: Record<string, unknown>) => void;
 
+function waitForCallUiFrame() {
+  return new Promise<void>(resolve => {
+    requestAnimationFrame(() => {
+      setTimeout(resolve, 0);
+    });
+  });
+}
+
 type UseNativeCallActionsParams = {
   session: AuthSession | null;
   cameraFacing: CameraFacing;
@@ -24,7 +34,11 @@ type UseNativeCallActionsParams = {
   callStateRef: RefValue<NativeCallState>;
   cleanup: (emitEnd?: boolean) => void;
   getLocalStream: (type: 'audio' | 'video', facing: CameraFacing) => Promise<MediaStream>;
+  connectLiveKit: (info: NativeCallInfo, type: 'audio' | 'video', facing: CameraFacing) => Promise<boolean>;
   startAudioSession: (type: 'audio' | 'video') => void;
+  startOutgoingRingback: () => void;
+  stopIncomingRingtone: () => void;
+  startForegroundCallService: (type: 'audio' | 'video') => void;
   setIceServers: (iceServers?: RTCIceServer[] | null) => void;
   setInfoSafe: (next: NativeCallInfo | null) => void;
   setStateSafe: (next: NativeCallState) => void;
@@ -40,7 +54,11 @@ export function useNativeCallActions({
   callStateRef,
   cleanup,
   getLocalStream,
+  connectLiveKit,
   startAudioSession,
+  startOutgoingRingback,
+  stopIncomingRingtone,
+  startForegroundCallService,
   setIceServers,
   setInfoSafe,
   setStateSafe,
@@ -54,11 +72,18 @@ export function useNativeCallActions({
       setCallNotice('Aucun destinataire valide pour cet appel.');
       return;
     }
+    const targetUsers = conversation.participants.filter(user => targetUserIds.includes(user.id));
     const nextInfo: NativeCallInfo = {
       callId: createNativeCallId(),
       conversationId: conversation.id,
       callerId: session.user.id,
       callerName: session.user.name,
+      calleeName: conversation.type === 'group'
+        ? conversation.name || `${targetUserIds.length} participants`
+        : targetUsers[0]?.name,
+      calleeAvatar: conversation.type === 'group'
+        ? conversation.avatar || null
+        : targetUsers[0]?.avatar || null,
       type,
       participants: targetUserIds,
     };
@@ -66,19 +91,32 @@ export function useNativeCallActions({
       setCallNotice('');
       setInfoSafe(nextInfo);
       setStateSafe('calling');
+      await waitForCallUiFrame();
       startAudioSession(type);
-      await getLocalStream(type, cameraFacing);
+      startOutgoingRingback();
       const socket = ensureNativeSocket(session.token);
       socketRef.current = socket;
-      const ice = await api.iceServers(session.token).catch(() => null);
-      setIceServers(ice?.iceServers);
-      await emitSocketAck(socket, 'call:start', {
+      const liveKitReady = await connectLiveKit(nextInfo, type, cameraFacing);
+      const mediaProvider: NativeCallMediaProvider = liveKitReady ? 'livekit' : 'webrtc';
+      const callInfo = { ...nextInfo, mediaProvider };
+      setInfoSafe(callInfo);
+      if (!liveKitReady) {
+        await getLocalStream(type, cameraFacing);
+        const ice = await api.iceServers(session.token).catch(() => null);
+        setIceServers(ice?.iceServers);
+      }
+      startForegroundCallService(type);
+      const response = await emitSocketAck<{ ok?: boolean; message?: string; callId?: string; targets?: number }>(socket, 'call:start', {
         callId: nextInfo.callId,
         conversationId: conversation.id,
         type,
         targetUserIds,
+        mediaProvider,
       });
-      trace('call:start:ack', { targets: targetUserIds.length });
+      if (response?.ok === false) {
+        throw new Error(response.message || 'Appel refusé par le serveur.');
+      }
+      trace('call:start:ack', { targets: targetUserIds.length, mediaProvider });
     } catch (error) {
       setCallNotice(error instanceof Error ? error.message : 'Appel impossible.');
       cleanup(true);
@@ -87,6 +125,7 @@ export function useNativeCallActions({
     cameraFacing,
     cleanup,
     getLocalStream,
+    connectLiveKit,
     session,
     setCallNotice,
     setIceServers,
@@ -94,6 +133,8 @@ export function useNativeCallActions({
     setStateSafe,
     socketRef,
     startAudioSession,
+    startOutgoingRingback,
+    startForegroundCallService,
     trace,
   ]);
 
@@ -112,7 +153,7 @@ export function useNativeCallActions({
         socket,
         'call:get-active',
         { callId: requestedCallId },
-        10000,
+        CALL_OPERATION_TIMEOUT_MS,
       );
       if (!response.ok || !response.call) {
         setCallNotice(response.message || 'Appel introuvable ou termine.');
@@ -138,6 +179,7 @@ export function useNativeCallActions({
     if (!info || !session?.token) return;
     const socket = ensureNativeSocket(session.token);
     socketRef.current = socket;
+    stopIncomingRingtone();
     if (!accepted) {
       socket.emit('call:answer', { callId: info.callId, accepted: false });
       cancelIncomingCallNotification(info.callId).catch(() => null);
@@ -147,12 +189,30 @@ export function useNativeCallActions({
     try {
       cancelIncomingCallNotification(info.callId).catch(() => null);
       setStateSafe('connecting');
+      await waitForCallUiFrame();
       startAudioSession(info.type);
-      await getLocalStream(info.type, cameraFacing);
-      const ice = await api.iceServers(session.token).catch(() => null);
-      setIceServers(ice?.iceServers);
-      await emitSocketAck(socket, 'call:answer', { callId: info.callId, accepted: true });
-      trace('call:answer:accepted');
+      const shouldTryLiveKit = info.mediaProvider !== 'webrtc';
+      const liveKitReady = shouldTryLiveKit ? await connectLiveKit(info, info.type, cameraFacing) : false;
+      const mediaProvider: NativeCallMediaProvider = liveKitReady ? 'livekit' : 'webrtc';
+      if (info.mediaProvider === 'livekit' && !liveKitReady) {
+        throw new Error('Connexion LiveKit impossible pour cet appel.');
+      }
+      if (!liveKitReady) {
+        await getLocalStream(info.type, cameraFacing);
+        const ice = await api.iceServers(session.token).catch(() => null);
+        setIceServers(ice?.iceServers);
+      }
+      startForegroundCallService(info.type);
+      setInfoSafe({ ...info, mediaProvider });
+      const response = await emitSocketAck<{ ok?: boolean; message?: string; accepted?: boolean }>(
+        socket,
+        'call:answer',
+        { callId: info.callId, accepted: true, mediaProvider },
+      );
+      if (response?.ok === false) {
+        throw new Error(response.message || 'Réponse appel refusée par le serveur.');
+      }
+      trace('call:answer:accepted', { mediaProvider });
     } catch (error) {
       setCallNotice(error instanceof Error ? error.message : 'Réponse impossible.');
       cleanup(true);
@@ -162,12 +222,16 @@ export function useNativeCallActions({
     cameraFacing,
     cleanup,
     getLocalStream,
+    connectLiveKit,
     session?.token,
     setCallNotice,
     setIceServers,
+    setInfoSafe,
     setStateSafe,
     socketRef,
     startAudioSession,
+    startForegroundCallService,
+    stopIncomingRingtone,
     trace,
   ]);
 
@@ -187,7 +251,7 @@ export function useNativeCallActions({
         socket,
         'call:add-participants',
         { callId: info.callId, targetUserIds: targets },
-        12000,
+        CALL_OPERATION_TIMEOUT_MS,
       );
       if (response?.ok === false) {
         setCallNotice(response.message || 'Ajout participant impossible.');

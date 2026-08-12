@@ -4,7 +4,7 @@ import { api } from '@/services/api';
 
 const CALL_CHANNEL_ID = 'oracle_messenger_incoming_calls_v4';
 const MESSAGE_CHANNEL_ID = 'oracle_messenger_messages_v3';
-const REMINDER_CHANNEL_ID = 'oracle_messenger_local_reminders_v1';
+const REMINDER_CHANNEL_ID = 'oracle_messenger_local_reminders_v2';
 const NativeIncomingCall = NativeModules.OracleIncomingCallNotification as
   | {
       showIncomingCall?: (callId: string, conversationId: string, callerName: string, callType: string) => Promise<boolean>;
@@ -43,11 +43,11 @@ export async function configureAndroidNotifications() {
   });
   await Notifications.setNotificationChannelAsync(REMINDER_CHANNEL_ID, {
     name: 'Rappels Oracle Messenger',
-    importance: Notifications.AndroidImportance.HIGH,
+    importance: Notifications.AndroidImportance.MAX,
     sound: 'default',
-    vibrationPattern: [0, 180, 120, 180],
+    vibrationPattern: [0, 420, 180, 420, 180, 760],
     lightColor: '#102A2A',
-    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 }
 
@@ -124,8 +124,8 @@ export async function scheduleLocalReminder(input: { title: string; body?: strin
       title: input.title || 'Rappel Oracle Messenger',
       body: input.body || 'Rappel enregistré dans Oracle Messenger.',
       sound: 'default',
-      priority: Notifications.AndroidNotificationPriority.HIGH,
-      data: { type: 'local-reminder' },
+      priority: Notifications.AndroidNotificationPriority.MAX,
+      data: { type: 'local-reminder', scheduledAt: input.date.toISOString() },
     },
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.DATE,

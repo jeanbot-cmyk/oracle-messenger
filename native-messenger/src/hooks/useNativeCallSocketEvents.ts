@@ -29,10 +29,14 @@ type UseNativeCallSocketEventsParams = {
   setInfoSafe: (next: NativeCallInfo | null) => void;
   setStateSafe: (next: NativeCallState) => void;
   setCallNotice: (message: string) => void;
+  startIncomingRingtone: (type: 'audio' | 'video') => void;
+  stopIncomingRingtone: () => void;
   sendOffer: (targetUserId: string) => Promise<void>;
+  isLiveKitActive: () => boolean;
   handleOffer: (data: WebRtcSessionEvent) => Promise<void>;
   handleAnswer: (data: WebRtcSessionEvent) => Promise<void>;
   handleIce: (data: WebRtcIceEvent) => Promise<void>;
+  removePeerConnection: (targetUserId: string) => void;
   trace: NativeCallTrace;
 };
 
@@ -46,10 +50,14 @@ export function useNativeCallSocketEvents({
   setInfoSafe,
   setStateSafe,
   setCallNotice,
+  startIncomingRingtone,
+  stopIncomingRingtone,
   sendOffer,
+  isLiveKitActive,
   handleOffer,
   handleAnswer,
   handleIce,
+  removePeerConnection,
   trace,
 }: UseNativeCallSocketEventsParams) {
   useEffect(() => {
@@ -68,6 +76,7 @@ export function useNativeCallSocketEvents({
       }
       setInfoSafe(data);
       setStateSafe('incoming');
+      startIncomingRingtone(data.type);
       socket.emit('call:incoming:received', { callId: data.callId, conversationId: data.conversationId });
       showIncomingCallNotification({
         callId: data.callId,
@@ -80,22 +89,40 @@ export function useNativeCallSocketEvents({
       trace('call:incoming', { callId: data.callId, type: data.type });
     };
 
-    const onAnswered = (data: { callId: string; userId: string; accepted: boolean }) => {
+    const onAnswered = (data: { callId: string; userId: string; accepted: boolean; ended?: boolean; mediaProvider?: 'livekit' | 'webrtc' }) => {
       const info = callInfoRef.current;
       if (!info || data.callId !== info.callId || data.userId === currentUserId) return;
       trace('call:answered', data);
+      stopIncomingRingtone();
       if (!data.accepted) {
-        cleanup(false);
+        if (data.ended) {
+          cleanup(false);
+          return;
+        }
+        setInfoSafe({ ...info, participants: info.participants.filter(userId => userId !== data.userId) });
+        setCallNotice('Un participant a refusé l’appel.');
+        return;
+      }
+      if (!['calling', 'connecting', 'connected', 'reconnecting'].includes(callStateRef.current)) {
+        trace('call:answered:ignored-unjoined-participant', { responderId: data.userId, localState: callStateRef.current });
         return;
       }
       setStateSafe('connecting');
+      if (isLiveKitActive()) {
+        trace('livekit:answer-media-path', { responderId: data.userId });
+        setStateSafe('connected');
+        return;
+      }
       sendOffer(data.userId).catch(error => {
         setCallNotice(error instanceof Error ? error.message : 'Connexion média impossible.');
       });
     };
 
     const onEnded = (data: { callId: string }) => {
-      if (data.callId === callInfoRef.current?.callId) cleanup(false);
+      if (data.callId === callInfoRef.current?.callId) {
+        stopIncomingRingtone();
+        cleanup(false);
+      }
     };
 
     const onParticipantsAdded = (data: { callId: string; userIds?: string[] }) => {
@@ -110,12 +137,40 @@ export function useNativeCallSocketEvents({
       const info = callInfoRef.current;
       if (!info || data.callId !== info.callId || !data.userId) return;
       setInfoSafe({ ...info, participants: info.participants.filter(userId => userId !== data.userId) });
+      removePeerConnection(data.userId);
       trace('call:participant-left', { userId: data.userId });
     };
 
     const onCallError = (data: { message?: string }) => {
       if (data?.message) setCallNotice(data.message);
       trace('call:error', { message: data?.message });
+    };
+
+    const onOffer = (data: WebRtcSessionEvent) => {
+      if (isLiveKitActive()) {
+        trace('webrtc:offer:ignored-livekit', { fromUserId: data.fromUserId });
+        return;
+      }
+      handleOffer(data).catch(error => {
+        trace('webrtc:offer:handler-error', { message: error instanceof Error ? error.message : String(error) });
+      });
+    };
+
+    const onAnswer = (data: WebRtcSessionEvent) => {
+      if (isLiveKitActive()) {
+        trace('webrtc:answer:ignored-livekit', { fromUserId: data.fromUserId });
+        return;
+      }
+      handleAnswer(data).catch(error => {
+        trace('webrtc:answer:handler-error', { message: error instanceof Error ? error.message : String(error) });
+      });
+    };
+
+    const onIce = (data: WebRtcIceEvent) => {
+      if (isLiveKitActive()) return;
+      handleIce(data).catch(error => {
+        trace('webrtc:ice:handler-error', { message: error instanceof Error ? error.message : String(error) });
+      });
     };
 
     const onDisconnect = (reason: string) => {
@@ -132,9 +187,9 @@ export function useNativeCallSocketEvents({
 
     socket.on('call:incoming', onIncoming);
     socket.on('call:answered', onAnswered);
-    socket.on('webrtc:offer', handleOffer);
-    socket.on('webrtc:answer', handleAnswer);
-    socket.on('webrtc:ice', handleIce);
+    socket.on('webrtc:offer', onOffer);
+    socket.on('webrtc:answer', onAnswer);
+    socket.on('webrtc:ice', onIce);
     socket.on('call:ended', onEnded);
     socket.on('call:participants-added', onParticipantsAdded);
     socket.on('call:participant-left', onParticipantLeft);
@@ -145,9 +200,9 @@ export function useNativeCallSocketEvents({
     return () => {
       socket.off('call:incoming', onIncoming);
       socket.off('call:answered', onAnswered);
-      socket.off('webrtc:offer', handleOffer);
-      socket.off('webrtc:answer', handleAnswer);
-      socket.off('webrtc:ice', handleIce);
+      socket.off('webrtc:offer', onOffer);
+      socket.off('webrtc:answer', onAnswer);
+      socket.off('webrtc:ice', onIce);
       socket.off('call:ended', onEnded);
       socket.off('call:participants-added', onParticipantsAdded);
       socket.off('call:participant-left', onParticipantLeft);
@@ -163,11 +218,15 @@ export function useNativeCallSocketEvents({
     handleAnswer,
     handleIce,
     handleOffer,
+    isLiveKitActive,
+    removePeerConnection,
     sendOffer,
     sessionToken,
     setCallNotice,
     setInfoSafe,
     setStateSafe,
+    startIncomingRingtone,
+    stopIncomingRingtone,
     socketRef,
     trace,
   ]);

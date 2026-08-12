@@ -7,8 +7,10 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 
 class OracleCallForegroundService : Service() {
@@ -17,8 +19,19 @@ class OracleCallForegroundService : Service() {
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     val callType = intent?.getStringExtra(EXTRA_CALL_TYPE) ?: "audio"
     val callerName = intent?.getStringExtra(EXTRA_CALLER_NAME) ?: "Oracle Messenger"
-    ensureChannel()
-    startForeground(NOTIFICATION_ID, buildNotification(callType, callerName))
+    try {
+      ensureChannel()
+      val notification = buildNotification(callType, callerName)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        startForeground(NOTIFICATION_ID, notification, foregroundServiceType(callType))
+      } else {
+        startForeground(NOTIFICATION_ID, notification)
+      }
+    } catch (error: Exception) {
+      Log.e(TAG, "Unable to start call foreground service", error)
+      stopSelf(startId)
+      return START_NOT_STICKY
+    }
     return START_STICKY
   }
 
@@ -70,7 +83,17 @@ class OracleCallForegroundService : Service() {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
   }
 
+  private fun foregroundServiceType(callType: String): Int {
+    val microphone = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+    return if (callType == "video") {
+      microphone or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+    } else {
+      microphone
+    }
+  }
+
   companion object {
+    private const val TAG = "OracleCallForeground"
     private const val CHANNEL_ID = "oracle_messenger_active_call_v1"
     private const val NOTIFICATION_ID = 41001
     private const val EXTRA_CALL_TYPE = "callType"

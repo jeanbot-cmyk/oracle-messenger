@@ -1,6 +1,6 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import InCallManager from 'react-native-incall-manager';
-import { mediaDevices, MediaStream, type MediaStreamTrack } from 'react-native-webrtc';
+import { mediaDevices, MediaStream, type MediaStreamTrack } from '@livekit/react-native-webrtc';
 
 type CameraFacing = 'user' | 'environment';
 type RefValue<T> = { current: T };

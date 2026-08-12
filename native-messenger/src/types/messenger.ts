@@ -7,6 +7,7 @@ export type User = {
   bio?: string | null;
   phone?: string | null;
   status?: string;
+  lastSeen?: string | null;
   isNew?: boolean;
 };
 
@@ -38,6 +39,19 @@ export type Conversation = {
   lastMessage?: Message | null;
   unreadCount?: number;
   updatedAt?: string;
+  isPinned?: boolean;
+  isOfficial?: boolean;
+  isVerified?: boolean;
+  officialOpenedAt?: string | null;
+  officialExpiresAt?: string | null;
+  officialState?: {
+    received: boolean;
+    unread: boolean;
+    opened_at?: string | null;
+    expires_at?: string | null;
+    openedAt?: string | null;
+    expiresAt?: string | null;
+  };
 };
 
 export type AuthSession = {

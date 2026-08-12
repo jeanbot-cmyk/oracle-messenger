@@ -1,4 +1,5 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
+import { markConversationReadLocally, sortConversations } from '@/screens/home/homeUtils';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
 
@@ -17,8 +18,8 @@ type UseNativeRealtimeEventsParams = {
   runMediaSync: (activeToken: string, currentUserId?: string, knownMessages?: Message[]) => Promise<unknown>;
   handleTypingStart: (event: { conversationId: string; userId: string; userName?: string }) => void;
   handleTypingStop: (event: { conversationId: string; userId: string }) => void;
-  handleUserOnline: (event: { userId: string }) => void;
-  handleUserOffline: (event: { userId: string }) => void;
+  handleUserOnline: (event: { userId: string; lastSeen?: string | null }) => void;
+  handleUserOffline: (event: { userId: string; lastSeen?: string | null }) => void;
 };
 
 export function useNativeRealtimeEvents({
@@ -62,13 +63,23 @@ export function useNativeRealtimeEvents({
 
     const onConversationRead = ({ conversationId, userId }: { conversationId: string; userId: string }) => {
       if (userId === sessionRef.current?.user.id) {
-        setConversations(current => current.map(item => item.id === conversationId ? { ...item, unreadCount: 0 } : item));
-        return;
+        setConversations(current => sortConversations(current.map(item => item.id === conversationId ? markConversationReadLocally(item) : item)));
       }
-      setMessages(current => current.map(item => (
-        item.conversationId === conversationId && item.senderId === sessionRef.current?.user.id
-          ? { ...item, status: 'read' }
-          : item
+    };
+
+    const updateParticipantPresence = (event: { userId: string; status: 'online' | 'offline'; lastSeen?: string | null }) => {
+      setConversations(current => sortConversations(current.map(conversation => ({
+        ...conversation,
+        participants: conversation.participants.map(participant => (
+          participant.id === event.userId
+            ? { ...participant, status: event.status, lastSeen: event.lastSeen ?? participant.lastSeen ?? null }
+            : participant
+        )),
+      }))));
+      setMessages(current => current.map(message => (
+        message.sender?.id === event.userId
+          ? { ...message, sender: { ...message.sender, status: event.status, lastSeen: event.lastSeen ?? message.sender.lastSeen ?? null } }
+          : message
       )));
     };
 
@@ -83,8 +94,17 @@ export function useNativeRealtimeEvents({
     socket.on('message:delete', onMessageDelete);
     socket.on('typing:start', handleTypingStart);
     socket.on('typing:stop', handleTypingStop);
-    socket.on('user:online', handleUserOnline);
-    socket.on('user:offline', handleUserOffline);
+    const onUserOnline = (event: { userId: string; lastSeen?: string | null }) => {
+      updateParticipantPresence({ ...event, status: 'online' });
+      handleUserOnline(event);
+    };
+    const onUserOffline = (event: { userId: string; lastSeen?: string | null }) => {
+      updateParticipantPresence({ ...event, status: 'offline' });
+      handleUserOffline(event);
+    };
+
+    socket.on('user:online', onUserOnline);
+    socket.on('user:offline', onUserOffline);
 
     return () => {
       socket.off('message:new', onMessageNew);
@@ -94,8 +114,8 @@ export function useNativeRealtimeEvents({
       socket.off('message:delete', onMessageDelete);
       socket.off('typing:start', handleTypingStart);
       socket.off('typing:stop', handleTypingStop);
-      socket.off('user:online', handleUserOnline);
-      socket.off('user:offline', handleUserOffline);
+      socket.off('user:online', onUserOnline);
+      socket.off('user:offline', onUserOffline);
     };
   }, [
     handleTypingStart,

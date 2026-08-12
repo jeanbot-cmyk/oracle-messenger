@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Image, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api } from '@/services/api';
+import { NativePhotoViewer } from '@/screens/home/NativePhotoViewer';
 import { readLocalGalleryItems, removeLocalGalleryItem, renameLocalGalleryItem, type LocalGalleryItem } from '@/services/localMedia';
 import { syncPendingMedia } from '@/services/mediaSync';
 import { colors } from '@/theme/colors';
@@ -28,6 +29,7 @@ export function GalleryPage({ token, userId }: { token: string; userId: string }
   const [pendingCount, setPendingCount] = useState(0);
   const [filter, setFilter] = useState<'all' | LocalGalleryItem['type']>('all');
   const [opened, setOpened] = useState<LocalGalleryItem | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<LocalGalleryItem | null>(null);
   const [renameTarget, setRenameTarget] = useState<LocalGalleryItem | null>(null);
   const [renameText, setRenameText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -151,7 +153,7 @@ export function GalleryPage({ token, userId }: { token: string; userId: string }
         <Section title="Bibliothèque locale">
           <View style={styles.galleryGrid}>
             {filtered.map(item => (
-              <Pressable key={item.messageId} onPress={() => setOpened(item)} style={styles.galleryTile}>
+              <Pressable key={item.messageId} onPress={() => item.type === 'image' ? setPhotoPreview(item) : setOpened(item)} style={styles.galleryTile}>
                 <GalleryThumb item={item} />
                 <Text numberOfLines={1} style={styles.galleryName}>{item.name || item.type}</Text>
                 <Text style={styles.galleryMeta}>{new Date(item.savedAt).toLocaleDateString('fr-FR')}</Text>
@@ -181,6 +183,14 @@ export function GalleryPage({ token, userId }: { token: string; userId: string }
           </View>
         </View>
       </Modal>
+      <NativePhotoViewer
+        visible={Boolean(photoPreview)}
+        uri={photoPreview?.uri}
+        title={photoPreview?.name || 'Photo'}
+        fallbackText="IMG"
+        imageResizeMode="contain"
+        onClose={() => setPhotoPreview(null)}
+      />
     </>
   );
 }

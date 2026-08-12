@@ -5,6 +5,7 @@ const MAX_PENDING_MESSAGES = 100;
 
 export type PendingNativeTextMessage = {
   id: string;
+  localMessageId?: string;
   conversationId: string;
   content: string;
   replyToId?: string;
@@ -25,6 +26,7 @@ function normalizePendingMessages(value: unknown): PendingNativeTextMessage[] {
       ...item,
       content: String(item.content),
       attempts: Number.isFinite(Number(item.attempts)) ? Math.max(0, Number(item.attempts)) : 0,
+      localMessageId: item.localMessageId || undefined,
       replyToId: item.replyToId || undefined,
       lastError: item.lastError || undefined,
     }))
@@ -48,6 +50,7 @@ async function writeNativeTextOutbox(items: PendingNativeTextMessage[]) {
 }
 
 export async function enqueueNativeTextMessage(data: {
+  localMessageId?: string;
   conversationId: string;
   content: string;
   replyToId?: string;
@@ -55,6 +58,7 @@ export async function enqueueNativeTextMessage(data: {
 }) {
   const pending: PendingNativeTextMessage = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    localMessageId: data.localMessageId,
     conversationId: data.conversationId,
     content: data.content,
     replyToId: data.replyToId,

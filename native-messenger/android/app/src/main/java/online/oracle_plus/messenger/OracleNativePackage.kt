@@ -9,6 +9,7 @@ class OracleNativePackage : ReactPackage {
   @Deprecated("ReactPackage#createNativeModules is deprecated upstream but still required for these legacy native modules.")
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
     return listOf(
+      OracleCallAlertModule(reactContext),
       OracleCallServiceModule(reactContext),
       OracleIncomingCallNotificationModule(reactContext),
       OracleMediaDownloadModule(reactContext),

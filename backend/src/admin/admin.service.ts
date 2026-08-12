@@ -8,7 +8,7 @@ import * as os from 'os';
 export class AdminService {
   private readonly logger = new Logger(AdminService.name);
   private lastCpuSnapshot: { idle: number; total: number } | null = null;
-  private readonly officialConversationName = 'O.messenger';
+  private readonly officialConversationName = 'O.Messenger';
   private readonly officialConversationAvatar = '/icons/oracle-system-avatar.svg';
   private readonly officialSystemEmail = 'system-aura@oracle-messenger.local';
   private readonly realUserWhere = { email: { not: this.officialSystemEmail } };
@@ -82,7 +82,7 @@ export class AdminService {
       orderBy: { createdAt: 'desc' },
       where: this.realUserWhere,
       take: limit,
-      select: { id:true, name:true, email:true, isPremium:true, status:true, createdAt:true, pushToken:true },
+      select: { id:true, name:true, email:true, isPremium:true, status:true, lastSeen:true, createdAt:true, pushToken:true },
     });
     return users.map(user => ({
       ...user,
@@ -115,9 +115,19 @@ export class AdminService {
       participants: others,
       lastMessage: conv.messages?.[0] ?? null,
       unreadCount,
-      isPinned: true,
+      isPinned: unreadCount > 0,
       isOfficial: true,
       isVerified: true,
+      officialOpenedAt: null,
+      officialExpiresAt: null,
+      officialState: {
+        received: true,
+        unread: unreadCount > 0,
+        opened_at: null,
+        expires_at: null,
+        openedAt: null,
+        expiresAt: null,
+      },
       updatedAt: conv.updatedAt,
     };
   }
@@ -146,9 +156,12 @@ export class AdminService {
     const systemUser = await this.getOrCreateOfficialSystemUser();
     const cleanText = content?.trim() || '';
     const cleanMediaUrl = mediaUrl?.trim() || '';
-    if (!cleanText && !cleanMediaUrl) return { success: false, sent: 0, failed: 0, total: 0, message: 'Contenu requis' };
+    const contentMedia = this.parseBroadcastMediaPayload(cleanText);
+    const effectiveMediaUrl = cleanMediaUrl || contentMedia?.url?.trim() || '';
+    const effectiveCaption = contentMedia ? String(contentMedia.caption || '').trim() : cleanText;
+    if (!effectiveCaption && !effectiveMediaUrl) return { success: false, sent: 0, failed: 0, total: 0, message: 'Contenu requis' };
 
-    // Get or create one official O.messenger conversation for each user.
+    // Get or create one official O.Messenger conversation for each user.
     const users = await this.prisma.user.findMany({
       where: { id: { not: systemUser.id } },
       select: { id: true },
@@ -164,7 +177,7 @@ export class AdminService {
             participants: { some: { userId: user.id } },
           },
           include: {
-            participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+            participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
             messages: { orderBy: { createdAt: 'desc' }, take: 1 },
           },
         });
@@ -180,7 +193,7 @@ export class AdminService {
               },
             },
             include: {
-              participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+              participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
               messages: { orderBy: { createdAt: 'desc' }, take: 1 },
             },
           });
@@ -193,7 +206,7 @@ export class AdminService {
               participants: { create: [{ userId: systemUser.id }] },
             },
             include: {
-              participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+              participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
               messages: { orderBy: { createdAt: 'desc' }, take: 1 },
             },
           });
@@ -201,15 +214,18 @@ export class AdminService {
 
         const messageType = ['image', 'video', 'audio', 'voice', 'file', 'document'].includes(type)
           ? type
-          : cleanMediaUrl
+          : effectiveMediaUrl
             ? 'file'
           : 'text';
         const messageContent = messageType === 'text'
-          ? cleanText
+          ? effectiveCaption
           : JSON.stringify({
-              url: cleanMediaUrl,
-              name: cleanText || 'Message officiel',
-              mime: this.inferBroadcastMime(messageType, cleanMediaUrl),
+              url: effectiveMediaUrl,
+              name: contentMedia?.name || effectiveCaption || 'Message officiel',
+              mime: contentMedia?.mime || this.inferBroadcastMime(messageType, effectiveMediaUrl),
+              size: contentMedia?.size,
+              checksum: contentMedia?.checksum,
+              caption: contentMedia?.caption || effectiveCaption || undefined,
               official: true,
             });
         const msg = await this.prisma.message.create({
@@ -230,7 +246,7 @@ export class AdminService {
             updatedAt: new Date(),
           },
           include: {
-            participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
+            participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
             messages: { orderBy: { createdAt: 'desc' }, take: 1 },
           },
         });
@@ -258,10 +274,35 @@ export class AdminService {
           ? 'Message vocal officiel'
           : type === 'file' || type === 'document'
             ? 'Fichier officiel'
-            : cleanText;
+            : effectiveCaption;
     await this.notifications.sendToAll({ title: this.officialConversationName, body: notificationBody }).catch(() => {});
 
     return { success: failed === 0, sent, failed, total: users.length };
+  }
+
+  private parseBroadcastMediaPayload(content: string): {
+    url?: string;
+    name?: string;
+    mime?: string;
+    size?: number;
+    checksum?: string;
+    caption?: string;
+  } | null {
+    if (!content?.trim().startsWith('{')) return null;
+    try {
+      const parsed = JSON.parse(content);
+      if (!parsed || typeof parsed !== 'object' || typeof parsed.url !== 'string') return null;
+      return {
+        url: parsed.url,
+        name: typeof parsed.name === 'string' ? parsed.name : undefined,
+        mime: typeof parsed.mime === 'string' ? parsed.mime : undefined,
+        size: typeof parsed.size === 'number' ? parsed.size : undefined,
+        checksum: typeof parsed.checksum === 'string' ? parsed.checksum : undefined,
+        caption: typeof parsed.caption === 'string' ? parsed.caption : undefined,
+      };
+    } catch {
+      return null;
+    }
   }
 
   private inferBroadcastMime(type: string, url: string) {
@@ -280,7 +321,7 @@ export class AdminService {
   // ── Statistiques par pays (basé sur l'indicatif du numéro de téléphone) ────
   async getCountryStats() {
     const users = await this.prisma.user.findMany({
-      select: { id: true, phone: true, status: true },
+      select: { id: true, phone: true, status: true, lastSeen: true },
       where: { phone: { not: null } },
     });
 

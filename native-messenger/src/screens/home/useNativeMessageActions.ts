@@ -2,8 +2,11 @@ import { useCallback, useMemo, useState } from 'react';
 import { Alert, Share } from 'react-native';
 import { messagePreview, socketAck } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
+import { hideMessagesForMe } from '@/services/nativeHiddenMessages';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import type { Conversation, Message } from '@/types/messenger';
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'] as const;
 
 type UseNativeMessageActionsParams = {
   messages: Message[];
@@ -61,6 +64,13 @@ export function useNativeMessageActions({
       })
       .catch(error => setNotice(error instanceof Error ? error.message : 'Suppression impossible.'));
   }, [currentUserId, markMessageDeleted, refreshConversations, setNotice, token]);
+
+  const deleteMessageForMe = useCallback((message: Message) => {
+    if (!message.conversationId || !message.id) return;
+    markMessageDeleted(message.conversationId, message.id);
+    hideMessagesForMe(message.conversationId, [message.id])
+      .catch(error => setNotice(error instanceof Error ? error.message : 'Suppression locale impossible.'));
+  }, [markMessageDeleted, setNotice]);
 
   const selectedMessages = useMemo(() => {
     if (!selectedMessageIds.length) return [];
@@ -124,40 +134,71 @@ export function useNativeMessageActions({
   }, [forwardMessages, refreshConversations, selected?.id, setBusy, setNotice, token, upsertMessage]);
 
   const deleteSelectedOwnMessages = useCallback(() => {
+    if (!selectedMessages.length) return;
     const own = selectedMessages.filter(message => message.senderId === currentUserId && !message.isDeleted);
-    if (!own.length) {
-      setNotice('Aucun message sélectionné ne peut être supprimé par ce compte.');
-      return;
-    }
-    Alert.alert('Supprimer', `${own.length} message(s) seront supprimés.`, [
+    const valid = selectedMessages.filter(message => !message.isDeleted);
+    const hideForMe = () => {
+      const ids = valid.map(message => message.id);
+      const conversationIds = new Set(valid.map(message => message.conversationId).filter(Boolean));
+      valid.forEach(message => markMessageDeleted(message.conversationId, message.id));
+      Promise.all([...conversationIds].map(conversationId => hideMessagesForMe(conversationId, ids.filter(id => valid.some(message => message.id === id && message.conversationId === conversationId)))))
+        .catch(error => setNotice(error instanceof Error ? error.message : 'Suppression locale impossible.'));
+      setSelectedMessageIds([]);
+      setNotice(valid.length > 1 ? 'Messages supprimés pour moi.' : 'Message supprimé pour moi.');
+    };
+    const buttons: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = [
       { text: 'Annuler', style: 'cancel' },
-      {
-        text: 'Supprimer',
+      { text: 'Supprimer pour moi', style: 'destructive', onPress: hideForMe },
+    ];
+    if (own.length) {
+      buttons.push({
+        text: own.length === valid.length ? 'Supprimer pour tous' : `Supprimer pour tous (${own.length})`,
         style: 'destructive',
         onPress: () => {
           own.forEach(message => deleteOwnMessage(message));
           setSelectedMessageIds([]);
         },
+      });
+    }
+    Alert.alert('Supprimer', `${valid.length} message(s) sélectionné(s).`, buttons);
+  }, [currentUserId, deleteOwnMessage, markMessageDeleted, selectedMessages, setNotice]);
+
+  const deleteOwnMessageWithConfirm = useCallback((message: Message) => {
+    Alert.alert('Supprimer', 'Supprimer ce message pour tous les participants ?', [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Supprimer pour tous',
+        style: 'destructive',
+        onPress: () => deleteOwnMessage(message),
       },
     ]);
-  }, [currentUserId, deleteOwnMessage, selectedMessages, setNotice]);
+  }, [deleteOwnMessage]);
 
   const openMessageActions = useCallback((message: Message) => {
     const mine = message.senderId === currentUserId;
+    const currentReaction = message.reactions?.find(reaction => reaction.userId === currentUserId)?.emoji || '';
     const buttons: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = [
       { text: 'Répondre', onPress: () => { setReplyTo(message); setEditingMessage(null); } },
-      { text: 'Réagir ❤️', onPress: () => reactToMessage(message, '❤️') },
+      ...QUICK_REACTIONS.map(emoji => ({
+        text: currentReaction === emoji ? `Retirer ${emoji}` : `Réagir ${emoji}`,
+        onPress: () => reactToMessage(message, currentReaction === emoji ? null : emoji),
+      })),
       { text: 'Sélectionner', onPress: () => toggleMessageSelection(message.id) },
       { text: 'Transférer', onPress: () => beginForward([message]) },
       { text: 'Partager', onPress: () => shareMessages([message]) },
     ];
     if (mine && message.type === 'text' && !message.isDeleted) {
       buttons.push({ text: 'Modifier', onPress: () => { setEditingMessage(message); setReplyTo(null); setDraft(message.content); } });
-      buttons.push({ text: 'Supprimer', style: 'destructive', onPress: () => deleteOwnMessage(message) });
+    }
+    if (!message.isDeleted) {
+      buttons.push({ text: 'Supprimer pour moi', style: 'destructive', onPress: () => deleteMessageForMe(message) });
+    }
+    if (mine && !message.isDeleted) {
+      buttons.push({ text: 'Supprimer pour tous', style: 'destructive', onPress: () => deleteOwnMessageWithConfirm(message) });
     }
     buttons.push({ text: 'Annuler', style: 'cancel' });
     Alert.alert('Message', messagePreview(message), buttons);
-  }, [beginForward, currentUserId, deleteOwnMessage, reactToMessage, setDraft, setEditingMessage, setReplyTo, shareMessages, toggleMessageSelection]);
+  }, [beginForward, currentUserId, deleteMessageForMe, deleteOwnMessageWithConfirm, reactToMessage, setDraft, setEditingMessage, setReplyTo, shareMessages, toggleMessageSelection]);
 
   return {
     selectedMessageIds,

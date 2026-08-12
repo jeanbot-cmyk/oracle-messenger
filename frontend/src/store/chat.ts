@@ -9,6 +9,8 @@ import {
   preserveLocalMediaContent,
 } from '../lib/db';
 
+const OFFICIAL_MESSAGE_TTL_MS = 24 * 60 * 60 * 1000;
+
 interface ChatStore {
   conversations:      Conversation[];
   activeConvId:       string | null;
@@ -59,22 +61,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   setConversations: (convs) => {
     const ownerId = get().currentUser?.id;
-    const visible = convs.filter(c => !isOfficialExpired(c));
+    const visible = convs.map(normalizeOfficialExpiration).filter(c => !isOfficialExpired(c));
     visible.forEach(c => saveConversation(c, ownerId));
     set({ conversations: sortConversations(visible) });
   },
 
   upsertConversation: (conv) => {
-    if (isOfficialExpired(conv)) {
-      get().removeConversation(conv.id);
+    const normalizedConv = normalizeOfficialExpiration(conv);
+    if (isOfficialExpired(normalizedConv)) {
+      get().removeConversation(normalizedConv.id);
       return;
     }
-    saveConversation(conv, get().currentUser?.id).catch(() => {});
+    saveConversation(normalizedConv, get().currentUser?.id).catch(() => {});
     set(s => {
-      const exists = s.conversations.some(c => c.id === conv.id);
+      const exists = s.conversations.some(c => c.id === normalizedConv.id);
       const next = exists
-        ? s.conversations.map(c => c.id === conv.id ? { ...c, ...conv } : c)
-        : [conv, ...s.conversations];
+        ? s.conversations.map(c => c.id === normalizedConv.id ? { ...c, ...normalizedConv } : c)
+        : [normalizedConv, ...s.conversations];
       return { conversations: sortConversations(next) };
     });
   },
@@ -298,9 +301,9 @@ function writeIdSet(key: string, ids: Set<string>) {
 }
 
 function sortConversations(convs: Conversation[]) {
-  return [...convs].filter(c => !isOfficialExpired(c)).sort((a, b) => {
-    const aPinned = Boolean(a.isPinned || a.isOfficial || a.type === 'official');
-    const bPinned = Boolean(b.isPinned || b.isOfficial || b.type === 'official');
+  return [...convs].map(normalizeOfficialExpiration).filter(c => !isOfficialExpired(c)).sort((a, b) => {
+    const aPinned = Boolean(a.isPinned);
+    const bPinned = Boolean(b.isPinned);
     if (aPinned !== bPinned) return aPinned ? -1 : 1;
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });
@@ -319,22 +322,62 @@ function messageTime(message: Message) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
+function dateTime(value?: string | Date | null) {
+  const time = value ? new Date(value).getTime() : Number.NaN;
+  return Number.isFinite(time) ? time : null;
+}
+
+function officialExpirationBelongsToLastMessage(conv: Conversation) {
+  const expiry = dateTime(conv.officialExpiresAt);
+  const lastMessageAt = dateTime(conv.lastMessage?.createdAt);
+  if (expiry === null || lastMessageAt === null) return false;
+  return expiry - OFFICIAL_MESSAGE_TTL_MS >= lastMessageAt;
+}
+
+function normalizeOfficialExpiration(conv: Conversation): Conversation {
+  const isOfficial = Boolean(conv.isOfficial || conv.type === 'official');
+  if (!isOfficial || !conv.officialExpiresAt) return conv;
+  if ((conv.unreadCount ?? 0) > 0) return { ...conv, officialExpiresAt: undefined, isPinned: true };
+  if (!officialExpirationBelongsToLastMessage(conv)) return { ...conv, officialExpiresAt: undefined, isPinned: false };
+  return conv;
+}
+
 function isOfficialExpired(conv: Conversation) {
-  if (!conv.isOfficial && conv.type !== 'official') return false;
-  if ((conv.unreadCount ?? 0) > 0) return false;
-  if (!conv.officialExpiresAt) return false;
-  const expiry = new Date(conv.officialExpiresAt).getTime();
-  return Number.isFinite(expiry) && expiry <= Date.now();
+  const normalized = normalizeOfficialExpiration(conv);
+  if (!normalized.isOfficial && normalized.type !== 'official') return false;
+  if ((normalized.unreadCount ?? 0) > 0) return false;
+  if (!normalized.officialExpiresAt) return false;
+  const expiry = dateTime(normalized.officialExpiresAt);
+  return expiry !== null && expiry <= Date.now();
 }
 
 function markConversationReadLocally(conv: Conversation): Conversation {
   const isOfficial = Boolean(conv.isOfficial || conv.type === 'official');
   if (!isOfficial) return { ...conv, unreadCount: 0 };
-  if (conv.officialExpiresAt) return { ...conv, unreadCount: 0 };
-  if (!conv.lastMessage?.createdAt) return { ...conv, unreadCount: 0 };
+  if (officialExpirationBelongsToLastMessage(conv)) {
+    return {
+      ...conv,
+      unreadCount: 0,
+      isPinned: false,
+      officialState: conv.officialState ? { ...conv.officialState, unread: false } : conv.officialState,
+    };
+  }
+  if (!conv.lastMessage?.createdAt) return { ...conv, unreadCount: 0, isPinned: false };
+  const openedAt = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + OFFICIAL_MESSAGE_TTL_MS).toISOString();
   return {
     ...conv,
     unreadCount: 0,
-    officialExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    isPinned: false,
+    officialOpenedAt: openedAt,
+    officialExpiresAt: expiresAt,
+    officialState: {
+      received: true,
+      unread: false,
+      opened_at: openedAt,
+      expires_at: expiresAt,
+      openedAt,
+      expiresAt,
+    },
   };
 }

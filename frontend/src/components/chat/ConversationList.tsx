@@ -9,6 +9,8 @@ import { MediaLightbox } from '../ui/MediaLightbox';
 import { matchesSearch } from '../../lib/search';
 import { notify } from '../../lib/feedback';
 
+const OFFICIAL_MESSAGE_TTL_MS = 24 * 60 * 60 * 1000;
+
 interface Props {
   search?: string;
   remoteResults?: any[] | null;
@@ -88,7 +90,11 @@ function isOfficialExpired(conv: any) {
   if ((conv?.unreadCount ?? 0) > 0) return false;
   if (!conv?.officialExpiresAt) return false;
   const expiry = new Date(conv.officialExpiresAt).getTime();
-  return Number.isFinite(expiry) && expiry <= Date.now();
+  const lastMessageAt = conv?.lastMessage?.createdAt ? new Date(conv.lastMessage.createdAt).getTime() : Number.NaN;
+  if (!Number.isFinite(expiry)) return false;
+  if (!Number.isFinite(lastMessageAt)) return false;
+  if (expiry - OFFICIAL_MESSAGE_TTL_MS < lastMessageAt) return false;
+  return expiry <= Date.now();
 }
 
 function ConversationListSkeleton() {
@@ -146,7 +152,7 @@ export function ConversationList({ search = '', remoteResults = null, searchLoad
       return false;
     }
     const isOfficial = Boolean((c as any).isOfficial || c.type === 'official');
-    const name = isOfficial ? (c.name ?? 'Oracle Messenger') : c.type === 'group' ? c.name : c.participants?.[0]?.name;
+    const name = isOfficial ? 'O.Messenger' : c.type === 'group' ? c.name : c.participants?.[0]?.name;
     if (search.trim()) {
       const loadedMessages = messages[c.id] ?? [];
       const searchableFields = [
@@ -240,7 +246,7 @@ export function ConversationList({ search = '', remoteResults = null, searchLoad
         const other    = conv.participants?.[0];
         const isOnline = !isOfficial && other && onlineUsers.has(other.id);
         const isActive = conv.id === activeConvId;
-        const name     = isOfficial ? (conv.name ?? 'Oracle Messenger') : conv.type === 'group' ? conv.name : other?.name ?? t(lang, 'common.unknown');
+        const name     = isOfficial ? 'O.Messenger' : conv.type === 'group' ? conv.name : other?.name ?? t(lang, 'common.unknown');
         const avatar   = isOfficial ? '/icons/oracle-system-avatar.svg' : conv.type === 'group' ? conv.avatar : other?.avatar;
         const lastMsg  = conv.lastMessage;
         const timeStr  = lastMsg ? format(new Date(lastMsg.createdAt), 'HH:mm') : '';

@@ -43,6 +43,7 @@ export class BusinessController {
     title?: string;
     note?: string;
     dueAt?: string;
+    autoSend?: boolean;
   }) {
     return this.business.saveReminder(user.id, body ?? {});
   }

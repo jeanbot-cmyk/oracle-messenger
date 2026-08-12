@@ -20,7 +20,7 @@ export class UsersService {
     if (!normalized) return null;
     return this.prisma.user.findFirst({
       where: { username: { equals: normalized, mode: 'insensitive' } },
-      select: { id:true, name:true, username:true, avatar:true, status:true },
+      select: { id:true, name:true, username:true, avatar:true, status:true, lastSeen:true },
     });
   }
 
@@ -105,7 +105,7 @@ export class UsersService {
           { phoneLast9Hash: { in: [...hashSet] } },
         ],
       },
-      select: { id:true, name:true, username:true, avatar:true, status:true, phone:true },
+      select: { id:true, name:true, username:true, avatar:true, status:true, lastSeen:true, phone:true },
       take: 500,
     });
 
@@ -143,7 +143,7 @@ export class UsersService {
           ...(email ? [{ email: { equals: email, mode: 'insensitive' as const } }] : []),
         ],
       },
-      select: { id:true, name:true, username:true, avatar:true, status:true, phone:true, email:true },
+      select: { id:true, name:true, username:true, avatar:true, status:true, lastSeen:true, phone:true, email:true },
       take: 20,
     });
 
