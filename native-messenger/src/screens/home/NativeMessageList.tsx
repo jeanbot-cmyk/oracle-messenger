@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AlertCircle, Check, CheckCheck, Clock3, Mail, Phone, PhoneMissed, PhoneOff, UserRound, Video } from 'lucide-react-native';
 import { NativeChatMediaMessage } from './NativeChatMediaMessage';
@@ -8,6 +8,7 @@ import type { Message } from '@/types/messenger';
 import { highQualityImageUri, initials, messagePreview, parseCallTraceMessage, parseContactPayload, type CallTraceMessage } from './homeUtils';
 
 type NativeMessageListProps = {
+  conversationId: string;
   messages: Message[];
   currentUserId?: string | null;
   currentUserName?: string | null;
@@ -216,6 +217,7 @@ function ReactionBadges({ reactions }: { reactions?: Message['reactions'] }) {
 }
 
 export function NativeMessageList({
+  conversationId,
   messages,
   currentUserId,
   currentUserName,
@@ -230,24 +232,50 @@ export function NativeMessageList({
 }: NativeMessageListProps) {
   const listRef = useRef<FlatList<Message>>(null);
   const nearBottomRef = useRef(true);
+  const positionedConversationIdRef = useRef<string | null>(null);
+  const lastAutoScrolledMessageIdRef = useRef<string | null>(null);
+  const [, forcePositionRender] = useState(0);
   const lastMessageId = messages[messages.length - 1]?.id;
   const lastMessageSenderId = messages[messages.length - 1]?.senderId;
+  const initialPositionPending = Boolean(messages.length && !messageSearch && positionedConversationIdRef.current !== conversationId);
+
+  const positionAtLatestMessage = useCallback(() => {
+    if (!messages.length || messageSearch) return;
+    if (positionedConversationIdRef.current === conversationId) return;
+    listRef.current?.scrollToEnd({ animated: false });
+    positionedConversationIdRef.current = conversationId;
+    lastAutoScrolledMessageIdRef.current = lastMessageId || null;
+    forcePositionRender(value => value + 1);
+  }, [conversationId, lastMessageId, messageSearch, messages.length]);
+
+  useEffect(() => {
+    nearBottomRef.current = true;
+    lastAutoScrolledMessageIdRef.current = null;
+    positionedConversationIdRef.current = null;
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (!messages.length) positionedConversationIdRef.current = null;
+  }, [messages.length]);
 
   useEffect(() => {
     if (!lastMessageId || messageSearch) return;
+    if (positionedConversationIdRef.current !== conversationId) return;
+    if (lastAutoScrolledMessageIdRef.current === lastMessageId) return;
     if (!nearBottomRef.current && lastMessageSenderId !== currentUserId) return;
     const frame = requestAnimationFrame(() => {
       listRef.current?.scrollToEnd({ animated: true });
+      lastAutoScrolledMessageIdRef.current = lastMessageId;
     });
     return () => cancelAnimationFrame(frame);
-  }, [currentUserId, lastMessageId, lastMessageSenderId, messageSearch]);
+  }, [conversationId, currentUserId, lastMessageId, lastMessageSenderId, messageSearch]);
 
   return (
     <FlatList
       ref={listRef}
       data={messages}
       keyExtractor={item => item.id}
-      style={styles.list}
+      style={[styles.list, initialPositionPending ? styles.listPositioning : null]}
       contentContainerStyle={styles.messagesList}
       initialNumToRender={18}
       maxToRenderPerBatch={10}
@@ -255,7 +283,13 @@ export function NativeMessageList({
       windowSize={9}
       removeClippedSubviews
       keyboardShouldPersistTaps="handled"
+      maintainVisibleContentPosition={{
+        minIndexForVisible: 0,
+      }}
+      onContentSizeChange={positionAtLatestMessage}
+      onLayout={positionAtLatestMessage}
       onScroll={({ nativeEvent }) => {
+        if (initialPositionPending) return;
         const distanceFromBottom = nativeEvent.contentSize.height - (nativeEvent.contentOffset.y + nativeEvent.layoutMeasurement.height);
         nearBottomRef.current = distanceFromBottom < 120;
         if (nativeEvent.contentOffset.y <= 24 && messages.length >= 45) void onLoadOlderMessages();
@@ -342,6 +376,7 @@ export function NativeMessageList({
 
 const styles = StyleSheet.create({
   list: { flex: 1, backgroundColor: colors.background },
+  listPositioning: { opacity: 0 },
   messagesList: { paddingHorizontal: 10, paddingTop: 7, paddingBottom: 9, gap: 2 },
   daySeparator: { alignSelf: 'center', overflow: 'hidden', marginVertical: 8, paddingHorizontal: 11, paddingVertical: 5, borderRadius: 999, backgroundColor: 'rgba(16,42,42,0.08)', color: colors.header, fontSize: 11.5, fontWeight: '900' },
   bubble: { maxWidth: '82%', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 6 },

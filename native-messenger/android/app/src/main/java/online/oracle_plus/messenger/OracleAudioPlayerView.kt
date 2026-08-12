@@ -5,18 +5,25 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
+import java.io.File
 
 class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
+  private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
   private val handler = Handler(Looper.getMainLooper())
   private val container = LinearLayout(context)
   private val playButton = TextView(context)
@@ -28,13 +35,22 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
   private var isPrepared = false
   private var userSeeking = false
   private var paused = true
+  private var progressTickerActive = false
+  private var hasAudioFocus = false
+  private var audioFocusRequest: AudioFocusRequest? = null
   private val brandColor = Color.rgb(16, 42, 42)
   private val mutedColor = Color.rgb(100, 116, 139)
   private val trackColor = Color.rgb(226, 232, 240)
   private val dangerColor = Color.rgb(180, 35, 24)
+  private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+    if (focusChange == AudioManager.AUDIOFOCUS_LOSS || focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+      handler.post { setPaused(true) }
+    }
+  }
 
   private val progressTick = object : Runnable {
     override fun run() {
+      if (!progressTickerActive) return
       val player = mediaPlayer
       if (player != null && isPrepared && !userSeeking) {
         val duration = player.duration.coerceAtLeast(0)
@@ -130,7 +146,7 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
       }
     })
 
-    handler.post(progressTick)
+    startProgressTicker()
   }
 
   fun setSourceUrl(value: String?) {
@@ -141,9 +157,11 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
     if (cleanValue.isBlank()) return
 
     try {
+      val sourceUri = validatedSourceUri(cleanValue)
       val player = MediaPlayer()
       mediaPlayer = player
-      player.setDataSource(context, Uri.parse(cleanValue))
+      configurePlayerAudio(player)
+      player.setDataSource(context, sourceUri)
       player.setOnPreparedListener {
         isPrepared = true
         seekBar.max = it.duration.coerceAtLeast(0)
@@ -152,21 +170,24 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
         playButton.alpha = 1f
         updatePlayIcon()
         errorText.visibility = GONE
-        if (!paused) it.start()
+        if (!paused) setPaused(false)
       }
       player.setOnCompletionListener {
         paused = true
+        abandonAudioFocus()
         updatePlayIcon()
         seekBar.progress = 0
         it.seekTo(0)
       }
-      player.setOnErrorListener { _, _, _ ->
-        showError()
+      player.setOnErrorListener { _, what, extra ->
+        Log.w("OracleAudioPlayer", "MediaPlayer error for $cleanValue what=$what extra=$extra")
+        showError("Lecture audio impossible")
         true
       }
       player.prepareAsync()
-    } catch (_: Exception) {
-      showError()
+    } catch (error: Exception) {
+      Log.w("OracleAudioPlayer", "Audio source preparation failed for $cleanValue", error)
+      showError(error.message ?: "Lecture audio impossible")
     }
   }
 
@@ -179,14 +200,29 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
     }
     if (value) {
       if (player.isPlaying) player.pause()
+      abandonAudioFocus()
     } else {
-      player.start()
+      if (!requestAudioFocus()) {
+        showError("Sortie audio indisponible")
+        return
+      }
+      try {
+        player.start()
+      } catch (error: Exception) {
+        Log.w("OracleAudioPlayer", "Audio playback failed for ${sourceUrl.orEmpty()}", error)
+        showError("Lecture audio impossible")
+      }
     }
     updatePlayIcon()
   }
 
+  override fun onAttachedToWindow() {
+    super.onAttachedToWindow()
+    startProgressTicker()
+  }
+
   override fun onDetachedFromWindow() {
-    handler.removeCallbacks(progressTick)
+    stopProgressTicker()
     resetPlayer()
     super.onDetachedFromWindow()
   }
@@ -198,6 +234,7 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
   private fun resetPlayer() {
     isPrepared = false
     paused = true
+    abandonAudioFocus()
     playButton.isEnabled = false
     playButton.alpha = 0.55f
     updatePlayIcon()
@@ -209,14 +246,89 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
     mediaPlayer = null
   }
 
-  private fun showError() {
+  private fun showError(message: String = "Lecture audio impossible") {
     isPrepared = false
     paused = true
+    abandonAudioFocus()
     playButton.isEnabled = false
     playButton.alpha = 0.55f
     updatePlayIcon()
-    errorText.text = "Lecture audio impossible"
+    errorText.text = message.ifBlank { "Lecture audio impossible" }
     errorText.visibility = VISIBLE
+  }
+
+  private fun startProgressTicker() {
+    if (progressTickerActive) return
+    progressTickerActive = true
+    handler.post(progressTick)
+  }
+
+  private fun stopProgressTicker() {
+    progressTickerActive = false
+    handler.removeCallbacks(progressTick)
+  }
+
+  private fun validatedSourceUri(value: String): Uri {
+    val uri = Uri.parse(value)
+    if (uri.scheme.equals("file", ignoreCase = true)) {
+      val path = uri.path
+      val file = if (path.isNullOrBlank()) null else File(path)
+      if (file == null || !file.exists() || file.length() <= 0L) {
+        throw IllegalArgumentException("Fichier audio local introuvable")
+      }
+    }
+    return uri
+  }
+
+  private fun playbackAttributes(): AudioAttributes? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return null
+    return AudioAttributes.Builder()
+      .setUsage(AudioAttributes.USAGE_MEDIA)
+      .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+      .build()
+  }
+
+  @Suppress("DEPRECATION")
+  private fun configurePlayerAudio(player: MediaPlayer) {
+    val attributes = playbackAttributes()
+    if (attributes != null) {
+      player.setAudioAttributes(attributes)
+    } else {
+      player.setAudioStreamType(AudioManager.STREAM_MUSIC)
+    }
+  }
+
+  @Suppress("DEPRECATION")
+  private fun requestAudioFocus(): Boolean {
+    if (hasAudioFocus) return true
+    val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      val request = audioFocusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+        .setAudioAttributes(playbackAttributes()!!)
+        .setOnAudioFocusChangeListener(focusChangeListener, handler)
+        .setWillPauseWhenDucked(true)
+        .build()
+        .also { audioFocusRequest = it }
+      audioManager.requestAudioFocus(request)
+    } else {
+      audioManager.requestAudioFocus(
+        focusChangeListener,
+        AudioManager.STREAM_MUSIC,
+        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
+      )
+    }
+    hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    return hasAudioFocus
+  }
+
+  @Suppress("DEPRECATION")
+  private fun abandonAudioFocus() {
+    if (!hasAudioFocus) return
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+    } else {
+      audioManager.abandonAudioFocus(focusChangeListener)
+    }
+    hasAudioFocus = false
   }
 
   private fun updatePlayIcon() {

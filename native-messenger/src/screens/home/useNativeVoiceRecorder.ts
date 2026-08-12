@@ -161,7 +161,12 @@ export function useNativeVoiceRecorder({ enabled, sendMedia, setNotice }: UseNat
     setNotice('Envoi du message vocal en cours.');
     try {
       const sent = await sendMedia(pendingPreview);
-      if (sent) setNotice('Message vocal envoye.');
+      if (sent) {
+        setNotice('Message vocal envoye.');
+      } else {
+        setVoicePreview(pendingPreview);
+        setNotice('Envoi vocal non confirmé. Vous pouvez réessayer.');
+      }
     } catch (error) {
       setVoicePreview(pendingPreview);
       setNotice(error instanceof Error ? error.message : 'Envoi vocal impossible.');

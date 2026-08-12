@@ -1,6 +1,9 @@
 import { useCallback, useRef, type Dispatch, type SetStateAction } from 'react';
 import type { NativeTabKey } from '@/screens/NativeFeaturePages';
+import { markConversationReadLocally, sortConversations } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
+import { readCachedConversations, readCachedMessages, writeCachedConversations, writeCachedMessages } from '@/services/nativeConversationCache';
+import { filterHiddenMessages } from '@/services/nativeHiddenMessages';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
 
@@ -43,23 +46,37 @@ export function useNativeMessageLoader({
 
   const loadMessages = useCallback(async (conversation: Conversation, activeToken = token) => {
     if (!activeToken) return;
+    const ownerId = sessionRef.current?.user.id || sessionRef.current?.user.email || activeToken;
+    const switchingConversation = selected?.id !== conversation.id;
     setActiveTab('chats');
+    if (switchingConversation) {
+      setMessages([]);
+      setBusy(true);
+    }
     setSelected(conversation);
     setMessageSearch('');
     resetMessageActions();
-    setBusy(true);
+    const cachedMessages = await filterHiddenMessages(conversation.id, await readCachedMessages(ownerId, conversation.id));
+    if (cachedMessages.length) {
+      setMessages(cachedMessages);
+      setNotice('');
+    }
+    setBusy(!cachedMessages.length);
     try {
       const socket = ensureNativeSocket(activeToken);
       socket.emit('conversation:join', { conversationId: conversation.id });
-      const items = await api.messages(conversation.id, activeToken);
+      const items = await filterHiddenMessages(conversation.id, await api.messages(conversation.id, activeToken));
       setMessages(items);
+      await writeCachedMessages(ownerId, conversation.id, items);
       const lastIncoming = [...items].reverse().find(item => item.senderId !== sessionRef.current?.user.id);
       if (lastIncoming) socket.emit('message:read', { conversationId: conversation.id, messageId: lastIncoming.id });
-      setConversations(current => current.map(item => item.id === conversation.id ? { ...item, unreadCount: 0 } : item));
+      setConversations(current => sortConversations(current.map(item => item.id === conversation.id ? markConversationReadLocally(item) : item)));
       setNotice('');
       runMediaSync(activeToken, currentUserId, items);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Messages indisponibles.');
+      setNotice(cachedMessages.length
+        ? 'Mode hors connexion : messages affichés depuis le téléphone.'
+        : error instanceof Error ? error.message : 'Messages indisponibles.');
     } finally {
       setBusy(false);
     }
@@ -68,6 +85,7 @@ export function useNativeMessageLoader({
     resetMessageActions,
     runMediaSync,
     sessionRef,
+    selected?.id,
     setActiveTab,
     setBusy,
     setConversations,
@@ -80,16 +98,19 @@ export function useNativeMessageLoader({
 
   const loadOlderMessages = useCallback(async () => {
     if (!token || !selected || !messages.length || loadingOlderRef.current) return;
+    const ownerId = sessionRef.current?.user.id || sessionRef.current?.user.email || token;
     const oldest = messages[0];
     if (!oldest?.createdAt) return;
     loadingOlderRef.current = true;
     try {
-      const older = await api.messages(selected.id, token, oldest.createdAt);
+      const older = await filterHiddenMessages(selected.id, await api.messages(selected.id, token, oldest.createdAt));
       if (!older.length) return;
       setMessages(current => {
         const byId = new Map<string, Message>();
         for (const message of [...older, ...current]) byId.set(message.id, message);
-        return [...byId.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+        const next = [...byId.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+        void writeCachedMessages(ownerId, selected.id, next);
+        return next;
       });
       runMediaSync(token, currentUserId, older);
     } catch (error) {
@@ -97,7 +118,7 @@ export function useNativeMessageLoader({
     } finally {
       loadingOlderRef.current = false;
     }
-  }, [currentUserId, messages, runMediaSync, selected, setMessages, setNotice, token]);
+  }, [currentUserId, messages, runMediaSync, selected, sessionRef, setMessages, setNotice, token]);
 
   const openConversationById = useCallback(async (conversationId: string, activeToken = token) => {
     if (!activeToken || !conversationId) return;
@@ -105,8 +126,10 @@ export function useNativeMessageLoader({
     setNotice('');
     try {
       const items = await api.conversations(activeToken);
-      setConversations(items);
-      const conversation = items.find(item => item.id === conversationId);
+      const sortedItems = sortConversations(items);
+      setConversations(sortedItems);
+      await writeCachedConversations(sessionRef.current?.user.id || sessionRef.current?.user.email || activeToken, sortedItems);
+      const conversation = sortedItems.find(item => item.id === conversationId);
       if (!conversation) {
         setActiveTab('chats');
         setSelected(null);
@@ -115,11 +138,19 @@ export function useNativeMessageLoader({
       }
       await loadMessages(conversation, activeToken);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Ouverture conversation impossible.');
+      const cached = await readCachedConversations(sessionRef.current?.user.id || sessionRef.current?.user.email || activeToken);
+      const sortedCached = sortConversations(cached);
+      const conversation = sortedCached.find(item => item.id === conversationId);
+      if (conversation) {
+        await loadMessages(conversation, activeToken);
+        setNotice('Mode hors connexion : conversation ouverte depuis le téléphone.');
+      } else {
+        setNotice(error instanceof Error ? error.message : 'Ouverture conversation impossible.');
+      }
     } finally {
       setBusy(false);
     }
-  }, [loadMessages, setActiveTab, setBusy, setConversations, setNotice, setSelected, token]);
+  }, [loadMessages, sessionRef, setActiveTab, setBusy, setConversations, setNotice, setSelected, token]);
 
   const openConversationFromFeature = useCallback((conversation: Conversation) => {
     setActiveTab('chats');
