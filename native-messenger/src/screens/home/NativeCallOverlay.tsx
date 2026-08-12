@@ -150,11 +150,11 @@ export function NativeCallOverlay({ call, conversation, currentUserId }: NativeC
         <Text style={styles.callProgress}>{status}</Text>
         <View style={styles.networkPill}>
           <View style={styles.networkDot} />
-          <Text style={styles.networkText}>{call.callState === 'ended' ? 'Retour à la conversation' : call.callState === 'connected' ? 'Connecté' : 'Réseau en attente'}</Text>
+          <Text style={styles.networkText}>{call.callState === 'ended' ? 'Retour à la conversation' : call.callState === 'connected' ? 'Audio actif' : call.callState === 'reconnecting' ? 'Reconnexion' : 'Connexion en cours'}</Text>
         </View>
         {call.callState === 'ended' ? <ActivityIndicator color="#FFFFFF" /> : null}
         {call.callNotice ? <Text style={styles.callNotice}>{call.callNotice}</Text> : null}
-        <Text style={styles.callHint}>{call.callState === 'ended' ? 'Nettoyage audio et retour en cours.' : 'Garde l’application ouverte pour une sonnerie et une connexion plus fiables.'}</Text>
+        <Text style={styles.callHint}>{call.callState === 'ended' ? 'Retour en cours.' : 'Audio calibré sur écouteur · haut-parleur disponible.'}</Text>
       </View>
 
       <View style={styles.callControls}>

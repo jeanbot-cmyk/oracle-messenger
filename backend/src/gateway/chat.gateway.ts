@@ -106,9 +106,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const userId = client.data.userId;
       if (!userId) { client.disconnect(); return; }
       this.cancelOfflineTimer(userId);
-      this.socketState.setUserSocket(userId, client.id, 'active');
-      await this.users.setOnline(userId, true);
-      this.server.emit('user:online', { userId, status: 'online' });
+      this.socketState.setUserSocket(userId, client.id, 'background');
       this.emitPendingCallsToClient(userId, client);
     } catch {
       client.disconnect();
@@ -179,6 +177,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     for (const uid of participantIds) {
       this.socketState.emitToUser(uid, 'message:new', msg);
     }
+    await this.broadcastConversationSummaries(conversationId, participantIds);
   }
 
   private syncCallNotifications(
@@ -480,6 +479,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           }).catch(() => {});
         }
       }
+      await this.confirmDeliveredForConnectedRecipients(
+        msg.id,
+        data.conversationId,
+        participantIds.filter(pid => pid !== client.data.userId && this.socketState.getSocketIds(pid).length > 0),
+      );
       await this.broadcastConversationSummaries(data.conversationId, participantIds);
 
       this.scheduleAiAutoReplies(msg, participantIds, client.data.userId);
@@ -490,6 +494,28 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return { ...msg, status: 'sent' };
     } catch (err: any) {
       client.emit('message:error', { message: err?.message ?? 'Erreur envoi' });
+    }
+  }
+
+  private async confirmDeliveredForConnectedRecipients(messageId: string, conversationId: string, recipientIds: string[]) {
+    const uniqueRecipientIds = [...new Set(recipientIds)];
+    if (!uniqueRecipientIds.length) return;
+
+    let latestMessage: Awaited<ReturnType<ChatService['markMessageDelivered']>> | null = null;
+    for (const recipientId of uniqueRecipientIds) {
+      latestMessage = await this.chat.markMessageDelivered(messageId, recipientId).catch(() => latestMessage);
+    }
+    if (!latestMessage) return;
+
+    const participantIds = await this.chat.getParticipantIds(conversationId);
+    const payload = {
+      id: latestMessage.id,
+      patch: { status: latestMessage.status, updatedAt: latestMessage.updatedAt },
+    };
+    for (const uid of participantIds) {
+      for (const sid of this.socketState.getSocketIds(uid)) {
+        this.server.to(sid).emit('message:update', payload);
+      }
     }
   }
 

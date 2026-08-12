@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MoreVertical, Phone, PhoneCall, PhoneIncoming, PhoneMissed, PhoneOutgoing, Search, Video } from 'lucide-react-native';
 import { api } from '@/services/api';
 import { lightImpactHaptic, selectionHaptic } from '@/services/haptics';
 import { colors } from '@/theme/colors';
 import { NativePhotoViewer } from '@/screens/home/NativePhotoViewer';
 import { highQualityImageUri } from '@/screens/home/homeUtils';
-import { AlertText, Loading } from './FeatureUi';
+import { AlertText } from './FeatureUi';
 import type { NativeCallDiagnosticEntry } from '@/hooks/nativeCallUtils';
 
 type CallEntry = {
@@ -19,6 +20,8 @@ type CallEntry = {
   duration?: number;
   startedAt: string;
 };
+
+const SHOW_CALL_DIAGNOSTICS = false;
 
 function formatDuration(seconds?: number) {
   if (!seconds) return '';
@@ -153,6 +156,7 @@ function InlineButton({ label, onPress, disabled }: { label: string; onPress: ()
 
 export function CallsPage({
   token,
+  ownerId,
   onOpenContacts,
   onStartCallFromPeer,
   callDiagnostics,
@@ -160,6 +164,7 @@ export function CallsPage({
   isAdmin,
 }: {
   token: string;
+  ownerId: string;
   onOpenContacts: () => void;
   onStartCallFromPeer: (peerId: string, type: 'audio' | 'video') => Promise<void>;
   callDiagnostics: NativeCallDiagnosticEntry[];
@@ -173,19 +178,34 @@ export function CallsPage({
   const [callingId, setCallingId] = useState('');
   const [notice, setNotice] = useState('');
   const [avatarPreview, setAvatarPreview] = useState<{ uri?: string | null; name: string } | null>(null);
+  const cacheKey = `oracle-native-call-history:${ownerId || 'local'}`;
+  const showDiagnostics = isAdmin && SHOW_CALL_DIAGNOSTICS;
 
   const load = useCallback(async () => {
-    setBusy(true);
     setNotice('');
+    let cacheAvailable = false;
+    try {
+      const raw = await AsyncStorage.getItem(cacheKey);
+      const cached = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(cached)) {
+        setItems(cached);
+        cacheAvailable = true;
+      }
+    } catch {
+      cacheAvailable = false;
+    }
+    setBusy(!cacheAvailable);
     try {
       const data = await api.callHistory(token);
-      setItems(Array.isArray(data) ? data : []);
+      const nextItems = Array.isArray(data) ? data : [];
+      setItems(nextItems);
+      AsyncStorage.setItem(cacheKey, JSON.stringify(nextItems.slice(0, 200))).catch(() => undefined);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Historique des appels indisponible.');
     } finally {
       setBusy(false);
     }
-  }, [token]);
+  }, [cacheKey, token]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -196,25 +216,30 @@ export function CallsPage({
     try {
       await api.clearCallHistory(token);
       setItems([]);
+      AsyncStorage.removeItem(cacheKey).catch(() => undefined);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Effacement de l’historique impossible.');
     } finally {
       setBusy(false);
     }
-  }, [items.length, token]);
+  }, [cacheKey, items.length, token]);
 
   const deleteEntry = useCallback(async (id: string) => {
     setBusy(true);
     setNotice('');
     try {
       await api.deleteCallHistoryEntry(token, id);
-      setItems(current => current.filter(item => item.id !== id));
+      setItems(current => {
+        const next = current.filter(item => item.id !== id);
+        AsyncStorage.setItem(cacheKey, JSON.stringify(next.slice(0, 200))).catch(() => undefined);
+        return next;
+      });
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Suppression appel impossible.');
     } finally {
       setBusy(false);
     }
-  }, [token]);
+  }, [cacheKey, token]);
 
   const callBack = useCallback(async (entry: CallEntry, typeOverride?: CallEntry['type']) => {
     if (!entry.peerId || busy || callingId) return;
@@ -246,8 +271,6 @@ export function CallsPage({
   const filters = [
     { id: 'all' as const, label: 'Tous', count: items.length },
     { id: 'missed' as const, label: 'Manqués', count: items.filter(item => item.direction === 'missed').length },
-    { id: 'refused' as const, label: 'Refusés', count: items.filter(item => item.direction === 'refused').length },
-    { id: 'cancelled' as const, label: 'Annulés', count: items.filter(item => item.direction === 'cancelled').length },
     { id: 'incoming' as const, label: 'Reçus', count: items.filter(item => item.direction === 'incoming').length },
     { id: 'outgoing' as const, label: 'Émis', count: items.filter(item => item.direction === 'outgoing').length },
   ];
@@ -265,7 +288,7 @@ export function CallsPage({
               <InlineButton label="Effacer" onPress={clearHistory} disabled={!items.length || busy} />
             </View>
           </View>
-          <HeaderButton label="Nouvel appel" onPress={onOpenContacts} disabled={busy} primary />
+          <HeaderButton label="Nouvel appel" onPress={onOpenContacts} disabled={Boolean(callingId)} primary />
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
           {filters.map(item => {
@@ -289,7 +312,7 @@ export function CallsPage({
             );
           })}
         </ScrollView>
-        <Loading active={busy} />
+        {busy ? <Text style={styles.refreshingText}>Actualisation...</Text> : null}
         <AlertText text={notice} />
       </View>
       <View style={styles.callsList}>
@@ -359,7 +382,7 @@ export function CallsPage({
           );
         })}
       </View>
-      {isAdmin ? (
+      {showDiagnostics ? (
         <View style={styles.diagnosticsPanel}>
           <View style={styles.diagnosticsHeader}>
             <View style={styles.diagnosticsTitleWrap}>
@@ -408,6 +431,7 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontSize: 21, lineHeight: 25, fontWeight: '900' },
   subtitleRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 2 },
   subtitle: { color: colors.muted, fontSize: 12.5, lineHeight: 16, fontWeight: '700' },
+  refreshingText: { alignSelf: 'flex-start', overflow: 'hidden', borderRadius: 12, backgroundColor: colors.accentSoft, color: colors.brand, paddingHorizontal: 9, paddingVertical: 4, fontSize: 11.5, lineHeight: 14, fontWeight: '900' },
   topActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6, maxWidth: 168 },
   headerButton: { minHeight: 34, borderRadius: 17, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
   headerButtonPrimary: { backgroundColor: colors.header, borderColor: colors.header },

@@ -84,13 +84,6 @@ export function useNativeTypingPresence({ selected, token, currentUserId, setDra
     if (!selected || !currentUserId) return;
     const remoteParticipants = selected.participants.filter(user => user.id !== currentUserId);
     if (!remoteParticipants.length) return;
-    setOnlineUsers(current => {
-      const next = new Set(current);
-      remoteParticipants.forEach(user => {
-        if (user.status === 'online') next.add(user.id);
-      });
-      return next;
-    });
     setLastSeenByUser(current => {
       const next = { ...current };
       remoteParticipants.forEach(user => {
@@ -105,7 +98,7 @@ export function useNativeTypingPresence({ selected, token, currentUserId, setDra
     const typingNames = Object.values(typingByConversation[selected.id] || {});
     if (typingNames.length) return `${typingNames.slice(0, 2).join(', ')} écrit...`;
     const remoteParticipants = selected.participants.filter(user => user.id !== currentUserId);
-    const selectedOnline = remoteParticipants.some(user => onlineUsers.has(user.id) || user.status === 'online');
+    const selectedOnline = remoteParticipants.some(user => onlineUsers.has(user.id));
     if (selectedOnline) return 'En ligne';
     const lastSeen = remoteParticipants
       .map(user => lastSeenByUser[user.id] ?? user.lastSeen ?? null)

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Camera, Image as ImageIcon, Mic, Paperclip, Send, Smile, Sparkles } from 'lucide-react-native';
+import { Camera, Image as ImageIcon, Keyboard, Mic, Paperclip, Search, Send, Smile, Sparkles, Sticker, X } from 'lucide-react-native';
 import { OracleAudioPlayer } from '@/screens/features/NativeMediaPlayers';
 import { lightImpactHaptic, selectionHaptic } from '@/services/haptics';
 import { colors } from '@/theme/colors';
@@ -18,6 +18,8 @@ const EMOJI_CATEGORIES = [
   { label: '⚽', emojis: ['⚽','🏀','🏈','⚾','🎾','🏐','🏉','🎱','🏓','🏸','🥊','🥋','🏆','🥇','🥈','🥉','🎖️','🎫','🎪','🎭','🎨','🎬','🎤','🎧','🎼','🎹','🥁','🎷','🎺','🎸','🎲','🎯','🎳','🎮'] },
   { label: '🚗', emojis: ['🚗','🚕','🚙','🚌','🚓','🚑','🚒','🚐','🚚','🚛','🏍️','🛵','🚲','✈️','🚀','🛸','🌍','🌎','🌏','🗺️','🏠','🏡','🏢','🏥','🏦','🏨','🏪','🏫','🏭','⛪','🕌','🌅','🌆','🌃','🎡'] },
 ];
+const RECENT_EMOJIS = ['❤️', '🥰', '😆', '🫣', '😔', '👍', '😘', '🤭', '😁', '😖', '😄', '🧐'];
+const EMOJI_CATEGORY_TITLES = ['Emojis et personnes', 'Gestes', 'Favoris', 'Travail', 'Nourriture', 'Activités', 'Voyages'];
 
 const MIC_RECORD_START_DELAY_MS = 0;
 
@@ -90,6 +92,7 @@ export function NativeChatComposer({
   const voiceLockedRef = useRef(false);
   const bottomPadding = keyboardVisible ? 8 : Math.max(8, insets.bottom + 6);
   const recordingSeconds = voiceStartedAt ? Math.max(0, Math.floor((Date.now() - voiceStartedAt) / 1000)) : 0;
+  const activeEmojiCategory = EMOJI_CATEGORIES[emojiCategory] || EMOJI_CATEGORIES[0];
 
   useEffect(() => {
     voiceLockedRef.current = voiceLocked;
@@ -273,23 +276,60 @@ export function NativeChatComposer({
       ) : null}
       {emojiOpen ? (
         <View style={styles.emojiPanel}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.emojiTabs}>
+          <View style={styles.emojiGrip} />
+          <View style={styles.emojiToolRow}>
+            <Pressable style={styles.emojiToolIcon} onPress={() => undefined}>
+              <Search size={24} color={colors.text} strokeWidth={2.3} />
+            </Pressable>
+            <View style={styles.emojiModeSegment}>
+              <View style={[styles.emojiModeButton, styles.emojiModeButtonActive]}>
+                <Smile size={22} color={colors.header} strokeWidth={2.4} />
+              </View>
+              <View style={styles.emojiModeButton}>
+                <Text style={styles.emojiGifText}>GIF</Text>
+              </View>
+              <View style={styles.emojiModeButton}>
+                <Sticker size={22} color={colors.muted} strokeWidth={2.2} />
+              </View>
+            </View>
+            <Pressable style={styles.emojiToolIcon} onPress={() => {
+              selectionHaptic();
+              setEmojiOpen(false);
+            }}>
+              <X size={23} color={colors.text} strokeWidth={2.5} />
+            </Pressable>
+          </View>
+          <ScrollView style={styles.emojiGridScroll} contentContainerStyle={styles.emojiGrid}>
+            <Text style={styles.emojiSectionTitle}>Récents</Text>
+            <View style={styles.emojiGridBlock}>
+              {RECENT_EMOJIS.map((emoji, index) => (
+                <Pressable key={`recent-${emoji}-${index}`} onPress={() => insertEmoji(emoji)} style={styles.emojiButton}>
+                  <Text style={styles.emojiText}>{emoji}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.emojiSectionTitle}>{EMOJI_CATEGORY_TITLES[emojiCategory] || 'Emojis'}</Text>
+            <View style={styles.emojiGridBlock}>
+              {activeEmojiCategory.emojis.map((emoji, index) => (
+                <Pressable key={`${activeEmojiCategory.label}-${emoji}-${index}`} onPress={() => insertEmoji(emoji)} style={styles.emojiButton}>
+                  <Text style={styles.emojiText}>{emoji}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </ScrollView>
+          <View style={styles.emojiCategoryBar}>
+            <Pressable style={[styles.emojiCategoryButton, styles.emojiCategoryButtonActive]}>
+              <Keyboard size={20} color={colors.header} strokeWidth={2.2} />
+            </Pressable>
             {EMOJI_CATEGORIES.map((category, index) => (
               <Pressable key={category.label} onPress={() => {
                 selectionHaptic();
                 setEmojiCategory(index);
-              }} style={[styles.emojiTab, emojiCategory === index && styles.emojiTabActive]}>
-                <Text style={styles.emojiTabText}>{category.label}</Text>
+              }} style={[styles.emojiCategoryButton, emojiCategory === index && styles.emojiCategoryButtonActive]}>
+                <Text style={[styles.emojiCategoryText, emojiCategory === index && styles.emojiCategoryTextActive]}>{category.label}</Text>
               </Pressable>
             ))}
-          </ScrollView>
-          <ScrollView style={styles.emojiGridScroll} contentContainerStyle={styles.emojiGrid}>
-            {EMOJI_CATEGORIES[emojiCategory].emojis.map(emoji => (
-              <Pressable key={emoji} onPress={() => insertEmoji(emoji)} style={styles.emojiButton}>
-                <Text style={styles.emojiText}>{emoji}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+          </View>
         </View>
       ) : null}
       {attachmentOpen ? (
@@ -343,23 +383,26 @@ export function NativeChatComposer({
         </View>
       ) : null}
       {!voicePreview ? <View style={styles.inputRow}>
-        <Pressable style={[styles.roundButton, attachmentOpen && styles.roundButtonActive]} onPress={() => {
+        <Pressable accessibilityLabel={emojiOpen ? 'Fermer les emojis' : 'Emoji'} style={[styles.roundButton, emojiOpen && styles.roundButtonActive]} onPress={() => {
           selectionHaptic();
-          setEmojiOpen(false);
           setAiMenuOpen(false);
-          setAttachmentOpen(current => !current);
-        }} disabled={busy}>
-          <Paperclip size={21} color={colors.secondary} />
+          setAttachmentOpen(false);
+          setEmojiOpen(current => !current);
+        }} disabled={busy || voiceRecording}>
+          {emojiOpen ? <Keyboard size={21} color={colors.brand} /> : <Smile size={21} color={colors.secondary} />}
         </Pressable>
         <View style={styles.inputShell}>
           <TextInput value={draft} onChangeText={onDraftChange} placeholder="Message" placeholderTextColor={colors.muted} multiline style={styles.input} />
-          <Pressable accessibilityLabel="Emoji" style={styles.emojiToggle} onPress={() => {
+          <Pressable accessibilityLabel="Pièce jointe" style={[styles.composerIconButton, attachmentOpen && styles.composerIconButtonActive]} onPress={() => {
             selectionHaptic();
-            setAttachmentOpen(false);
             setAiMenuOpen(false);
-            setEmojiOpen(current => !current);
-          }} disabled={busy || voiceRecording}>
-            <Smile size={20} color={emojiOpen ? colors.brand : colors.muted} />
+            setEmojiOpen(false);
+            setAttachmentOpen(current => !current);
+          }} disabled={busy}>
+            <Paperclip size={20} color={attachmentOpen ? colors.brand : colors.muted} />
+          </Pressable>
+          <Pressable accessibilityLabel="Caméra" style={styles.composerIconButton} onPress={() => runAttachment(onAttachCamera)} disabled={busy}>
+            <Camera size={20} color={colors.muted} />
           </Pressable>
           <Pressable accessibilityLabel="Gemini IA" style={[styles.aiButton, aiMenuOpen && styles.aiButtonActive]} onPress={() => {
             selectionHaptic();
@@ -415,15 +458,25 @@ function formatDuration(totalSeconds?: number) {
 
 const styles = StyleSheet.create({
   composerShell: { paddingHorizontal: 7, paddingTop: 5, backgroundColor: colors.input, borderTopWidth: 1, borderTopColor: '#D7DBDF' },
-  emojiPanel: { height: 206, borderTopLeftRadius: 18, borderTopRightRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginBottom: 6, overflow: 'hidden' },
-  emojiTabs: { paddingHorizontal: 8, paddingVertical: 6, gap: 6 },
-  emojiTab: { width: 38, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  emojiTabActive: { backgroundColor: '#EAF4F1' },
-  emojiTabText: { fontSize: 18 },
+  emojiPanel: { height: 312, borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginBottom: 6, overflow: 'hidden', shadowColor: '#071C1A', shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: -5 }, elevation: 10 },
+  emojiGrip: { alignSelf: 'center', width: 48, height: 5, borderRadius: 3, backgroundColor: 'rgba(7,28,26,0.20)', marginTop: 8, marginBottom: 8 },
+  emojiToolRow: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, gap: 10 },
+  emojiToolIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  emojiModeSegment: { flex: 1, maxWidth: 252, height: 36, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.input, flexDirection: 'row', alignItems: 'center', overflow: 'hidden' },
+  emojiModeButton: { flex: 1, height: '100%', alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderLeftColor: colors.border },
+  emojiModeButtonActive: { backgroundColor: colors.surface, borderLeftWidth: 0 },
+  emojiGifText: { color: colors.muted, fontSize: 13.5, lineHeight: 17, fontWeight: '900' },
   emojiGridScroll: { flex: 1 },
-  emojiGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 8, paddingBottom: 10, gap: 4 },
-  emojiButton: { width: '11.9%', aspectRatio: 1, minWidth: 34, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  emojiText: { fontSize: 22 },
+  emojiGrid: { paddingHorizontal: 14, paddingTop: 6, paddingBottom: 12 },
+  emojiSectionTitle: { width: '100%', color: colors.muted, fontSize: 13, lineHeight: 17, fontWeight: '900', marginTop: 8, marginBottom: 7 },
+  emojiGridBlock: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+  emojiButton: { width: '11.8%', aspectRatio: 1, minWidth: 34, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  emojiText: { fontSize: 25, lineHeight: 30 },
+  emojiCategoryBar: { height: 54, borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.input, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 6 },
+  emojiCategoryButton: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  emojiCategoryButtonActive: { backgroundColor: colors.surface },
+  emojiCategoryText: { color: colors.muted, fontSize: 20, lineHeight: 24 },
+  emojiCategoryTextActive: { color: colors.header },
   attachmentPanel: { marginBottom: 6, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 8, flexDirection: 'row', gap: 8, shadowColor: '#102A2A', shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
   attachmentAction: { flex: 1, minHeight: 52, borderRadius: 15, backgroundColor: '#EAF4F1', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6 },
   attachmentText: { color: colors.header, fontSize: 12, lineHeight: 15, fontWeight: '900' },
@@ -463,7 +516,8 @@ const styles = StyleSheet.create({
   roundButton: { width: 39, height: 44, borderRadius: 20, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   roundButtonActive: { backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: colors.borderStrong },
   inputShell: { flex: 1, minHeight: 44, borderRadius: 23, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, paddingLeft: 12, paddingRight: 4, flexDirection: 'row', alignItems: 'center', gap: 3 },
-  emojiToggle: { width: 32, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  composerIconButton: { width: 32, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  composerIconButtonActive: { backgroundColor: colors.accentSoft },
   aiButton: { width: 36, height: 42, borderRadius: 14, backgroundColor: 'rgba(29,155,240,0.08)', alignItems: 'center', justifyContent: 'center' },
   aiButtonActive: { backgroundColor: 'rgba(29,155,240,0.18)', borderWidth: 1, borderColor: 'rgba(29,155,240,0.22)' },
   aiLabel: { color: colors.text, fontSize: 10, lineHeight: 11, fontWeight: '900' },

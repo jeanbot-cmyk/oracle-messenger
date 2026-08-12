@@ -174,10 +174,10 @@ class OracleCallAlertModule(
 
   companion object {
     private const val CALL_TIMEOUT_SECONDS = 220L
-    private const val INCOMING_TARGET_VOLUME = 0.46f
-    private const val OUTGOING_TARGET_VOLUME = 0.32f
-    private const val VOLUME_FADE_STEPS = 8
-    private const val VOLUME_FADE_INTERVAL_MS = 55L
-    private val CALL_VIBRATION_PATTERN = longArrayOf(0, 430, 280, 430, 780)
+    private const val INCOMING_TARGET_VOLUME = 0.34f
+    private const val OUTGOING_TARGET_VOLUME = 0.22f
+    private const val VOLUME_FADE_STEPS = 12
+    private const val VOLUME_FADE_INTERVAL_MS = 70L
+    private val CALL_VIBRATION_PATTERN = longArrayOf(0, 260, 180, 260, 720)
   }
 }

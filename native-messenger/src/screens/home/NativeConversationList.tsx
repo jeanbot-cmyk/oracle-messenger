@@ -49,12 +49,6 @@ function formatConversationTime(value?: string | null) {
   return date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 }
 
-function peerOnline(conversation: Conversation, ownerId: string) {
-  return conversation.type !== 'official' && conversation.participants.some(user => (
-    user.id !== ownerId && user.status === 'online'
-  ));
-}
-
 function ConversationStatusIcon({ status }: { status?: string }) {
   const value = String(status || 'sent').toLowerCase();
   if (['failed', 'error'].includes(value)) return <AlertCircle size={13} color={colors.danger} strokeWidth={2.7} />;
@@ -332,7 +326,6 @@ export function NativeConversationList({
             const avatar = highQualityImageUri(conversationAvatar(item));
             const official = isOfficialConversation(item);
             const lastMessageIsMine = item.lastMessage?.senderId === ownerId;
-            const online = peerOnline(item, ownerId);
             return (
               <View style={[styles.conversationRow, official && styles.officialRow]}>
                 <Pressable
@@ -349,7 +342,6 @@ export function NativeConversationList({
                     {official ? <OracleOfficialAvatar size={50} /> : avatar ? <Image source={{ uri: avatar }} style={styles.avatarImage} /> : <Text maxFontSizeMultiplier={1.05} style={styles.avatarText}>{initials(name)}</Text>}
                   </View>
                   {official ? <View style={styles.verifiedDot}><Text style={styles.verifiedText}>✓</Text></View> : null}
-                  {online ? <View style={styles.presenceDot} /> : null}
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
@@ -497,7 +489,6 @@ const styles = StyleSheet.create({
   avatarText: { color: colors.header, fontWeight: '900', fontSize: 16 },
   verifiedDot: { position: 'absolute', right: -1, bottom: 0, width: 18, height: 18, borderRadius: 9, backgroundColor: '#38BDF8', borderWidth: 2, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
   verifiedText: { color: '#FFFFFF', fontSize: 10, lineHeight: 12, fontWeight: '900' },
-  presenceDot: { position: 'absolute', right: -1, bottom: 0, width: 15, height: 15, borderRadius: 8, backgroundColor: colors.online, borderWidth: 2.5, borderColor: colors.surface },
   conversationText: { flex: 1, minWidth: 0, marginLeft: 12 },
   titleLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   conversationTitle: { flexShrink: 1, color: colors.text, fontSize: 15.7, fontWeight: '900', lineHeight: 19 },

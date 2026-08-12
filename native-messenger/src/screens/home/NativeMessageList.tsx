@@ -103,10 +103,12 @@ function NativeCallTraceMessage({
   trace,
   mine,
   clickable,
+  clock,
 }: {
   trace: CallTraceMessage;
   mine: boolean;
   clickable: boolean;
+  clock: string;
 }) {
   const StatusIcon = trace.status === 'missed'
     ? PhoneMissed
@@ -141,7 +143,7 @@ function NativeCallTraceMessage({
       <View style={styles.callTraceBody}>
         <Text numberOfLines={1} style={styles.callTraceTitle}>{trace.label}</Text>
         <Text numberOfLines={1} style={[styles.callTraceSubtitle, isAlert ? styles.callTraceSubtitleAlert : null]}>
-          {clickable ? trace.actionLabel : statusText}{trace.durationLabel ? ` · ${trace.durationLabel}` : ''}
+          {clock ? `${clock} · ` : ''}{clickable ? trace.actionLabel : statusText}{trace.durationLabel ? ` · ${trace.durationLabel}` : ''}
         </Text>
       </View>
       {clickable ? (
@@ -312,7 +314,7 @@ export function NativeMessageList({
               onLongPress={() => onOpenMessageActions(item)}
               style={({ pressed }) => [
                 styles.bubble,
-                mine ? styles.bubbleMine : styles.bubbleOther,
+                callTrace ? styles.systemBubble : mine ? styles.bubbleMine : styles.bubbleOther,
                 isVoice ? styles.audioBubble : null,
                 callTrace ? styles.callBubble : null,
                 pressed && callClickable ? styles.callTracePressed : null,
@@ -338,6 +340,7 @@ export function NativeMessageList({
                   trace={callTrace}
                   mine={mine}
                   clickable={callClickable}
+                  clock={formatMessageClock(item.createdAt)}
                 />
               ) : (
                 item.type === 'contact'
@@ -347,17 +350,19 @@ export function NativeMessageList({
                   : <NativeChatMediaMessage message={item} localItem={localMediaByMessageId[item.id]} mine={mine} />
               )}
               <ReactionBadges reactions={item.reactions} />
-              <View style={styles.metaRow}>
-                <Text numberOfLines={1} style={styles.metaAuthor}>{mine ? 'Moi' : item.sender?.name || 'Contact'}</Text>
-                <Text style={styles.metaText}>{formatMessageClock(item.createdAt)}</Text>
-                {item.isEdited ? <Text style={styles.metaText}>modifié</Text> : null}
-                {mine ? (
-                  <>
-                    <MessageStatusIcon status={item.status} />
-                    <Text style={[styles.metaText, ['read', 'seen'].includes(String(item.status || '').toLowerCase()) && styles.metaTextRead]}>{messageStatusLabel(item.status)}</Text>
-                  </>
-                ) : null}
-              </View>
+              {callTrace ? null : (
+                <View style={styles.metaRow}>
+                  <Text numberOfLines={1} style={styles.metaAuthor}>{mine ? 'Moi' : item.sender?.name || 'Contact'}</Text>
+                  <Text style={styles.metaText}>{formatMessageClock(item.createdAt)}</Text>
+                  {item.isEdited ? <Text style={styles.metaText}>modifié</Text> : null}
+                  {mine ? (
+                    <>
+                      <MessageStatusIcon status={item.status} />
+                      <Text style={[styles.metaText, ['read', 'seen'].includes(String(item.status || '').toLowerCase()) && styles.metaTextRead]}>{messageStatusLabel(item.status)}</Text>
+                    </>
+                  ) : null}
+                </View>
+              )}
             </Pressable>
           </>
         );
@@ -373,6 +378,7 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: '82%', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 6 },
   audioBubble: { maxWidth: '88%', paddingHorizontal: 6, paddingVertical: 6 },
   callBubble: { minWidth: 226, paddingHorizontal: 7, paddingVertical: 7 },
+  systemBubble: { alignSelf: 'center', width: '92%', maxWidth: 342, backgroundColor: 'transparent' },
   bubbleSelected: { borderWidth: 2, borderColor: colors.accent },
   bubbleMine: { alignSelf: 'flex-end', backgroundColor: colors.bubbleOut },
   bubbleOther: { alignSelf: 'flex-start', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },

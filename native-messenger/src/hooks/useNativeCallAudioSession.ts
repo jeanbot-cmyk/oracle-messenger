@@ -62,7 +62,7 @@ export function useNativeCallAudioSession({
     };
 
     applyNativeRoute('immediate');
-    routeRetryTimersRef.current = [180, 650].map(delay => setTimeout(() => applyNativeRoute(`retry-${delay}`), delay));
+    routeRetryTimersRef.current = [120, 420, 1200, 2200].map(delay => setTimeout(() => applyNativeRoute(`retry-${delay}`), delay));
   }, [clearRouteRetryTimers, setSpeakerOn, trace]);
 
   const startAudioSession = useCallback((type: 'audio' | 'video') => {
@@ -76,6 +76,8 @@ export function useNativeCallAudioSession({
       InCallManager.requestAudioFocus?.().catch?.(() => null);
       InCallManager.setKeepScreenOn(type === 'video');
       InCallManager.setMicrophoneMute(false);
+      InCallManager.setForceSpeakerphoneOn(false);
+      InCallManager.setSpeakerphoneOn(false);
       // Start every call on the phone earpiece. The speaker button is the only
       // place that should move audio to the loudspeaker.
       applyAudioRoute(false);

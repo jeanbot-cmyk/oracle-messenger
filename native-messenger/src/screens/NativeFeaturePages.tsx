@@ -66,7 +66,7 @@ export function NativeFeaturePage({ tab, session, onOpenConversation, onStartCal
   const token = session.token;
   const ownerId = session.user.id || session.user.email || token;
   const userName = session.user.name || session.user.email || 'Utilisateur';
-  if (tab === 'calls') return <CallsPage token={token} onOpenContacts={() => onOpenTab('contacts')} onStartCallFromPeer={onStartCallFromPeer} callDiagnostics={callDiagnostics || []} onClearCallDiagnostics={onClearCallDiagnostics || (() => undefined)} isAdmin={Boolean(isAdmin)} />;
+  if (tab === 'calls') return <CallsPage token={token} ownerId={ownerId} onOpenContacts={() => onOpenTab('contacts')} onStartCallFromPeer={onStartCallFromPeer} callDiagnostics={callDiagnostics || []} onClearCallDiagnostics={onClearCallDiagnostics || (() => undefined)} isAdmin={Boolean(isAdmin)} />;
   if (tab === 'contacts') return <ContactsPage token={token} user={session.user} onOpenConversation={onOpenConversation} onRefreshConversations={onRefreshConversations} onBack={onBackToChats || (() => onOpenTab('chats'))} />;
   if (tab === 'stories') return <StoriesPage token={token} userId={session.user.id} onBack={onBackToChats || (() => onOpenTab('chats'))} />;
   if (tab === 'storyCamera') return <StoriesPage token={token} userId={session.user.id} initialMode="camera" onBack={onBackToChats || (() => onOpenTab('chats'))} />;
