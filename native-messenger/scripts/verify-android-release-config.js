@@ -9,8 +9,8 @@ const requireSigning = process.argv.includes('--require-signing') || process.arg
 
 const EXPECTED = {
   packageName: 'online.oracle_plus.messenger',
-  versionName: '1.0.20260812.15',
-  versionCode: 2026081215,
+  versionName: '1.0.20260812.16',
+  versionCode: 2026081216,
   newArchEnabled: true,
   webClientId: '734297398479-rids78si56kck1u3sjrgnivfdtpr7e89.apps.googleusercontent.com',
   androidClients: [

@@ -681,9 +681,9 @@ function TranslateTool({ token }: { token: string }) {
   }, [customTarget, selectLanguage]);
 
   return (
-    <View style={styles.capacitorCard}>
-      <Text style={styles.capacitorCardTitle}>Traduction</Text>
-      <Text style={styles.capacitorLead}>Traduisez avec Google Translate. Choisissez une langue ou entrez directement son code Google.</Text>
+    <View style={styles.toolCard}>
+      <Text style={styles.toolCardTitle}>Traduction</Text>
+      <Text style={styles.toolLead}>Traduisez avec Google Translate. Choisissez une langue ou entrez directement son code Google.</Text>
       <Pressable accessibilityRole="button" style={styles.languageSelect} onPress={() => setLanguagePickerOpen(current => !current)}>
         <Text style={styles.languageSelectText}>{labelForTranslateTarget(target)}</Text>
         <ChevronDown size={20} color={colors.text} strokeWidth={2.1} />
@@ -738,7 +738,7 @@ function TranslateTool({ token }: { token: string }) {
         placeholder="Texte à traduire..."
         placeholderTextColor="#94A3B8"
         multiline
-        style={[styles.input, styles.capacitorTextarea]}
+        style={[styles.input, styles.toolTextarea]}
       />
       <PrimaryButton label="Traduire avec Google" onPress={translate} disabled={busy || !source.trim()} />
       <Loading active={busy} />
@@ -1583,10 +1583,10 @@ export function ToolsPage({
             {mode === 'video' ? (
               <View style={styles.videoPromptCard}>
                 <View style={styles.cardHeadRow}>
-                  <Text style={styles.capacitorCardTitle}>Décrivez votre vidéo</Text>
+                  <Text style={styles.toolCardTitle}>Décrivez votre vidéo</Text>
                   <Text style={styles.counterBadge}>{prompt.length}/1000</Text>
                 </View>
-                <Text style={styles.capacitorLead}>Décrivez l’histoire, le style, le public, les scènes et l’objectif de la vidéo.</Text>
+                <Text style={styles.toolLead}>Décrivez l’histoire, le style, le public, les scènes et l’objectif de la vidéo.</Text>
                 <TextInput
                   value={prompt}
                   onChangeText={text => setPrompt(text.slice(0, 1000))}
@@ -1655,8 +1655,8 @@ export function ToolsPage({
               <View style={styles.flyerPromptCard}>
                 <View style={styles.cardHeadRow}>
                   <View style={styles.flexCopy}>
-                    <Text style={styles.capacitorCardTitle}>Décrivez votre idée</Text>
-                    <Text style={styles.capacitorLead}>Décrivez précisément le flyer ou l’image que vous souhaitez créer.</Text>
+                    <Text style={styles.toolCardTitle}>Décrivez votre idée</Text>
+                    <Text style={styles.toolLead}>Décrivez précisément le flyer ou l’image que vous souhaitez créer.</Text>
                   </View>
                   <Text style={styles.counterBadge}>{countWords(prompt)}/1000</Text>
                 </View>
@@ -1824,9 +1824,9 @@ const styles = StyleSheet.create({
   meetingJoinInput: { flex: 1, minWidth: 0 },
   meetingJoinButton: { minHeight: 46, borderRadius: 10, backgroundColor: colors.header, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
   meetingJoinText: { color: '#FFFFFF', fontSize: 13.5, lineHeight: 18, fontWeight: '900' },
-  capacitorCard: { backgroundColor: colors.surface, borderRadius: 16, padding: 16, gap: 12, borderWidth: 1, borderColor: colors.border, shadowColor: '#102A2A', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
-  capacitorCardTitle: { color: colors.text, fontSize: 17, lineHeight: 22, fontWeight: '900' },
-  capacitorLead: { color: colors.muted, fontSize: 13, lineHeight: 19, fontWeight: '700' },
+  toolCard: { backgroundColor: colors.surface, borderRadius: 16, padding: 16, gap: 12, borderWidth: 1, borderColor: colors.border, shadowColor: '#102A2A', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
+  toolCardTitle: { color: colors.text, fontSize: 17, lineHeight: 22, fontWeight: '900' },
+  toolLead: { color: colors.muted, fontSize: 13, lineHeight: 19, fontWeight: '700' },
   languageSelect: { minHeight: 56, borderRadius: 16, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 },
   languageSelectText: { color: colors.text, fontSize: 16, fontWeight: '900' },
   languagePickerPanel: { borderRadius: 16, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, padding: 12, gap: 10 },
@@ -1844,7 +1844,7 @@ const styles = StyleSheet.create({
   languageOptionCode: { color: colors.muted, fontSize: 12, lineHeight: 15, fontWeight: '900', textTransform: 'uppercase' },
   languageOptionCodeActive: { color: colors.header },
   languageEmpty: { color: colors.muted, fontSize: 12.5, lineHeight: 18, fontWeight: '800', textAlign: 'center', paddingVertical: 12 },
-  capacitorTextarea: { minHeight: 150, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, fontSize: 14, lineHeight: 21, fontWeight: '500', textAlignVertical: 'top' },
+  toolTextarea: { minHeight: 150, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, fontSize: 14, lineHeight: 21, fontWeight: '500', textAlignVertical: 'top' },
   resultCard: { borderRadius: 16, backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: 'rgba(16,42,42,0.12)', padding: 12, gap: 6 },
   videoHero: { marginTop: 14, borderRadius: 18, backgroundColor: colors.header, paddingHorizontal: 16, paddingTop: 16, paddingBottom: 18, gap: 12, overflow: 'hidden', shadowColor: '#102A2A', shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 7 }, elevation: 3 },
   videoHeroTitle: { color: '#FFFFFF', fontSize: 20, lineHeight: 25, fontWeight: '900' },

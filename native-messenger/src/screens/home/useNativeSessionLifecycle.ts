@@ -3,6 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { GOOGLE_WEB_CLIENT_ID } from '@/config/env';
 import { api } from '@/services/api';
+import { disconnectNativeSocket } from '@/services/nativeSocket';
 import { clearSession, loadSession, saveSession } from '@/services/session';
 import type { NativeTabKey } from '@/screens/NativeFeaturePages';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
@@ -25,6 +26,11 @@ type UseNativeSessionLifecycleParams = {
   setSelected: (conversation: Conversation | null) => void;
   setSession: Dispatch<SetStateAction<AuthSession | null>>;
 };
+
+function isInvalidSessionError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /HTTP 401|HTTP 403|Unauthorized|Forbidden|jwt expired|invalid token|No auth token/i.test(message);
+}
 
 export function useNativeSessionLifecycle({
   cancelVoiceRecording,
@@ -60,16 +66,37 @@ export function useNativeSessionLifecycle({
     try {
       const saved = await loadSession();
       if (saved) {
-        setSession(saved);
         await refreshLocalMediaIndex();
-        setLoading(false);
-        void refreshConversations(saved.token);
-        void runMediaSync(saved.token, saved.user.id);
+        try {
+          const serverUser = await api.me(saved.token);
+          const verifiedSession: AuthSession = {
+            ...saved,
+            user: { ...saved.user, ...serverUser },
+          };
+          await saveSession(verifiedSession);
+          setSession(verifiedSession);
+          setLoading(false);
+          void refreshConversations(verifiedSession.token);
+          void runMediaSync(verifiedSession.token, verifiedSession.user.id);
+        } catch (error) {
+          if (isInvalidSessionError(error)) {
+            await clearSession();
+            disconnectNativeSocket();
+            setSession(null);
+            setNotice('Session expirée. Reconnectez-vous avec Google.');
+            return;
+          }
+          setSession(saved);
+          setNotice('Mode hors connexion : session locale non vérifiée.');
+          setLoading(false);
+          void refreshConversations(saved.token);
+          void runMediaSync(saved.token, saved.user.id);
+        }
       }
     } finally {
       setLoading(false);
     }
-  }, [refreshConversations, refreshLocalMediaIndex, runMediaSync, setLoading, setSession]);
+  }, [refreshConversations, refreshLocalMediaIndex, runMediaSync, setLoading, setNotice, setSession]);
 
   useEffect(() => {
     void restore();

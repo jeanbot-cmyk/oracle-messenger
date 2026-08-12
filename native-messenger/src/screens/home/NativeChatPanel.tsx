@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, PanResponder, StyleSheet, Text } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, PanResponder, Platform, StyleSheet, Text } from 'react-native';
 import { NativeChatComposer } from '@/screens/home/NativeChatComposer';
 import { NativeChatHeader } from '@/screens/home/NativeChatHeader';
 import { NativeMessageActionPanels } from '@/screens/home/NativeMessageActionPanels';
@@ -30,6 +30,7 @@ type NativeChatPanelProps = {
   voiceStartedAt: number | null;
   voiceLocked: boolean;
   voicePreview: VoicePreview | null;
+  voiceSending: boolean;
   aiBusy: boolean;
   busy: boolean;
   onBack: () => void;
@@ -81,6 +82,7 @@ export function NativeChatPanel({
   voiceStartedAt,
   voiceLocked,
   voicePreview,
+  voiceSending,
   aiBusy,
   busy,
   onBack,
@@ -134,7 +136,7 @@ export function NativeChatPanel({
 
   return (
     <KeyboardAvoidingView
-      behavior="padding"
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={0}
       style={styles.chatPanel}
       {...panResponder.panHandlers}
@@ -189,6 +191,7 @@ export function NativeChatPanel({
         voiceStartedAt={voiceStartedAt}
         voiceLocked={voiceLocked}
         voicePreview={voicePreview}
+        voiceSending={voiceSending}
         busy={busy}
         aiBusy={aiBusy}
         keyboardVisible={keyboardVisible}

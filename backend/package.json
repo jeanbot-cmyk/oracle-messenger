@@ -6,7 +6,8 @@
     "build": "nest build",
     "start": "npx prisma migrate deploy --schema=prisma/schema.prisma && node dist/main",
     "start:dev": "nest start --watch",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "audit:ab-lab": "node scripts/oracle-ab-lab.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.28",

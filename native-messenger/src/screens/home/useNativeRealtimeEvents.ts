@@ -1,4 +1,5 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { markConversationReadLocally, sortConversations } from '@/screens/home/homeUtils';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
@@ -38,6 +39,29 @@ export function useNativeRealtimeEvents({
   handleUserOnline,
   handleUserOffline,
 }: UseNativeRealtimeEventsParams) {
+  useEffect(() => {
+    if (!session?.token) return;
+    const socket = ensureNativeSocket(session.token);
+    const heartbeat = (nextState: AppStateStatus = AppState.currentState) => {
+      socket.emit('presence:heartbeat', {
+        state: nextState === 'active' ? 'active' : 'background',
+        at: new Date().toISOString(),
+      });
+    };
+    const onConnect = () => heartbeat('active');
+    heartbeat();
+    socket.on('connect', onConnect);
+    const timer = setInterval(() => heartbeat(), 25_000);
+    const appStateSubscription = AppState.addEventListener('change', heartbeat);
+
+    return () => {
+      clearInterval(timer);
+      appStateSubscription.remove();
+      socket.off('connect', onConnect);
+      socket.emit('presence:heartbeat', { state: 'background', at: new Date().toISOString() });
+    };
+  }, [session?.token]);
+
   useEffect(() => {
     if (!session?.token) return;
     const socket = ensureNativeSocket(session.token);

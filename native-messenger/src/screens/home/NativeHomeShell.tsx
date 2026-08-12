@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from 'react';
-import { PanResponder, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { BackHandler, PanResponder, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
@@ -45,6 +45,7 @@ export type NativeHomeShellProps = {
   voiceStartedAt: number | null;
   voiceLocked: boolean;
   voicePreview: VoicePreview | null;
+  voiceSending: boolean;
   aiBusy: boolean;
   onRefreshConversations: () => Promise<void>;
   onTabPress: (tab: NativeTabKey) => void;
@@ -139,6 +140,7 @@ export function NativeHomeShell({
   voiceStartedAt,
   voiceLocked,
   voicePreview,
+  voiceSending,
   aiBusy,
   onRefreshConversations,
   onTabPress,
@@ -216,6 +218,45 @@ export function NativeHomeShell({
     },
   }), [openAdjacentRootTab]);
 
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (headerMenuOpen) {
+        setHeaderMenuOpen(false);
+        return true;
+      }
+      if (nativeCall.callState !== 'idle') return true;
+      if (selectedMessageIds.length) {
+        onClearMessageSelection();
+        return true;
+      }
+      if (forwardMessages.length) {
+        onClearForwardMessages();
+        return true;
+      }
+      if (activeTab === 'chats' && selected) {
+        onBackFromChat();
+        return true;
+      }
+      if (activeTab !== 'chats') {
+        onTabPress('chats');
+        return true;
+      }
+      return false;
+    });
+    return () => subscription.remove();
+  }, [
+    activeTab,
+    forwardMessages.length,
+    headerMenuOpen,
+    nativeCall.callState,
+    onBackFromChat,
+    onClearForwardMessages,
+    onClearMessageSelection,
+    onTabPress,
+    selected,
+    selectedMessageIds.length,
+  ]);
+
   return (
     <SafeAreaView edges={['top']} style={styles.app}>
       <StatusBar
@@ -252,6 +293,7 @@ export function NativeHomeShell({
           voiceStartedAt={voiceStartedAt}
           voiceLocked={voiceLocked}
           voicePreview={voicePreview}
+          voiceSending={voiceSending}
           aiBusy={aiBusy}
           busy={busy}
           onBack={onBackFromChat}

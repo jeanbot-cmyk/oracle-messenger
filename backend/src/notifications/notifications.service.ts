@@ -113,7 +113,7 @@ export class NotificationsService {
     requireInteraction?: boolean; vibrate?: number[];
   }) {
     if (subscription.type === 'fcm') {
-      if (!getApps().length) return;
+      if (!getApps().length) throw new Error('Firebase Admin non configuré pour l’envoi FCM');
       if (payload.type === 'call-sync') {
         await getMessaging().send({
           token: subscription.token,

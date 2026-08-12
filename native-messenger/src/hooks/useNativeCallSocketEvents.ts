@@ -174,14 +174,14 @@ export function useNativeCallSocketEvents({
     };
 
     const onDisconnect = (reason: string) => {
-      if (callStateRef.current !== 'idle') {
+      if (callStateRef.current !== 'idle' && callStateRef.current !== 'ended') {
         setStateSafe('reconnecting');
         trace('socket:disconnect', { reason });
       }
     };
 
     const onConnect = () => {
-      if (callStateRef.current === 'reconnecting') setStateSafe('connected');
+      if (callStateRef.current === 'reconnecting' && callInfoRef.current) setStateSafe('connected');
       trace('socket:connect');
     };
 

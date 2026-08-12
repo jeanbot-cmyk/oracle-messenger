@@ -362,6 +362,7 @@ export function NativeConversationList({
                   <View style={styles.titleLine}>
                     <Text numberOfLines={1} maxFontSizeMultiplier={1.08} style={styles.conversationTitle}>{name}</Text>
                     {official ? <Text style={styles.inlineVerified}>✓</Text> : null}
+                    {official ? <Text numberOfLines={1} style={styles.verifiedLabel}>Vérifié</Text> : null}
                   </View>
                   <View style={styles.previewLine}>
                     {lastMessageIsMine ? <ConversationStatusIcon status={item.lastMessage?.status} /> : null}
@@ -494,8 +495,9 @@ const styles = StyleSheet.create({
   presenceDot: { position: 'absolute', right: -1, bottom: 0, width: 15, height: 15, borderRadius: 8, backgroundColor: colors.online, borderWidth: 2.5, borderColor: colors.surface },
   conversationText: { flex: 1, minWidth: 0, marginLeft: 12 },
   titleLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  conversationTitle: { color: colors.text, fontSize: 15.7, fontWeight: '900', lineHeight: 19 },
+  conversationTitle: { flexShrink: 1, color: colors.text, fontSize: 15.7, fontWeight: '900', lineHeight: 19 },
   inlineVerified: { overflow: 'hidden', width: 17, height: 17, borderRadius: 8.5, backgroundColor: '#38BDF8', color: '#FFFFFF', textAlign: 'center', fontSize: 10, lineHeight: 17, fontWeight: '900' },
+  verifiedLabel: { color: '#2563EB', fontSize: 11, lineHeight: 14, fontWeight: '900' },
   previewLine: { minHeight: 19, flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   conversationPreview: { flex: 1, minWidth: 0, color: colors.muted, fontSize: 13.6, lineHeight: 18, fontWeight: '700' },
   conversationPreviewUnread: { color: colors.text, fontWeight: '900' },

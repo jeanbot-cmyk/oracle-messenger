@@ -18,18 +18,21 @@ export function useNativeMediaSyncLifecycle({
   useEffect(() => {
     if (!session?.token) return;
     refreshLocalMediaIndex().catch(() => null);
+    let resumeTimer: ReturnType<typeof setTimeout> | null = null;
     const startupTimer = setTimeout(() => {
       runMediaSync(session.token, session.user.id);
     }, 900);
     const subscription = AppState.addEventListener('change', state => {
       if (state === 'active') {
-        setTimeout(() => {
+        if (resumeTimer) clearTimeout(resumeTimer);
+        resumeTimer = setTimeout(() => {
           runMediaSync(session.token, session.user.id);
         }, 450);
       }
     });
     return () => {
       clearTimeout(startupTimer);
+      if (resumeTimer) clearTimeout(resumeTimer);
       subscription.remove();
     };
   }, [refreshLocalMediaIndex, runMediaSync, session?.token, session?.user.id]);

@@ -87,6 +87,7 @@ export function useNativeHomeShellProps({
     voiceStartedAt: composer.voiceStartedAt,
     voiceLocked: composer.voiceLocked,
     voicePreview: composer.voicePreview,
+    voiceSending: composer.voiceSending,
     aiBusy: composer.aiBusy,
     onRefreshConversations: refreshConversations,
     onTabPress: tab => {

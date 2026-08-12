@@ -33,7 +33,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // userId → socketId (en mémoire — suffisant pour 1 instance)
   // userSockets moved to SocketStateService
 
-  private readonly callNoAnswerTimeoutMs = 220_000;
+  private readonly callNoAnswerTimeoutMs = Number(process.env.CALL_NO_ANSWER_TIMEOUT_MS || 220_000);
+  private readonly presenceHeartbeatTimeoutMs = Number(process.env.PRESENCE_HEARTBEAT_TIMEOUT_MS || 70_000);
+  private readonly presenceOfflineGraceMs = Number(process.env.PRESENCE_OFFLINE_GRACE_MS || 75_000);
+  private readonly presenceBackgroundGraceMs = Number(process.env.PRESENCE_BACKGROUND_GRACE_MS || 8_000);
 
   // callId → appel actif. La durée est comptée uniquement après acceptation réelle.
   private activeCalls = new Map<string, {
@@ -45,6 +48,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private callTimeouts = new Map<string, NodeJS.Timeout>();
   private offlineTimers = new Map<string, NodeJS.Timeout>();
   private cleanupTimer?: NodeJS.Timeout;
+  private presenceCleanupTimer?: NodeJS.Timeout;
   private businessReminderTimer?: NodeJS.Timeout;
   private businessReminderRunning = false;
 
@@ -61,11 +65,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   afterInit(server: Server) {
     this.socketState.setServer(server);
+    server.use((client, next) => {
+      try {
+        const token = client.handshake.auth?.token;
+        if (!token) return next(new Error('Unauthorized'));
+        const payload = this.jwt.verify(token) as { sub: string };
+        if (!payload?.sub) return next(new Error('Unauthorized'));
+        client.data.userId = payload.sub;
+        return next();
+      } catch {
+        return next(new Error('Unauthorized'));
+      }
+    });
     this.chat.cleanupOldTextMessages(5).catch(() => {});
     this.cleanupTimer = setInterval(() => {
       this.chat.cleanupOldTextMessages(5).catch(() => {});
     }, 6 * 60 * 60 * 1000);
     this.cleanupTimer.unref?.();
+    this.presenceCleanupTimer = setInterval(() => {
+      for (const userId of this.socketState.getPresenceUserIds()) {
+        if (!this.socketState.hasActiveUserPresence(userId, this.presenceHeartbeatTimeoutMs)) {
+          this.scheduleOfflineIfNoActivePresence(userId, this.presenceBackgroundGraceMs);
+        }
+      }
+    }, 30_000);
+    this.presenceCleanupTimer.unref?.();
     this.businessReminderTimer = setInterval(() => {
       this.dispatchDueBusinessReminderActions().catch(error => {
         console.warn('[business-ai] reminder dispatch failed', error?.message ?? error);
@@ -78,19 +102,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   async handleConnection(client: Socket) {
     try {
-      const token = client.handshake.auth?.token;
-      if (!token) { client.disconnect(); return; }
-      const payload = this.jwt.verify(token) as { sub: string };
-      client.data.userId = payload.sub;
-      const pendingOffline = this.offlineTimers.get(payload.sub);
-      if (pendingOffline) {
-        clearTimeout(pendingOffline);
-        this.offlineTimers.delete(payload.sub);
-      }
-      this.socketState.setUserSocket(payload.sub, client.id);
-      await this.users.setOnline(payload.sub, true);
-      this.server.emit('user:online', { userId: payload.sub, status: 'online' });
-      this.emitPendingCallsToClient(payload.sub, client);
+      const userId = client.data.userId;
+      if (!userId) { client.disconnect(); return; }
+      this.cancelOfflineTimer(userId);
+      this.socketState.setUserSocket(userId, client.id, 'active');
+      await this.users.setOnline(userId, true);
+      this.server.emit('user:online', { userId, status: 'online' });
+      this.emitPendingCallsToClient(userId, client);
     } catch {
       client.disconnect();
     }
@@ -100,17 +118,33 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = client.data.userId;
     if (!userId) return;
     this.socketState.removeUserSocket(userId, client.id);
-    if (!this.socketState.hasUserSockets(userId)) {
-      const existingTimer = this.offlineTimers.get(userId);
-      if (existingTimer) clearTimeout(existingTimer);
-      const timer = setTimeout(async () => {
-        this.offlineTimers.delete(userId);
-        if (this.socketState.hasUserSockets(userId)) return;
-        const user = await this.users.setOnline(userId, false);
-        this.server.emit('user:offline', { userId, status: 'offline', lastSeen: user.lastSeen?.toISOString?.() });
-      }, 75_000);
-      this.offlineTimers.set(userId, timer);
+    if (!this.socketState.hasActiveUserPresence(userId, this.presenceHeartbeatTimeoutMs)) {
+      this.scheduleOfflineIfNoActivePresence(userId, this.socketState.hasUserSockets(userId) ? this.presenceBackgroundGraceMs : this.presenceOfflineGraceMs);
     }
+  }
+
+  private cancelOfflineTimer(userId: string) {
+    const pendingOffline = this.offlineTimers.get(userId);
+    if (!pendingOffline) return;
+    clearTimeout(pendingOffline);
+    this.offlineTimers.delete(userId);
+  }
+
+  private scheduleOfflineIfNoActivePresence(userId: string, delayMs: number) {
+    if (this.socketState.hasActiveUserPresence(userId, this.presenceHeartbeatTimeoutMs)) {
+      this.cancelOfflineTimer(userId);
+      return;
+    }
+    const existingTimer = this.offlineTimers.get(userId);
+    if (existingTimer) clearTimeout(existingTimer);
+    const timer = setTimeout(async () => {
+      this.offlineTimers.delete(userId);
+      if (this.socketState.hasActiveUserPresence(userId, this.presenceHeartbeatTimeoutMs)) return;
+      const user = await this.users.setOnline(userId, false);
+      this.server.emit('user:offline', { userId, status: 'offline', lastSeen: user.lastSeen?.toISOString?.() });
+    }, Math.max(0, delayMs));
+    timer.unref?.();
+    this.offlineTimers.set(userId, timer);
   }
 
   private formatDuration(seconds?: number) {
@@ -226,6 +260,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       }
 
+      this.activeCalls.delete(callId);
+      this.callTimeouts.delete(callId);
       await this.publishCallTrace(
         call.conversationId,
         call.callerId,
@@ -233,9 +269,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         'missed',
       ).catch(() => {});
       await this.logCallFinalState(callId, call, call.callerId, 'missed').catch(() => {});
-
-      this.activeCalls.delete(callId);
-      this.callTimeouts.delete(callId);
     }, this.callNoAnswerTimeoutMs);
     timer.unref?.();
     this.callTimeouts.set(callId, timer);
@@ -248,6 +281,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (targetUserId && !call.participants.has(targetUserId)) return null;
     if (targetUserId && targetUserId === userId) return null;
     return call;
+  }
+
+  private getBusyCallId(userIds: string[]) {
+    const candidates = new Set(userIds.filter(Boolean));
+    for (const [callId, call] of this.activeCalls.entries()) {
+      for (const userId of candidates) {
+        if (call.participants.has(userId)) return callId;
+      }
+    }
+    return null;
   }
 
   private async logCallFinalState(
@@ -295,6 +338,38 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   // ── Conversations ─────────────────────────────────────────────────────────
+
+  @SubscribeMessage('presence:heartbeat')
+  async handlePresenceHeartbeat(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { state?: 'active' | 'background'; at?: string },
+    @Ack() ack?: (response: Record<string, unknown>) => void,
+  ) {
+    const userId = client.data.userId;
+    if (!userId) return this.sendSocketAck(ack, { ok: false, message: 'Utilisateur non authentifié' });
+
+    const wasActive = this.socketState.hasActiveUserPresence(userId, this.presenceHeartbeatTimeoutMs);
+    const state = data?.state === 'background' ? 'background' : 'active';
+    this.socketState.setSocketPresence(userId, client.id, state);
+    const isActive = this.socketState.hasActiveUserPresence(userId, this.presenceHeartbeatTimeoutMs);
+
+    if (state === 'active') {
+      this.cancelOfflineTimer(userId);
+      if (!wasActive) {
+        await this.users.setOnline(userId, true);
+        this.server.emit('user:online', { userId, status: 'online' });
+      }
+    } else if (!isActive) {
+      this.scheduleOfflineIfNoActivePresence(userId, this.presenceBackgroundGraceMs);
+    }
+
+    return this.sendSocketAck(ack, {
+      ok: true,
+      state,
+      active: isActive,
+      sockets: this.socketState.getUserPresenceSnapshot(userId).length,
+    });
+  }
 
   @SubscribeMessage('conversation:join')
   async joinConversation(
@@ -845,6 +920,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         client.emit('call:error', { message });
         return this.sendSocketAck(ack, { ok: false, message });
       }
+      const busyCallId = this.getBusyCallId([callerId, ...validTargets]);
+      if (busyCallId) {
+        const message = 'Un participant est deja dans un appel actif';
+        client.emit('call:error', { message, callId: busyCallId });
+        return this.sendSocketAck(ack, { ok: false, message, callId: busyCallId });
+      }
 
       const caller = await this.users.findById(callerId);
       const callerName = caller?.name ?? 'Quelqu\'un';
@@ -1232,6 +1313,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const connected = call.answered && !!call.answeredAt;
       const duration = connected ? Math.max(1, Math.round((Date.now() - call.answeredAt!) / 1000)) : undefined;
       const reason = connected ? 'ended' : enderId === call.callerId ? 'cancelled' : 'missed';
+      this.activeCalls.delete(data.callId);
       await this.logCallFinalState(data.callId, call, enderId, reason).catch(() => {});
 
       await this.publishCallTrace(
@@ -1241,8 +1323,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         connected ? 'ended' : 'missed',
         duration,
       ).catch(() => {});
-
-      this.activeCalls.delete(data.callId);
     }
 
     client.leave(`call:${data.callId}`);

@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import * as FileSystem from 'expo-file-system/legacy';
 import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
 
 type VoiceRecordingResult = {
@@ -67,16 +68,27 @@ function simpleWaveform(seedSource: string, bars = 36) {
   });
 }
 
+async function deleteLocalVoiceFile(uri?: string | null) {
+  if (!uri || !/^file:\/\//i.test(uri)) return;
+  await FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => undefined);
+}
+
 export function useNativeVoiceRecorder({ enabled, sendMedia, setNotice }: UseNativeVoiceRecorderParams) {
   const [voiceRecording, setVoiceRecording] = useState(false);
   const [voiceStartedAt, setVoiceStartedAt] = useState<number | null>(null);
   const [voiceLocked, setVoiceLocked] = useState(false);
   const [voicePreview, setVoicePreview] = useState<VoicePreview | null>(null);
+  const [voiceSending, setVoiceSending] = useState(false);
   const voiceRecordingRef = useRef(false);
   const voiceStartedAtRef = useRef<number | null>(null);
+  const voiceSendingRef = useRef(false);
 
   const startVoiceRecording = useCallback(async () => {
     if (!enabled) return;
+    if (voiceSendingRef.current) {
+      setNotice('Envoi vocal en cours.');
+      return;
+    }
     if (!OracleVoiceRecorder?.start || !OracleVoiceRecorder?.stop) {
       setNotice('Enregistrement vocal natif indisponible sur cette build.');
       return;
@@ -156,20 +168,26 @@ export function useNativeVoiceRecorder({ enabled, sendMedia, setNotice }: UseNat
 
   const sendVoicePreview = useCallback(async () => {
     if (!voicePreview) return;
+    if (voiceSendingRef.current) return;
     const pendingPreview = voicePreview;
-    setVoicePreview(null);
+    voiceSendingRef.current = true;
+    setVoiceSending(true);
     setNotice('Envoi du message vocal en cours.');
     try {
       const sent = await sendMedia(pendingPreview);
       if (sent) {
+        setVoicePreview(current => current?.uri === pendingPreview.uri ? null : current);
         setNotice('Message vocal envoye.');
       } else {
-        setVoicePreview(pendingPreview);
+        setVoicePreview(current => current ?? pendingPreview);
         setNotice('Envoi vocal non confirmé. Vous pouvez réessayer.');
       }
     } catch (error) {
-      setVoicePreview(pendingPreview);
+      setVoicePreview(current => current ?? pendingPreview);
       setNotice(error instanceof Error ? error.message : 'Envoi vocal impossible.');
+    } finally {
+      voiceSendingRef.current = false;
+      setVoiceSending(false);
     }
   }, [sendMedia, setNotice, voicePreview]);
 
@@ -182,6 +200,11 @@ export function useNativeVoiceRecorder({ enabled, sendMedia, setNotice }: UseNat
   }, [startVoiceRecording, stopVoiceRecording, voiceRecording]);
 
   const cancelVoiceRecording = useCallback(async (notify = true) => {
+    if (voiceSendingRef.current) {
+      if (notify) setNotice('Envoi vocal en cours.');
+      return;
+    }
+    const previewToDelete = voicePreview;
     await OracleVoiceRecorder?.cancel?.().catch(() => null);
     voiceRecordingRef.current = false;
     voiceStartedAtRef.current = null;
@@ -189,14 +212,16 @@ export function useNativeVoiceRecorder({ enabled, sendMedia, setNotice }: UseNat
     setVoiceStartedAt(null);
     setVoiceLocked(false);
     setVoicePreview(null);
+    await deleteLocalVoiceFile(previewToDelete?.uri);
     if (notify) setNotice('Enregistrement vocal annule.');
-  }, [setNotice]);
+  }, [setNotice, voicePreview]);
 
   return {
     voiceRecording,
     voiceStartedAt,
     voiceLocked,
     voicePreview,
+    voiceSending,
     startVoiceRecording,
     stopVoiceRecording,
     lockVoiceRecording,

@@ -20,6 +20,9 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.uimanager.ThemedReactContext
+import com.facebook.react.uimanager.UIManagerHelper
 import java.io.File
 
 class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
@@ -38,6 +41,7 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
   private var progressTickerActive = false
   private var hasAudioFocus = false
   private var audioFocusRequest: AudioFocusRequest? = null
+  private val reactContext = context as? ThemedReactContext
   private val brandColor = Color.rgb(16, 42, 42)
   private val mutedColor = Color.rgb(100, 116, 139)
   private val trackColor = Color.rgb(226, 232, 240)
@@ -51,14 +55,7 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
   private val progressTick = object : Runnable {
     override fun run() {
       if (!progressTickerActive) return
-      val player = mediaPlayer
-      if (player != null && isPrepared && !userSeeking) {
-        val duration = player.duration.coerceAtLeast(0)
-        val position = player.currentPosition.coerceAtLeast(0)
-        seekBar.max = duration
-        seekBar.progress = position.coerceAtMost(duration)
-        timeText.text = "${formatTime(position)} / ${formatTime(duration)}"
-      }
+      updateProgress()
       handler.postDelayed(this, 500)
     }
   }
@@ -145,8 +142,6 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
         if (isPrepared) mediaPlayer?.seekTo(seekBar?.progress ?: 0)
       }
     })
-
-    startProgressTicker()
   }
 
   fun setSourceUrl(value: String?) {
@@ -157,6 +152,7 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
     if (cleanValue.isBlank()) return
 
     try {
+      emitPlaybackState("preparing")
       val sourceUri = validatedSourceUri(cleanValue)
       val player = MediaPlayer()
       mediaPlayer = player
@@ -165,19 +161,24 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
       player.setOnPreparedListener {
         isPrepared = true
         seekBar.max = it.duration.coerceAtLeast(0)
-        timeText.text = "00:00 / ${formatTime(it.duration)}"
         playButton.isEnabled = true
         playButton.alpha = 1f
+        updateProgress()
         updatePlayIcon()
         errorText.visibility = GONE
+        emitPlaybackState("prepared", duration = it.duration.coerceAtLeast(0), position = 0)
         if (!paused) setPaused(false)
       }
       player.setOnCompletionListener {
         paused = true
+        stopProgressTicker()
+        if (activePlayerView === this) activePlayerView = null
         abandonAudioFocus()
         updatePlayIcon()
         seekBar.progress = 0
         it.seekTo(0)
+        updateProgress()
+        emitPlaybackState("completed", duration = it.duration.coerceAtLeast(0), position = 0)
       }
       player.setOnErrorListener { _, what, extra ->
         Log.w("OracleAudioPlayer", "MediaPlayer error for $cleanValue what=$what extra=$extra")
@@ -195,19 +196,27 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
     paused = value
     val player = mediaPlayer
     if (!isPrepared || player == null) {
+      if (value) stopProgressTicker()
       updatePlayIcon()
       return
     }
     if (value) {
       if (player.isPlaying) player.pause()
+      stopProgressTicker()
+      if (activePlayerView === this) activePlayerView = null
       abandonAudioFocus()
+      emitPlaybackState("paused", duration = player.duration.coerceAtLeast(0), position = player.currentPosition.coerceAtLeast(0))
     } else {
+      activePlayerView?.takeIf { it !== this }?.setPaused(true)
       if (!requestAudioFocus()) {
         showError("Sortie audio indisponible")
         return
       }
       try {
         player.start()
+        activePlayerView = this
+        startProgressTicker()
+        emitPlaybackState("playing", duration = player.duration.coerceAtLeast(0), position = player.currentPosition.coerceAtLeast(0))
       } catch (error: Exception) {
         Log.w("OracleAudioPlayer", "Audio playback failed for ${sourceUrl.orEmpty()}", error)
         showError("Lecture audio impossible")
@@ -218,7 +227,7 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
 
   override fun onAttachedToWindow() {
     super.onAttachedToWindow()
-    startProgressTicker()
+    if (!paused && isPrepared) startProgressTicker()
   }
 
   override fun onDetachedFromWindow() {
@@ -234,6 +243,8 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
   private fun resetPlayer() {
     isPrepared = false
     paused = true
+    stopProgressTicker()
+    if (activePlayerView === this) activePlayerView = null
     abandonAudioFocus()
     playButton.isEnabled = false
     playButton.alpha = 0.55f
@@ -249,12 +260,36 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
   private fun showError(message: String = "Lecture audio impossible") {
     isPrepared = false
     paused = true
+    stopProgressTicker()
+    if (activePlayerView === this) activePlayerView = null
     abandonAudioFocus()
     playButton.isEnabled = false
     playButton.alpha = 0.55f
     updatePlayIcon()
     errorText.text = message.ifBlank { "Lecture audio impossible" }
     errorText.visibility = VISIBLE
+    emitPlaybackState("error", error = errorText.text.toString())
+    mediaPlayer?.release()
+    mediaPlayer = null
+  }
+
+  private fun emitPlaybackState(
+    state: String,
+    duration: Int = mediaPlayer?.duration?.coerceAtLeast(0) ?: 0,
+    position: Int = mediaPlayer?.currentPosition?.coerceAtLeast(0) ?: 0,
+    error: String? = null,
+  ) {
+    val themedContext = reactContext ?: return
+    if (id == NO_ID) return
+    val surfaceId = UIManagerHelper.getSurfaceId(themedContext)
+    val event = Arguments.createMap().apply {
+      putString("state", state)
+      putDouble("duration", duration.toDouble())
+      putDouble("position", position.toDouble())
+      if (!error.isNullOrBlank()) putString("error", error)
+    }
+    UIManagerHelper.getEventDispatcherForReactTag(themedContext, id)
+      ?.dispatchEvent(OracleAudioPlaybackEvent(surfaceId, id, event))
   }
 
   private fun startProgressTicker() {
@@ -266,6 +301,16 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
   private fun stopProgressTicker() {
     progressTickerActive = false
     handler.removeCallbacks(progressTick)
+  }
+
+  private fun updateProgress() {
+    val player = mediaPlayer ?: return
+    if (!isPrepared || userSeeking) return
+    val duration = player.duration.coerceAtLeast(0)
+    val position = player.currentPosition.coerceAtLeast(0)
+    seekBar.max = duration
+    seekBar.progress = position.coerceAtMost(duration)
+    timeText.text = "${formatTime(position)} / ${formatTime(duration)}"
   }
 
   private fun validatedSourceUri(value: String): Uri {
@@ -352,5 +397,9 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
     val minutes = seconds / 60
     val remain = seconds % 60
     return String.format("%02d:%02d", minutes, remain)
+  }
+
+  private companion object {
+    private var activePlayerView: OracleAudioPlayerView? = null
   }
 }

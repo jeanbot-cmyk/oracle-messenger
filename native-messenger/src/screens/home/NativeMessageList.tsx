@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { FlatList, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AlertCircle, Check, CheckCheck, Clock3, Mail, Phone, PhoneMissed, PhoneOff, UserRound, Video } from 'lucide-react-native';
 import { NativeChatMediaMessage } from './NativeChatMediaMessage';
@@ -232,51 +232,42 @@ export function NativeMessageList({
 }: NativeMessageListProps) {
   const listRef = useRef<FlatList<Message>>(null);
   const nearBottomRef = useRef(true);
-  const positionedConversationIdRef = useRef<string | null>(null);
   const lastAutoScrolledMessageIdRef = useRef<string | null>(null);
-  const [, forcePositionRender] = useState(0);
+  const initialPositioningRef = useRef(true);
+  const inverted = !messageSearch;
+  const displayMessages = useMemo(() => (
+    inverted ? [...messages].reverse() : messages
+  ), [inverted, messages]);
   const lastMessageId = messages[messages.length - 1]?.id;
   const lastMessageSenderId = messages[messages.length - 1]?.senderId;
-  const initialPositionPending = Boolean(messages.length && !messageSearch && positionedConversationIdRef.current !== conversationId);
-
-  const positionAtLatestMessage = useCallback(() => {
-    if (!messages.length || messageSearch) return;
-    if (positionedConversationIdRef.current === conversationId) return;
-    listRef.current?.scrollToEnd({ animated: false });
-    positionedConversationIdRef.current = conversationId;
-    lastAutoScrolledMessageIdRef.current = lastMessageId || null;
-    forcePositionRender(value => value + 1);
-  }, [conversationId, lastMessageId, messageSearch, messages.length]);
 
   useEffect(() => {
     nearBottomRef.current = true;
     lastAutoScrolledMessageIdRef.current = null;
-    positionedConversationIdRef.current = null;
+    initialPositioningRef.current = true;
   }, [conversationId]);
 
   useEffect(() => {
-    if (!messages.length) positionedConversationIdRef.current = null;
-  }, [messages.length]);
-
-  useEffect(() => {
     if (!lastMessageId || messageSearch) return;
-    if (positionedConversationIdRef.current !== conversationId) return;
     if (lastAutoScrolledMessageIdRef.current === lastMessageId) return;
     if (!nearBottomRef.current && lastMessageSenderId !== currentUserId) return;
     const frame = requestAnimationFrame(() => {
-      listRef.current?.scrollToEnd({ animated: true });
+      const animated = !initialPositioningRef.current;
+      listRef.current?.scrollToOffset({ offset: 0, animated });
       lastAutoScrolledMessageIdRef.current = lastMessageId;
+      initialPositioningRef.current = false;
     });
     return () => cancelAnimationFrame(frame);
-  }, [conversationId, currentUserId, lastMessageId, lastMessageSenderId, messageSearch]);
+  }, [currentUserId, lastMessageId, lastMessageSenderId, messageSearch]);
 
   return (
     <FlatList
       ref={listRef}
-      data={messages}
+      data={displayMessages}
       keyExtractor={item => item.id}
-      style={[styles.list, initialPositionPending ? styles.listPositioning : null]}
+      style={styles.list}
       contentContainerStyle={styles.messagesList}
+      inverted={inverted}
       initialNumToRender={18}
       maxToRenderPerBatch={10}
       updateCellsBatchingPeriod={42}
@@ -286,10 +277,13 @@ export function NativeMessageList({
       maintainVisibleContentPosition={{
         minIndexForVisible: 0,
       }}
-      onContentSizeChange={positionAtLatestMessage}
-      onLayout={positionAtLatestMessage}
       onScroll={({ nativeEvent }) => {
-        if (initialPositionPending) return;
+        if (inverted) {
+          nearBottomRef.current = nativeEvent.contentOffset.y < 120;
+          const distanceFromTop = nativeEvent.contentSize.height - (nativeEvent.contentOffset.y + nativeEvent.layoutMeasurement.height);
+          if (distanceFromTop <= 160 && messages.length >= 45) void onLoadOlderMessages();
+          return;
+        }
         const distanceFromBottom = nativeEvent.contentSize.height - (nativeEvent.contentOffset.y + nativeEvent.layoutMeasurement.height);
         nearBottomRef.current = distanceFromBottom < 120;
         if (nativeEvent.contentOffset.y <= 24 && messages.length >= 45) void onLoadOlderMessages();
@@ -303,8 +297,8 @@ export function NativeMessageList({
         const avatar = mine ? currentUserAvatar : item.sender?.avatar;
         const avatarLabel = initials(mine ? currentUserName : item.sender?.name);
         const selectedForAction = selectedMessageIds.includes(item.id);
-        const previous = messages[index - 1];
-        const showDay = !previous || formatMessageDay(previous.createdAt) !== formatMessageDay(item.createdAt);
+        const adjacent = inverted ? displayMessages[index + 1] : displayMessages[index - 1];
+        const showDay = !adjacent || formatMessageDay(adjacent.createdAt) !== formatMessageDay(item.createdAt);
         const callClickable = Boolean(callTrace && onCallMessagePress && !selectedMessageIds.length);
         return (
           <>
@@ -376,7 +370,6 @@ export function NativeMessageList({
 
 const styles = StyleSheet.create({
   list: { flex: 1, backgroundColor: colors.background },
-  listPositioning: { opacity: 0 },
   messagesList: { paddingHorizontal: 10, paddingTop: 7, paddingBottom: 9, gap: 2 },
   daySeparator: { alignSelf: 'center', overflow: 'hidden', marginVertical: 8, paddingHorizontal: 11, paddingVertical: 5, borderRadius: 999, backgroundColor: 'rgba(16,42,42,0.08)', color: colors.header, fontSize: 11.5, fontWeight: '900' },
   bubble: { maxWidth: '82%', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 6 },

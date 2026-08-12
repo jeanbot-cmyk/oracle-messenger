@@ -275,7 +275,7 @@ export function AdminPage({ token, onBack }: { token: string; onBack: () => void
 
       {systemOpen ? (
         <Section title="Message système">
-        <Text style={styles.pageCopy}>Ce message arrive dans la conversation officielle O.Messenger, comme dans Capacitor. Texte seul, média seul ou texte avec image, vidéo, audio ou document.</Text>
+        <Text style={styles.pageCopy}>Ce message arrive dans la conversation officielle O.Messenger. Texte seul, média seul ou texte avec image, vidéo, audio ou document.</Text>
         <TextInput value={message} onChangeText={setMessage} placeholder="Rédigez votre annonce, lien ou message officiel..." placeholderTextColor={colors.muted} multiline style={[styles.input, styles.textarea]} />
         <View style={styles.actionRow}>
           <SecondaryButton label="Image/vidéo" onPress={pickBroadcastMedia} disabled={busy} />

@@ -25,7 +25,7 @@ export function SpiritualityPage() {
       </Pressable>
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Accès</Text>
-        <Text style={styles.cardText}>Ce lien reprend le comportement Capacitor et ouvre la consultation depuis Android.</Text>
+        <Text style={styles.cardText}>Ce lien ouvre la consultation Oracle Plus depuis Android.</Text>
       </View>
     </ScrollView>
   );

@@ -170,25 +170,35 @@ export function useNativeLiveKitCall({
       dynacast: true,
     });
     roomRef.current = room;
+    const shouldIgnoreRoomEvent = () => (
+      roomRef.current !== room ||
+      callStateRef.current === 'idle' ||
+      callStateRef.current === 'ended'
+    );
 
     room.on(RoomEvent.Connected, () => {
+      if (shouldIgnoreRoomEvent()) return;
       trace('livekit:connected', { room: tokenResponse.room || info.callId });
       if (callStateRef.current === 'connecting') setStateSafe('connected');
     });
     room.on(RoomEvent.Reconnecting, () => {
+      if (shouldIgnoreRoomEvent()) return;
       setStateSafe('reconnecting');
       trace('livekit:reconnecting');
     });
     room.on(RoomEvent.SignalReconnecting, () => {
+      if (shouldIgnoreRoomEvent()) return;
       setStateSafe('reconnecting');
       trace('livekit:signal-reconnecting');
     });
     room.on(RoomEvent.Reconnected, () => {
+      if (shouldIgnoreRoomEvent()) return;
       setStateSafe('connected');
       applyAudioRoute(getSpeakerOn());
       trace('livekit:reconnected');
     });
     room.on(RoomEvent.Disconnected, reason => {
+      if (shouldIgnoreRoomEvent()) return;
       trace('livekit:disconnected', { reason });
       const isStaleIntentionalDisconnect = disconnectingRef.current && roomRef.current !== room;
       if (!isStaleIntentionalDisconnect && callStateRef.current !== 'idle') {
@@ -197,15 +207,18 @@ export function useNativeLiveKitCall({
       }
     });
     room.on(RoomEvent.ParticipantConnected, participant => {
+      if (shouldIgnoreRoomEvent()) return;
       setStateSafe('connected');
       setRemoteParticipantStream(participant);
       trace('livekit:participant-connected', { identity: participant.identity });
     });
     room.on(RoomEvent.ParticipantDisconnected, participant => {
+      if (shouldIgnoreRoomEvent()) return;
       removeRemoteParticipantStream(participant.identity);
       trace('livekit:participant-disconnected', { identity: participant.identity });
     });
     room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant) => {
+      if (shouldIgnoreRoomEvent()) return;
       if (track.kind === Track.Kind.Video) setRemoteParticipantStream(participant);
       if (track.kind === Track.Kind.Audio) room.startAudio().catch(() => null);
       setStateSafe('connected');
@@ -216,14 +229,17 @@ export function useNativeLiveKitCall({
       });
     });
     room.on(RoomEvent.TrackUnsubscribed, (_track, _publication, participant) => {
+      if (shouldIgnoreRoomEvent()) return;
       setRemoteParticipantStream(participant);
       trace('livekit:track-unsubscribed', { identity: participant.identity });
     });
     room.on(RoomEvent.LocalTrackPublished, publication => {
+      if (shouldIgnoreRoomEvent()) return;
       if (publication.source === Track.Source.Camera) setLocalPreviewFromRoom(room);
       trace('livekit:local-track-published', { source: publication.source, kind: publication.kind });
     });
     room.on(RoomEvent.LocalTrackUnpublished, publication => {
+      if (shouldIgnoreRoomEvent()) return;
       if (publication.source === Track.Source.Camera) {
         setCameraOff(true);
       }

@@ -25,7 +25,7 @@ export function WebPage() {
       </Pressable>
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Organisation</Text>
-        <Text style={styles.cardText}>Ce lien reprend le comportement Capacitor et ouvre le service web Oracle Plus depuis Android.</Text>
+        <Text style={styles.cardText}>Ce lien ouvre le service Oracle Web depuis Android.</Text>
       </View>
     </ScrollView>
   );

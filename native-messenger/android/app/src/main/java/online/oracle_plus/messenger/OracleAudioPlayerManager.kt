@@ -20,4 +20,10 @@ class OracleAudioPlayerManager : SimpleViewManager<OracleAudioPlayerView>() {
   fun setPaused(view: OracleAudioPlayerView, paused: Boolean) {
     view.setPaused(paused)
   }
+
+  override fun getExportedCustomDirectEventTypeConstants(): MutableMap<String, Any> {
+    return mutableMapOf(
+      "topPlaybackStateChange" to mapOf("registrationName" to "onPlaybackStateChange"),
+    )
+  }
 }

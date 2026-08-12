@@ -112,12 +112,13 @@ export function useNativeCallPeerConnections({
     (pc as any).onconnectionstatechange = () => {
       const state = pc.connectionState;
       trace('webrtc:connection-state', { targetUserId, state });
+      if (callStateRef.current === 'idle' || callStateRef.current === 'ended') return;
       if (state === 'connected') setStateSafe('connected');
       if (state === 'disconnected' || state === 'failed') {
         setStateSafe('reconnecting');
         if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = setTimeout(() => {
-          if (callStateRef.current === 'reconnecting') {
+          if (callStateRef.current === 'reconnecting' && peersRef.current.get(targetUserId) === pc) {
             setCallNotice('Connexion instable. Tentative de récupération...');
             try {
               pc.restartIce?.();

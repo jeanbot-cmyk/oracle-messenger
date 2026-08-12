@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Camera } from 'lucide-react-native';
@@ -14,7 +14,6 @@ type NativeOnboardingProps = {
 };
 
 export function NativeOnboarding({ session, onComplete }: NativeOnboardingProps) {
-  const scrollRef = useRef<ScrollView | null>(null);
   const [name, setName] = useState(session.user.name || '');
   const [bio, setBio] = useState(session.user.bio || '');
   const [avatar, setAvatar] = useState(session.user.avatar || '');
@@ -23,7 +22,6 @@ export function NativeOnboarding({ session, onComplete }: NativeOnboardingProps)
   const [showCountries, setShowCountries] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
   const [saving, setSaving] = useState(false);
-  const [verifyingPhone, setVerifyingPhone] = useState(false);
   const [error, setError] = useState('');
 
   const filteredCountries = useMemo(() => {
@@ -80,9 +78,6 @@ export function NativeOnboarding({ session, onComplete }: NativeOnboardingProps)
         avatar: avatar || undefined,
         phone: cleanPhone,
       });
-      setSaving(false);
-      setVerifyingPhone(true);
-      await new Promise(resolve => setTimeout(resolve, 4000));
       const nextSession: AuthSession = {
         token: saved?.token || session.token,
         user: {
@@ -106,23 +101,21 @@ export function NativeOnboarding({ session, onComplete }: NativeOnboardingProps)
           : raw || 'Erreur lors de la sauvegarde.');
     } finally {
       setSaving(false);
-      setVerifyingPhone(false);
     }
   }, [avatar, bio, country, name, onComplete, phone, session]);
 
   const phoneIsInvalid = phone.replace(/\D/g, '').length < 6;
   const formIsReady = Boolean(name.trim()) && !phoneIsInvalid;
-  const submitDisabled = saving || verifyingPhone || !formIsReady;
+  const submitDisabled = saving || !formIsReady;
 
   return (
     <SafeAreaView style={styles.onboardingSafe}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={0}
         style={styles.keyboardAvoider}
       >
       <ScrollView
-        ref={scrollRef}
         contentContainerStyle={styles.onboardingContent}
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
@@ -175,7 +168,7 @@ export function NativeOnboarding({ session, onComplete }: NativeOnboardingProps)
           <View style={styles.phoneBlock}>
             <Text style={styles.phoneLabel}>Numéro de téléphone *</Text>
             <Text style={styles.phoneHelp}>
-              Mettez un numéro actif dans ce téléphone. Une vérification automatique sera effectuée pour confirmer ce numéro après validation.
+              Mettez un numéro actif dans ce téléphone. Le serveur vérifiera ce numéro au moment de la validation.
             </Text>
             <View style={styles.phoneRow}>
               <Pressable style={styles.countryButton} onPress={() => setShowCountries(current => !current)}>
@@ -189,28 +182,17 @@ export function NativeOnboarding({ session, onComplete }: NativeOnboardingProps)
                 placeholder="Ex: 0102030405"
                 placeholderTextColor={colors.muted}
                 keyboardType="phone-pad"
-                onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120)}
                 style={styles.phoneInput}
               />
             </View>
           </View>
-
-          {verifyingPhone ? (
-            <View style={styles.verificationBox}>
-              <ActivityIndicator color={colors.brand} />
-              <View style={styles.verificationTextWrap}>
-                <Text style={styles.verificationTitle}>Vérification automatique du numéro...</Text>
-                <Text style={styles.verificationText}>Confirmation en cours. L’application s’ouvrira automatiquement.</Text>
-              </View>
-            </View>
-          ) : null}
 
           <Pressable
             onPress={saveOnboarding}
             disabled={submitDisabled}
             style={[styles.onboardingSubmit, !formIsReady && styles.disabledButton]}
           >
-            {saving || verifyingPhone ? <ActivityIndicator color="#FFFFFF" /> : <Text style={[styles.onboardingSubmitText, !formIsReady && styles.disabledSubmitText]}>Commencer à discuter →</Text>}
+            {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={[styles.onboardingSubmitText, !formIsReady && styles.disabledSubmitText]}>Commencer à discuter →</Text>}
           </Pressable>
         </View>
       </ScrollView>
@@ -283,10 +265,6 @@ const styles = StyleSheet.create({
   countryDial: { color: colors.brand, fontSize: 21, fontWeight: '900' },
   countryChevron: { color: colors.muted, fontSize: 16, fontWeight: '900', marginTop: -3 },
   phoneInput: { flex: 1, minWidth: 0, minHeight: 70, borderRadius: 18, borderWidth: 1.5, borderColor: colors.borderStrong, backgroundColor: colors.surface, paddingHorizontal: 20, paddingVertical: 12, color: colors.text, fontSize: 20, fontWeight: '500' },
-  verificationBox: { minHeight: 74, borderRadius: 20, borderWidth: 1, borderColor: '#BFE9DA', backgroundColor: '#EAF4F1', paddingHorizontal: 16, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  verificationTextWrap: { flex: 1, minWidth: 0 },
-  verificationTitle: { color: colors.brand, fontSize: 14.5, lineHeight: 18, fontWeight: '900' },
-  verificationText: { color: colors.secondary, fontSize: 12.5, lineHeight: 17, fontWeight: '700', marginTop: 3 },
   countryModalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.50)', justifyContent: 'flex-end' },
   countrySheet: { width: '100%', maxHeight: '80%', backgroundColor: colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, overflow: 'hidden' },
   countrySheetSearchRow: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 12 },

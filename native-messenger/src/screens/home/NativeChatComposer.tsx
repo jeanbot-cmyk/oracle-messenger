@@ -29,6 +29,7 @@ type NativeChatComposerProps = {
   voiceStartedAt: number | null;
   voiceLocked: boolean;
   voicePreview: VoicePreview | null;
+  voiceSending: boolean;
   busy: boolean;
   aiBusy: boolean;
   keyboardVisible?: boolean;
@@ -55,6 +56,7 @@ export function NativeChatComposer({
   voiceStartedAt,
   voiceLocked,
   voicePreview,
+  voiceSending,
   busy,
   aiBusy,
   keyboardVisible,
@@ -241,13 +243,13 @@ export function NativeChatComposer({
         <View style={styles.voicePreviewPanel}>
           <View style={styles.voicePreviewHeader}>
             <View>
-              <Text style={styles.voicePreviewTitle}>Message vocal prêt</Text>
+              <Text style={styles.voicePreviewTitle}>{voiceSending ? 'Envoi du vocal...' : 'Message vocal prêt'}</Text>
               <Text style={styles.voicePreviewMeta}>{formatDuration(voicePreview.duration)} - {formatBytes(voicePreview.size)}</Text>
             </View>
             <Pressable onPress={() => {
               selectionHaptic();
               void onCancelVoiceRecording();
-            }} style={styles.contextClose}>
+            }} disabled={voiceSending} style={[styles.contextClose, voiceSending && styles.aiPanelDisabled]}>
               <Text style={styles.contextCloseText}>×</Text>
             </Pressable>
           </View>
@@ -256,15 +258,15 @@ export function NativeChatComposer({
             <Pressable onPress={() => {
               selectionHaptic();
               void onCancelVoiceRecording();
-            }} style={styles.voicePreviewSecondary}>
+            }} disabled={voiceSending} style={[styles.voicePreviewSecondary, voiceSending && styles.aiPanelDisabled]}>
               <Text style={styles.voicePreviewSecondaryText}>Supprimer</Text>
             </Pressable>
-            <Pressable disabled={busy} onPress={() => {
+            <Pressable disabled={busy || voiceSending} onPress={() => {
               lightImpactHaptic();
               void onSendVoicePreview();
-            }} style={[styles.voicePreviewSend, busy && styles.aiPanelDisabled]}>
-              <Send size={17} color="#FFFFFF" strokeWidth={2.7} />
-              <Text style={styles.voicePreviewSendText}>Envoyer</Text>
+            }} style={[styles.voicePreviewSend, (busy || voiceSending) && styles.aiPanelDisabled]}>
+              {voiceSending ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Send size={17} color="#FFFFFF" strokeWidth={2.7} />}
+              <Text style={styles.voicePreviewSendText}>{voiceSending ? 'Envoi...' : 'Envoyer'}</Text>
             </Pressable>
           </View>
         </View>

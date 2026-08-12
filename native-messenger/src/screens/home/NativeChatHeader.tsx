@@ -52,8 +52,11 @@ export function NativeChatHeader({
           {official ? <View style={styles.verifiedDot}><Text style={styles.verifiedText}>✓</Text></View> : isOnline ? <View style={styles.presenceDot} /> : null}
         </Pressable>
         <View style={styles.titleWrap}>
-          <Text numberOfLines={1} style={styles.chatTitle}>{name}</Text>
-          <Text numberOfLines={1} style={styles.chatPresence}>{presenceText}</Text>
+          <View style={styles.chatTitleLine}>
+            <Text numberOfLines={1} style={styles.chatTitle}>{name}</Text>
+            {official ? <Text numberOfLines={1} style={styles.chatVerifiedLabel}>Vérifié</Text> : null}
+          </View>
+          <Text numberOfLines={1} style={styles.chatPresence}>{official ? 'Compte officiel vérifié' : presenceText}</Text>
         </View>
         {official ? null : (
           <View style={styles.callShortcutRow}>
@@ -132,7 +135,9 @@ const styles = StyleSheet.create({
   avatarImage: { width: '100%', height: '100%' },
   avatarText: { color: colors.header, fontSize: 17, fontWeight: '900' },
   titleWrap: { flex: 1, minWidth: 0 },
-  chatTitle: { color: '#FFFFFF', fontSize: 16, lineHeight: 18, fontWeight: '900' },
+  chatTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  chatTitle: { flexShrink: 1, color: '#FFFFFF', fontSize: 16, lineHeight: 18, fontWeight: '900' },
+  chatVerifiedLabel: { overflow: 'hidden', borderRadius: 10, backgroundColor: '#E0F2FE', color: '#2563EB', paddingHorizontal: 6, paddingVertical: 1, fontSize: 10.5, lineHeight: 13, fontWeight: '900' },
   chatPresence: { color: 'rgba(255,255,255,0.68)', fontSize: 12, lineHeight: 14, fontWeight: '700', marginTop: 3 },
   callShortcutRow: { flexDirection: 'row', gap: 8 },
   callShortcut: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
