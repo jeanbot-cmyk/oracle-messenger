@@ -5,7 +5,15 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
+const repoRoot = path.resolve(root, '..');
 const requireSigning = process.argv.includes('--require-signing') || process.argv.includes('--strict');
+const rejectDebugCerts = process.argv.includes('--reject-debug-certs');
+const apkArgIndex = process.argv.findIndex(arg => arg === '--apk' || arg.startsWith('--apk='));
+const apkPathArg = apkArgIndex >= 0
+  ? (process.argv[apkArgIndex].startsWith('--apk=')
+    ? process.argv[apkArgIndex].slice('--apk='.length)
+    : process.argv[apkArgIndex + 1])
+  : '';
 
 const EXPECTED = {
   packageName: 'online.oracle_plus.messenger',
@@ -54,6 +62,44 @@ function assertEqual(label, actual, expected) {
 
 function assertIncludes(label, haystack, needle) {
   if (!haystack.includes(needle)) fail(`${label}: missing ${needle}`);
+}
+
+function run(command, commandArgs, options = {}) {
+  return spawnSync(command, commandArgs, {
+    cwd: options.cwd || root,
+    encoding: 'utf8',
+    stdio: options.stdio || 'pipe',
+    env: process.env,
+  });
+}
+
+function findAndroidTool(name) {
+  const candidates = [];
+  const sdkRoots = [
+    process.env.ANDROID_HOME,
+    process.env.ANDROID_SDK_ROOT,
+    path.join(repoRoot, '.android-sdk'),
+    path.join(root, '.android-sdk'),
+  ].filter(Boolean);
+
+  for (const sdkRoot of sdkRoots) {
+    const buildToolsDir = path.join(sdkRoot, 'build-tools');
+    if (!fs.existsSync(buildToolsDir)) continue;
+    for (const version of fs.readdirSync(buildToolsDir).sort().reverse()) {
+      candidates.push(path.join(buildToolsDir, version, name));
+    }
+  }
+
+  candidates.push(name);
+  return candidates.find(candidate => {
+    const result = run(candidate, ['--version']);
+    return result.status === 0 || result.stderr || result.stdout;
+  }) || name;
+}
+
+function parseApkPath() {
+  if (!apkPathArg || apkPathArg === '--reject-debug-certs') return null;
+  return path.isAbsolute(apkPathArg) ? apkPathArg : path.resolve(root, apkPathArg);
 }
 
 function verifyPackageAndVersion() {
@@ -189,12 +235,67 @@ function verifySigningEnv() {
   }
 }
 
+function verifyApkGoogleSignature() {
+  const apkPath = parseApkPath();
+  if (!apkPath) return;
+
+  if (!fs.existsSync(apkPath)) {
+    fail(`APK not found: ${apkPath}`);
+    return;
+  }
+
+  const aapt = findAndroidTool('aapt');
+  const badging = run(aapt, ['dump', 'badging', apkPath]);
+  if (badging.status !== 0) {
+    fail(`aapt failed for APK ${apkPath}: ${(badging.stderr || badging.stdout || '').trim()}`);
+  } else {
+    const packageMatch = badging.stdout.match(/package: name='([^']+)' versionCode='([^']+)' versionName='([^']+)'/);
+    if (!packageMatch) {
+      fail(`APK badging did not include package metadata: ${apkPath}`);
+    } else {
+      assertEqual('APK packageName', packageMatch[1], EXPECTED.packageName);
+      assertEqual('APK versionCode', Number(packageMatch[2]), EXPECTED.versionCode);
+      assertEqual('APK versionName', packageMatch[3], EXPECTED.versionName);
+    }
+  }
+
+  const apksigner = findAndroidTool('apksigner');
+  const result = run(apksigner, ['verify', '--print-certs', '--verbose', apkPath]);
+  const output = `${result.stdout || ''}\n${result.stderr || ''}`;
+  if (result.status !== 0) {
+    fail(`apksigner verification failed for APK ${apkPath}: ${output.trim()}`);
+    return;
+  }
+
+  const sha1Match = output.match(/Signer #1 certificate SHA-1 digest:\s*([a-fA-F0-9:]+)/);
+  if (!sha1Match) {
+    fail(`APK signer SHA1 not found in apksigner output for ${apkPath}`);
+    return;
+  }
+
+  const signerSha1 = sha1Match[1].replace(/:/g, '').toLowerCase();
+  const allowed = EXPECTED.androidClients.map(item => item.sha1);
+  if (!allowed.includes(signerSha1)) {
+    fail(
+      `APK signer SHA1 ${signerSha1} is not present in Google OAuth clients. ` +
+      'Google Sign-In can fail with DEVELOPER_ERROR for this APK.'
+    );
+  }
+
+  const signerDnMatch = output.match(/Signer #1 certificate DN:\s*(.+)/);
+  const signerDn = signerDnMatch ? signerDnMatch[1].trim() : '';
+  if (rejectDebugCerts && /Android Debug/i.test(signerDn)) {
+    fail(`APK is signed with an Android Debug certificate: ${signerDn}`);
+  }
+}
+
 function main() {
   verifyPackageAndVersion();
   verifyGoogleServices('google-services.json');
   verifyGoogleServices('android/app/google-services.json');
   verifyLocalSigningFiles();
   verifySigningEnv();
+  verifyApkGoogleSignature();
 
   for (const message of warnings) console.warn(`WARN ${message}`);
 

@@ -17,6 +17,7 @@
     "android:production-release": "npm run typecheck && npm run lint && npm run verify:android-production-ready && npm run android:bundle-release && npm run verify:android-production-ready -- --require-aab",
     "verify:android-release-config": "node scripts/verify-android-release-config.js",
     "verify:android-release-signing": "node scripts/verify-android-release-config.js --require-signing",
+    "verify:android-release-apk": "node scripts/verify-android-release-config.js --apk android/app/build/outputs/apk/release/app-release.apk --reject-debug-certs",
     "verify:android-production-ready": "node scripts/verify-android-production-ready.js"
   },
   "dependencies": {
