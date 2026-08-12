@@ -1,4 +1,4 @@
-import { useCallback, useRef, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import { AudioSession } from '@livekit/react-native';
 import { MediaStream } from '@livekit/react-native-webrtc';
 import {
@@ -78,6 +78,12 @@ export function useNativeLiveKitCall({
   const roomRef = useRef<Room | null>(null);
   const liveKitActiveRef = useRef(false);
   const disconnectingRef = useRef(false);
+  const disconnectSequenceRef = useRef(0);
+  const disconnectResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (disconnectResetTimerRef.current) clearTimeout(disconnectResetTimerRef.current);
+  }, []);
 
   const setLocalPreviewFromRoom = useCallback((room: Room) => {
     const publication = room.localParticipant.getTrackPublication(Track.Source.Camera) as LocalTrackPublication | undefined;
@@ -111,6 +117,12 @@ export function useNativeLiveKitCall({
   const disconnectLiveKit = useCallback((stopTracks = true) => {
     const room = roomRef.current;
     const wasActive = liveKitActiveRef.current || !!room;
+    const disconnectSequence = disconnectSequenceRef.current + 1;
+    disconnectSequenceRef.current = disconnectSequence;
+    if (disconnectResetTimerRef.current) {
+      clearTimeout(disconnectResetTimerRef.current);
+      disconnectResetTimerRef.current = null;
+    }
     disconnectingRef.current = true;
     liveKitActiveRef.current = false;
     roomRef.current = null;
@@ -125,9 +137,12 @@ export function useNativeLiveKitCall({
     setLocalStream(null);
     localStreamRef.current = null;
     trace('livekit:disconnect', { stopTracks, wasActive });
-    setTimeout(() => {
-      disconnectingRef.current = false;
-    }, 0);
+    disconnectResetTimerRef.current = setTimeout(() => {
+      if (disconnectSequenceRef.current === disconnectSequence) {
+        disconnectingRef.current = false;
+        disconnectResetTimerRef.current = null;
+      }
+    }, 1200);
     return wasActive;
   }, [localStreamRef, setLocalStream, setRemoteStreams, trace]);
 
@@ -175,7 +190,8 @@ export function useNativeLiveKitCall({
     });
     room.on(RoomEvent.Disconnected, reason => {
       trace('livekit:disconnected', { reason });
-      if (!disconnectingRef.current && callStateRef.current !== 'idle') {
+      const isStaleIntentionalDisconnect = disconnectingRef.current && roomRef.current !== room;
+      if (!isStaleIntentionalDisconnect && callStateRef.current !== 'idle') {
         setStateSafe('reconnecting');
         setCallNotice('Connexion média interrompue.');
       }
