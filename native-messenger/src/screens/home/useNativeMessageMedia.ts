@@ -209,7 +209,7 @@ export function useNativeMessageMedia({
         conversationId: selected.id,
         content: payload,
         type: input.kind,
-      }).catch(() => api.sendMessage(selected.id, token, payload, input.kind));
+      });
       patchMessage(optimisticMessage.id, { ...message, content: localPayload, status: message.status || 'sent' });
       storeMediaFromLocalSource(message, input.uri)
         .then(saved => {

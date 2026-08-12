@@ -33,6 +33,19 @@ export type CallTraceMessage = {
 export const OFFICIAL_CONVERSATION_NAME = 'O.Messenger';
 export const OFFICIAL_CONVERSATION_AVATAR = '/icons/oracle-system-avatar.svg';
 const OFFICIAL_MESSAGE_TTL_MS = 24 * 60 * 60 * 1000;
+const MESSAGE_STATUS_RANK: Record<string, number> = {
+  failed: 0,
+  error: 0,
+  sending: 1,
+  pending: 1,
+  queued: 1,
+  uploading: 1,
+  sent: 2,
+  delivered: 3,
+  received: 3,
+  read: 4,
+  seen: 4,
+};
 
 export function initials(name?: string | null) {
   return String(name || '?').trim().slice(0, 2).toUpperCase();
@@ -250,6 +263,32 @@ export function parseCallTraceMessage(content?: string | null): CallTraceMessage
     actionLabel: type === 'video' ? 'Rappeler en vidéo' : 'Rappeler en audio',
     durationLabel,
   };
+}
+
+export function normalizeMessageStatus(status?: string | null) {
+  const value = String(status || 'sent').toLowerCase().trim();
+  if (value === 'seen') return 'read';
+  if (value === 'received') return 'delivered';
+  if (['pending', 'sending', 'queued', 'uploading'].includes(value)) return 'sending';
+  if (['failed', 'error'].includes(value)) return 'failed';
+  if (['sent', 'delivered', 'read'].includes(value)) return value;
+  return 'sent';
+}
+
+export function mergeMessageStatus(current?: string | null, incoming?: string | null) {
+  const currentStatus = normalizeMessageStatus(current);
+  const incomingStatus = normalizeMessageStatus(incoming);
+  const currentRank = MESSAGE_STATUS_RANK[currentStatus] ?? 0;
+  const incomingRank = MESSAGE_STATUS_RANK[incomingStatus] ?? 0;
+  return incomingRank >= currentRank ? incomingStatus : currentStatus;
+}
+
+export function mergeMessagePatch(current: Message, patch: Partial<Message>) {
+  const next: Message = { ...current, ...patch };
+  if (patch.status !== undefined) {
+    next.status = mergeMessageStatus(current.status, patch.status);
+  }
+  return next;
 }
 
 export function sortMessages(items: Message[]) {

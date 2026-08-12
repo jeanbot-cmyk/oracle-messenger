@@ -10,6 +10,19 @@ export class ChatService {
 
   private readonly allowedReactions = new Set(['👍', '❤️', '😂', '😮', '😢', '🙏', '😡']);
   private readonly allowedMessageTypes = new Set(['text', 'image', 'video', 'audio', 'voice', 'file', 'document', 'contact', 'location', 'gif', 'sticker']);
+  private readonly messageStatusRank: Record<string, number> = {
+    failed: 0,
+    error: 0,
+    sending: 1,
+    pending: 1,
+    queued: 1,
+    uploading: 1,
+    sent: 2,
+    delivered: 3,
+    received: 3,
+    read: 4,
+    seen: 4,
+  };
   private readonly maxMessageContentLength = 20_000;
   private readonly officialConversationType = 'official';
   private readonly officialConversationName = 'O.Messenger';
@@ -96,6 +109,24 @@ export class ChatService {
       throw new BadRequestException('Type de message invalide');
     }
     return normalized;
+  }
+
+  private normalizeMessageStatus(status?: string | null) {
+    const normalized = String(status || 'sent').toLowerCase().trim();
+    if (normalized === 'seen') return 'read';
+    if (normalized === 'received') return 'delivered';
+    if (['sending', 'pending', 'queued', 'uploading'].includes(normalized)) return 'sending';
+    if (['failed', 'error'].includes(normalized)) return 'failed';
+    if (['sent', 'delivered', 'read'].includes(normalized)) return normalized;
+    return 'sent';
+  }
+
+  private strongestMessageStatus(current?: string | null, incoming?: string | null) {
+    const currentStatus = this.normalizeMessageStatus(current);
+    const incomingStatus = this.normalizeMessageStatus(incoming);
+    const currentRank = this.messageStatusRank[currentStatus] ?? 0;
+    const incomingRank = this.messageStatusRank[incomingStatus] ?? 0;
+    return incomingRank >= currentRank ? incomingStatus : currentStatus;
   }
 
   private normalizeMessageContent(content?: string | null) {
@@ -668,9 +699,14 @@ export class ChatService {
   }
 
   async updateMessageStatus(messageId: string, status: 'sent' | 'delivered' | 'read') {
+    const existing = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: { status: true },
+    });
+    const nextStatus = this.strongestMessageStatus(existing?.status, status);
     return this.prisma.message.update({
       where: { id: messageId },
-      data: { status },
+      data: { status: nextStatus },
     });
   }
 
@@ -706,7 +742,8 @@ export class ChatService {
     if (!participantIds.includes(receiverId)) throw new ForbiddenException();
     if (msg.senderId === receiverId) return msg;
     await this.rememberMessageDelivered(messageId, receiverId);
-    if (msg.status === 'read' || msg.status === 'delivered') return msg;
+    const deliveredStatus = this.strongestMessageStatus(msg.status, 'delivered');
+    if (deliveredStatus !== 'delivered') return msg;
 
     const recipientIds = participantIds.filter(id => id !== msg.senderId);
     const deliveredCount = await this.prisma.messageLocalSave.count({
@@ -720,7 +757,7 @@ export class ChatService {
 
     return this.prisma.message.update({
       where: { id: messageId },
-      data: { status: 'delivered' },
+      data: { status: deliveredStatus },
     });
   }
 
@@ -754,14 +791,20 @@ export class ChatService {
     });
   }
 
-  async markConversationRead(conversationId: string, readerId: string) {
-    await this.markRead(conversationId, readerId);
+  async markConversationRead(conversationId: string, readerId: string, readUpToMessageId?: string) {
+    const readAt = await this.resolveReadBoundary(conversationId, readerId, readUpToMessageId);
+    if (readAt === null) return [];
+    const participant = await this.markRead(conversationId, readerId, readAt);
+    const effectiveReadAt = participant.lastReadAt;
+    if (!effectiveReadAt) return [];
+
     const messages = await this.prisma.message.findMany({
       where: {
         conversationId,
         senderId: { not: readerId },
         status: { not: 'read' },
         isDeleted: false,
+        createdAt: { lte: effectiveReadAt },
       },
       select: { id: true, senderId: true, createdAt: true },
     });
@@ -820,7 +863,32 @@ export class ChatService {
     return this.prisma.message.update({ where: { id: messageId }, data: { content: normalizedContent, isEdited: true } });
   }
 
-  async markRead(conversationId: string, userId: string) {
+  private async resolveReadBoundary(conversationId: string, userId: string, readUpToMessageId?: string) {
+    if (readUpToMessageId) {
+      const target = await this.prisma.message.findUnique({
+        where: { id: readUpToMessageId },
+        select: { conversationId: true, senderId: true, isDeleted: true, createdAt: true },
+      });
+      if (!target || target.conversationId !== conversationId || target.isDeleted) {
+        throw new BadRequestException('Message de lecture invalide');
+      }
+      if (target.senderId === userId) return null;
+      return target.createdAt;
+    }
+
+    const latestIncoming = await this.prisma.message.findFirst({
+      where: {
+        conversationId,
+        senderId: { not: userId },
+        isDeleted: false,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    return latestIncoming?.createdAt ?? new Date();
+  }
+
+  async markRead(conversationId: string, userId: string, readAt?: Date) {
     const participant = await this.prisma.participant.findUnique({
       where: { userId_conversationId: { userId, conversationId } },
       select: {
@@ -836,6 +904,11 @@ export class ChatService {
     });
     if (!participant) throw new ForbiddenException();
 
+    const nextReadAt = readAt ?? participant.conversation.messages?.[0]?.createdAt ?? new Date();
+    if (participant.lastReadAt && participant.lastReadAt.getTime() >= nextReadAt.getTime()) {
+      return participant;
+    }
+
     if (participant.conversation.type === this.officialConversationType) {
       const latest = participant.conversation.messages?.[0];
       if (!latest) return participant;
@@ -846,7 +919,7 @@ export class ChatService {
 
     return this.prisma.participant.update({
       where: { userId_conversationId: { userId, conversationId } },
-      data: { lastReadAt: new Date() },
+      data: { lastReadAt: nextReadAt },
     });
   }
 

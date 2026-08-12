@@ -265,6 +265,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
       }
     }
+    await this.broadcastConversationSummaries(conversationId, participantIds);
+  }
+
+  private async broadcastConversationSummaries(conversationId: string, participantIds?: string[]) {
+    const ids = participantIds ?? await this.chat.getParticipantIds(conversationId);
+    for (const uid of ids) {
+      const summary = await this.chat.getConversation(conversationId, uid).catch(() => null);
+      if (!summary) continue;
+      this.socketState.emitToUser(uid, 'conversation:upsert', summary);
+    }
   }
 
   private scheduleNoAnswerTimeout(callId: string) {
@@ -470,6 +480,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           }).catch(() => {});
         }
       }
+      await this.broadcastConversationSummaries(data.conversationId, participantIds);
 
       this.scheduleAiAutoReplies(msg, participantIds, client.data.userId);
       this.scheduleBusinessMediaAnalysis(msg, participantIds, client.data.userId);
@@ -727,6 +738,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }).catch(() => {});
       }
     }
+    await this.broadcastConversationSummaries(reply.conversationId, participantIds);
   }
 
   @SubscribeMessage('message:delivered')
@@ -752,7 +764,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { conversationId: string; messageId?: string },
   ) {
     try {
-      const updatedMessages = await this.chat.markConversationRead(data.conversationId, client.data.userId);
+      const updatedMessages = await this.chat.markConversationRead(data.conversationId, client.data.userId, data.messageId);
       await this.broadcastConversationRead(data.conversationId, client.data.userId, updatedMessages);
     } catch {}
   }

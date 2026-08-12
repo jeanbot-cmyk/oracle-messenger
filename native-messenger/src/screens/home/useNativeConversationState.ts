@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { sortConversations, sortMessages } from '@/screens/home/homeUtils';
+import { mergeMessagePatch, mergeMessageStatus, sortConversations, sortMessages } from '@/screens/home/homeUtils';
 import { writeCachedMessages } from '@/services/nativeConversationCache';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
 
@@ -10,9 +10,11 @@ type UseNativeConversationStateParams = {
 
 function mergeMessageKeepingLocalMedia(current: Message, incoming: Message): Message {
   const localUri = localUriFromContent(current.content);
-  if (!localUri || localUriFromContent(incoming.content)) return { ...current, ...incoming };
+  if (!localUri || localUriFromContent(incoming.content)) {
+    return { ...current, ...incoming, status: mergeMessageStatus(current.status, incoming.status) };
+  }
   const mergedContent = addLocalUriToContent(incoming.content, localUri);
-  return { ...current, ...incoming, content: mergedContent };
+  return { ...current, ...incoming, content: mergedContent, status: mergeMessageStatus(current.status, incoming.status) };
 }
 
 function localUriFromContent(content?: string | null) {
@@ -60,7 +62,13 @@ export function useNativeConversationState({ session, messageSearch }: UseNative
     setConversations(current => {
       const exists = current.some(item => item.id === conversation.id);
       const next = exists
-        ? current.map(item => item.id === conversation.id ? { ...item, ...conversation } : item)
+        ? current.map(item => {
+            if (item.id !== conversation.id) return item;
+            const lastMessage = item.lastMessage && conversation.lastMessage?.id === item.lastMessage.id
+              ? mergeMessageKeepingLocalMedia(item.lastMessage, conversation.lastMessage)
+              : conversation.lastMessage;
+            return { ...item, ...conversation, lastMessage };
+          })
         : [conversation, ...current];
       return sortConversations(next);
     });
@@ -94,7 +102,7 @@ export function useNativeConversationState({ session, messageSearch }: UseNative
 
   const patchMessage = useCallback((id: string, patch: Partial<Message>) => {
     setMessages(current => {
-      const patched = current.map(item => item.id === id ? { ...item, ...patch } : item);
+      const patched = current.map(item => item.id === id ? mergeMessagePatch(item, patch) : item);
       if (!patch.id || patch.id === id) return patched;
       const seenIds = new Set<string>();
       const deduped: Message[] = [];
@@ -108,7 +116,7 @@ export function useNativeConversationState({ session, messageSearch }: UseNative
     });
     setConversations(current => current.map(conversation => (
       conversation.lastMessage?.id === id
-        ? { ...conversation, lastMessage: { ...conversation.lastMessage, ...patch } }
+        ? { ...conversation, lastMessage: mergeMessagePatch(conversation.lastMessage, patch) }
         : conversation
     )));
   }, []);

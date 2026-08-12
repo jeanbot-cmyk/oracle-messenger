@@ -88,6 +88,11 @@ export function useNativeRealtimeEvents({
     const onConversationRead = ({ conversationId, userId }: { conversationId: string; userId: string }) => {
       if (userId === sessionRef.current?.user.id) {
         setConversations(current => sortConversations(current.map(item => item.id === conversationId ? markConversationReadLocally(item) : item)));
+        setMessages(current => current.map(message => (
+          message.conversationId === conversationId && message.senderId !== userId
+            ? { ...message, status: 'read' }
+            : message
+        )));
       }
     };
 

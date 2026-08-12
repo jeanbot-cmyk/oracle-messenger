@@ -120,7 +120,7 @@ export function useNativeMessageActions({
           conversationId: conversation.id,
           content: message.content,
           type: message.type,
-        }).catch(() => api.sendMessage(conversation.id, token, message.content, message.type));
+        });
         if (selected?.id === conversation.id) upsertMessage({ ...forwarded, status: forwarded.status || 'sent' });
       }
       setForwardMessages([]);

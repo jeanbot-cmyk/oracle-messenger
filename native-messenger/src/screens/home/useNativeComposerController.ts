@@ -1,9 +1,10 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNativeMessageMedia } from '@/screens/home/useNativeMessageMedia';
 import { useNativeTextMessageSender } from '@/screens/home/useNativeTextMessageSender';
 import { useNativeTypingPresence } from '@/screens/home/useNativeTypingPresence';
 import { useNativeVoiceRecorder } from '@/screens/home/useNativeVoiceRecorder';
 import { api } from '@/services/api';
+import { readNativeDraft, writeNativeDraft } from '@/services/nativeDrafts';
 import type { Conversation, Message } from '@/types/messenger';
 
 type UseNativeComposerControllerParams = {
@@ -33,6 +34,42 @@ export function useNativeComposerController({
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
+  const draftLoadRequestRef = useRef(0);
+  const draftReadyConversationRef = useRef<string | null>(null);
+  const selectedConversationId = selected?.id ?? null;
+  const draftOwnerId = currentUserId || 'local';
+
+  useEffect(() => {
+    const requestId = draftLoadRequestRef.current + 1;
+    draftLoadRequestRef.current = requestId;
+    draftReadyConversationRef.current = null;
+    setReplyTo(null);
+    setEditingMessage(null);
+    if (!selectedConversationId) {
+      setDraft('');
+      return;
+    }
+    setDraft('');
+    readNativeDraft(draftOwnerId, selectedConversationId)
+      .then(savedDraft => {
+        if (draftLoadRequestRef.current !== requestId) return;
+        draftReadyConversationRef.current = selectedConversationId;
+        setDraft(savedDraft);
+      })
+      .catch(() => {
+        if (draftLoadRequestRef.current !== requestId) return;
+        draftReadyConversationRef.current = selectedConversationId;
+      });
+  }, [draftOwnerId, selectedConversationId]);
+
+  useEffect(() => {
+    if (!selectedConversationId || editingMessage) return;
+    if (draftReadyConversationRef.current !== selectedConversationId) return;
+    const timer = setTimeout(() => {
+      void writeNativeDraft(draftOwnerId, selectedConversationId, draft);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [draft, draftOwnerId, editingMessage, selectedConversationId]);
 
   const typing = useNativeTypingPresence({
     selected,

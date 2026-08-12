@@ -39,6 +39,7 @@ const NAMESPACE = String(process.env.ORACLE_AB_LAB_NAMESPACE || 'production').re
 const MESSAGE_BURST_COUNT = Number(process.env.ORACLE_AB_MESSAGE_BURST_COUNT || 100);
 const OFFLINE_BATCH_COUNT = Number(process.env.ORACLE_AB_OFFLINE_BATCH_COUNT || 10);
 const LONG_CONVERSATION_COUNT = Number(process.env.ORACLE_AB_LONG_CONVERSATION_COUNT || 1000);
+const CRITICAL_READ_REPEAT_COUNT = Number(process.env.ORACLE_AB_CRITICAL_READ_REPEAT_COUNT || 20);
 const NO_EVENT_WINDOW_MS = Number(process.env.ORACLE_AB_NO_EVENT_WINDOW_MS || 2500);
 const CALL_NO_ANSWER_EXPECT_MS = Number(process.env.ORACLE_AB_CALL_NO_ANSWER_EXPECT_MS || 8000);
 
@@ -219,6 +220,10 @@ function emit(trace, label, socket, eventName, payload) {
 
 function isDeliveredOrRead(status) {
   return ['delivered', 'received', 'read', 'seen'].includes(String(status || '').toLowerCase());
+}
+
+function isDeliveredOnly(status) {
+  return ['delivered', 'received'].includes(String(status || '').toLowerCase());
 }
 
 async function httpJson(trace, actor, method, route, token, body) {
@@ -541,6 +546,86 @@ async function runRapidMessagesScenario(trace, ctx, fromLabel, toLabel, count) {
   emit(trace, toLabel, to.socket, 'message:read', { conversationId: ctx.conversationId, messageId: sentIds[sentIds.length - 1] });
   await readPromise;
   trace.pass(`messaging-burst:${fromLabel}->${toLabel}`, { count });
+}
+
+async function runCriticalUnreadReadRegressionScenario(trace, ctx, repeats) {
+  emit(trace, 'A', ctx.A.socket, 'conversation:join', { conversationId: ctx.conversationId });
+  emit(trace, 'B', ctx.B.socket, 'conversation:join', { conversationId: ctx.conversationId });
+  await sleep(500);
+
+  const cleared = await httpJson(trace, 'B', 'GET', `/conversations/${encodeURIComponent(ctx.conversationId)}`, ctx.B.token);
+  if (Number(cleared?.unreadCount || 0) !== 0) {
+    throw new Error(`critical read preflight expected B unread=0, got ${cleared?.unreadCount}`);
+  }
+
+  for (let index = 0; index < repeats; index += 1) {
+    const iteration = index + 1;
+    ctx.B.socket.disconnect();
+    trace.event('B', 'socket:manual-disconnect:critical-read', { iteration });
+    await sleep(180);
+
+    const text = `Critical unread/read regression #${String(iteration).padStart(2, '0')} ${Date.now()}`;
+    const sent = await emitAck(trace, 'A', ctx.A.socket, 'message:send', {
+      conversationId: ctx.conversationId,
+      content: text,
+      type: 'text',
+    });
+    if (!sent?.id || sent.status !== 'sent') throw new Error(`critical read send failed at iteration ${iteration}`);
+
+    const beforeOpen = await httpJson(trace, 'B', 'GET', `/conversations/${encodeURIComponent(ctx.conversationId)}`, ctx.B.token);
+    if (Number(beforeOpen?.unreadCount || 0) < 1) {
+      throw new Error(`critical read expected unread before opening at iteration ${iteration}, got ${beforeOpen?.unreadCount}`);
+    }
+
+    const readPatchPromise = waitForSocketEvent(
+      trace,
+      'A',
+      ctx.A.socket,
+      'message:update',
+      update => update?.id === sent.id && update?.patch?.status === 'read',
+      TIMEOUT_MS,
+    );
+
+    ctx.B.socket = await connectClient(trace, 'B', ctx.B.token);
+    emit(trace, 'B', ctx.B.socket, 'conversation:join', { conversationId: ctx.conversationId });
+
+    const messages = await httpJson(trace, 'B', 'GET', `/conversations/${encodeURIComponent(ctx.conversationId)}/messages`, ctx.B.token);
+    if (!Array.isArray(messages) || !messages.some(message => message.id === sent.id)) {
+      throw new Error(`critical read history did not contain message ${sent.id} at iteration ${iteration}`);
+    }
+    emit(trace, 'B', ctx.B.socket, 'message:read', { conversationId: ctx.conversationId, messageId: sent.id });
+    await readPatchPromise;
+
+    await sleep(120);
+    const afterRead = await httpJson(trace, 'B', 'GET', `/conversations/${encodeURIComponent(ctx.conversationId)}`, ctx.B.token);
+    if (Number(afterRead?.unreadCount || 0) !== 0) {
+      throw new Error(`critical read expected unread=0 after reading at iteration ${iteration}, got ${afterRead?.unreadCount}`);
+    }
+
+    ctx.B.socket.disconnect();
+    trace.event('B', 'socket:manual-disconnect:critical-read-reopen', { iteration });
+    await sleep(120);
+    ctx.B.socket = await connectClient(trace, 'B', ctx.B.token);
+    const afterReopen = await httpJson(trace, 'B', 'GET', `/conversations/${encodeURIComponent(ctx.conversationId)}`, ctx.B.token);
+    if (Number(afterReopen?.unreadCount || 0) !== 0) {
+      throw new Error(`critical read expected unread=0 after reopen at iteration ${iteration}, got ${afterReopen?.unreadCount}`);
+    }
+    emit(trace, 'B', ctx.B.socket, 'conversation:join', { conversationId: ctx.conversationId });
+    await sleep(80);
+
+    const noDowngradePromise = waitForNoSocketEvent(
+      trace,
+      'A',
+      ctx.A.socket,
+      'message:update',
+      update => update?.id === sent.id && isDeliveredOnly(update?.patch?.status),
+      650,
+    );
+    emit(trace, 'B', ctx.B.socket, 'message:delivered', { messageId: sent.id });
+    await noDowngradePromise;
+  }
+
+  trace.pass(`critical-unread-read-regression:${repeats}x`, { repeats });
 }
 
 async function runOfflineBatchScenario(trace, ctx, fromLabel, toLabel, count) {
@@ -938,6 +1023,7 @@ async function main() {
     await runMultiSocketPresenceScenario(trace, ctx);
     await runMessagingScenario(trace, ctx, 'A', 'B', `Message de test A -> B ${new Date().toISOString()}`);
     await runMessagingScenario(trace, ctx, 'B', 'A', `Message de test B -> A ${new Date().toISOString()}`);
+    await runCriticalUnreadReadRegressionScenario(trace, ctx, CRITICAL_READ_REPEAT_COUNT);
     await runRapidMessagesScenario(trace, ctx, 'A', 'B', 10);
     await runRapidMessagesScenario(trace, ctx, 'A', 'B', MESSAGE_BURST_COUNT);
     await runRapidMessagesScenario(trace, ctx, 'B', 'A', MESSAGE_BURST_COUNT);
@@ -974,6 +1060,7 @@ async function main() {
         messageBurstCount: MESSAGE_BURST_COUNT,
         offlineBatchCount: OFFLINE_BATCH_COUNT,
         longConversationCount: LONG_CONVERSATION_COUNT,
+        criticalReadRepeatCount: CRITICAL_READ_REPEAT_COUNT,
         callNoAnswerExpectMs: CALL_NO_ANSWER_EXPECT_MS,
       },
     });

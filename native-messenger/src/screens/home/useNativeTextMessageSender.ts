@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } fr
 import { AppState } from 'react-native';
 import { socketAck } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
+import { deleteNativeDraft } from '@/services/nativeDrafts';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import {
   enqueueNativeTextMessage,
@@ -70,7 +71,7 @@ export function useNativeTextMessageSender({
             content: item.content,
             type: 'text',
             replyToId: item.replyToId,
-          }).catch(() => api.sendMessage(item.conversationId, token, item.content, 'text', item.replyToId));
+          });
           await removeNativeTextMessageFromOutbox(item.id);
           sentCount += 1;
           if (selected?.id === item.conversationId) {
@@ -144,9 +145,10 @@ export function useNativeTextMessageSender({
           content: clean,
           type: 'text',
           replyToId: pendingReplyTo?.id,
-        }).catch(() => api.sendMessage(selected.id, token, clean, 'text', pendingReplyTo?.id));
+        });
         patchMessage(localMessageId, { ...message, status: message.status || 'sent', replyTo: pendingReplyTo || message.replyTo });
       }
+      void deleteNativeDraft(currentUserId || 'local', selected.id);
       void refreshConversations().catch(() => undefined);
     } catch (error) {
       if (!editingMessage && localMessageId) {

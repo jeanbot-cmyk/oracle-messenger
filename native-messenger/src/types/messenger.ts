@@ -13,13 +13,15 @@ export type User = {
 
 export type Participant = User;
 
+export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+
 export type Message = {
   id: string;
   conversationId: string;
   senderId: string;
   content: string;
   type: 'text' | 'image' | 'video' | 'audio' | 'voice' | 'file' | 'document' | string;
-  status?: string;
+  status?: MessageStatus | string;
   createdAt: string;
   updatedAt?: string;
   sender?: User;
