@@ -334,14 +334,7 @@ export function NativeConversationList({
             const lastMessageIsMine = item.lastMessage?.senderId === ownerId;
             const online = peerOnline(item, ownerId);
             return (
-              <Pressable
-                style={[styles.conversationRow, official && styles.officialRow]}
-                onPress={() => {
-                  selectionHaptic();
-                  onOpenConversation(item);
-                }}
-                onLongPress={() => showConversationActions(item)}
-              >
+              <View style={[styles.conversationRow, official && styles.officialRow]}>
                 <Pressable
                   accessibilityRole="imagebutton"
                   accessibilityLabel={`Photo de ${name}`}
@@ -358,32 +351,42 @@ export function NativeConversationList({
                   {official ? <View style={styles.verifiedDot}><Text style={styles.verifiedText}>✓</Text></View> : null}
                   {online ? <View style={styles.presenceDot} /> : null}
                 </Pressable>
-                <View style={styles.conversationText}>
-                  <View style={styles.titleLine}>
-                    <Text numberOfLines={1} maxFontSizeMultiplier={1.08} style={styles.conversationTitle}>{name}</Text>
-                    {official ? <Text style={styles.inlineVerified}>✓</Text> : null}
-                    {official ? <Text numberOfLines={1} style={styles.verifiedLabel}>Vérifié</Text> : null}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Ouvrir la conversation ${name}`}
+                  style={({ pressed }) => [styles.conversationOpenArea, pressed && styles.conversationOpenAreaPressed]}
+                  onPress={() => {
+                    selectionHaptic();
+                    onOpenConversation(item);
+                  }}
+                >
+                  <View style={styles.conversationText}>
+                    <View style={styles.titleLine}>
+                      <Text numberOfLines={1} maxFontSizeMultiplier={1.08} style={styles.conversationTitle}>{name}</Text>
+                      {official ? <Text style={styles.inlineVerified}>✓</Text> : null}
+                      {official ? <Text numberOfLines={1} style={styles.verifiedLabel}>Vérifié</Text> : null}
+                    </View>
+                    <View style={styles.previewLine}>
+                      {lastMessageIsMine ? <ConversationStatusIcon status={item.lastMessage?.status} /> : null}
+                      <Text numberOfLines={1} maxFontSizeMultiplier={1.08} style={[styles.conversationPreview, item.unreadCount ? styles.conversationPreviewUnread : null]}>{messagePreview(item.lastMessage)}</Text>
+                    </View>
                   </View>
-                  <View style={styles.previewLine}>
-                    {lastMessageIsMine ? <ConversationStatusIcon status={item.lastMessage?.status} /> : null}
-                    <Text numberOfLines={1} maxFontSizeMultiplier={1.08} style={[styles.conversationPreview, item.unreadCount ? styles.conversationPreviewUnread : null]}>{messagePreview(item.lastMessage)}</Text>
+                  <View style={styles.conversationTrailing}>
+                    <Text style={styles.conversationTime}>{formatConversationTime(item.lastMessage?.createdAt || item.updatedAt)}</Text>
+                    {official ? <Text style={styles.officialBadge}>OFFICIEL</Text> : null}
+                    {item.unreadCount ? <View style={styles.unread}><Text maxFontSizeMultiplier={1.05} style={styles.unreadText}>{item.unreadCount}</Text></View> : null}
                   </View>
-                </View>
-                <View style={styles.conversationTrailing}>
-                  <Text style={styles.conversationTime}>{formatConversationTime(item.lastMessage?.createdAt || item.updatedAt)}</Text>
-                  {official ? <Text style={styles.officialBadge}>OFFICIEL</Text> : null}
-                  {item.unreadCount ? <View style={styles.unread}><Text maxFontSizeMultiplier={1.05} style={styles.unreadText}>{item.unreadCount}</Text></View> : null}
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Options de conversation"
-                    onPress={() => showConversationActions(item)}
-                    hitSlop={8}
-                    style={styles.rowMenu}
-                  >
-                    <MoreVertical size={18} color="#64748B" strokeWidth={2.1} />
-                  </Pressable>
-                </View>
-              </Pressable>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Options de conversation"
+                  onPress={() => showConversationActions(item)}
+                  hitSlop={8}
+                  style={styles.rowMenu}
+                >
+                  <MoreVertical size={18} color="#64748B" strokeWidth={2.1} />
+                </Pressable>
+              </View>
             );
           }}
         />
@@ -485,6 +488,8 @@ const styles = StyleSheet.create({
   conversationList: { flexGrow: 1, paddingTop: 2 },
   conversationRow: { minHeight: 74, flexDirection: 'row', alignItems: 'center', backgroundColor: 'transparent', paddingVertical: 9, paddingLeft: 16, paddingRight: 10 },
   officialRow: { backgroundColor: 'rgba(16,42,42,0.025)' },
+  conversationOpenArea: { flex: 1, minWidth: 0, minHeight: 56, flexDirection: 'row', alignItems: 'center', borderRadius: 14 },
+  conversationOpenAreaPressed: { backgroundColor: 'rgba(16,42,42,0.045)' },
   avatarWrap: { width: 50, height: 50, position: 'relative' },
   avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: colors.brandSoft, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   officialAvatar: { backgroundColor: colors.header, borderColor: 'rgba(217,183,91,0.82)', borderWidth: 2 },
