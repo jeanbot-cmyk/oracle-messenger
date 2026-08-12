@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import type { Message } from '@/types/messenger';
+import { checkNativeStorageForWrite } from './nativeStorageHealth';
 
 export const MEDIA_ROOT = `${FileSystem.documentDirectory ?? ''}oracle-media/`;
 const GALLERY_INDEX = `${MEDIA_ROOT}gallery-index.json`;
@@ -27,7 +28,7 @@ export type LocalGalleryItem = {
 };
 
 export function isMediaMessage(message: Message) {
-  return ['image', 'video', 'audio', 'voice', 'file', 'document'].includes(String(message.type || '').toLowerCase());
+  return ['image', 'video', 'audio', 'voice', 'file', 'document', 'gif', 'sticker'].includes(String(message.type || '').toLowerCase());
 }
 
 export function extractPayload(content: string): MediaPayload | null {
@@ -74,7 +75,7 @@ function extensionFromPayload(payload: MediaPayload, type: string) {
 
 function galleryType(type: string): LocalGalleryItem['type'] {
   const normalized = String(type || '').toLowerCase();
-  if (normalized === 'image') return 'image';
+  if (normalized === 'image' || normalized === 'gif' || normalized === 'sticker') return 'image';
   if (normalized === 'video') return 'video';
   if (normalized === 'audio' || normalized === 'voice') return 'audio';
   return 'file';
@@ -270,6 +271,10 @@ export async function ensureMediaStoredLocally(message: Message) {
   await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
   const tempUri = `${fileUri}.download`;
   await FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => {});
+  const storageHealth = await checkNativeStorageForWrite(payload.size || 0);
+  if (storageHealth.level === 'insufficient') {
+    throw new Error(storageHealth.message || 'Espace insuffisant pour télécharger ce média.');
+  }
 
   const downloaded = await FileSystem.downloadAsync(payload.url, tempUri);
   if (downloaded.status < 200 || downloaded.status >= 300) {
@@ -286,4 +291,38 @@ export async function ensureMediaStoredLocally(message: Message) {
   await FileSystem.moveAsync({ from: tempUri, to: fileUri });
   await addToGalleryIndex(message, fileUri, payload, verified).catch(() => {});
   return { ...verified, fileUri };
+}
+
+export async function storeMediaFromLocalSource(message: Message, sourceUri: string) {
+  if (!isMediaMessage(message)) return null;
+  const payload = extractPayload(message.content);
+  if (!payload?.url || !sourceUri) return null;
+
+  await FileSystem.makeDirectoryAsync(MEDIA_ROOT, { intermediates: true }).catch(() => {});
+  const fileUri = `${MEDIA_ROOT}${message.id}${extensionFromPayload(payload, message.type)}`;
+  const existing = await validateLocalFile(fileUri, payload);
+  if (existing) {
+    await addToGalleryIndex(message, fileUri, payload, existing).catch(() => {});
+    return existing;
+  }
+
+  await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
+  const storageHealth = await checkNativeStorageForWrite(payload.size || 0);
+  if (storageHealth.level === 'insufficient') {
+    throw new Error(storageHealth.message || 'Espace insuffisant pour enregistrer ce média.');
+  }
+  try {
+    await FileSystem.copyAsync({ from: sourceUri, to: fileUri });
+  } catch {
+    return ensureMediaStoredLocally(message);
+  }
+
+  const verified = await validateLocalFile(fileUri, payload);
+  if (!verified) {
+    await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
+    return ensureMediaStoredLocally(message);
+  }
+
+  await addToGalleryIndex(message, fileUri, payload, verified).catch(() => {});
+  return verified;
 }

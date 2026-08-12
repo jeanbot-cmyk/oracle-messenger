@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
 
 type VoiceRecordingResult = {
@@ -14,12 +14,22 @@ type VoiceMediaInput = {
   name?: string;
   mime?: string;
   kind: 'voice';
+  size?: number;
+  duration?: number;
+  waveform?: number[];
+};
+
+export type VoicePreview = VoiceMediaInput & {
+  name: string;
+  mime: string;
+  size: number;
+  duration: number;
+  durationMs: number;
 };
 
 type UseNativeVoiceRecorderParams = {
   enabled: boolean;
   sendMedia: (input: VoiceMediaInput) => Promise<boolean>;
-  setBusy: (busy: boolean) => void;
   setNotice: (message: string) => void;
 };
 
@@ -28,6 +38,10 @@ const OracleVoiceRecorder = NativeModules.OracleVoiceRecorder as {
   stop?: () => Promise<VoiceRecordingResult>;
   cancel?: () => Promise<boolean>;
 } | undefined;
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 async function ensureRecordAudioPermission() {
   if (Platform.OS !== 'android') return true;
@@ -42,68 +56,146 @@ async function ensureRecordAudioPermission() {
   return response === PermissionsAndroid.RESULTS.GRANTED;
 }
 
-export function useNativeVoiceRecorder({ enabled, sendMedia, setBusy, setNotice }: UseNativeVoiceRecorderParams) {
+function simpleWaveform(seedSource: string, bars = 36) {
+  let hash = 0;
+  for (let index = 0; index < seedSource.length; index += 1) {
+    hash = (hash * 31 + seedSource.charCodeAt(index)) >>> 0;
+  }
+  return Array.from({ length: bars }, (_, index) => {
+    hash = (hash * 1664525 + 1013904223 + index) >>> 0;
+    return 18 + (hash % 78);
+  });
+}
+
+export function useNativeVoiceRecorder({ enabled, sendMedia, setNotice }: UseNativeVoiceRecorderParams) {
   const [voiceRecording, setVoiceRecording] = useState(false);
   const [voiceStartedAt, setVoiceStartedAt] = useState<number | null>(null);
+  const [voiceLocked, setVoiceLocked] = useState(false);
+  const [voicePreview, setVoicePreview] = useState<VoicePreview | null>(null);
+  const voiceRecordingRef = useRef(false);
+  const voiceStartedAtRef = useRef<number | null>(null);
 
-  const toggleVoiceRecording = useCallback(async () => {
+  const startVoiceRecording = useCallback(async () => {
     if (!enabled) return;
     if (!OracleVoiceRecorder?.start || !OracleVoiceRecorder?.stop) {
       setNotice('Enregistrement vocal natif indisponible sur cette build.');
       return;
     }
-    if (!voiceRecording) {
-      const permitted = await ensureRecordAudioPermission();
-      if (!permitted) {
-        setNotice('Permission microphone refusee. Message vocal impossible.');
-        return;
-      }
-      try {
-        const started = await OracleVoiceRecorder.start();
-        setVoiceRecording(true);
-        setVoiceStartedAt(started.startedAt || Date.now());
-        setNotice('Enregistrement vocal en cours.');
-      } catch (error) {
-        setVoiceRecording(false);
-        setVoiceStartedAt(null);
-        setNotice(error instanceof Error ? error.message : 'Demarrage vocal impossible.');
-      }
+    if (voiceRecordingRef.current) return;
+    const permitted = await ensureRecordAudioPermission();
+    if (!permitted) {
+      setNotice('Permission microphone refusee. Message vocal impossible.');
       return;
     }
-
-    setBusy(true);
     try {
-      const recording = await OracleVoiceRecorder.stop();
+      setVoicePreview(null);
+      setVoiceLocked(false);
+      const started = await OracleVoiceRecorder.start();
+      const startedAt = started.startedAt || Date.now();
+      voiceRecordingRef.current = true;
+      voiceStartedAtRef.current = startedAt;
+      setVoiceRecording(true);
+      setVoiceStartedAt(startedAt);
+      setNotice('Enregistrement vocal en cours.');
+    } catch (error) {
+      voiceRecordingRef.current = false;
+      voiceStartedAtRef.current = null;
       setVoiceRecording(false);
       setVoiceStartedAt(null);
+      setVoiceLocked(false);
+      setNotice(error instanceof Error ? error.message : 'Demarrage vocal impossible.');
+    }
+  }, [enabled, setNotice]);
+
+  const stopVoiceRecording = useCallback(async () => {
+    if (!voiceRecordingRef.current || !OracleVoiceRecorder?.stop) return null;
+    try {
+      const elapsedMs = Date.now() - (voiceStartedAtRef.current || Date.now());
+      if (elapsedMs < 650) await sleep(650 - elapsedMs);
+      const recording = await OracleVoiceRecorder.stop();
+      voiceRecordingRef.current = false;
+      voiceStartedAtRef.current = null;
+      setVoiceRecording(false);
+      setVoiceStartedAt(null);
+      setVoiceLocked(false);
       if (!recording.uri || !recording.size) {
+        setVoicePreview(null);
         setNotice('Message vocal vide.');
-        return;
+        return null;
       }
-      const sent = await sendMedia({
+      const preview: VoicePreview = {
         uri: recording.uri,
         name: recording.name || `voice-${Date.now()}.m4a`,
         mime: recording.mime || 'audio/mp4',
         kind: 'voice',
-      });
+        size: recording.size,
+        duration: Math.max(1, Math.round((recording.durationMs || 0) / 1000)),
+        durationMs: Math.max(0, recording.durationMs || 0),
+        waveform: simpleWaveform(`${recording.name || recording.uri}:${recording.size}:${recording.durationMs}`),
+      };
+      setVoicePreview(preview);
+      setNotice('Message vocal prêt. Écoutez puis envoyez.');
+      return preview;
+    } catch (error) {
+      voiceRecordingRef.current = false;
+      voiceStartedAtRef.current = null;
+      setVoiceRecording(false);
+      setVoiceStartedAt(null);
+      setVoiceLocked(false);
+      setVoicePreview(null);
+      setNotice(error instanceof Error ? error.message : 'Finalisation vocale impossible.');
+      return null;
+    }
+  }, [setNotice]);
+
+  const lockVoiceRecording = useCallback(() => {
+    if (!voiceRecordingRef.current) return;
+    setVoiceLocked(true);
+    setNotice('Enregistrement vocal verrouillé. Appuyez sur stop pour écouter.');
+  }, [setNotice]);
+
+  const sendVoicePreview = useCallback(async () => {
+    if (!voicePreview) return;
+    const pendingPreview = voicePreview;
+    setVoicePreview(null);
+    setNotice('Envoi du message vocal en cours.');
+    try {
+      const sent = await sendMedia(pendingPreview);
       if (sent) setNotice('Message vocal envoye.');
     } catch (error) {
+      setVoicePreview(pendingPreview);
       setNotice(error instanceof Error ? error.message : 'Envoi vocal impossible.');
-    } finally {
-      setBusy(false);
     }
-  }, [enabled, sendMedia, setBusy, setNotice, voiceRecording]);
+  }, [sendMedia, setNotice, voicePreview]);
+
+  const toggleVoiceRecording = useCallback(async () => {
+    if (voiceRecording) {
+      await stopVoiceRecording();
+      return;
+    }
+    await startVoiceRecording();
+  }, [startVoiceRecording, stopVoiceRecording, voiceRecording]);
 
   const cancelVoiceRecording = useCallback(async (notify = true) => {
     await OracleVoiceRecorder?.cancel?.().catch(() => null);
+    voiceRecordingRef.current = false;
+    voiceStartedAtRef.current = null;
     setVoiceRecording(false);
     setVoiceStartedAt(null);
+    setVoiceLocked(false);
+    setVoicePreview(null);
     if (notify) setNotice('Enregistrement vocal annule.');
   }, [setNotice]);
 
   return {
     voiceRecording,
     voiceStartedAt,
+    voiceLocked,
+    voicePreview,
+    startVoiceRecording,
+    stopVoiceRecording,
+    lockVoiceRecording,
+    sendVoicePreview,
     toggleVoiceRecording,
     cancelVoiceRecording,
   };

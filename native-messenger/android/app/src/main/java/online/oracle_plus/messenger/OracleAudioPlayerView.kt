@@ -1,14 +1,16 @@
 package online.oracle_plus.messenger
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.SeekBar
@@ -17,7 +19,7 @@ import android.widget.TextView
 class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
   private val handler = Handler(Looper.getMainLooper())
   private val container = LinearLayout(context)
-  private val playButton = Button(context)
+  private val playButton = TextView(context)
   private val seekBar = SeekBar(context)
   private val timeText = TextView(context)
   private val errorText = TextView(context)
@@ -26,6 +28,10 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
   private var isPrepared = false
   private var userSeeking = false
   private var paused = true
+  private val brandColor = Color.rgb(16, 42, 42)
+  private val mutedColor = Color.rgb(100, 116, 139)
+  private val trackColor = Color.rgb(226, 232, 240)
+  private val dangerColor = Color.rgb(180, 35, 24)
 
   private val progressTick = object : Runnable {
     override fun run() {
@@ -44,40 +50,65 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
   init {
     setBackgroundColor(Color.TRANSPARENT)
 
-    container.orientation = LinearLayout.VERTICAL
-    container.gravity = Gravity.CENTER
-    container.setPadding(20, 18, 20, 18)
+    container.orientation = LinearLayout.HORIZONTAL
+    container.gravity = Gravity.CENTER_VERTICAL
+    container.setPadding(2, 0, 2, 0)
     container.layoutParams = LayoutParams(
       ViewGroup.LayoutParams.MATCH_PARENT,
-      ViewGroup.LayoutParams.WRAP_CONTENT,
+      ViewGroup.LayoutParams.MATCH_PARENT,
       Gravity.CENTER
     )
     addView(container)
 
-    playButton.text = "Lire"
+    playButton.text = "\u25B6"
+    playButton.textSize = 16f
+    playButton.typeface = Typeface.DEFAULT_BOLD
+    playButton.setTextColor(Color.WHITE)
+    playButton.gravity = Gravity.CENTER
+    playButton.background = roundDrawable(brandColor, 999f)
+    playButton.isEnabled = false
+    playButton.alpha = 0.55f
     playButton.setOnClickListener { togglePlayback() }
     container.addView(playButton, LinearLayout.LayoutParams(
+      dp(42),
+      dp(42)
+    ).apply { marginEnd = dp(10) })
+
+    val progressColumn = LinearLayout(context)
+    progressColumn.orientation = LinearLayout.VERTICAL
+    progressColumn.gravity = Gravity.CENTER_VERTICAL
+    container.addView(progressColumn, LinearLayout.LayoutParams(
+      0,
       ViewGroup.LayoutParams.WRAP_CONTENT,
-      ViewGroup.LayoutParams.WRAP_CONTENT
+      1f
     ))
 
-    container.addView(seekBar, LinearLayout.LayoutParams(
+    seekBar.progressTintList = ColorStateList.valueOf(brandColor)
+    seekBar.progressBackgroundTintList = ColorStateList.valueOf(trackColor)
+    seekBar.thumbTintList = ColorStateList.valueOf(brandColor)
+    seekBar.splitTrack = false
+
+    progressColumn.addView(seekBar, LinearLayout.LayoutParams(
       ViewGroup.LayoutParams.MATCH_PARENT,
       ViewGroup.LayoutParams.WRAP_CONTENT
     ))
 
-    timeText.setTextColor(Color.rgb(17, 24, 39))
-    timeText.gravity = Gravity.CENTER
+    timeText.setTextColor(mutedColor)
+    timeText.gravity = Gravity.START
+    timeText.textSize = 11f
+    timeText.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     timeText.text = "00:00 / 00:00"
-    container.addView(timeText, LinearLayout.LayoutParams(
+    progressColumn.addView(timeText, LinearLayout.LayoutParams(
       ViewGroup.LayoutParams.MATCH_PARENT,
       ViewGroup.LayoutParams.WRAP_CONTENT
     ))
 
-    errorText.setTextColor(Color.rgb(185, 28, 28))
-    errorText.gravity = Gravity.CENTER
+    errorText.setTextColor(dangerColor)
+    errorText.gravity = Gravity.START
+    errorText.textSize = 11f
+    errorText.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     errorText.visibility = GONE
-    container.addView(errorText, LinearLayout.LayoutParams(
+    progressColumn.addView(errorText, LinearLayout.LayoutParams(
       ViewGroup.LayoutParams.MATCH_PARENT,
       ViewGroup.LayoutParams.WRAP_CONTENT
     ))
@@ -117,13 +148,15 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
         isPrepared = true
         seekBar.max = it.duration.coerceAtLeast(0)
         timeText.text = "00:00 / ${formatTime(it.duration)}"
-        playButton.text = if (paused) "Lire" else "Pause"
+        playButton.isEnabled = true
+        playButton.alpha = 1f
+        updatePlayIcon()
         errorText.visibility = GONE
         if (!paused) it.start()
       }
       player.setOnCompletionListener {
         paused = true
-        playButton.text = "Lire"
+        updatePlayIcon()
         seekBar.progress = 0
         it.seekTo(0)
       }
@@ -141,16 +174,15 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
     paused = value
     val player = mediaPlayer
     if (!isPrepared || player == null) {
-      playButton.text = if (value) "Lire" else "Pause"
+      updatePlayIcon()
       return
     }
     if (value) {
       if (player.isPlaying) player.pause()
-      playButton.text = "Lire"
     } else {
       player.start()
-      playButton.text = "Pause"
     }
+    updatePlayIcon()
   }
 
   override fun onDetachedFromWindow() {
@@ -166,7 +198,9 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
   private fun resetPlayer() {
     isPrepared = false
     paused = true
-    playButton.text = "Lire"
+    playButton.isEnabled = false
+    playButton.alpha = 0.55f
+    updatePlayIcon()
     seekBar.progress = 0
     seekBar.max = 0
     timeText.text = "00:00 / 00:00"
@@ -178,9 +212,27 @@ class OracleAudioPlayerView(context: Context) : FrameLayout(context) {
   private fun showError() {
     isPrepared = false
     paused = true
-    playButton.text = "Lire"
+    playButton.isEnabled = false
+    playButton.alpha = 0.55f
+    updatePlayIcon()
     errorText.text = "Lecture audio impossible"
     errorText.visibility = VISIBLE
+  }
+
+  private fun updatePlayIcon() {
+    playButton.text = if (paused) "\u25B6" else "\u275A\u275A"
+  }
+
+  private fun roundDrawable(color: Int, radiusDp: Float): GradientDrawable {
+    return GradientDrawable().apply {
+      shape = GradientDrawable.RECTANGLE
+      setColor(color)
+      cornerRadius = radiusDp * resources.displayMetrics.density
+    }
+  }
+
+  private fun dp(value: Int): Int {
+    return (value * resources.displayMetrics.density).toInt()
   }
 
   private fun formatTime(ms: Int): String {

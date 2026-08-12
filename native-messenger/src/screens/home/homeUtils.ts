@@ -3,25 +3,174 @@ import type { Conversation, Message } from '@/types/messenger';
 
 export type Country = { code: string; name: string; dial: string; flag: string };
 export type PaystackScope = 'ai' | 'flyer' | 'video' | 'business';
-export type MediaPayload = { url: string; size?: number; checksum?: string; mime?: string; name?: string };
+export type MediaPayload = {
+  url: string;
+  localUri?: string;
+  size?: number;
+  checksum?: string;
+  mime?: string;
+  name?: string;
+  caption?: string;
+  thumbnail?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  waveform?: number[];
+  uploadState?: 'uploading' | 'failed' | 'complete';
+  uploadProgress?: number;
+  uploadError?: string;
+};
+export type ContactPayload = { name: string; phone?: string; email?: string; username?: string; avatar?: string; url?: string };
+export type CallTraceStatus = 'missed' | 'refused' | 'ended' | 'unknown';
+export type CallTraceMessage = {
+  type: 'audio' | 'video';
+  status: CallTraceStatus;
+  label: string;
+  actionLabel: string;
+  durationLabel?: string;
+};
+
+export const OFFICIAL_CONVERSATION_NAME = 'O.Messenger';
+export const OFFICIAL_CONVERSATION_AVATAR = '/icons/oracle-system-avatar.svg';
+const OFFICIAL_MESSAGE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export function initials(name?: string | null) {
   return String(name || '?').trim().slice(0, 2).toUpperCase();
 }
 
+export function isOfficialConversation(conversation?: Conversation | null) {
+  return Boolean(conversation?.isOfficial || conversation?.type === 'official');
+}
+
+function dateTime(value?: string | Date | null) {
+  const time = value ? new Date(value).getTime() : Number.NaN;
+  return Number.isFinite(time) ? time : null;
+}
+
+function officialExpirationBelongsToLastMessage(conversation: Conversation) {
+  const expiry = dateTime(conversation.officialExpiresAt);
+  const lastMessageAt = dateTime(conversation.lastMessage?.createdAt);
+  if (expiry === null || lastMessageAt === null) return false;
+  const inferredReadAt = expiry - OFFICIAL_MESSAGE_TTL_MS;
+  return inferredReadAt >= lastMessageAt;
+}
+
+export function normalizeOfficialExpiration(conversation: Conversation) {
+  if (!isOfficialConversation(conversation)) return conversation;
+  if (!conversation.officialExpiresAt) return conversation;
+  if ((conversation.unreadCount ?? 0) > 0) return { ...conversation, officialExpiresAt: null, isPinned: true };
+  if (!officialExpirationBelongsToLastMessage(conversation)) return { ...conversation, officialExpiresAt: null, isPinned: false };
+  return conversation;
+}
+
+export function isOfficialExpired(conversation: Conversation) {
+  const normalized = normalizeOfficialExpiration(conversation);
+  if (!isOfficialConversation(normalized)) return false;
+  if ((normalized.unreadCount ?? 0) > 0) return false;
+  if (!normalized.officialExpiresAt) return false;
+  const expiry = dateTime(normalized.officialExpiresAt);
+  return expiry !== null && expiry <= Date.now();
+}
+
+export function sortConversations(items: Conversation[]) {
+  return [...items].map(normalizeOfficialExpiration).filter(item => !isOfficialExpired(item)).sort((left, right) => {
+    const leftPinned = Boolean(left.isPinned);
+    const rightPinned = Boolean(right.isPinned);
+    if (leftPinned !== rightPinned) return leftPinned ? -1 : 1;
+    const leftTime = new Date(left.updatedAt || left.lastMessage?.createdAt || 0).getTime();
+    const rightTime = new Date(right.updatedAt || right.lastMessage?.createdAt || 0).getTime();
+    return rightTime - leftTime;
+  });
+}
+
+export function markConversationReadLocally(conversation: Conversation) {
+  if (!isOfficialConversation(conversation)) return { ...conversation, unreadCount: 0 };
+  if (officialExpirationBelongsToLastMessage(conversation)) {
+    return {
+      ...conversation,
+      unreadCount: 0,
+      isPinned: false,
+      officialState: conversation.officialState ? { ...conversation.officialState, unread: false } : conversation.officialState,
+    };
+  }
+  if (!conversation.lastMessage?.createdAt) return { ...conversation, unreadCount: 0, isPinned: false };
+  const openedAt = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + OFFICIAL_MESSAGE_TTL_MS).toISOString();
+  return {
+    ...conversation,
+    unreadCount: 0,
+    isPinned: false,
+    officialOpenedAt: openedAt,
+    officialExpiresAt: expiresAt,
+    officialState: {
+      received: true,
+      unread: false,
+      opened_at: openedAt,
+      expires_at: expiresAt,
+      openedAt,
+      expiresAt,
+    },
+  };
+}
+
 export function conversationName(conversation: Conversation) {
+  if (isOfficialConversation(conversation)) return OFFICIAL_CONVERSATION_NAME;
   return conversation.name || conversation.participants?.[0]?.name || 'Conversation';
+}
+
+export function conversationAvatar(conversation?: Conversation | null) {
+  if (!conversation) return null;
+  if (isOfficialConversation(conversation)) return conversation.avatar || OFFICIAL_CONVERSATION_AVATAR;
+  if (conversation.type === 'group' || conversation.type === 'official') return conversation.avatar || null;
+  return conversation.participants?.[0]?.avatar || conversation.avatar || null;
+}
+
+export function highQualityImageUri(uri?: string | null) {
+  const raw = String(uri || '').trim();
+  if (!raw) return null;
+  return raw
+    .replace(/=s\d+(-c)?(?=$|[&#?])/i, '=s1024-c')
+    .replace(/\/s\d+(-c)?\//i, '/s1024-c/')
+    .replace(/([?&]sz=)\d+/i, '$11024');
 }
 
 export function messagePreview(message?: Message | null) {
   if (!message) return 'Aucun message';
   if (message.isDeleted) return 'Message supprimé';
+  const callTrace = message.type === 'text' ? parseCallTraceMessage(message.content) : null;
+  if (callTrace) return callTrace.status === 'missed' ? `🚫 ${callTrace.label}` : callTrace.label;
   if (message.type === 'text') return message.content;
+  if (message.type === 'contact') {
+    const contact = parseContactPayload(message.content);
+    return contact.name || contact.username || 'Contact';
+  }
   const payload = parseMediaPayload(message.content);
-  if (message.type === 'image') return payload?.name || 'Image';
-  if (message.type === 'video') return payload?.name || 'Vidéo';
-  if (message.type === 'audio' || message.type === 'voice') return payload?.name || 'Note vocale';
-  return payload?.name || 'Fichier';
+  const mediaName = mediaPreviewName(payload, message.content);
+  if (message.type === 'image') return mediaName || 'Image';
+  if (message.type === 'video') return mediaName || 'Vidéo';
+  if (message.type === 'audio' || message.type === 'voice') return mediaName || 'Note vocale';
+  return mediaName || 'Fichier';
+}
+
+function mediaPreviewName(payload?: MediaPayload | null, rawContent?: string | null) {
+  const direct = payload?.name?.trim();
+  if (direct) return direct;
+  const fromUrl = payload?.url ? basenameFromUri(payload.url) : '';
+  if (fromUrl) return fromUrl;
+  const raw = String(rawContent || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw) || raw.includes('/')) return basenameFromUri(raw);
+  return raw.startsWith('{') ? '' : raw;
+}
+
+function basenameFromUri(value: string) {
+  const clean = value.split('?')[0]?.split('#')[0] || '';
+  const last = clean.split('/').filter(Boolean).pop() || '';
+  try {
+    return decodeURIComponent(last);
+  } catch {
+    return last;
+  }
 }
 
 export function parseMediaPayload(content?: string | null): MediaPayload | null {
@@ -33,14 +182,42 @@ export function parseMediaPayload(content?: string | null): MediaPayload | null 
     if (!url) return null;
     return {
       url,
+      localUri: typeof parsed.localUri === 'string' ? parsed.localUri : undefined,
       size: typeof parsed.size === 'number' ? parsed.size : undefined,
       checksum: typeof parsed.checksum === 'string' ? parsed.checksum : undefined,
       mime: typeof parsed.mime === 'string' ? parsed.mime : undefined,
       name: typeof parsed.name === 'string' ? parsed.name : undefined,
+      caption: typeof parsed.caption === 'string' ? parsed.caption.trim() : undefined,
+      thumbnail: typeof parsed.thumbnail === 'string' ? parsed.thumbnail : undefined,
+      duration: typeof parsed.duration === 'number' ? parsed.duration : undefined,
+      width: typeof parsed.width === 'number' ? parsed.width : undefined,
+      height: typeof parsed.height === 'number' ? parsed.height : undefined,
+      waveform: Array.isArray(parsed.waveform) ? parsed.waveform.filter((value: unknown): value is number => typeof value === 'number') : undefined,
+      uploadState: ['uploading', 'failed', 'complete'].includes(String(parsed.uploadState)) ? parsed.uploadState : undefined,
+      uploadProgress: typeof parsed.uploadProgress === 'number' ? Math.max(0, Math.min(100, parsed.uploadProgress)) : undefined,
+      uploadError: typeof parsed.uploadError === 'string' ? parsed.uploadError.trim().slice(0, 140) : undefined,
     };
   } catch {
     return null;
   }
+}
+
+export function parseContactPayload(content?: string | null): ContactPayload {
+  const raw = String(content || '').trim();
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        name: typeof parsed.name === 'string' ? parsed.name.trim() : '',
+        phone: typeof parsed.phone === 'string' ? parsed.phone.trim() : '',
+        email: typeof parsed.email === 'string' ? parsed.email.trim() : '',
+        username: typeof parsed.username === 'string' ? parsed.username.trim() : '',
+        avatar: typeof parsed.avatar === 'string' ? parsed.avatar.trim() : '',
+        url: typeof parsed.url === 'string' ? parsed.url.trim() : '',
+      };
+    }
+  } catch {}
+  return { name: raw, phone: '', email: '', username: '', avatar: '', url: '' };
 }
 
 export function formatBytes(value?: number) {
@@ -48,6 +225,29 @@ export function formatBytes(value?: number) {
   if (value < 1024) return `${value} o`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} Ko`;
   return `${(value / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
+export function parseCallTraceMessage(content?: string | null): CallTraceMessage | null {
+  const value = String(content ?? '').trim();
+  if (!value) return null;
+  const withoutIcon = value.replace(/^[^A-Za-zÀ-ÿ0-9]+/u, '').trim();
+  if (!/^Appel\s+(audio|vid[ée]o)\b/i.test(withoutIcon)) return null;
+  const type = /Appel\s+vid[ée]o/i.test(withoutIcon) ? 'video' : 'audio';
+  const status: CallTraceStatus = /manqu/i.test(withoutIcon)
+    ? 'missed'
+    : /refus/i.test(withoutIcon)
+      ? 'refused'
+      : /termin/i.test(withoutIcon)
+        ? 'ended'
+        : 'unknown';
+  const durationLabel = withoutIcon.includes('·') ? withoutIcon.split('·').slice(1).join('·').trim() : undefined;
+  return {
+    type,
+    status,
+    label: withoutIcon,
+    actionLabel: type === 'video' ? 'Rappeler en vidéo' : 'Rappeler en audio',
+    durationLabel,
+  };
 }
 
 export function sortMessages(items: Message[]) {
