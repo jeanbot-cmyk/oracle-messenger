@@ -66,7 +66,9 @@ export function NativeBottomTabs({ tabs, activeTab, onTabPress }: NativeBottomTa
             }}
             style={({ pressed }) => [styles.tab, active && styles.tabActive, pressed && styles.tabPressed]}
           >
-            <Icon size={21} color={active ? '#FFFFFF' : '#334155'} strokeWidth={active ? 2.25 : 1.9} />
+            <View style={[styles.iconPill, active && styles.iconPillActive]}>
+              <Icon size={22} color={active ? colors.text : colors.secondary} strokeWidth={active ? 2.35 : 2.05} />
+            </View>
             <Text numberOfLines={1} maxFontSizeMultiplier={1.06} style={[styles.tabText, active && styles.tabTextActive]}>{tab.label}</Text>
           </Pressable>
         );
@@ -77,22 +79,24 @@ export function NativeBottomTabs({ tabs, activeTab, onTabPress }: NativeBottomTa
 
 const styles = StyleSheet.create({
   tabs: {
-    minHeight: 64,
-    paddingTop: 6,
-    paddingHorizontal: 0,
+    minHeight: 70,
+    paddingTop: 7,
+    paddingHorizontal: 6,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: 'rgba(255,255,255,0.96)',
+    borderTopColor: 'rgba(17,27,33,0.08)',
+    backgroundColor: '#FFFFFF',
     flexDirection: 'row',
-    shadowColor: '#102A2A',
-    shadowOpacity: 0.04,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: -8 },
-    elevation: 8,
+    shadowColor: '#111B21',
+    shadowOpacity: 0.045,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 6,
   },
-  tab: { flex: 1, minWidth: 0, minHeight: 48, alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 4, marginHorizontal: 2, borderRadius: 15 },
-  tabActive: { backgroundColor: colors.header, shadowColor: '#102A2A', shadowOpacity: 0.14, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 3 },
+  tab: { flex: 1, minWidth: 0, minHeight: 54, alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 3, borderRadius: 16 },
+  tabActive: { backgroundColor: 'transparent' },
   tabPressed: { opacity: 0.72 },
-  tabText: { color: '#334155', fontSize: 11.5, lineHeight: 13, fontWeight: '800', textAlign: 'center' },
-  tabTextActive: { color: '#FFFFFF', fontWeight: '900' },
+  iconPill: { minWidth: 54, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  iconPillActive: { backgroundColor: '#F1F0ED' },
+  tabText: { color: colors.text, fontSize: 11.2, lineHeight: 13, fontWeight: '800', textAlign: 'center' },
+  tabTextActive: { color: colors.text, fontWeight: '900' },
 });

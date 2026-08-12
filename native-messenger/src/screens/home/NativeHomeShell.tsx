@@ -175,7 +175,6 @@ export function NativeHomeShell({
   onConversationActions,
 }: NativeHomeShellProps) {
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  const statusOnChat = activeTab === 'chats' && Boolean(selected);
   const startCallFromPeer = async (peerId: string, type: 'audio' | 'video') => {
     if (!peerId) return;
     const existing = conversations.find(conversation => conversation.type === 'direct' && conversation.participants.some(participant => participant.id === peerId));
@@ -260,8 +259,8 @@ export function NativeHomeShell({
   return (
     <SafeAreaView edges={['top']} style={styles.app}>
       <StatusBar
-        style={statusOnChat ? 'light' : 'dark'}
-        backgroundColor={statusOnChat ? colors.header : colors.background}
+        style="dark"
+        backgroundColor={colors.surface}
         translucent={false}
       />
       <NativeCallOverlay call={nativeCall} conversation={selected} currentUserId={session.user.id} />

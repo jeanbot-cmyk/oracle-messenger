@@ -71,9 +71,9 @@ export function NativeMessageActionPanels({
 }
 
 const styles = StyleSheet.create({
-  selectionBar: { marginHorizontal: 12, marginBottom: 8, padding: 8, borderRadius: 16, backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: colors.border, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 7 },
+  selectionBar: { marginHorizontal: 12, marginBottom: 8, padding: 8, borderRadius: 16, backgroundColor: '#F7F8F8', borderWidth: 1, borderColor: colors.border, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 7 },
   selectionText: { color: colors.header, fontSize: 12.5, fontWeight: '900', marginRight: 4 },
-  selectionButton: { minHeight: 32, borderRadius: 12, backgroundColor: colors.surface, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center' },
+  selectionButton: { minHeight: 32, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center' },
   selectionButtonText: { color: colors.header, fontSize: 11.5, fontWeight: '900' },
   selectionDanger: { minHeight: 32, borderRadius: 12, backgroundColor: '#FEE2E2', paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center' },
   selectionDangerText: { color: colors.danger, fontSize: 11.5, fontWeight: '900' },
@@ -83,6 +83,6 @@ const styles = StyleSheet.create({
   forwardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   forwardTitle: { flex: 1, color: colors.text, fontSize: 13.5, fontWeight: '900' },
   forwardTargets: { gap: 8, paddingRight: 4 },
-  forwardTarget: { minHeight: 36, maxWidth: 150, borderRadius: 13, backgroundColor: '#EAF4F1', paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
+  forwardTarget: { minHeight: 36, maxWidth: 150, borderRadius: 18, backgroundColor: '#EEF2F1', paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center' },
   forwardTargetText: { color: colors.header, fontSize: 12, fontWeight: '900' },
 });

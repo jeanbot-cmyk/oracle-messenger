@@ -27,7 +27,7 @@ export function NativeHomeShellHeader({ title, onTabPress, onMenuPress }: Native
           }}
           accessibilityLabel="Prendre une photo"
         >
-          <Camera size={20} color="#F8FAFC" strokeWidth={1.9} />
+          <Camera size={24} color={colors.text} strokeWidth={2.25} />
         </Pressable>
         <Pressable
           style={styles.headerButton}
@@ -38,7 +38,7 @@ export function NativeHomeShellHeader({ title, onTabPress, onMenuPress }: Native
           }}
           accessibilityLabel="Menu"
         >
-          <MoreVertical size={21} color="#F8FAFC" strokeWidth={1.9} />
+          <MoreVertical size={24} color={colors.text} strokeWidth={2.25} />
         </Pressable>
       </View>
     </View>
@@ -47,19 +47,17 @@ export function NativeHomeShellHeader({ title, onTabPress, onMenuPress }: Native
 
 const styles = StyleSheet.create({
   header: {
-    backgroundColor: colors.header,
-    paddingHorizontal: 14,
-    paddingTop: 9,
-    paddingBottom: 8,
-    minHeight: 58,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 18,
+    paddingTop: 15,
+    paddingBottom: 12,
+    minHeight: 72,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.10)',
   },
   headerTitleWrap: { flex: 1, minWidth: 0, paddingRight: 10 },
-  headerTitle: { color: '#FFFFFF', fontSize: 20, lineHeight: 22, fontWeight: '900', letterSpacing: 0 },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  headerButton: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', backgroundColor: 'rgba(255,255,255,0.10)', alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { color: colors.text, fontSize: 28, lineHeight: 34, fontWeight: '900', letterSpacing: 0 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
 });

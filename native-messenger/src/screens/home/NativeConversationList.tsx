@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AlertCircle, Check, CheckCheck, Clock3, MoreVertical, Plus, Search } from 'lucide-react-native';
+import { AlertCircle, Check, CheckCheck, Clock3, Plus, Search } from 'lucide-react-native';
 import { api } from '@/services/api';
 import { lightImpactHaptic, selectionHaptic } from '@/services/haptics';
 import { colors } from '@/theme/colors';
@@ -351,6 +351,7 @@ export function NativeConversationList({
                     selectionHaptic();
                     onOpenConversation(item);
                   }}
+                  onLongPress={() => showConversationActions(item)}
                 >
                   <View style={styles.conversationText}>
                     <View style={styles.titleLine}>
@@ -368,15 +369,6 @@ export function NativeConversationList({
                     {official ? <Text style={styles.officialBadge}>OFFICIEL</Text> : null}
                     {item.unreadCount ? <View style={styles.unread}><Text maxFontSizeMultiplier={1.05} style={styles.unreadText}>{item.unreadCount}</Text></View> : null}
                   </View>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Options de conversation"
-                  onPress={() => showConversationActions(item)}
-                  hitSlop={8}
-                  style={styles.rowMenu}
-                >
-                  <MoreVertical size={18} color="#64748B" strokeWidth={2.1} />
                 </Pressable>
               </View>
             );
@@ -459,18 +451,18 @@ export function NativeConversationList({
 
 const styles = StyleSheet.create({
   listPanel: { flex: 1, backgroundColor: colors.background, position: 'relative' },
-  searchWrap: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 9, backgroundColor: colors.surface },
-  conversationSearchRow: { minHeight: 44, borderRadius: 22, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, gap: 10 },
-  conversationSearchInput: { flex: 1, minHeight: 42, color: colors.text, fontWeight: '600', paddingHorizontal: 0, fontSize: 15 },
+  searchWrap: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 10, backgroundColor: colors.surface },
+  conversationSearchRow: { minHeight: 50, borderRadius: 25, backgroundColor: colors.input, borderWidth: 0, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, gap: 12 },
+  conversationSearchInput: { flex: 1, minHeight: 46, color: colors.text, fontWeight: '500', paddingHorizontal: 0, fontSize: 18 },
   searchClear: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.input, alignItems: 'center', justifyContent: 'center' },
   searchClearText: { color: colors.header, fontSize: 20, lineHeight: 24, fontWeight: '900' },
   filterScroller: { maxHeight: 50, backgroundColor: colors.surface },
   filters: { paddingHorizontal: 16, paddingBottom: 12, gap: 8, backgroundColor: colors.surface, alignItems: 'center' },
-  filterPill: { minHeight: 38, borderRadius: 19, borderWidth: 1, borderColor: colors.border, backgroundColor: '#FFFFFF', paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 7 },
-  filterPillActive: { backgroundColor: colors.brandSoft, borderColor: 'transparent' },
+  filterPill: { minHeight: 36, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(17,27,33,0.16)', backgroundColor: '#FFFFFF', paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 7 },
+  filterPillActive: { backgroundColor: '#E9EDEA', borderColor: '#D7DDDA' },
   filterPillPressed: { opacity: 0.82, transform: [{ scale: 0.98 }] },
-  filterText: { color: colors.secondary, fontSize: 14, lineHeight: 16, fontWeight: '900' },
-  filterTextActive: { color: colors.brand },
+  filterText: { color: colors.secondary, fontSize: 14, lineHeight: 16, fontWeight: '800' },
+  filterTextActive: { color: colors.text, fontWeight: '900' },
   filterCount: { minWidth: 18, height: 18, borderRadius: 9, backgroundColor: colors.input, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
   filterCountActive: { backgroundColor: colors.brand },
   filterCountText: { color: colors.muted, fontSize: 11, lineHeight: 13, fontWeight: '900' },
@@ -478,7 +470,7 @@ const styles = StyleSheet.create({
   filterPlus: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' },
   listSwipeArea: { flex: 1 },
   conversationList: { flexGrow: 1, paddingTop: 2 },
-  conversationRow: { minHeight: 74, flexDirection: 'row', alignItems: 'center', backgroundColor: 'transparent', paddingVertical: 9, paddingLeft: 16, paddingRight: 10 },
+  conversationRow: { minHeight: 76, flexDirection: 'row', alignItems: 'center', backgroundColor: 'transparent', paddingVertical: 9, paddingLeft: 16, paddingRight: 16 },
   officialRow: { backgroundColor: 'rgba(16,42,42,0.025)' },
   conversationOpenArea: { flex: 1, minWidth: 0, minHeight: 56, flexDirection: 'row', alignItems: 'center', borderRadius: 14 },
   conversationOpenAreaPressed: { backgroundColor: 'rgba(16,42,42,0.045)' },
@@ -500,7 +492,6 @@ const styles = StyleSheet.create({
   conversationTrailing: { width: 68, alignItems: 'flex-end', justifyContent: 'center', gap: 5 },
   conversationTime: { color: colors.muted, fontSize: 11.5, lineHeight: 14, fontWeight: '700' },
   officialBadge: { overflow: 'hidden', borderRadius: 10, backgroundColor: '#E0F2FE', color: '#2563EB', paddingHorizontal: 6, paddingVertical: 2, fontSize: 9.8, lineHeight: 12, fontWeight: '900' },
-  rowMenu: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
   unread: { minWidth: 22, height: 22, borderRadius: 11, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, marginLeft: 8 },
   unreadText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
   emptyState: { minHeight: 320, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28, gap: 8 },

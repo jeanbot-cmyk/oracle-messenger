@@ -63,10 +63,10 @@ export function NativeFeatureShell({
             selectionHaptic();
             onBackToChats();
           }}
-          android_ripple={{ color: 'rgba(255,255,255,0.14)', borderless: true }}
+          android_ripple={{ color: 'rgba(17,27,33,0.08)', borderless: true }}
           style={styles.backButton}
         >
-          <ArrowLeft size={22} color="#FFFFFF" strokeWidth={2.7} />
+          <ArrowLeft size={23} color={colors.text} strokeWidth={2.7} />
         </Pressable>
         <View style={styles.titleWrap}>
           <Text numberOfLines={1} maxFontSizeMultiplier={1.08} style={styles.title}>{FEATURE_TITLES[tab] || 'Oracle Messenger'}</Text>
@@ -80,10 +80,10 @@ export function NativeFeatureShell({
 const styles = StyleSheet.create({
   shell: { flex: 1, backgroundColor: colors.background },
   topBar: {
-    minHeight: 56,
-    backgroundColor: colors.header,
+    minHeight: 60,
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.10)',
+    borderBottomColor: colors.border,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -92,6 +92,6 @@ const styles = StyleSheet.create({
   },
   backButton: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   titleWrap: { flex: 1, minWidth: 0 },
-  title: { color: '#FFFFFF', fontSize: 16, lineHeight: 18, fontWeight: '900' },
+  title: { color: colors.text, fontSize: 19, lineHeight: 23, fontWeight: '900' },
   content: { flex: 1 },
 });

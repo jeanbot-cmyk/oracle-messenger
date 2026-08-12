@@ -511,7 +511,7 @@ const styles = StyleSheet.create({
   voicePreviewActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   voicePreviewSecondary: { flex: 1, minHeight: 40, borderRadius: 14, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   voicePreviewSecondaryText: { color: colors.text, fontSize: 13, lineHeight: 17, fontWeight: '900' },
-  voicePreviewSend: { flex: 1, minHeight: 40, borderRadius: 14, backgroundColor: colors.header, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 12 },
+  voicePreviewSend: { flex: 1, minHeight: 40, borderRadius: 20, backgroundColor: colors.brand, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 12 },
   voicePreviewSendText: { color: '#FFFFFF', fontSize: 13, lineHeight: 17, fontWeight: '900' },
   roundButton: { width: 39, height: 44, borderRadius: 20, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   roundButtonActive: { backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: colors.borderStrong },
@@ -524,5 +524,5 @@ const styles = StyleSheet.create({
   recordingButton: { backgroundColor: colors.danger },
   stopVoiceCompactText: { color: '#FFFFFF', fontSize: 10.5, lineHeight: 13, fontWeight: '900' },
   input: { flex: 1, minWidth: 128, minHeight: 40, maxHeight: 124, color: colors.text, fontSize: 16, lineHeight: 21, fontWeight: '500', paddingHorizontal: 0, paddingVertical: 8, textAlignVertical: 'center' },
-  sendButton: { width: 42, height: 44, borderRadius: 21, backgroundColor: colors.header, alignItems: 'center', justifyContent: 'center' },
+  sendButton: { width: 42, height: 44, borderRadius: 21, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center' },
 });

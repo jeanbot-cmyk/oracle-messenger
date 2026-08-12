@@ -414,7 +414,7 @@ export function StoriesPage({ token, userId, initialMode, onBack }: { token: str
             disabled={!onBack}
             style={[styles.storyBackButton, !onBack && styles.disabledBackButton]}
           >
-            <ArrowLeft size={24} color="#FFFFFF" strokeWidth={2.6} />
+            <ArrowLeft size={24} color={colors.text} strokeWidth={2.6} />
           </Pressable>
           <View style={styles.storyHeaderCopy}>
             <Text maxFontSizeMultiplier={1.06} style={styles.storyHeaderTitle}>Stories</Text>
@@ -827,18 +827,18 @@ function ViewersSheet({ story, onClose }: { story: Story | null; onClose: () => 
 
 const styles = StyleSheet.create({
   page: { paddingBottom: 124, gap: 0, backgroundColor: colors.background },
-  storyHeader: { minHeight: 52, backgroundColor: colors.header, paddingHorizontal: 10, paddingVertical: 5, flexDirection: 'row', alignItems: 'center', gap: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.10)' },
-  storyBackButton: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.10)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
+  storyHeader: { minHeight: 66, backgroundColor: colors.surface, paddingHorizontal: 16, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  storyBackButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.input, alignItems: 'center', justifyContent: 'center' },
   disabledBackButton: { opacity: 0.55 },
   storyHeaderCopy: { flex: 1, minWidth: 0 },
-  storyHeaderTitle: { color: '#FFFFFF', fontSize: 15, lineHeight: 17, fontWeight: '900' },
-  storyHeaderSubtitle: { color: 'rgba(248,250,252,0.72)', fontSize: 11.5, lineHeight: 14, fontWeight: '800', marginTop: 2 },
-  headerCreateButton: { minHeight: 34, borderRadius: 17, backgroundColor: '#FFFFFF', paddingHorizontal: 11, alignItems: 'center', justifyContent: 'center' },
+  storyHeaderTitle: { color: colors.text, fontSize: 24, lineHeight: 29, fontWeight: '900' },
+  storyHeaderSubtitle: { color: colors.muted, fontSize: 12.5, lineHeight: 16, fontWeight: '700', marginTop: 2 },
+  headerCreateButton: { minHeight: 36, borderRadius: 18, backgroundColor: colors.brand, paddingHorizontal: 13, alignItems: 'center', justifyContent: 'center' },
   headerCreatePressed: { opacity: 0.84, transform: [{ scale: 0.98 }] },
-  headerCreateText: { color: colors.header, fontSize: 12.5, lineHeight: 16, fontWeight: '900' },
-  sectionLabel: { color: '#64748B', fontSize: 10.5, lineHeight: 13, fontWeight: '900', letterSpacing: 0.8, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6 },
-  myStorySection: { paddingHorizontal: 10, gap: 8 },
-  myStoryCard: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, shadowColor: '#102A2A', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
+  headerCreateText: { color: '#FFFFFF', fontSize: 12.5, lineHeight: 16, fontWeight: '900' },
+  sectionLabel: { color: colors.muted, fontSize: 10.5, lineHeight: 13, fontWeight: '900', letterSpacing: 0.8, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 6 },
+  myStorySection: { paddingHorizontal: 0, gap: 8 },
+  myStoryCard: { minHeight: 76, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: colors.surface, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border },
   myStoryCardPressed: { backgroundColor: '#EAF4F1' },
   myStoryThumbWrap: { width: 52, height: 52 },
   myStoryText: { flex: 1, minWidth: 0 },
@@ -848,8 +848,8 @@ const styles = StyleSheet.create({
   viewsPill: { alignSelf: 'flex-start', marginTop: 8, minHeight: 32, borderRadius: 16, paddingHorizontal: 11, backgroundColor: '#EAF4F1', flexDirection: 'row', alignItems: 'center', gap: 6 },
   viewsPillText: { color: colors.header, fontSize: 12, fontWeight: '900' },
   rowsSection: { marginTop: 0 },
-  rowsCard: { marginHorizontal: 12, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
-  authorRow: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border },
+  rowsCard: { backgroundColor: colors.surface, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+  authorRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
   authorRing: { width: 54, height: 54, borderRadius: 27, padding: 3, alignItems: 'center', justifyContent: 'center' },
   authorRingUnread: { backgroundColor: colors.brand },
   authorRingSeen: { backgroundColor: 'rgba(100,116,139,0.28)' },

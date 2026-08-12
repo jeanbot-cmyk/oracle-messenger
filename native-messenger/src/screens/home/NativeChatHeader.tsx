@@ -37,13 +37,13 @@ export function NativeChatHeader({
     <>
       <View style={styles.chatTopRow}>
         <Pressable style={styles.backButton} onPress={onBack} accessibilityLabel="Retour">
-          <ArrowLeft size={22} color="#F8FAFC" strokeWidth={2.5} />
+          <ArrowLeft size={23} color={colors.text} strokeWidth={2.5} />
         </Pressable>
         <Pressable
           accessibilityRole="imagebutton"
           accessibilityLabel="Agrandir la photo du profil"
           onPress={() => setAvatarOpen(true)}
-          android_ripple={{ color: 'rgba(255,255,255,0.12)', borderless: true }}
+          android_ripple={{ color: 'rgba(17,27,33,0.08)', borderless: true }}
           style={({ pressed }) => [styles.chatAvatarButton, pressed ? styles.chatAvatarPressed : null]}
         >
           <View style={styles.chatAvatar}>
@@ -61,10 +61,10 @@ export function NativeChatHeader({
         {official ? null : (
           <View style={styles.callShortcutRow}>
             <Pressable style={styles.callShortcut} onPress={onStartAudioCall}>
-              <Phone size={17} color="#F8FAFC" />
+              <Phone size={18} color={colors.brand} strokeWidth={2.35} />
             </Pressable>
             <Pressable style={styles.callShortcut} onPress={onStartVideoCall}>
-              <Video size={17} color="#F8FAFC" />
+              <Video size={18} color={colors.brand} strokeWidth={2.35} />
             </Pressable>
           </View>
         )}
@@ -124,25 +124,25 @@ export function NativeChatHeader({
 }
 
 const styles = StyleSheet.create({
-  chatTopRow: { minHeight: 56, backgroundColor: colors.header, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.08)' },
+  chatTopRow: { minHeight: 60, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border },
   backButton: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   chatAvatarButton: { width: 42, height: 42, position: 'relative' },
-  chatAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#F8FAFC', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.72)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  chatAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   chatAvatarPressed: { opacity: 0.78, transform: [{ scale: 0.97 }] },
-  presenceDot: { position: 'absolute', right: -1, bottom: -1, width: 14, height: 14, borderRadius: 7, backgroundColor: colors.online, borderWidth: 2.5, borderColor: colors.header },
-  verifiedDot: { position: 'absolute', right: -1, bottom: -1, width: 15, height: 15, borderRadius: 8, backgroundColor: '#38BDF8', borderWidth: 2.5, borderColor: colors.header, alignItems: 'center', justifyContent: 'center' },
+  presenceDot: { position: 'absolute', right: -1, bottom: -1, width: 14, height: 14, borderRadius: 7, backgroundColor: colors.online, borderWidth: 2.5, borderColor: colors.surface },
+  verifiedDot: { position: 'absolute', right: -1, bottom: -1, width: 15, height: 15, borderRadius: 8, backgroundColor: '#38BDF8', borderWidth: 2.5, borderColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   verifiedText: { color: '#FFFFFF', fontSize: 8.5, lineHeight: 10, fontWeight: '900' },
   avatarImage: { width: '100%', height: '100%' },
   avatarText: { color: colors.header, fontSize: 17, fontWeight: '900' },
   titleWrap: { flex: 1, minWidth: 0 },
   chatTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  chatTitle: { flexShrink: 1, color: '#FFFFFF', fontSize: 16, lineHeight: 18, fontWeight: '900' },
+  chatTitle: { flexShrink: 1, color: colors.text, fontSize: 16, lineHeight: 19, fontWeight: '900' },
   chatVerifiedLabel: { overflow: 'hidden', borderRadius: 10, backgroundColor: '#E0F2FE', color: '#2563EB', paddingHorizontal: 6, paddingVertical: 1, fontSize: 10.5, lineHeight: 13, fontWeight: '900' },
-  chatPresence: { color: 'rgba(255,255,255,0.68)', fontSize: 12, lineHeight: 14, fontWeight: '700', marginTop: 3 },
+  chatPresence: { color: colors.muted, fontSize: 12, lineHeight: 15, fontWeight: '700', marginTop: 3 },
   callShortcutRow: { flexDirection: 'row', gap: 8 },
-  callShortcut: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
+  callShortcut: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.input, alignItems: 'center', justifyContent: 'center' },
   banner: { margin: 10, padding: 10, borderRadius: 12, backgroundColor: '#FFF7ED', color: '#9A3412', fontSize: 12.5, fontWeight: '800' },
-  messageSearchRow: { marginHorizontal: 10, marginVertical: 7, minHeight: 40, borderRadius: 20, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 8 },
+  messageSearchRow: { marginHorizontal: 10, marginVertical: 7, minHeight: 42, borderRadius: 21, backgroundColor: colors.input, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 13, gap: 8 },
   messageSearchInput: { flex: 1, minHeight: 38, color: colors.text, fontWeight: '700', paddingHorizontal: 0 },
   messageSearchClear: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.input, alignItems: 'center', justifyContent: 'center' },
   messageSearchClearText: { color: colors.header, fontSize: 20, lineHeight: 24, fontWeight: '900' },
