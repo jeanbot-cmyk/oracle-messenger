@@ -103,42 +103,36 @@ function NativeCallTraceMessage({
   trace,
   mine,
   clickable,
-  onPress,
 }: {
   trace: CallTraceMessage;
   mine: boolean;
   clickable: boolean;
-  onPress: () => void;
 }) {
   const StatusIcon = trace.status === 'missed'
     ? PhoneMissed
-    : trace.status === 'refused'
+    : trace.status === 'refused' || trace.status === 'cancelled'
       ? PhoneOff
       : trace.type === 'video'
         ? Video
         : Phone;
   const ActionIcon = trace.type === 'video' ? Video : Phone;
-  const isAlert = trace.status === 'missed' || trace.status === 'refused';
+  const isAlert = trace.status === 'missed' || trace.status === 'refused' || trace.status === 'cancelled';
   const statusText = trace.status === 'missed'
     ? 'Appel manqué'
     : trace.status === 'refused'
       ? 'Appel refusé'
-      : trace.status === 'ended'
-        ? 'Appel terminé'
-        : 'Historique d’appel';
+      : trace.status === 'cancelled'
+        ? 'Appel annulé'
+        : trace.status === 'ended'
+          ? 'Appel terminé'
+          : 'Historique d’appel';
 
   return (
-    <Pressable
-      accessibilityRole={clickable ? 'button' : undefined}
-      accessibilityLabel={clickable ? trace.actionLabel : trace.label}
-      disabled={!clickable}
-      android_ripple={clickable ? { color: 'rgba(16,42,42,0.12)' } : undefined}
-      onPress={onPress}
-      style={({ pressed }) => [
+    <View
+      style={[
         styles.callTraceCard,
         mine ? styles.callTraceMine : styles.callTraceOther,
         isAlert ? styles.callTraceAlert : styles.callTraceNeutral,
-        pressed && clickable ? styles.callTracePressed : null,
       ]}
     >
       <View style={[styles.callTraceIconWrap, isAlert ? styles.callTraceIconAlert : styles.callTraceIconNeutral]}>
@@ -155,7 +149,7 @@ function NativeCallTraceMessage({
           <ActionIcon size={15} color={colors.header} strokeWidth={2.8} />
         </View>
       ) : null}
-    </Pressable>
+    </View>
   );
 }
 
@@ -300,17 +294,28 @@ export function NativeMessageList({
         const adjacent = inverted ? displayMessages[index + 1] : displayMessages[index - 1];
         const showDay = !adjacent || formatMessageDay(adjacent.createdAt) !== formatMessageDay(item.createdAt);
         const callClickable = Boolean(callTrace && onCallMessagePress && !selectedMessageIds.length);
+        const handleBubblePress = () => {
+          if (selectedMessageIds.length) {
+            onToggleSelection(item.id);
+            return;
+          }
+          if (callTrace && onCallMessagePress) void onCallMessagePress(callTrace.type, item);
+        };
         return (
           <>
             {showDay ? <Text style={styles.daySeparator}>{formatMessageDay(item.createdAt)}</Text> : null}
             <Pressable
-              onPress={() => selectedMessageIds.length ? onToggleSelection(item.id) : undefined}
+              accessibilityRole={callClickable ? 'button' : undefined}
+              accessibilityLabel={callClickable ? callTrace?.actionLabel : undefined}
+              android_ripple={callClickable ? { color: 'rgba(16,42,42,0.08)' } : undefined}
+              onPress={selectedMessageIds.length || callClickable ? handleBubblePress : undefined}
               onLongPress={() => onOpenMessageActions(item)}
-              style={[
+              style={({ pressed }) => [
                 styles.bubble,
                 mine ? styles.bubbleMine : styles.bubbleOther,
                 isVoice ? styles.audioBubble : null,
                 callTrace ? styles.callBubble : null,
+                pressed && callClickable ? styles.callTracePressed : null,
                 selectedForAction && styles.bubbleSelected,
               ]}
             >
@@ -333,13 +338,6 @@ export function NativeMessageList({
                   trace={callTrace}
                   mine={mine}
                   clickable={callClickable}
-                  onPress={() => {
-                    if (selectedMessageIds.length) {
-                      onToggleSelection(item.id);
-                      return;
-                    }
-                    if (onCallMessagePress) void onCallMessagePress(callTrace.type, item);
-                  }}
                 />
               ) : (
                 item.type === 'contact'

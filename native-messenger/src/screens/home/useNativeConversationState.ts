@@ -83,7 +83,7 @@ export function useNativeConversationState({ session, messageSearch }: UseNative
         return {
           ...conversation,
           lastMessage: message,
-          unreadCount: isCurrentOpen || isOwn ? conversation.unreadCount || 0 : (conversation.unreadCount || 0) + 1,
+          unreadCount: isCurrentOpen || isOwn ? 0 : (conversation.unreadCount || 0) + 1,
           updatedAt: message.createdAt || conversation.updatedAt,
         };
       });

@@ -217,6 +217,10 @@ function emit(trace, label, socket, eventName, payload) {
   socket.emit(eventName, payload);
 }
 
+function isDeliveredOrRead(status) {
+  return ['delivered', 'received', 'read', 'seen'].includes(String(status || '').toLowerCase());
+}
+
 async function httpJson(trace, actor, method, route, token, body) {
   const startedAt = Date.now();
   const response = await fetch(`${BACKEND_URL}${route}`, {
@@ -466,7 +470,7 @@ async function runMessagingScenario(trace, ctx, fromLabel, toLabel, text) {
 
   const received = await receivedPromise;
   if (received?.id !== sent.id) throw new Error(`message:new id mismatch for ${fromLabel}->${toLabel}`);
-  const deliveredPromise = waitForSocketEvent(trace, fromLabel, from.socket, 'message:update', update => update?.id === sent.id && update?.patch?.status === 'delivered');
+  const deliveredPromise = waitForSocketEvent(trace, fromLabel, from.socket, 'message:update', update => update?.id === sent.id && isDeliveredOrRead(update?.patch?.status));
   emit(trace, toLabel, to.socket, 'message:delivered', { messageId: sent.id });
   await deliveredPromise;
   const readPromise = waitForSocketEvent(trace, fromLabel, from.socket, 'message:update', update => update?.id === sent.id && update?.patch?.status === 'read');
@@ -518,7 +522,7 @@ async function runRapidMessagesScenario(trace, ctx, fromLabel, toLabel, count) {
     fromLabel,
     from.socket,
     'message:update',
-    update => sentIds.includes(update?.id) && update?.patch?.status === 'delivered',
+    update => sentIds.includes(update?.id) && isDeliveredOrRead(update?.patch?.status),
     count,
     Math.max(TIMEOUT_MS, count * 700),
   );
@@ -559,21 +563,7 @@ async function runOfflineBatchScenario(trace, ctx, fromLabel, toLabel, count) {
     sentMessages.push(sent);
   }
 
-  to.socket = await connectClient(trace, toLabel, to.token);
-  emit(trace, toLabel, to.socket, 'conversation:join', { conversationId: ctx.conversationId });
-  await sleep(300);
-
-  const messages = await httpJson(trace, toLabel, 'GET', `/conversations/${encodeURIComponent(ctx.conversationId)}/messages`, to.token);
   const expectedIds = sentMessages.map(message => message.id);
-  const historyIds = Array.isArray(messages) ? messages.map(message => message.id) : [];
-  const missing = expectedIds.filter(id => !historyIds.includes(id));
-  if (missing.length) throw new Error(`offline history missed ${missing.length}/${count} messages for ${fromLabel}->${toLabel}`);
-  const historySequences = messages
-    .filter(message => expectedIds.includes(message.id))
-    .map(message => Number(String(message.content).match(/#(\d+)$/)?.[1] ?? '0'));
-  const outOfOrder = historySequences.some((sequence, index) => sequence !== index + 1);
-  if (outOfOrder) throw new Error(`offline history order mismatch for ${fromLabel}->${toLabel}: ${historySequences.join(',')}`);
-
   const readPromise = collectSocketEvents(
     trace,
     fromLabel,
@@ -583,7 +573,21 @@ async function runOfflineBatchScenario(trace, ctx, fromLabel, toLabel, count) {
     count,
     Math.max(TIMEOUT_MS, count * 700),
   );
-  emit(trace, toLabel, to.socket, 'message:read', { conversationId: ctx.conversationId, messageId: expectedIds[expectedIds.length - 1] });
+
+  to.socket = await connectClient(trace, toLabel, to.token);
+  emit(trace, toLabel, to.socket, 'conversation:join', { conversationId: ctx.conversationId });
+  await sleep(300);
+
+  const messages = await httpJson(trace, toLabel, 'GET', `/conversations/${encodeURIComponent(ctx.conversationId)}/messages`, to.token);
+  const historyIds = Array.isArray(messages) ? messages.map(message => message.id) : [];
+  const missing = expectedIds.filter(id => !historyIds.includes(id));
+  if (missing.length) throw new Error(`offline history missed ${missing.length}/${count} messages for ${fromLabel}->${toLabel}`);
+  const historySequences = messages
+    .filter(message => expectedIds.includes(message.id))
+    .map(message => Number(String(message.content).match(/#(\d+)$/)?.[1] ?? '0'));
+  const outOfOrder = historySequences.some((sequence, index) => sequence !== index + 1);
+  if (outOfOrder) throw new Error(`offline history order mismatch for ${fromLabel}->${toLabel}: ${historySequences.join(',')}`);
+
   await readPromise;
   trace.pass(`offline-batch:${fromLabel}->${toLabel}`, { count });
 }
@@ -695,7 +699,7 @@ async function runVoiceMessageScenario(trace, ctx, fromLabel, toLabel) {
   if (!sent?.id || sent.type !== 'audio') throw new Error(`voice message send failed for ${fromLabel}->${toLabel}`);
   const received = await receivedPromise;
   if (received?.id !== sent.id) throw new Error(`voice message id mismatch for ${fromLabel}->${toLabel}`);
-  const deliveredPromise = waitForSocketEvent(trace, fromLabel, from.socket, 'message:update', update => update?.id === sent.id && update?.patch?.status === 'delivered');
+  const deliveredPromise = waitForSocketEvent(trace, fromLabel, from.socket, 'message:update', update => update?.id === sent.id && isDeliveredOrRead(update?.patch?.status));
   emit(trace, toLabel, to.socket, 'message:delivered', { messageId: sent.id });
   await deliveredPromise;
 

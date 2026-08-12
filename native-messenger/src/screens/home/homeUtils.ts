@@ -21,7 +21,7 @@ export type MediaPayload = {
   uploadError?: string;
 };
 export type ContactPayload = { name: string; phone?: string; email?: string; username?: string; avatar?: string; url?: string };
-export type CallTraceStatus = 'missed' | 'refused' | 'ended' | 'unknown';
+export type CallTraceStatus = 'missed' | 'refused' | 'cancelled' | 'ended' | 'unknown';
 export type CallTraceMessage = {
   type: 'audio' | 'video';
   status: CallTraceStatus;
@@ -138,7 +138,7 @@ export function messagePreview(message?: Message | null) {
   if (!message) return 'Aucun message';
   if (message.isDeleted) return 'Message supprimé';
   const callTrace = message.type === 'text' ? parseCallTraceMessage(message.content) : null;
-  if (callTrace) return callTrace.status === 'missed' ? `🚫 ${callTrace.label}` : callTrace.label;
+  if (callTrace) return ['missed', 'refused', 'cancelled'].includes(callTrace.status) ? `🚫 ${callTrace.label}` : callTrace.label;
   if (message.type === 'text') return message.content;
   if (message.type === 'contact') {
     const contact = parseContactPayload(message.content);
@@ -237,9 +237,11 @@ export function parseCallTraceMessage(content?: string | null): CallTraceMessage
     ? 'missed'
     : /refus/i.test(withoutIcon)
       ? 'refused'
-      : /termin/i.test(withoutIcon)
-        ? 'ended'
-        : 'unknown';
+      : /annul/i.test(withoutIcon)
+        ? 'cancelled'
+        : /termin/i.test(withoutIcon)
+          ? 'ended'
+          : 'unknown';
   const durationLabel = withoutIcon.includes('·') ? withoutIcon.split('·').slice(1).join('·').trim() : undefined;
   return {
     type,

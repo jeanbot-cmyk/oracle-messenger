@@ -44,6 +44,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     type: 'audio' | 'video'; startedAt: number; answered: boolean; answeredAt?: number;
     mediaProvider?: 'livekit' | 'webrtc';
     participants: Set<string>;
+    ending?: boolean; endingBy?: string;
   }>();
   private callTimeouts = new Map<string, NodeJS.Timeout>();
   private offlineTimers = new Map<string, NodeJS.Timeout>();
@@ -159,7 +160,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     conversationId: string,
     senderId: string,
     type: 'audio' | 'video',
-    state: 'ended' | 'missed' | 'refused',
+    state: 'ended' | 'missed' | 'refused' | 'cancelled',
     duration?: number,
   ) {
     const icon = state === 'ended'
@@ -170,7 +171,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       ? `terminé${duration ? ` · ${this.formatDuration(duration)}` : ''}`
       : state === 'refused'
         ? 'refusé'
-        : 'manqué';
+        : state === 'cancelled'
+          ? 'annulé'
+          : 'manqué';
     const msg = await this.chat.createMessage(conversationId, senderId, `${icon} ${label} ${suffix}`, 'text');
     const participantIds = await this.chat.getParticipantIds(conversationId);
     for (const uid of participantIds) {
@@ -240,12 +243,45 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (typeof ack === 'function') ack(response);
   }
 
+  private async broadcastConversationRead(
+    conversationId: string,
+    userId: string,
+    updatedMessages: Array<{ id: string; status?: string; updatedAt?: Date | string }>,
+  ) {
+    const payload = { conversationId, userId };
+    const participantIds = await this.chat.getParticipantIds(conversationId);
+    const socketIds = new Set<string>();
+    for (const uid of participantIds) {
+      for (const sid of this.socketState.getSocketIds(uid)) {
+        socketIds.add(sid);
+      }
+    }
+    for (const sid of socketIds) {
+      this.server.to(sid).emit('conversation:read', payload);
+      for (const message of updatedMessages) {
+        this.server.to(sid).emit('message:update', {
+          id: message.id,
+          patch: { status: message.status, updatedAt: message.updatedAt },
+        });
+      }
+    }
+  }
+
   private scheduleNoAnswerTimeout(callId: string) {
     this.clearCallTimeout(callId);
     const timer = setTimeout(async () => {
       const call = this.activeCalls.get(callId);
       if (!call || call.answered) return;
+      call.ending = true;
+      call.endingBy = call.callerId;
       this.syncCallNotifications(callId, call, 'missed');
+      await this.publishCallTrace(
+        call.conversationId,
+        call.callerId,
+        call.type,
+        'missed',
+      ).catch(() => {});
+      await this.logCallFinalState(callId, call, call.callerId, 'missed').catch(() => {});
 
       for (const uid of call.participants) {
         const socketIds = this.socketState.getSocketIds(uid);
@@ -262,13 +298,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       this.activeCalls.delete(callId);
       this.callTimeouts.delete(callId);
-      await this.publishCallTrace(
-        call.conversationId,
-        call.callerId,
-        call.type,
-        'missed',
-      ).catch(() => {});
-      await this.logCallFinalState(callId, call, call.callerId, 'missed').catch(() => {});
     }, this.callNoAnswerTimeoutMs);
     timer.unref?.();
     this.callTimeouts.set(callId, timer);
@@ -383,7 +412,8 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
       client.join(`conv:${data.conversationId}`);
-      await this.chat.markRead(data.conversationId, client.data.userId);
+      const updatedMessages = await this.chat.markConversationRead(data.conversationId, client.data.userId);
+      await this.broadcastConversationRead(data.conversationId, client.data.userId, updatedMessages);
     } catch {
       client.emit('conversation:error', { message: 'Ouverture de conversation impossible' });
     }
@@ -723,23 +753,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     try {
       const updatedMessages = await this.chat.markConversationRead(data.conversationId, client.data.userId);
-      const payload = {
-        conversationId: data.conversationId,
-        userId: client.data.userId,
-      };
-      this.server.to(`conv:${data.conversationId}`).emit('conversation:read', payload);
-      const participantIds = await this.chat.getParticipantIds(data.conversationId);
-      for (const uid of participantIds) {
-        for (const sid of this.socketState.getSocketIds(uid)) {
-          this.server.to(sid).emit('conversation:read', payload);
-          for (const message of updatedMessages) {
-            this.server.to(sid).emit('message:update', {
-              id: message.id,
-              patch: { status: message.status, updatedAt: message.updatedAt },
-            });
-          }
-        }
-      }
+      await this.broadcastConversationRead(data.conversationId, client.data.userId, updatedMessages);
     } catch {}
   }
 
@@ -1011,6 +1025,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.emit('call:error', { message });
       return this.sendSocketAck(ack, { ok: false, message });
     }
+    if (call.ending) {
+      const message = 'Appel déjà terminé';
+      client.emit('call:ended', {
+        callId: data.callId,
+        userId: call.endingBy ?? call.callerId,
+      });
+      return this.sendSocketAck(ack, { ok: false, message, ended: true });
+    }
     client.join(`call:${data.callId}`);
 
     if (call && data.accepted) {
@@ -1038,11 +1060,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         ended: shouldEndCall,
         mediaProvider: call.mediaProvider,
       });
-      this.publishCallTrace(call.conversationId, responderId, call.type, 'refused').catch(() => {});
+      await this.publishCallTrace(call.conversationId, responderId, call.type, 'refused').catch(() => {});
       if (shouldEndCall) {
-        this.logCallFinalState(data.callId, call, responderId, 'refused').catch(() => {});
+        await this.logCallFinalState(data.callId, call, responderId, 'refused').catch(() => {});
       } else {
-        this.callsSvc.logCall({
+        await this.callsSvc.logCall({
           callId: data.callId,
           userId: responderId,
           peerId: call.callerId,
@@ -1257,6 +1279,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         client.emit('call:error', { message: 'Appel non autorisé' });
         return;
       }
+      if (call.ending) {
+        this.server.to(client.id).emit('call:ended', {
+          callId: data.callId,
+          userId: call.endingBy ?? enderId,
+        });
+        client.leave(`call:${data.callId}`);
+        return;
+      }
 
       if (call.answered && call.participants.size > 2) {
         const duration = call.answeredAt ? Math.max(1, Math.round((Date.now() - call.answeredAt) / 1000)) : undefined;
@@ -1296,8 +1326,22 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
 
+      call.ending = true;
+      call.endingBy = enderId;
       this.clearCallTimeout(data.callId);
       this.syncCallNotifications(data.callId, call, enderId === call.callerId ? 'cancelled' : 'ended');
+      const connected = call.answered && !!call.answeredAt;
+      const duration = connected ? Math.max(1, Math.round((Date.now() - call.answeredAt!) / 1000)) : undefined;
+      const reason = connected ? 'ended' : enderId === call.callerId ? 'cancelled' : 'missed';
+      await this.logCallFinalState(data.callId, call, enderId, reason).catch(() => {});
+      await this.publishCallTrace(
+        call.conversationId,
+        enderId,
+        call.type,
+        connected ? 'ended' : reason === 'cancelled' ? 'cancelled' : 'missed',
+        duration,
+      ).catch(() => {});
+
       for (const uid of call.participants) {
         const socketIds = this.socketState.getSocketIds(uid);
         for (const sid of socketIds) {
@@ -1310,19 +1354,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       }
 
-      const connected = call.answered && !!call.answeredAt;
-      const duration = connected ? Math.max(1, Math.round((Date.now() - call.answeredAt!) / 1000)) : undefined;
-      const reason = connected ? 'ended' : enderId === call.callerId ? 'cancelled' : 'missed';
       this.activeCalls.delete(data.callId);
-      await this.logCallFinalState(data.callId, call, enderId, reason).catch(() => {});
-
-      await this.publishCallTrace(
-        call.conversationId,
-        enderId,
-        call.type,
-        connected ? 'ended' : 'missed',
-        duration,
-      ).catch(() => {});
     }
 
     client.leave(`call:${data.callId}`);

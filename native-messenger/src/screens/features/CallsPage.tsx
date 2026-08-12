@@ -15,7 +15,7 @@ type CallEntry = {
   peerName: string;
   peerAvatar?: string;
   type: 'audio' | 'video';
-  direction: 'incoming' | 'outgoing' | 'missed';
+  direction: 'incoming' | 'outgoing' | 'missed' | 'refused' | 'cancelled';
   duration?: number;
   startedAt: string;
 };
@@ -28,12 +28,18 @@ function formatDuration(seconds?: number) {
 
 function directionText(direction: CallEntry['direction']) {
   if (direction === 'missed') return 'Manqué';
+  if (direction === 'refused') return 'Refusé';
+  if (direction === 'cancelled') return 'Annulé';
   if (direction === 'incoming') return 'Reçu';
   return 'Émis';
 }
 
 function typeText(type: CallEntry['type']) {
   return type === 'video' ? 'Vidéo' : 'Audio';
+}
+
+function isUnsuccessfulCall(direction: CallEntry['direction']) {
+  return direction === 'missed' || direction === 'refused' || direction === 'cancelled';
 }
 
 function formatDate(value?: string) {
@@ -44,7 +50,11 @@ function formatDate(value?: string) {
 }
 
 function DirectionIcon({ direction }: { direction: CallEntry['direction'] }) {
-  const Icon = direction === 'missed' ? PhoneMissed : direction === 'incoming' ? PhoneIncoming : PhoneOutgoing;
+  const Icon = direction === 'missed' || direction === 'refused' || direction === 'cancelled'
+    ? PhoneMissed
+    : direction === 'incoming'
+      ? PhoneIncoming
+      : PhoneOutgoing;
   return <Icon size={13} color="#FFFFFF" strokeWidth={2.7} />;
 }
 
@@ -236,6 +246,8 @@ export function CallsPage({
   const filters = [
     { id: 'all' as const, label: 'Tous', count: items.length },
     { id: 'missed' as const, label: 'Manqués', count: items.filter(item => item.direction === 'missed').length },
+    { id: 'refused' as const, label: 'Refusés', count: items.filter(item => item.direction === 'refused').length },
+    { id: 'cancelled' as const, label: 'Annulés', count: items.filter(item => item.direction === 'cancelled').length },
     { id: 'incoming' as const, label: 'Reçus', count: items.filter(item => item.direction === 'incoming').length },
     { id: 'outgoing' as const, label: 'Émis', count: items.filter(item => item.direction === 'outgoing').length },
   ];
@@ -305,7 +317,7 @@ export function CallsPage({
               android_ripple={{ color: 'rgba(16,42,42,0.08)' }}
               style={({ pressed }) => [
                 styles.callRow,
-                item.direction === 'missed' && styles.missedRow,
+                isUnsuccessfulCall(item.direction) && styles.missedRow,
                 pressed && !disabled && styles.callRowPressed,
                 disabled && styles.disabledRow,
               ]}
@@ -321,20 +333,20 @@ export function CallsPage({
                 hitSlop={8}
                 style={styles.avatarWrap}
               >
-                <View style={[styles.avatar, item.direction === 'missed' && styles.missedAvatar]}>
+                <View style={[styles.avatar, isUnsuccessfulCall(item.direction) && styles.missedAvatar]}>
                   {peerAvatar ? (
                     <Image source={{ uri: peerAvatar }} style={styles.avatarImage} />
                   ) : (
-                    <Text style={[styles.avatarText, item.direction === 'missed' && styles.missedText]}>{(item.peerName || '?').slice(0, 1).toUpperCase()}</Text>
+                    <Text style={[styles.avatarText, isUnsuccessfulCall(item.direction) && styles.missedText]}>{(item.peerName || '?').slice(0, 1).toUpperCase()}</Text>
                   )}
                 </View>
-                <View style={[styles.directionBadge, item.direction === 'missed' && styles.directionBadgeMissed]}>
+                <View style={[styles.directionBadge, isUnsuccessfulCall(item.direction) && styles.directionBadgeMissed]}>
                   <DirectionIcon direction={item.direction} />
                 </View>
               </Pressable>
               <View style={styles.callText}>
                 <Text numberOfLines={1} style={styles.callName}>{item.peerName || 'Contact'}</Text>
-                <Text style={[styles.callMeta, item.direction === 'missed' && styles.missedText]}>
+                <Text style={[styles.callMeta, isUnsuccessfulCall(item.direction) && styles.missedText]}>
                   {typeText(item.type)} • {directionText(item.direction)}{item.duration ? ` • ${formatDuration(item.duration)}` : ''}
                 </Text>
                 <Text numberOfLines={1} style={styles.callDate}>{isCalling ? 'Relance de l’appel...' : formatDate(item.startedAt)}</Text>
