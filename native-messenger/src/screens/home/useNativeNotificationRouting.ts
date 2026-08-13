@@ -12,6 +12,7 @@ import type { NativeTabKey } from '@/screens/NativeFeaturePages';
 import { api } from '@/services/api';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import { configureAndroidNotifications, registerPushToken } from '@/services/notifications';
+import { clearPendingInvite, readPendingInvite, rememberPendingInvite } from '@/services/pendingInvite';
 import type { AuthSession, Conversation } from '@/types/messenger';
 
 type RefValue<T> = { current: T };
@@ -97,7 +98,12 @@ export function useNativeNotificationRouting({
   const openInviteTarget = useCallback(async (url: string) => {
     const inviteTarget = parseInviteTarget(url);
     const activeSession = sessionRef.current;
-    if (!inviteTarget || !activeSession?.token) return false;
+    if (!inviteTarget) return false;
+    if (!activeSession?.token) {
+      await rememberPendingInvite(inviteTarget.username);
+      setNotice(`Invitation @${inviteTarget.username} gardée. Connectez-vous pour ouvrir la conversation.`);
+      return true;
+    }
     setBusy(true);
     setActiveTab('chats');
     setNotice(`Recherche de @${inviteTarget.username}...`);
@@ -114,6 +120,7 @@ export function useNativeNotificationRouting({
       const conversation = await api.createConversation(invitedBy.id, activeSession.token);
       await refreshConversations(activeSession.token);
       await openConversationById(conversation.id, activeSession.token);
+      await clearPendingInvite();
       setNotice('');
       return true;
     } catch (error) {
@@ -209,7 +216,6 @@ export function useNativeNotificationRouting({
   }, [handleNativeDeepLink, openConversationById]);
 
   useEffect(() => {
-    if (!session?.token) return;
     if (initialDeepLinkHandledRef.current) return;
     initialDeepLinkHandledRef.current = true;
     Linking.getInitialURL()
@@ -217,15 +223,23 @@ export function useNativeNotificationRouting({
         if (url) void handleNativeDeepLink(url);
       })
       .catch(() => null);
-  }, [handleNativeDeepLink, session?.token]);
+  }, [handleNativeDeepLink]);
 
   useEffect(() => {
-    if (!session?.token) return;
     const subscription = Linking.addEventListener('url', event => {
       void handleNativeDeepLink(event.url);
     });
     return () => subscription.remove();
-  }, [handleNativeDeepLink, session?.token]);
+  }, [handleNativeDeepLink]);
+
+  useEffect(() => {
+    if (!session?.token) return;
+    readPendingInvite()
+      .then(username => {
+        if (username) void openInviteTarget(`oraclemessenger://invite/${encodeURIComponent(username)}`);
+      })
+      .catch(() => undefined);
+  }, [openInviteTarget, session?.token]);
 
   useEffect(() => {
     if (!session?.token) return;

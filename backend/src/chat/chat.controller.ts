@@ -1,11 +1,114 @@
 import { Controller, Get, Post, Delete, Patch, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
 import { ChatService } from './chat.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { SocketStateService } from '../gateway/socket-state.service';
 
 @Controller()
 @UseGuards(JwtGuard)
 export class ChatController {
-  constructor(private chat: ChatService) {}
+  constructor(
+    private chat: ChatService,
+    private notif: NotificationsService,
+    private socketState: SocketStateService,
+  ) {}
+
+  private isSocketInRoom(socketId: string, room: string) {
+    return this.socketState.server?.sockets.sockets.get(socketId)?.rooms.has(room) ?? false;
+  }
+
+  private messagePreview(message: any) {
+    if (message?.type === 'text') {
+      const content = String(message.content || '');
+      return content.length > 80 ? `${content.slice(0, 80)}...` : content;
+    }
+    if (message?.type === 'image') return 'Photo';
+    if (message?.type === 'video') return 'Video';
+    if (message?.type === 'audio' || message?.type === 'voice') return 'Message vocal';
+    return 'Fichier';
+  }
+
+  private async broadcastConversationSummaries(conversationId: string, participantIds?: string[]) {
+    const ids = participantIds ?? await this.chat.getParticipantIds(conversationId);
+    for (const uid of ids) {
+      const summary = await this.chat.getConversation(conversationId, uid).catch(() => null);
+      if (!summary) continue;
+      this.socketState.emitToUser(uid, 'conversation:upsert', summary);
+    }
+  }
+
+  private async confirmDeliveredForConnectedRecipients(messageId: string, conversationId: string, recipientIds: string[]) {
+    const uniqueRecipientIds = [...new Set(recipientIds)];
+    if (!uniqueRecipientIds.length) return;
+
+    let latestMessage: Awaited<ReturnType<ChatService['markMessageDelivered']>> | null = null;
+    for (const recipientId of uniqueRecipientIds) {
+      latestMessage = await this.chat.markMessageDelivered(messageId, recipientId).catch(() => latestMessage);
+    }
+    if (!latestMessage) return;
+
+    const payload = {
+      id: latestMessage.id,
+      patch: { status: latestMessage.status, updatedAt: latestMessage.updatedAt },
+    };
+    const participantIds = await this.chat.getParticipantIds(conversationId);
+    for (const uid of participantIds) {
+      this.socketState.emitToUser(uid, 'message:update', payload);
+    }
+  }
+
+  private async emitCreatedMessageToParticipants(message: any, senderId: string) {
+    const participantIds = await this.chat.getParticipantIds(message.conversationId);
+    const room = `conv:${message.conversationId}`;
+    this.socketState.server?.to(room).emit('message:new', message);
+
+    const senderName = message.sender?.name ?? 'Oracle Messenger';
+    const preview = this.messagePreview(message);
+    const connectedRecipientIds: string[] = [];
+
+    for (const participantId of participantIds) {
+      if (participantId === senderId) continue;
+      const socketIds = this.socketState.getSocketIds(participantId);
+      if (socketIds.length) {
+        connectedRecipientIds.push(participantId);
+        for (const socketId of socketIds) {
+          if (this.isSocketInRoom(socketId, room)) continue;
+          this.socketState.server?.to(socketId).emit('message:new', message);
+        }
+      } else {
+        this.notif.sendPush(participantId, {
+          title: senderName,
+          body: preview,
+          url: `/chat?conv=${encodeURIComponent(message.conversationId)}`,
+          tag: `msg-${message.conversationId}`,
+          type: 'message',
+          conversationId: message.conversationId,
+        }).catch(() => {});
+      }
+    }
+
+    await this.confirmDeliveredForConnectedRecipients(message.id, message.conversationId, connectedRecipientIds);
+    await this.broadcastConversationSummaries(message.conversationId, participantIds);
+  }
+
+  private async broadcastConversationRead(
+    conversationId: string,
+    userId: string,
+    updatedMessages: Array<{ id: string; status?: string; updatedAt?: Date | string }>,
+  ) {
+    const payload = { conversationId, userId };
+    const participantIds = await this.chat.getParticipantIds(conversationId);
+    for (const uid of participantIds) {
+      this.socketState.emitToUser(uid, 'conversation:read', payload);
+      for (const message of updatedMessages) {
+        this.socketState.emitToUser(uid, 'message:update', {
+          id: message.id,
+          patch: { status: message.status, updatedAt: message.updatedAt },
+        });
+      }
+    }
+    await this.broadcastConversationSummaries(conversationId, participantIds);
+  }
 
   @Get('conversations')
   list(@Request() req: any) {
@@ -53,7 +156,11 @@ export class ChatController {
     @Body() body: { messageId?: string },
     @Request() req: any,
   ) {
-    return this.chat.markConversationRead(id, req.user.id, body?.messageId);
+    return this.chat.markConversationRead(id, req.user.id, body?.messageId)
+      .then(async updatedMessages => {
+        await this.broadcastConversationRead(id, req.user.id, updatedMessages);
+        return updatedMessages;
+      });
   }
 
   @Get('messages/media-pending')
@@ -67,7 +174,11 @@ export class ChatController {
     @Body() body: { content: string; type?: string; replyToId?: string },
     @Request() req: any,
   ) {
-    return this.chat.createMessage(id, req.user.id, body.content, body.type, body.replyToId);
+    return this.chat.createMessage(id, req.user.id, body.content, body.type, body.replyToId)
+      .then(async message => {
+        await this.emitCreatedMessageToParticipants(message, req.user.id);
+        return { ...message, status: message.status || 'sent' };
+      });
   }
 
   @Post('messages/:id/media-local-save')
