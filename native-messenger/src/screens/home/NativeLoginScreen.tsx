@@ -37,7 +37,8 @@ export function NativeLoginScreen({ notice, busy, onSignIn }: NativeLoginScreenP
           <Image source={require('../../../assets/icon.png')} style={styles.logoImage} />
           <Text style={styles.title}>Oracle Messenger</Text>
           <Text style={styles.subtitle}>
-            Connectez-vous avec Google. Votre numéro sera demandé ensuite pour aider vos contacts à vous retrouver.
+            est votre nouvelle application de messagerie, d’appels, de suivi d’entreprise et de création de contenus avec l’IA : vidéos IA et images IA.
+            {'\n\n'}Pour continuer, cliquez sur Google et inscrivez-vous.
           </Text>
         </View>
         {notice ? <Text style={styles.notice}>{notice}</Text> : null}
@@ -88,7 +89,7 @@ const styles = StyleSheet.create({
   loginHero: { alignItems: 'center', marginBottom: 8, width: '100%' },
   logoImage: { width: 92, height: 92, borderRadius: 26, marginBottom: 18, shadowColor: '#102A2A', shadowOpacity: 0.18, shadowRadius: 34, elevation: 8 },
   title: { color: colors.text, fontSize: 26, lineHeight: 31, fontWeight: '900', letterSpacing: 0, textAlign: 'center' },
-  subtitle: { color: colors.secondary, fontSize: 14, lineHeight: 21, marginTop: 6, marginBottom: 16, fontWeight: '700', maxWidth: 340, textAlign: 'center' },
+  subtitle: { color: colors.secondary, fontSize: 13, lineHeight: 19, marginTop: 6, marginBottom: 16, fontWeight: '700', maxWidth: 360, textAlign: 'center' },
   notice: { width: '100%', maxWidth: 360, color: colors.danger, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, fontSize: 13, fontWeight: '800', marginBottom: 14, lineHeight: 18, textAlign: 'center' },
   primaryButton: { width: '100%', maxWidth: 360, minHeight: 58, borderRadius: 28, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 12, shadowColor: '#102A2A', shadowOpacity: 0.22, shadowRadius: 22, elevation: 5 },
   disabledButton: { opacity: 0.55 },

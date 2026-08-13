@@ -294,7 +294,8 @@ function LoginContent() {
 
       <h1 style={{ fontSize:26, fontWeight:800, color:'var(--text-primary)', margin:'0 0 6px', textAlign:'center' }}>Oracle Messenger</h1>
       <p style={{ color:'var(--text-secondary)', fontSize:14, margin:'0 0 24px', textAlign:'center', maxWidth:340, lineHeight:1.5 }}>
-        Connectez-vous avec Google. Votre numéro sera demandé ensuite pour aider vos contacts à vous retrouver.
+        est votre nouvelle application de messagerie, d’appels, de suivi d’entreprise et de création de contenus avec l’IA : vidéos IA et images IA.
+        <br /><br />Pour continuer, cliquez sur Google et inscrivez-vous.
       </p>
 
       {error && (
