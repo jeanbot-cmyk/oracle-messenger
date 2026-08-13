@@ -158,7 +158,7 @@ export class AdminService {
       participants: others,
       lastMessage: conv.messages?.[0] ?? null,
       unreadCount,
-      isPinned: unreadCount > 0,
+      isPinned: true,
       isOfficial: true,
       isVerified: true,
       officialOpenedAt,

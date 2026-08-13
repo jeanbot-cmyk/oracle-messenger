@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { isOfficialExpired, mergeMessagePatch, mergeMessageStatus, sortConversations, sortMessages } from '@/screens/home/homeUtils';
+import { isOfficialExpired, markConversationReadLocally, mergeMessagePatch, mergeMessageStatus, sortConversations, sortMessages } from '@/screens/home/homeUtils';
 import { writeCachedConversations, writeCachedMessages } from '@/services/nativeConversationCache';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
 
@@ -88,7 +88,7 @@ export function useNativeConversationState({ session, messageSearch }: UseNative
   const upsertConversation = useCallback((conversation: Conversation) => {
     setConversations(current => {
       const normalizedConversation = selectedRef.current?.id === conversation.id
-        ? { ...conversation, unreadCount: 0 }
+        ? markConversationReadLocally(conversation)
         : conversation;
       const exists = current.some(item => item.id === conversation.id);
       const next = exists

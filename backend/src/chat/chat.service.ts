@@ -211,7 +211,7 @@ export class ChatService {
       participants: others,
       lastMessage,
       unreadCount,
-      isPinned: isOfficial ? unreadCount > 0 : Boolean(conv.isPinned),
+      isPinned: isOfficial ? true : Boolean(conv.isPinned),
       isOfficial,
       isVerified: isOfficial,
       officialOpenedAt,

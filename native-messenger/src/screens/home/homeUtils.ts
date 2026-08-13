@@ -71,10 +71,10 @@ function officialExpirationBelongsToLastMessage(conversation: Conversation) {
 
 export function normalizeOfficialExpiration(conversation: Conversation) {
   if (!isOfficialConversation(conversation)) return conversation;
-  if (!conversation.officialExpiresAt) return conversation;
   if ((conversation.unreadCount ?? 0) > 0) return { ...conversation, officialExpiresAt: null, isPinned: true };
-  if (!officialExpirationBelongsToLastMessage(conversation)) return { ...conversation, officialExpiresAt: null, isPinned: false };
-  return conversation;
+  if (!conversation.officialExpiresAt) return { ...conversation, isPinned: true };
+  if (!officialExpirationBelongsToLastMessage(conversation)) return { ...conversation, officialExpiresAt: null, isPinned: true };
+  return { ...conversation, isPinned: true };
 }
 
 export function isOfficialExpired(conversation: Conversation) {
@@ -103,17 +103,17 @@ export function markConversationReadLocally(conversation: Conversation) {
     return {
       ...conversation,
       unreadCount: 0,
-      isPinned: false,
+      isPinned: true,
       officialState: conversation.officialState ? { ...conversation.officialState, unread: false } : conversation.officialState,
     };
   }
-  if (!conversation.lastMessage?.createdAt) return { ...conversation, unreadCount: 0, isPinned: false };
+  if (!conversation.lastMessage?.createdAt) return { ...conversation, unreadCount: 0, isPinned: true };
   const openedAt = new Date().toISOString();
   const expiresAt = new Date(Date.now() + OFFICIAL_MESSAGE_TTL_MS).toISOString();
   return {
     ...conversation,
     unreadCount: 0,
-    isPinned: false,
+    isPinned: true,
     officialOpenedAt: openedAt,
     officialExpiresAt: expiresAt,
     officialState: {

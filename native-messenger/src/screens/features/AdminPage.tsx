@@ -275,7 +275,7 @@ export function AdminPage({ token, onBack }: { token: string; onBack: () => void
 
       {systemOpen ? (
       <Section title="Conversation système O.Messenger">
-        <Text style={styles.pageCopy}>Ce message crée ou met à jour une vraie conversation officielle, épinglée en haut et marquée O.Messenger vérifié. Ce n’est pas une simple notification Android.</Text>
+        <Text style={styles.pageCopy}>Ce message crée ou met à jour une vraie conversation officielle, épinglée en haut jusqu’à expiration 24h après lecture du dernier message, et marquée O.Messenger vérifié. Ce n’est pas une simple notification Android.</Text>
         <TextInput value={message} onChangeText={setMessage} placeholder="Rédigez votre annonce, lien ou message officiel..." placeholderTextColor={colors.muted} multiline style={[styles.input, styles.textarea]} />
         <View style={styles.actionRow}>
           <SecondaryButton label="Image/vidéo" onPress={pickBroadcastMedia} disabled={busy} />
