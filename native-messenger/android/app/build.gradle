@@ -102,8 +102,8 @@ android {
         applicationId = 'online.oracle_plus.messenger'
         minSdkVersion = rootProject.ext.minSdkVersion
         targetSdkVersion = rootProject.ext.targetSdkVersion
-        versionCode = 2026081321
-        versionName = "1.0.20260813.21"
+        versionCode = 2026081322
+        versionName = "1.0.20260813.22"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
