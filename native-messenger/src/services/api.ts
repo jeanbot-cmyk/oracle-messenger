@@ -150,6 +150,12 @@ export const api = {
       `/conversations/${encodeURIComponent(conversationId)}/messages${before ? `?before=${encodeURIComponent(before)}` : ''}`,
       token,
     ),
+  markConversationRead: (conversationId: string, token: string, messageId?: string) =>
+    apiRequest<{ id: string; conversationId: string; status?: string; updatedAt?: string }[]>(
+      `/conversations/${encodeURIComponent(conversationId)}/read`,
+      { method: 'POST', body: JSON.stringify(messageId ? { messageId } : {}) },
+      token,
+    ),
   pendingMedia: (token: string) => apiGet<Message[]>('/messages/media-pending?limit=80', token),
   sendMessage: (conversationId: string, token: string, content: string, type = 'text', replyToId?: string) =>
     apiRequest<Message>(

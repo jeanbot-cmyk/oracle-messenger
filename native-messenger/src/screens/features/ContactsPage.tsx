@@ -280,6 +280,7 @@ function LocalContactRow({
   const { local, appUser } = contact;
   const avatar = highQualityImageUri(appUser?.avatar || local.avatar) || appUser?.avatar || local.avatar;
   const displayName = (local.name.trim() || appUser?.name || 'Contact').replace(/^@+/, '');
+  const appUserOnline = String(appUser?.status || '').toLowerCase() === 'online';
   const displaySub = appUser
     ? normalizeUsername(appUser.username) || appUser.phone || appUser.email || 'Envoyez-lui un message'
     : local.phones.join(', ') || local.emails[0] || 'Pas encore inscrit';
@@ -303,7 +304,7 @@ function LocalContactRow({
         <View style={styles.localAvatar}>
           {avatar ? <Image source={{ uri: avatar }} style={styles.localAvatarImage} /> : <Text style={styles.localAvatarText}>{initials(displayName)}</Text>}
         </View>
-        {appUser ? <View style={styles.onlineDot} /> : null}
+        {appUserOnline ? <View style={styles.onlineDot} /> : null}
       </Pressable>
       <View style={styles.localRowText}>
         <Text numberOfLines={1} style={styles.localRowTitle}>{displayName}</Text>

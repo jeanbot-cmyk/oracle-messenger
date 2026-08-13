@@ -47,6 +47,15 @@ export class ChatController {
     return this.chat.getMessages(id, req.user.id, before);
   }
 
+  @Post('conversations/:id/read')
+  markRead(
+    @Param('id') id: string,
+    @Body() body: { messageId?: string },
+    @Request() req: any,
+  ) {
+    return this.chat.markConversationRead(id, req.user.id, body?.messageId);
+  }
+
   @Get('messages/media-pending')
   pendingMedia(@Query('limit') limit: string, @Request() req: any) {
     return this.chat.getPendingMedia(req.user.id, Number(limit) || 50);

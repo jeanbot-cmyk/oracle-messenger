@@ -1,6 +1,7 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { markConversationReadLocally, sortConversations } from '@/screens/home/homeUtils';
+import { api } from '@/services/api';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
 
@@ -19,7 +20,7 @@ type UseNativeRealtimeEventsParams = {
   runMediaSync: (activeToken: string, currentUserId?: string, knownMessages?: Message[]) => Promise<unknown>;
   handleTypingStart: (event: { conversationId: string; userId: string; userName?: string }) => void;
   handleTypingStop: (event: { conversationId: string; userId: string }) => void;
-  handleUserOnline: (event: { userId: string; lastSeen?: string | null }) => void;
+  handleUserOnline: (event: { userId: string; lastSeen?: string | null; activeUntil?: string | null }) => void;
   handleUserOffline: (event: { userId: string; lastSeen?: string | null }) => void;
 };
 
@@ -72,6 +73,10 @@ export function useNativeRealtimeEvents({
         socket.emit('message:delivered', { messageId: message.id });
         if (selectedRef.current?.id === message.conversationId) {
           socket.emit('message:read', { conversationId: message.conversationId, messageId: message.id });
+          api.markConversationRead(message.conversationId, session.token, message.id).catch(() => undefined);
+          setConversations(current => sortConversations(current.map(item => (
+            item.id === message.conversationId ? markConversationReadLocally(item) : item
+          ))));
         }
         runMediaSync(session.token, session.user.id, [message]);
       }
@@ -96,7 +101,7 @@ export function useNativeRealtimeEvents({
       }
     };
 
-    const updateParticipantPresence = (event: { userId: string; status: 'online' | 'offline'; lastSeen?: string | null }) => {
+    const updateParticipantPresence = (event: { userId: string; status: 'online' | 'offline'; lastSeen?: string | null; activeUntil?: string | null }) => {
       setConversations(current => sortConversations(current.map(conversation => ({
         ...conversation,
         participants: conversation.participants.map(participant => (
@@ -123,7 +128,7 @@ export function useNativeRealtimeEvents({
     socket.on('message:delete', onMessageDelete);
     socket.on('typing:start', handleTypingStart);
     socket.on('typing:stop', handleTypingStop);
-    const onUserOnline = (event: { userId: string; lastSeen?: string | null }) => {
+    const onUserOnline = (event: { userId: string; lastSeen?: string | null; activeUntil?: string | null }) => {
       updateParticipantPresence({ ...event, status: 'online' });
       handleUserOnline(event);
     };

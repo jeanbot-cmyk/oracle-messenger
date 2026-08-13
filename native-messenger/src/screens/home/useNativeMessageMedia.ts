@@ -97,6 +97,25 @@ async function uploadMedia(token: string, input: NativeMessageMediaInput, mime: 
   }
 }
 
+async function sendMediaMessage(
+  token: string,
+  conversationId: string,
+  content: string,
+  type: NativeMessageMediaKind,
+) {
+  const socket = ensureNativeSocket(token);
+  try {
+    return await socketAck<Message>(socket, 'message:send', {
+      conversationId,
+      content,
+      type,
+    });
+  } catch (error) {
+    if (socket.connected) throw error;
+    return api.sendMessage(conversationId, token, content, type);
+  }
+}
+
 function normalizeDurationSeconds(value?: number | null) {
   if (!value || !Number.isFinite(value)) return undefined;
   const seconds = value > 1000 ? value / 1000 : value;
@@ -204,12 +223,7 @@ export function useNativeMessageMedia({
         thumbnail: input.thumbnail && input.thumbnail.length < 12_000 ? input.thumbnail : undefined,
         waveform: input.waveform,
       });
-      const socket = ensureNativeSocket(token);
-      const message = await socketAck<Message>(socket, 'message:send', {
-        conversationId: selected.id,
-        content: payload,
-        type: input.kind,
-      });
+      const message = await sendMediaMessage(token, selected.id, payload, input.kind);
       patchMessage(optimisticMessage.id, { ...message, content: localPayload, status: message.status || 'sent' });
       storeMediaFromLocalSource(message, input.uri)
         .then(saved => {

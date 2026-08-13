@@ -395,8 +395,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.cancelOfflineTimer(userId);
       if (!wasActive) {
         await this.users.setOnline(userId, true);
-        this.server.emit('user:online', { userId, status: 'online' });
       }
+      this.server.emit('user:online', {
+        userId,
+        status: 'online',
+        activeUntil: new Date(Date.now() + this.presenceHeartbeatTimeoutMs).toISOString(),
+      });
     } else if (!isActive) {
       this.scheduleOfflineIfNoActivePresence(userId, this.presenceBackgroundGraceMs);
     }

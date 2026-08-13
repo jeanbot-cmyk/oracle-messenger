@@ -103,7 +103,20 @@ export function useNativeMessageLoader({
       setMessages(mergedItems);
       await writeCachedMessages(ownerId, conversation.id, mergedItems);
       const lastIncoming = [...mergedItems].reverse().find(item => item.senderId !== sessionRef.current?.user.id);
-      if (lastIncoming) socket.emit('message:read', { conversationId: conversation.id, messageId: lastIncoming.id });
+      if (lastIncoming) {
+        socket.emit('message:read', { conversationId: conversation.id, messageId: lastIncoming.id });
+        api.markConversationRead(conversation.id, activeToken, lastIncoming.id)
+          .then(updates => {
+            if (!updates?.length) return;
+            setMessages(current => current.map(message => {
+              const update = updates.find(item => item.id === message.id);
+              return update ? { ...message, status: update.status || message.status, updatedAt: update.updatedAt || message.updatedAt } : message;
+            }));
+          })
+          .catch(() => undefined);
+      } else {
+        api.markConversationRead(conversation.id, activeToken).catch(() => undefined);
+      }
       setConversations(current => sortConversations(current.map(item => item.id === conversation.id ? markConversationReadLocally(item) : item)));
       setNotice('');
       runMediaSync(activeToken, currentUserId, mergedItems);

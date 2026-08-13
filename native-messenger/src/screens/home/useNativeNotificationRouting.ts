@@ -4,6 +4,7 @@ import * as Notifications from 'expo-notifications';
 import {
   parseCallActionDeepLink,
   parseConversationTarget,
+  parseInviteTarget,
   parsePaystackDeepLink,
 } from '@/screens/home/homeUtils';
 import type { PendingNativeCallAction } from '@/screens/home/usePendingNativeCallAction';
@@ -93,6 +94,36 @@ export function useNativeNotificationRouting({
     }
   }, [refreshConversations, setActiveTab, setBusy, setNotice, setSelected]);
 
+  const openInviteTarget = useCallback(async (url: string) => {
+    const inviteTarget = parseInviteTarget(url);
+    const activeSession = sessionRef.current;
+    if (!inviteTarget || !activeSession?.token) return false;
+    setBusy(true);
+    setActiveTab('chats');
+    setNotice(`Recherche de @${inviteTarget.username}...`);
+    try {
+      const invitedBy = await api.byUsername(inviteTarget.username);
+      if (!invitedBy?.id) {
+        setNotice('Inviteur introuvable sur Oracle Messenger.');
+        return true;
+      }
+      if (invitedBy.id === activeSession.user.id) {
+        setNotice('Ce lien est votre propre invitation.');
+        return true;
+      }
+      const conversation = await api.createConversation(invitedBy.id, activeSession.token);
+      await refreshConversations(activeSession.token);
+      await openConversationById(conversation.id, activeSession.token);
+      setNotice('');
+      return true;
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Ouverture de l’invitation impossible.');
+      return true;
+    } finally {
+      setBusy(false);
+    }
+  }, [openConversationById, refreshConversations, setActiveTab, setBusy, setNotice]);
+
   const handleNativeDeepLink = useCallback(async (url: string) => {
     const callAction = parseCallActionDeepLink(url);
     if (callAction) {
@@ -135,6 +166,7 @@ export function useNativeNotificationRouting({
       }
       return;
     }
+    if (await openInviteTarget(url)) return;
     const conversationTarget = parseConversationTarget(url);
     if (conversationTarget) {
       await openConversationById(conversationTarget.conversationId);
@@ -150,6 +182,7 @@ export function useNativeNotificationRouting({
     clearPendingCallAction,
     currentCallId,
     openConversationById,
+    openInviteTarget,
     prepareIncomingCall,
     queuePendingCallAction,
     setActiveTab,

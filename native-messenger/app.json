@@ -33,6 +33,33 @@
       },
       "googleServicesFile": "./google-services.json",
       "allowBackup": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "messenger.oracle-plus.online",
+              "pathPrefix": "/u"
+            },
+            {
+              "scheme": "https",
+              "host": "messenger.oracle-plus.online",
+              "pathPrefix": "/install"
+            },
+            {
+              "scheme": "https",
+              "host": "messenger.oracle-plus.online",
+              "pathPrefix": "/chat"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
       "blockedPermissions": [
         "android.permission.SYSTEM_ALERT_WINDOW"
       ]

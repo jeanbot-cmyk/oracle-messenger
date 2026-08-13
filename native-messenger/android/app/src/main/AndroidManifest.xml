@@ -43,6 +43,14 @@
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="oraclemessenger"/>
       </intent-filter>
+      <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="https" android:host="messenger.oracle-plus.online" android:pathPrefix="/u"/>
+        <data android:scheme="https" android:host="messenger.oracle-plus.online" android:pathPrefix="/install"/>
+        <data android:scheme="https" android:host="messenger.oracle-plus.online" android:pathPrefix="/chat"/>
+      </intent-filter>
     </activity>
   </application>
 </manifest>

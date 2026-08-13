@@ -14,6 +14,7 @@ export function useNativeTypingPresence({ selected, token, currentUserId, setDra
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [lastSeenByUser, setLastSeenByUser] = useState<Record<string, string | null>>({});
   const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onlineExpiryTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const formatLastSeen = useCallback((value?: string | null) => {
     if (!value) return 'Hors ligne';
@@ -47,14 +48,31 @@ export function useNativeTypingPresence({ selected, token, currentUserId, setDra
     });
   }, []);
 
-  const handleUserOnline = useCallback(({ userId, lastSeen }: { userId: string; lastSeen?: string | null }) => {
+  const handleUserOnline = useCallback(({ userId, lastSeen, activeUntil }: { userId: string; lastSeen?: string | null; activeUntil?: string | null }) => {
     setOnlineUsers(current => new Set([...current, userId]));
     if (lastSeen !== undefined) {
       setLastSeenByUser(current => ({ ...current, [userId]: lastSeen }));
     }
+    const existingTimer = onlineExpiryTimersRef.current[userId];
+    if (existingTimer) clearTimeout(existingTimer);
+    const until = activeUntil ? Date.parse(activeUntil) : Number.NaN;
+    const timeoutMs = Number.isFinite(until) ? Math.max(12_000, until - Date.now() + 1500) : 82_000;
+    onlineExpiryTimersRef.current[userId] = setTimeout(() => {
+      delete onlineExpiryTimersRef.current[userId];
+      setOnlineUsers(current => {
+        const next = new Set(current);
+        next.delete(userId);
+        return next;
+      });
+    }, timeoutMs);
   }, []);
 
   const handleUserOffline = useCallback(({ userId, lastSeen }: { userId: string; lastSeen?: string | null }) => {
+    const existingTimer = onlineExpiryTimersRef.current[userId];
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      delete onlineExpiryTimersRef.current[userId];
+    }
     setOnlineUsers(current => {
       const next = new Set(current);
       next.delete(userId);
@@ -78,6 +96,8 @@ export function useNativeTypingPresence({ selected, token, currentUserId, setDra
 
   useEffect(() => () => {
     if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
+    Object.values(onlineExpiryTimersRef.current).forEach(timer => clearTimeout(timer));
+    onlineExpiryTimersRef.current = {};
   }, []);
 
   useEffect(() => {

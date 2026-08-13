@@ -411,7 +411,34 @@ export function normalizeOnboardingPhone(country: Country, rawPhone: string) {
   return digits.startsWith(dialDigits) ? `+${digits}` : `${country.dial}${digits}`;
 }
 
-export function socketAck<T>(socket: ReturnType<typeof ensureNativeSocket>, event: string, payload: unknown, timeoutMs = 15000): Promise<T> {
+function waitForSocketReady(socket: ReturnType<typeof ensureNativeSocket>, timeoutMs: number) {
+  if (socket.connected) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('Temps réel indisponible.'));
+    }, Math.max(1500, timeoutMs));
+    const cleanup = () => {
+      clearTimeout(timeout);
+      socket.off('connect', onConnect);
+      socket.off('connect_error', onError);
+    };
+    const onConnect = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      // Socket.IO peut recevoir plusieurs erreurs pendant la reconnexion.
+      // On laisse le délai décider pour ne pas échouer trop tôt sur réseau mobile.
+    };
+    socket.on('connect', onConnect);
+    socket.on('connect_error', onError);
+    if (!(socket as { active?: boolean }).active) socket.connect();
+  });
+}
+
+export async function socketAck<T>(socket: ReturnType<typeof ensureNativeSocket>, event: string, payload: unknown, timeoutMs = 15000): Promise<T> {
+  await waitForSocketReady(socket, Math.min(8500, Math.max(1500, timeoutMs - 2500)));
   return new Promise((resolve, reject) => {
     socket.timeout(timeoutMs).emit(event, payload, (error: Error | null, response: T) => {
       if (error) reject(new Error('Temps réel indisponible.'));
@@ -451,4 +478,57 @@ export function parseConversationTarget(input?: string | null): { conversationId
   const conversationId = params.get('conv') || params.get('conversationId');
   if (!conversationId) return null;
   return { conversationId, callId: params.get('call') || params.get('callId') };
+}
+
+function normalizeInviteUsername(value?: string | null) {
+  const clean = String(value || '').trim().replace(/^@+/, '');
+  if (!clean) return '';
+  try {
+    return decodeURIComponent(clean).replace(/^@+/, '').replace(/[^a-z0-9._-].*$/i, '').toLowerCase();
+  } catch {
+    return clean.replace(/[^a-z0-9._-].*$/i, '').toLowerCase();
+  }
+}
+
+export function parseInviteTarget(input?: string | null): { username: string } | null {
+  if (!input) return null;
+  let raw = input.trim();
+  if (!raw) return null;
+  if (raw.startsWith('/')) raw = `https://messenger.oracle-plus.online${raw}`;
+
+  try {
+    const parsed = new URL(raw);
+    const queryUsername = normalizeInviteUsername(
+      parsed.searchParams.get('from') ||
+      parsed.searchParams.get('invite') ||
+      parsed.searchParams.get('u') ||
+      parsed.searchParams.get('username'),
+    );
+    if (queryUsername) return { username: queryUsername };
+
+    const host = parsed.host.toLowerCase();
+    const pathParts = parsed.pathname.split('/').filter(Boolean);
+    if (
+      parsed.protocol === 'oraclemessenger:' &&
+      (host === 'invite' || host === 'u') &&
+      pathParts[0]
+    ) {
+      const username = normalizeInviteUsername(pathParts[0]);
+      return username ? { username } : null;
+    }
+    if (
+      (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+      host === 'messenger.oracle-plus.online' &&
+      pathParts[0] === 'u' &&
+      pathParts[1]
+    ) {
+      const username = normalizeInviteUsername(pathParts[1]);
+      return username ? { username } : null;
+    }
+  } catch {
+    const username = normalizeInviteUsername(raw.replace(/^oraclemessenger:\/\/(invite|u)\/?/i, ''));
+    return username ? { username } : null;
+  }
+
+  return null;
 }

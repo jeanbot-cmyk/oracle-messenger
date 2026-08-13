@@ -38,6 +38,30 @@ function isRetryableSendError(error: unknown) {
   return true;
 }
 
+async function sendTextMessage(
+  token: string,
+  payload: { conversationId: string; content: string; replyToId?: string | null },
+) {
+  const socket = ensureNativeSocket(token);
+  try {
+    return await socketAck<Message>(socket, 'message:send', {
+      conversationId: payload.conversationId,
+      content: payload.content,
+      type: 'text',
+      replyToId: payload.replyToId || undefined,
+    });
+  } catch (error) {
+    if (socket.connected) throw error;
+    return api.sendMessage(
+      payload.conversationId,
+      token,
+      payload.content,
+      'text',
+      payload.replyToId || undefined,
+    );
+  }
+}
+
 export function useNativeTextMessageSender({
   draft,
   editingMessage,
@@ -61,15 +85,13 @@ export function useNativeTextMessageSender({
     try {
       const pending = await readNativeTextOutbox();
       if (!pending.length) return;
-      const socket = ensureNativeSocket(token);
       let sentCount = 0;
 
       for (const item of pending) {
         try {
-          const message = await socketAck<Message>(socket, 'message:send', {
+          const message = await sendTextMessage(token, {
             conversationId: item.conversationId,
             content: item.content,
-            type: 'text',
             replyToId: item.replyToId,
           });
           await removeNativeTextMessageFromOutbox(item.id);
@@ -139,11 +161,9 @@ export function useNativeTextMessageSender({
         };
         upsertMessage(optimisticMessage);
         setReplyTo(null);
-        const socket = ensureNativeSocket(token);
-        const message = await socketAck<Message>(socket, 'message:send', {
+        const message = await sendTextMessage(token, {
           conversationId: selected.id,
           content: clean,
-          type: 'text',
           replyToId: pendingReplyTo?.id,
         });
         patchMessage(localMessageId, { ...message, status: message.status || 'sent', replyTo: pendingReplyTo || message.replyTo });
