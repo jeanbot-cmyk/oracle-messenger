@@ -1,7 +1,9 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Share } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { messagePreview, socketAck } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
+import { removeLocalGalleryItem } from '@/services/localMedia';
 import { hideMessagesForMe } from '@/services/nativeHiddenMessages';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import type { Conversation, Message } from '@/types/messenger';
@@ -13,6 +15,7 @@ type UseNativeMessageActionsParams = {
   selected: Conversation | null;
   token?: string;
   currentUserId?: string;
+  ownerId?: string;
   refreshConversations: () => Promise<void>;
   markMessageDeleted: (conversationId: string, messageId: string) => void;
   upsertMessage: (message: Message) => void;
@@ -28,6 +31,7 @@ export function useNativeMessageActions({
   selected,
   token,
   currentUserId,
+  ownerId,
   refreshConversations,
   markMessageDeleted,
   upsertMessage,
@@ -60,6 +64,7 @@ export function useNativeMessageActions({
     api.deleteMessage(message.id, token)
       .then(() => {
         markMessageDeleted(message.conversationId, message.id);
+        removeLocalGalleryItem(message.id).catch(() => null);
         refreshConversations().catch(() => null);
       })
       .catch(error => setNotice(error instanceof Error ? error.message : 'Suppression impossible.'));
@@ -68,9 +73,10 @@ export function useNativeMessageActions({
   const deleteMessageForMe = useCallback((message: Message) => {
     if (!message.conversationId || !message.id) return;
     markMessageDeleted(message.conversationId, message.id);
-    hideMessagesForMe(message.conversationId, [message.id])
+    removeLocalGalleryItem(message.id).catch(() => null);
+    hideMessagesForMe(message.conversationId, [message.id], ownerId || currentUserId)
       .catch(error => setNotice(error instanceof Error ? error.message : 'Suppression locale impossible.'));
-  }, [markMessageDeleted, setNotice]);
+  }, [currentUserId, markMessageDeleted, ownerId, setNotice]);
 
   const selectedMessages = useMemo(() => {
     if (!selectedMessageIds.length) return [];
@@ -99,6 +105,17 @@ export function useNativeMessageActions({
       await Share.share({ message: body });
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Partage impossible.');
+    }
+  }, [setNotice]);
+
+  const copyMessage = useCallback(async (message: Message) => {
+    const text = message.type === 'text' ? message.content : messagePreview(message);
+    if (!text.trim()) return;
+    try {
+      await Clipboard.setStringAsync(text);
+      setNotice('Message copié.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Copie impossible.');
     }
   }, [setNotice]);
 
@@ -141,7 +158,12 @@ export function useNativeMessageActions({
       const ids = valid.map(message => message.id);
       const conversationIds = new Set(valid.map(message => message.conversationId).filter(Boolean));
       valid.forEach(message => markMessageDeleted(message.conversationId, message.id));
-      Promise.all([...conversationIds].map(conversationId => hideMessagesForMe(conversationId, ids.filter(id => valid.some(message => message.id === id && message.conversationId === conversationId)))))
+      valid.forEach(message => removeLocalGalleryItem(message.id).catch(() => null));
+      Promise.all([...conversationIds].map(conversationId => hideMessagesForMe(
+        conversationId,
+        ids.filter(id => valid.some(message => message.id === id && message.conversationId === conversationId)),
+        ownerId || currentUserId,
+      )))
         .catch(error => setNotice(error instanceof Error ? error.message : 'Suppression locale impossible.'));
       setSelectedMessageIds([]);
       setNotice(valid.length > 1 ? 'Messages supprimés pour moi.' : 'Message supprimé pour moi.');
@@ -161,7 +183,7 @@ export function useNativeMessageActions({
       });
     }
     Alert.alert('Supprimer', `${valid.length} message(s) sélectionné(s).`, buttons);
-  }, [currentUserId, deleteOwnMessage, markMessageDeleted, selectedMessages, setNotice]);
+  }, [currentUserId, deleteOwnMessage, markMessageDeleted, ownerId, selectedMessages, setNotice]);
 
   const deleteOwnMessageWithConfirm = useCallback((message: Message) => {
     Alert.alert('Supprimer', 'Supprimer ce message pour tous les participants ?', [
@@ -183,6 +205,7 @@ export function useNativeMessageActions({
         text: currentReaction === emoji ? `Retirer ${emoji}` : `Réagir ${emoji}`,
         onPress: () => reactToMessage(message, currentReaction === emoji ? null : emoji),
       })),
+      { text: 'Copier', onPress: () => copyMessage(message) },
       { text: 'Sélectionner', onPress: () => toggleMessageSelection(message.id) },
       { text: 'Transférer', onPress: () => beginForward([message]) },
       { text: 'Partager', onPress: () => shareMessages([message]) },
@@ -198,7 +221,7 @@ export function useNativeMessageActions({
     }
     buttons.push({ text: 'Annuler', style: 'cancel' });
     Alert.alert('Message', messagePreview(message), buttons);
-  }, [beginForward, currentUserId, deleteMessageForMe, deleteOwnMessageWithConfirm, reactToMessage, setDraft, setEditingMessage, setReplyTo, shareMessages, toggleMessageSelection]);
+  }, [beginForward, copyMessage, currentUserId, deleteMessageForMe, deleteOwnMessageWithConfirm, reactToMessage, setDraft, setEditingMessage, setReplyTo, shareMessages, toggleMessageSelection]);
 
   return {
     selectedMessageIds,

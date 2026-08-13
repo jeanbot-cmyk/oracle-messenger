@@ -62,7 +62,7 @@ export async function readCachedConversations(ownerId?: string | null) {
 }
 
 export async function writeCachedConversations(ownerId: string | null | undefined, conversations: Conversation[]) {
-  if (!ownerId || !conversations.length) return;
+  if (!ownerId) return;
   await AsyncStorage.setItem(conversationsKey(ownerId), JSON.stringify(normalizeConversations(conversations))).catch(() => undefined);
 }
 
@@ -72,6 +72,15 @@ export async function readCachedMessages(ownerId: string | null | undefined, con
 }
 
 export async function writeCachedMessages(ownerId: string | null | undefined, conversationId: string, messages: Message[]) {
-  if (!ownerId || !conversationId || !messages.length) return;
+  if (!ownerId || !conversationId) return;
   await AsyncStorage.setItem(messagesKey(ownerId, conversationId), JSON.stringify(normalizeMessages(messages))).catch(() => undefined);
+}
+
+export async function clearCachedConversation(ownerId: string | null | undefined, conversationId: string) {
+  if (!ownerId || !conversationId) return;
+  const conversations = await readCachedConversations(ownerId);
+  await AsyncStorage.multiSet([
+    [conversationsKey(ownerId), JSON.stringify(normalizeConversations(conversations.filter(item => item.id !== conversationId)))],
+    [messagesKey(ownerId, conversationId), JSON.stringify([])],
+  ]).catch(() => undefined);
 }

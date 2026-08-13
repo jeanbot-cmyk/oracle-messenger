@@ -65,7 +65,7 @@ async function apiUploadFile(
   const formData = new FormData();
   formData.append('file', {
     uri: data.uri,
-    name: data.name || `oracle-media-${Date.now()}`,
+    name: data.name || `oracle-media-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
     type: data.mime || 'application/octet-stream',
   } as any);
   if (data.name) formData.append('name', data.name);

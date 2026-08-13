@@ -2,6 +2,7 @@ import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { markConversationReadLocally, sortConversations } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
+import { removeLocalGalleryItem } from '@/services/localMedia';
 import { writeCachedConversations } from '@/services/nativeConversationCache';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
@@ -143,6 +144,7 @@ export function useNativeRealtimeEvents({
 
     const onMessageDelete = ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
       markMessageDeleted(conversationId, messageId);
+      removeLocalGalleryItem(messageId).catch(() => null);
     };
 
     socket.on('message:new', onMessageNew);

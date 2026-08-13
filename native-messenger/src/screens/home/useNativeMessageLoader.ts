@@ -106,7 +106,7 @@ export function useNativeMessageLoader({
     setSelected(conversation);
     setMessageSearch('');
     resetMessageActions();
-    const cachedMessages = await filterHiddenMessages(conversation.id, await readCachedMessages(ownerId, conversation.id));
+    const cachedMessages = await filterHiddenMessages(conversation.id, await readCachedMessages(ownerId, conversation.id), ownerId);
     if (cachedMessages.length) {
       setMessages(cachedMessages);
       setNotice('');
@@ -115,7 +115,7 @@ export function useNativeMessageLoader({
     try {
       const socket = ensureNativeSocket(activeToken);
       socket.emit('conversation:join', { conversationId: conversation.id });
-      const items = await filterHiddenMessages(conversation.id, await api.messages(conversation.id, activeToken));
+      const items = await filterHiddenMessages(conversation.id, await api.messages(conversation.id, activeToken), ownerId);
       const localCandidates = selected?.id === conversation.id ? [...messages, ...cachedMessages] : cachedMessages;
       const mergedItems = mergeMessagesKeepingLocalMedia(localCandidates, items);
       setMessages(mergedItems);
@@ -172,7 +172,7 @@ export function useNativeMessageLoader({
     if (!oldest?.createdAt) return;
     loadingOlderRef.current = true;
     try {
-      const older = await filterHiddenMessages(selected.id, await api.messages(selected.id, token, oldest.createdAt));
+      const older = await filterHiddenMessages(selected.id, await api.messages(selected.id, token, oldest.createdAt), ownerId);
       if (!older.length) return;
       setMessages(current => {
         const byId = new Map<string, Message>();

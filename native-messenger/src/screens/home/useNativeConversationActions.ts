@@ -3,10 +3,13 @@ import { Alert } from 'react-native';
 import type { NativeTabKey } from '@/screens/NativeFeaturePages';
 import { conversationName } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
+import { removeLocalGalleryItem } from '@/services/localMedia';
+import { clearCachedConversation, readCachedMessages } from '@/services/nativeConversationCache';
 import type { Conversation, Message } from '@/types/messenger';
 
 type UseNativeConversationActionsParams = {
   token?: string;
+  ownerId?: string;
   selectedId?: string;
   loadMessages: (conversation: Conversation) => void | Promise<void>;
   refreshConversations: () => Promise<void>;
@@ -20,6 +23,7 @@ type UseNativeConversationActionsParams = {
 
 export function useNativeConversationActions({
   token,
+  ownerId,
   selectedId,
   loadMessages,
   refreshConversations,
@@ -50,6 +54,10 @@ export function useNativeConversationActions({
                   setMessages([]);
                 }
                 setConversations(current => current.filter(item => item.id !== conversation.id));
+                const owner = ownerId || token;
+                const cachedMessages = await readCachedMessages(owner, conversation.id);
+                await Promise.all(cachedMessages.map(message => removeLocalGalleryItem(message.id).catch(() => null)));
+                await clearCachedConversation(owner, conversation.id);
                 await refreshConversations();
               })
               .catch(error => setNotice(error instanceof Error ? error.message : 'Suppression conversation impossible.'))
@@ -58,7 +66,7 @@ export function useNativeConversationActions({
         },
       ],
     );
-  }, [refreshConversations, selectedId, setBusy, setConversations, setMessages, setNotice, setSelected, token]);
+  }, [ownerId, refreshConversations, selectedId, setBusy, setConversations, setMessages, setNotice, setSelected, token]);
 
   const openConversationActions = useCallback((conversation: Conversation) => {
     Alert.alert('Conversation', conversationName(conversation), [

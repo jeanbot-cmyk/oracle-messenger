@@ -12,6 +12,7 @@ type UseNativeConversationControllerParams = {
   selected: Conversation | null;
   token?: string;
   currentUserId?: string;
+  ownerId?: string;
   sessionRef: RefValue<AuthSession | null>;
   refreshConversations: () => Promise<void>;
   markMessageDeleted: (conversationId: string, messageId: string) => void;
@@ -34,6 +35,7 @@ export function useNativeConversationController({
   selected,
   token,
   currentUserId,
+  ownerId,
   sessionRef,
   refreshConversations,
   markMessageDeleted,
@@ -55,6 +57,7 @@ export function useNativeConversationController({
     selected,
     token,
     currentUserId,
+    ownerId,
     refreshConversations,
     markMessageDeleted,
     upsertMessage,
@@ -84,6 +87,7 @@ export function useNativeConversationController({
 
   const conversationActions = useNativeConversationActions({
     token,
+    ownerId,
     selectedId: selected?.id,
     loadMessages: messageLoader.loadMessages,
     refreshConversations,

@@ -32,13 +32,14 @@ export function useNativeHomeMessaging({ session, ui, runMediaSync }: UseNativeH
   } = useNativeConversationState({ session, messageSearch: ui.messageSearch });
 
   const token = session?.token;
+  const ownerId = session?.user.id || session?.user.email || session?.token;
 
   const { refreshConversations } = useNativeConversationBrowser({
     activeTab: ui.activeTab,
     conversationSearch: ui.conversationSearch,
     selected,
     token,
-    ownerId: session?.user.id || session?.user.email || session?.token,
+    ownerId,
     setBusy: ui.setBusy,
     setConversations,
     setNotice: ui.setNotice,
@@ -88,6 +89,7 @@ export function useNativeHomeMessaging({ session, ui, runMediaSync }: UseNativeH
     selected,
     token,
     currentUserId: session?.user.id,
+    ownerId,
     sessionRef,
     refreshConversations,
     markMessageDeleted,

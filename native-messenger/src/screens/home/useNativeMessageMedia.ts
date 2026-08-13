@@ -57,6 +57,23 @@ function mediaLabel(kind: NativeMessageMediaKind) {
   return 'fichier';
 }
 
+function extensionFromMime(mime?: string | null) {
+  const normalized = String(mime || '').toLowerCase();
+  if (normalized.includes('jpeg')) return 'jpg';
+  if (normalized.includes('png')) return 'png';
+  if (normalized.includes('webp')) return 'webp';
+  if (normalized.includes('gif')) return 'gif';
+  if (normalized.includes('quicktime')) return 'mov';
+  if (normalized.includes('mp4')) return 'mp4';
+  if (normalized.includes('pdf')) return 'pdf';
+  if (normalized.includes('mpeg') || normalized.includes('mp3')) return 'mp3';
+  return 'bin';
+}
+
+function fallbackMediaName(prefix: string, mime?: string | null, index = 0) {
+  return `${prefix}-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}.${extensionFromMime(mime)}`;
+}
+
 function shouldTryLegacyUpload(error: unknown) {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error || '').toLowerCase();
   return message.includes('404') || message.includes('cannot post') || message.includes('not found');
@@ -268,19 +285,23 @@ export function useNativeMessageMedia({
       mediaTypes: ['images', 'videos'],
       quality: 0.86,
       allowsEditing: false,
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
     });
     if (result.canceled || !result.assets?.[0]) return;
-    const asset = result.assets[0];
-    await sendMedia({
-      uri: asset.uri,
-      name: asset.fileName || `media-${Date.now()}`,
-      mime: asset.mimeType || (asset.type === 'video' ? 'video/mp4' : 'image/jpeg'),
-      kind: asset.type === 'video' ? 'video' : 'image',
-      size: (asset as any).fileSize,
-      width: asset.width,
-      height: asset.height,
-      duration: normalizeDurationSeconds((asset as any).duration),
-    });
+    for (const [index, asset] of result.assets.slice(0, 10).entries()) {
+      const mime = asset.mimeType || (asset.type === 'video' ? 'video/mp4' : 'image/jpeg');
+      await sendMedia({
+        uri: asset.uri,
+        name: asset.fileName || fallbackMediaName(asset.type === 'video' ? 'video' : 'image', mime, index),
+        mime,
+        kind: asset.type === 'video' ? 'video' : 'image',
+        size: (asset as any).fileSize,
+        width: asset.width,
+        height: asset.height,
+        duration: normalizeDurationSeconds((asset as any).duration),
+      });
+    }
   }, [sendMedia, setNotice]);
 
   const attachCamera = useCallback(async () => {
@@ -296,10 +317,11 @@ export function useNativeMessageMedia({
     });
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
+    const mime = asset.mimeType || (asset.type === 'video' ? 'video/mp4' : 'image/jpeg');
     await sendMedia({
       uri: asset.uri,
-      name: asset.fileName || `camera-${Date.now()}`,
-      mime: asset.mimeType || (asset.type === 'video' ? 'video/mp4' : 'image/jpeg'),
+      name: asset.fileName || fallbackMediaName('camera', mime),
+      mime,
       kind: asset.type === 'video' ? 'video' : 'image',
       size: (asset as any).fileSize,
       width: asset.width,
@@ -311,19 +333,22 @@ export function useNativeMessageMedia({
   const attachDocument = useCallback(async () => {
     const result = await DocumentPicker.getDocumentAsync({
       copyToCacheDirectory: true,
-      multiple: false,
+      multiple: true,
       type: '*/*',
     });
     if (result.canceled || !result.assets?.[0]) return;
-    const asset = result.assets[0];
-    await sendMedia({
-      uri: asset.uri,
-      name: asset.name,
-      mime: asset.mimeType || 'application/octet-stream',
-      kind: asset.mimeType?.startsWith('audio/') ? 'audio' : 'file',
-      size: asset.size,
-      waveform: asset.mimeType?.startsWith('audio/') ? simpleWaveform(`${asset.name}:${asset.size || 0}`) : undefined,
-    });
+    for (const [index, asset] of result.assets.slice(0, 10).entries()) {
+      const mime = asset.mimeType || 'application/octet-stream';
+      const name = asset.name || fallbackMediaName('fichier', mime, index);
+      await sendMedia({
+        uri: asset.uri,
+        name,
+        mime,
+        kind: mime.startsWith('audio/') ? 'audio' : 'file',
+        size: asset.size,
+        waveform: mime.startsWith('audio/') ? simpleWaveform(`${name}:${asset.size || 0}`) : undefined,
+      });
+    }
   }, [sendMedia]);
 
   return {

@@ -4,6 +4,8 @@ import { enqueueNativeMediaDownload } from '@/services/nativeMediaWorker';
 import type { Message } from '@/types/messenger';
 
 let activeSync: Promise<MediaSyncResult> | null = null;
+let rerunAfterActiveSync = false;
+const queuedKnownMessages = new Map<string, Message>();
 
 export type MediaSyncResult = {
   queuedNativeMessageIds: string[];
@@ -25,8 +27,22 @@ async function storeAndAck(message: Message, token: string, currentUserId?: stri
   }
 }
 
+function mergeResults(left: MediaSyncResult, right: MediaSyncResult): MediaSyncResult {
+  return {
+    queuedNativeMessageIds: [...new Set([...left.queuedNativeMessageIds, ...right.queuedNativeMessageIds])],
+    savedMessageIds: [...new Set([...left.savedMessageIds, ...right.savedMessageIds])],
+    failedMessageIds: [...new Set([...left.failedMessageIds, ...right.failedMessageIds])],
+  };
+}
+
 export function syncPendingMedia(token: string, currentUserId?: string, knownMessages: Message[] = []): Promise<MediaSyncResult> {
-  if (activeSync) return activeSync;
+  for (const message of knownMessages) {
+    if (isMediaMessage(message)) queuedKnownMessages.set(message.id, message);
+  }
+  if (activeSync) {
+    rerunAfterActiveSync = true;
+    return activeSync;
+  }
 
   activeSync = (async () => {
     const result: MediaSyncResult = {
@@ -34,10 +50,8 @@ export function syncPendingMedia(token: string, currentUserId?: string, knownMes
       savedMessageIds: [],
       failedMessageIds: [],
     };
-    const byId = new Map<string, Message>();
-    for (const message of knownMessages) {
-      if (isMediaMessage(message)) byId.set(message.id, message);
-    }
+    const byId = new Map<string, Message>(queuedKnownMessages);
+    queuedKnownMessages.clear();
 
     try {
       const pending = await api.pendingMedia(token);
@@ -72,5 +86,9 @@ export function syncPendingMedia(token: string, currentUserId?: string, knownMes
     activeSync = null;
   });
 
-  return activeSync;
+  return activeSync.then(async result => {
+    if (!rerunAfterActiveSync && !queuedKnownMessages.size) return result;
+    rerunAfterActiveSync = false;
+    return mergeResults(result, await syncPendingMedia(token, currentUserId));
+  });
 }

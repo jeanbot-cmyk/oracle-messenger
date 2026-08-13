@@ -54,7 +54,7 @@ export function useNativeConversationState({ session, messageSearch }: UseNative
 
   useEffect(() => {
     const ownerId = session?.user.id || session?.user.email || session?.token;
-    if (!ownerId || !selected?.id || !messages.length) return;
+    if (!ownerId || !selected?.id) return;
     void writeCachedMessages(ownerId, selected.id, messages);
   }, [messages, selected?.id, session?.token, session?.user.email, session?.user.id]);
 
@@ -87,16 +87,19 @@ export function useNativeConversationState({ session, messageSearch }: UseNative
 
   const upsertConversation = useCallback((conversation: Conversation) => {
     setConversations(current => {
+      const normalizedConversation = selectedRef.current?.id === conversation.id
+        ? { ...conversation, unreadCount: 0 }
+        : conversation;
       const exists = current.some(item => item.id === conversation.id);
       const next = exists
         ? current.map(item => {
-            if (item.id !== conversation.id) return item;
-            const lastMessage = item.lastMessage && conversation.lastMessage?.id === item.lastMessage.id
-              ? mergeMessageKeepingLocalMedia(item.lastMessage, conversation.lastMessage)
-              : conversation.lastMessage;
-            return { ...item, ...conversation, lastMessage };
+            if (item.id !== normalizedConversation.id) return item;
+            const lastMessage = item.lastMessage && normalizedConversation.lastMessage?.id === item.lastMessage.id
+              ? mergeMessageKeepingLocalMedia(item.lastMessage, normalizedConversation.lastMessage)
+              : normalizedConversation.lastMessage;
+            return { ...item, ...normalizedConversation, lastMessage };
           })
-        : [conversation, ...current];
+        : [normalizedConversation, ...current];
       return sortConversations(next);
     });
   }, []);
