@@ -8,12 +8,12 @@ export class StoriesService {
   constructor(private prisma: PrismaService) {}
 
   private async visibleAuthorIds(userId: string) {
-    const [directParticipants, contacts, contactedBy] = await Promise.all([
+    const [conversationParticipants, contacts, contactedBy] = await Promise.all([
       this.prisma.participant.findMany({
         where: {
           userId: { not: userId },
           conversation: {
-            type: 'direct',
+            type: { in: ['direct', 'group'] },
             participants: { some: { userId } },
           },
           user: { email: { not: this.officialSystemEmail } },
@@ -38,7 +38,7 @@ export class StoriesService {
 
     return [...new Set([
       userId,
-      ...directParticipants.map(p => p.userId),
+      ...conversationParticipants.map(p => p.userId),
       ...contacts.map(c => c.contactUserId),
       ...contactedBy.map(c => c.ownerId),
     ])];

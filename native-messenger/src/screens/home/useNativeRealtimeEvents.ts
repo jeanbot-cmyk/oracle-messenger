@@ -2,6 +2,7 @@ import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { markConversationReadLocally, sortConversations } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
+import { writeCachedConversations } from '@/services/nativeConversationCache';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
 
@@ -66,6 +67,18 @@ export function useNativeRealtimeEvents({
   useEffect(() => {
     if (!session?.token) return;
     const socket = ensureNativeSocket(session.token);
+    const ownerId = session.user.id || session.user.email || session.token;
+
+    const applyConversationSummary = (conversation: Conversation) => {
+      setConversations(current => {
+        const next = current.some(item => item.id === conversation.id)
+          ? current.map(item => item.id === conversation.id ? conversation : item)
+          : [conversation, ...current];
+        const sorted = sortConversations(next);
+        void writeCachedConversations(ownerId, sorted);
+        return sorted;
+      });
+    };
 
     const onMessageNew = (message: Message) => {
       upsertMessage(message);
@@ -73,7 +86,17 @@ export function useNativeRealtimeEvents({
         socket.emit('message:delivered', { messageId: message.id });
         if (selectedRef.current?.id === message.conversationId) {
           socket.emit('message:read', { conversationId: message.conversationId, messageId: message.id });
-          api.markConversationRead(message.conversationId, session.token, message.id).catch(() => undefined);
+          api.markConversationRead(message.conversationId, session.token, message.id)
+            .then(updates => {
+              if (!updates?.length) return;
+              setMessages(current => current.map(item => {
+                const update = updates.find(candidate => candidate.id === item.id);
+                return update ? { ...item, status: update.status || item.status, updatedAt: update.updatedAt || item.updatedAt } : item;
+              }));
+            })
+            .then(() => api.conversation(message.conversationId, session.token))
+            .then(applyConversationSummary)
+            .catch(() => undefined);
           setConversations(current => sortConversations(current.map(item => (
             item.id === message.conversationId ? markConversationReadLocally(item) : item
           ))));
@@ -93,6 +116,7 @@ export function useNativeRealtimeEvents({
     const onConversationRead = ({ conversationId, userId }: { conversationId: string; userId: string }) => {
       if (userId === sessionRef.current?.user.id) {
         setConversations(current => sortConversations(current.map(item => item.id === conversationId ? markConversationReadLocally(item) : item)));
+        api.conversation(conversationId, session.token).then(applyConversationSummary).catch(() => undefined);
         setMessages(current => current.map(message => (
           message.conversationId === conversationId && message.senderId !== userId
             ? { ...message, status: 'read' }

@@ -64,30 +64,33 @@ export class ChatController {
 
     const senderName = message.sender?.name ?? 'Oracle Messenger';
     const preview = this.messagePreview(message);
-    const connectedRecipientIds: string[] = [];
+    const deliverableRecipientIds = new Set<string>();
 
     for (const participantId of participantIds) {
       if (participantId === senderId) continue;
       const socketIds = this.socketState.getSocketIds(participantId);
+      const hasOpenConversation = socketIds.some(socketId => this.isSocketInRoom(socketId, room));
       if (socketIds.length) {
-        connectedRecipientIds.push(participantId);
+        deliverableRecipientIds.add(participantId);
         for (const socketId of socketIds) {
           if (this.isSocketInRoom(socketId, room)) continue;
           this.socketState.server?.to(socketId).emit('message:new', message);
         }
-      } else {
-        this.notif.sendPush(participantId, {
+      }
+      if (!hasOpenConversation) {
+        const pushResult = await this.notif.sendPush(participantId, {
           title: senderName,
           body: preview,
-          url: `/chat?conv=${encodeURIComponent(message.conversationId)}`,
+          url: `oraclemessenger://notification?conversationId=${encodeURIComponent(message.conversationId)}`,
           tag: `msg-${message.conversationId}`,
           type: 'message',
           conversationId: message.conversationId,
-        }).catch(() => {});
+        }).catch(() => ({ targets: 0, delivered: 0, failed: 1 }));
+        if (pushResult.delivered > 0) deliverableRecipientIds.add(participantId);
       }
     }
 
-    await this.confirmDeliveredForConnectedRecipients(message.id, message.conversationId, connectedRecipientIds);
+    await this.confirmDeliveredForConnectedRecipients(message.id, message.conversationId, [...deliverableRecipientIds]);
     await this.broadcastConversationSummaries(message.conversationId, participantIds);
   }
 

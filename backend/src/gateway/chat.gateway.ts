@@ -33,7 +33,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // userId → socketId (en mémoire — suffisant pour 1 instance)
   // userSockets moved to SocketStateService
 
-  private readonly callNoAnswerTimeoutMs = Number(process.env.CALL_NO_ANSWER_TIMEOUT_MS || 300_000);
+  private readonly callNoAnswerTimeoutMs = Number(process.env.CALL_NO_ANSWER_TIMEOUT_MS || 360_000);
   private readonly presenceHeartbeatTimeoutMs = Number(process.env.PRESENCE_HEARTBEAT_TIMEOUT_MS || 70_000);
   private readonly presenceOfflineGraceMs = Number(process.env.PRESENCE_OFFLINE_GRACE_MS || 75_000);
   private readonly presenceBackgroundGraceMs = Number(process.env.PRESENCE_BACKGROUND_GRACE_MS || 8_000);
@@ -462,31 +462,35 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         : msg.type === 'audio' ? '🎵 Audio'
         : '📎 Fichier';
 
+      const deliverableRecipientIds = new Set<string>();
       for (const pid of participantIds) {
         if (pid === client.data.userId) continue;
         const socketIds = this.socketState.getSocketIds(pid);
+        const hasOpenConversation = socketIds.some(sid => this.isSocketInRoom(sid, conversationRoom));
         if (socketIds.length) {
-          // Connecté → socket temps réel
+          deliverableRecipientIds.add(pid);
+          // Connecté → socket temps réel, sauf l'écran déjà ouvert qui reçoit par la room.
           for (const sid of socketIds) {
             if (this.isSocketInRoom(sid, conversationRoom)) continue;
             this.server.to(sid).emit('message:new', msg);
           }
-        } else {
-          // Hors ligne → Push Notification (son géré par l'OS)
-          this.notif.sendPush(pid, {
+        }
+        if (!hasOpenConversation) {
+          const pushResult = await this.notif.sendPush(pid, {
             title: senderName,
             body: preview,
-            url: `/chat?conv=${encodeURIComponent(data.conversationId)}`,
+            url: `oraclemessenger://notification?conversationId=${encodeURIComponent(data.conversationId)}`,
             tag: `msg-${data.conversationId}`,
             type: 'message',
             conversationId: data.conversationId,
-          }).catch(() => {});
+          }).catch(() => ({ targets: 0, delivered: 0, failed: 1 }));
+          if (pushResult.delivered > 0) deliverableRecipientIds.add(pid);
         }
       }
       await this.confirmDeliveredForConnectedRecipients(
         msg.id,
         data.conversationId,
-        participantIds.filter(pid => pid !== client.data.userId && this.socketState.getSocketIds(pid).length > 0),
+        [...deliverableRecipientIds],
       );
       await this.broadcastConversationSummaries(data.conversationId, participantIds);
 
@@ -749,25 +753,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(room).emit('message:new', reply);
     const senderName = reply.sender?.name ?? titleFallback;
     const preview = reply.content.length > 80 ? `${reply.content.slice(0, 80)}…` : reply.content;
+    const deliverableRecipientIds = new Set<string>();
     for (const pid of participantIds) {
       if (pid === senderId) continue;
       const socketIds = this.socketState.getSocketIds(pid);
+      const hasOpenConversation = socketIds.some(sid => this.isSocketInRoom(sid, room));
       if (socketIds.length) {
+        deliverableRecipientIds.add(pid);
         for (const sid of socketIds) {
           if (this.isSocketInRoom(sid, room)) continue;
           this.server.to(sid).emit('message:new', reply);
         }
-      } else {
-        this.notif.sendPush(pid, {
+      }
+      if (!hasOpenConversation) {
+        const pushResult = await this.notif.sendPush(pid, {
           title: senderName,
           body: preview,
-          url: `/chat?conv=${encodeURIComponent(reply.conversationId)}`,
+          url: `oraclemessenger://notification?conversationId=${encodeURIComponent(reply.conversationId)}`,
           tag: `msg-${reply.conversationId}`,
           type: 'message',
           conversationId: reply.conversationId,
-        }).catch(() => {});
+        }).catch(() => ({ targets: 0, delivered: 0, failed: 1 }));
+        if (pushResult.delivered > 0) deliverableRecipientIds.add(pid);
       }
     }
+    await this.confirmDeliveredForConnectedRecipients(reply.id, reply.conversationId, [...deliverableRecipientIds]);
     await this.broadcastConversationSummaries(reply.conversationId, participantIds);
   }
 
@@ -1026,7 +1036,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.notif.sendPush(targetId, {
           title: `📞 Appel ${data.type === 'video' ? 'vidéo' : 'audio'} — ${callerName}`,
           body: 'Ouvrez Oracle Messenger pour répondre.',
-          url: `/chat?conv=${encodeURIComponent(data.conversationId)}&call=${encodeURIComponent(data.callId)}`,
+          url: `oraclemessenger://call?action=open&callId=${encodeURIComponent(data.callId)}&conversationId=${encodeURIComponent(data.conversationId)}`,
           tag: `incoming-call-${data.callId}`,
           type: 'call',
           callId: data.callId,
@@ -1281,7 +1291,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.notif.sendPush(targetId, {
         title: `📞 Appel ${call.type === 'video' ? 'vidéo' : 'audio'} — ${call.callerName}`,
         body: 'Vous êtes invité à rejoindre un appel Oracle Messenger.',
-        url: `/chat?call=${encodeURIComponent(data.callId)}`,
+        url: `oraclemessenger://call?action=open&callId=${encodeURIComponent(data.callId)}&conversationId=${encodeURIComponent(call.conversationId)}`,
         tag: `incoming-call-${data.callId}`,
         type: 'call',
         callId: data.callId,

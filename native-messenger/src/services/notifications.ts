@@ -2,7 +2,7 @@ import { NativeModules, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { api } from '@/services/api';
 
-const CALL_CHANNEL_ID = 'oracle_messenger_incoming_calls_v4';
+const CALL_CHANNEL_ID = 'oracle_messenger_incoming_calls_v5';
 const MESSAGE_CHANNEL_ID = 'oracle_messenger_messages_v3';
 const REMINDER_CHANNEL_ID = 'oracle_messenger_local_reminders_v2';
 const NativeIncomingCall = NativeModules.OracleIncomingCallNotification as

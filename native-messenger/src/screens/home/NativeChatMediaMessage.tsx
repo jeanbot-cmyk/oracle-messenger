@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import { AlertCircle, CheckCircle2, Cloud, ExternalLink, Maximize2, Mic2, Paperclip, UploadCloud } from 'lucide-react-native';
+import { Image, Linking, Modal, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { AlertCircle, CheckCircle2, Cloud, ExternalLink, Maximize2, Mic2, Paperclip, UploadCloud, X } from 'lucide-react-native';
 import { OracleAudioPlayer, OracleVideoPlayer } from '@/screens/features/NativeMediaPlayers';
 import type { LocalGalleryItem } from '@/services/localMedia';
 import { colors } from '@/theme/colors';
@@ -58,7 +58,7 @@ function openTextUrl(rawUrl: string) {
   Linking.openURL(normalized).catch(() => undefined);
 }
 
-function LinkedCaption({ text }: { text?: string }) {
+function LinkedCaption({ text, light = false }: { text?: string; light?: boolean }) {
   if (!text) return null;
   const parts: { text: string; link: boolean }[] = [];
   let cursor = 0;
@@ -71,7 +71,7 @@ function LinkedCaption({ text }: { text?: string }) {
   }
   if (cursor < text.length) parts.push({ text: text.slice(cursor), link: false });
   return (
-    <Text style={styles.mediaCaptionText}>
+    <Text style={[styles.mediaCaptionText, light ? styles.mediaCaptionTextLight : null]}>
       {parts.map((part, index) => part.link ? (
         <Text key={`${part.text}-${index}`} accessibilityRole="link" onPress={() => openTextUrl(part.text)} style={styles.mediaCaptionLink}>
           {part.text}
@@ -85,6 +85,7 @@ function LinkedCaption({ text }: { text?: string }) {
 
 export function NativeChatMediaMessage({ message, localItem, mine = false, avatar, avatarLabel }: NativeChatMediaMessageProps) {
   const [imageOpen, setImageOpen] = useState(false);
+  const [videoOpen, setVideoOpen] = useState(false);
   const payload = parseMediaPayload(message.content);
   const localPayloadUri = mine && isLocalMediaUri(payload?.localUri) ? payload?.localUri : undefined;
   const sourceUrl = localItem?.uri || localPayloadUri || payload?.url;
@@ -143,24 +144,42 @@ export function NativeChatMediaMessage({ message, localItem, mine = false, avata
 
   if (message.type === 'video') {
     return (
-      <View style={styles.chatMediaBox}>
-        <View style={[styles.videoFrame, mediaSizingStyle]}>
-          <OracleVideoPlayer sourceUrl={sourceUrl} style={[styles.chatVideoPlayer, mediaSizingStyle]} />
-          {uploadOverlay}
+      <>
+        <View style={styles.chatMediaBox}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Ouvrir la vidéo"
-            onPress={() => openMediaUrl(sourceUrl)}
-            android_ripple={{ color: 'rgba(255,255,255,0.18)', borderless: true }}
-            style={styles.mediaOpenBadge}
+            accessibilityLabel="Ouvrir la vidéo en plein écran"
+            onPress={() => setVideoOpen(true)}
+            android_ripple={{ color: 'rgba(255,255,255,0.16)' }}
+            style={[styles.videoFrame, mediaSizingStyle]}
           >
-            <ExternalLink size={14} color="#FFFFFF" strokeWidth={2.8} />
+            <OracleVideoPlayer sourceUrl={sourceUrl} muted style={[styles.chatVideoPlayer, mediaSizingStyle]} />
+            {uploadOverlay}
+            <View style={styles.mediaOpenBadge}>
+              <Maximize2 size={14} color="#FFFFFF" strokeWidth={2.8} />
+            </View>
+            {durationLabel ? <Text style={styles.durationBadge}>{durationLabel}</Text> : null}
           </Pressable>
-          {durationLabel ? <Text style={styles.durationBadge}>{durationLabel}</Text> : null}
+          <Text numberOfLines={1} style={styles.chatMediaCaption}>{mediaMeta || `Vidéo - ${localBadge}`}</Text>
+          <LinkedCaption text={caption} />
         </View>
-        <Text numberOfLines={1} style={styles.chatMediaCaption}>{mediaMeta || `Vidéo - ${localBadge}`}</Text>
-        <LinkedCaption text={caption} />
-      </View>
+        <Modal visible={videoOpen} transparent={false} animationType="fade" statusBarTranslucent onRequestClose={() => setVideoOpen(false)}>
+          <View style={styles.videoViewerBackdrop}>
+            <SafeAreaView style={styles.videoViewerSafe}>
+              <View style={styles.videoViewerHeader}>
+                <Text numberOfLines={1} maxFontSizeMultiplier={1.05} style={styles.videoViewerTitle}>{displayName || 'Vidéo'}</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Fermer la vidéo" onPress={() => setVideoOpen(false)} style={styles.videoViewerClose}>
+                  <X size={22} color="#FFFFFF" strokeWidth={2.4} />
+                </Pressable>
+              </View>
+              <View style={styles.videoViewerStage}>
+                <OracleVideoPlayer sourceUrl={sourceUrl} style={styles.videoViewerPlayer} />
+              </View>
+              {caption ? <View style={styles.videoViewerCaption}><LinkedCaption text={caption} light /></View> : null}
+            </SafeAreaView>
+          </View>
+        </Modal>
+      </>
     );
   }
 
@@ -284,8 +303,26 @@ const styles = StyleSheet.create({
   uploadProgressFill: { height: '100%', borderRadius: 999, backgroundColor: '#FFFFFF' },
   chatMediaCaption: { color: colors.muted, fontSize: 11.5, lineHeight: 16, fontWeight: '800', paddingHorizontal: 10, paddingVertical: 8 },
   mediaCaptionText: { color: colors.text, fontSize: 13.5, lineHeight: 18, fontWeight: '600', paddingHorizontal: 10, paddingBottom: 8 },
+  mediaCaptionTextLight: { color: '#FFFFFF', paddingBottom: 0 },
   mediaCaptionLink: { color: '#0F766E', fontWeight: '900', textDecorationLine: 'underline' },
   durationBadge: { position: 'absolute', left: 10, bottom: 10, overflow: 'hidden', borderRadius: 999, backgroundColor: 'rgba(2,6,23,0.64)', color: '#FFFFFF', fontSize: 11, lineHeight: 14, fontWeight: '900', paddingHorizontal: 8, paddingVertical: 4 },
+  videoViewerBackdrop: { flex: 1, backgroundColor: '#000000' },
+  videoViewerSafe: { flex: 1 },
+  videoViewerHeader: {
+    minHeight: 58,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    backgroundColor: 'rgba(0,0,0,0.88)',
+  },
+  videoViewerTitle: { flex: 1, color: '#FFFFFF', fontSize: 15, lineHeight: 20, fontWeight: '800' },
+  videoViewerClose: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
+  videoViewerStage: { flex: 1, backgroundColor: '#000000', alignItems: 'center', justifyContent: 'center' },
+  videoViewerPlayer: { width: '100%', height: '100%', backgroundColor: '#000000' },
+  videoViewerCaption: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 16, backgroundColor: 'rgba(0,0,0,0.88)' },
   chatAudioBox: { position: 'relative', overflow: 'hidden', width: 270, maxWidth: '100%', borderRadius: 18, gap: 8, padding: 10, borderWidth: 1 },
   chatAudioMine: { backgroundColor: 'rgba(255,255,255,0.64)', borderColor: 'rgba(16,42,42,0.08)' },
   chatAudioOther: { backgroundColor: 'rgba(16,42,42,0.035)', borderColor: 'rgba(16,42,42,0.07)' },

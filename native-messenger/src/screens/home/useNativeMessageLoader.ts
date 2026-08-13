@@ -23,7 +23,7 @@ type UseNativeMessageLoaderParams = {
   setMessageSearch: (search: string) => void;
   setMessages: Dispatch<SetStateAction<Message[]>>;
   setNotice: (message: string) => void;
-  setSelected: (conversation: Conversation | null) => void;
+  setSelected: Dispatch<SetStateAction<Conversation | null>>;
 };
 
 function localUriFromMessage(message?: Message | null) {
@@ -76,6 +76,24 @@ export function useNativeMessageLoader({
 }: UseNativeMessageLoaderParams) {
   const loadingOlderRef = useRef(false);
 
+  const applyConversationSummary = useCallback((conversation: Conversation, activeToken: string) => {
+    const ownerId = sessionRef.current?.user.id || sessionRef.current?.user.email || activeToken;
+    setConversations(current => {
+      const next = current.some(item => item.id === conversation.id)
+        ? current.map(item => item.id === conversation.id ? conversation : item)
+        : [conversation, ...current];
+      const sorted = sortConversations(next);
+      void writeCachedConversations(ownerId, sorted);
+      return sorted;
+    });
+    setSelected(current => current?.id === conversation.id ? { ...current, ...conversation } : current);
+  }, [sessionRef, setConversations, setSelected]);
+
+  const refreshConversationSummary = useCallback(async (conversationId: string, activeToken: string) => {
+    const summary = await api.conversation(conversationId, activeToken);
+    applyConversationSummary(summary, activeToken);
+  }, [applyConversationSummary]);
+
   const loadMessages = useCallback(async (conversation: Conversation, activeToken = token) => {
     if (!activeToken) return;
     const ownerId = sessionRef.current?.user.id || sessionRef.current?.user.email || activeToken;
@@ -103,21 +121,23 @@ export function useNativeMessageLoader({
       setMessages(mergedItems);
       await writeCachedMessages(ownerId, conversation.id, mergedItems);
       const lastIncoming = [...mergedItems].reverse().find(item => item.senderId !== sessionRef.current?.user.id);
+      let markReadPromise: Promise<unknown>;
       if (lastIncoming) {
         socket.emit('message:read', { conversationId: conversation.id, messageId: lastIncoming.id });
-        api.markConversationRead(conversation.id, activeToken, lastIncoming.id)
+        markReadPromise = api.markConversationRead(conversation.id, activeToken, lastIncoming.id)
           .then(updates => {
             if (!updates?.length) return;
             setMessages(current => current.map(message => {
               const update = updates.find(item => item.id === message.id);
               return update ? { ...message, status: update.status || message.status, updatedAt: update.updatedAt || message.updatedAt } : message;
             }));
-          })
-          .catch(() => undefined);
+          });
       } else {
-        api.markConversationRead(conversation.id, activeToken).catch(() => undefined);
+        markReadPromise = api.markConversationRead(conversation.id, activeToken);
       }
       setConversations(current => sortConversations(current.map(item => item.id === conversation.id ? markConversationReadLocally(item) : item)));
+      await markReadPromise.catch(() => undefined);
+      await refreshConversationSummary(conversation.id, activeToken).catch(() => undefined);
       setNotice('');
       runMediaSync(activeToken, currentUserId, mergedItems);
     } catch (error) {
@@ -134,6 +154,7 @@ export function useNativeMessageLoader({
     runMediaSync,
     sessionRef,
     selected?.id,
+    refreshConversationSummary,
     setActiveTab,
     setBusy,
     setConversations,

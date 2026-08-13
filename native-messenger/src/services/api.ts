@@ -133,6 +133,8 @@ export const api = {
     apiRequest<{ ok?: boolean; deleted?: number }>(`/users/contacts/${encodeURIComponent(contactUserId)}`, { method: 'DELETE' }, token),
   byUsername: (username: string) => apiGet<User>(`/users/u/${encodeURIComponent(username)}`),
   conversations: (token: string) => apiGet<Conversation[]>('/conversations', token),
+  conversation: (conversationId: string, token: string) =>
+    apiGet<Conversation>(`/conversations/${encodeURIComponent(conversationId)}`, token),
   searchConversations: (query: string, token: string) =>
     apiGet<Conversation[]>(`/conversations/search?q=${encodeURIComponent(query)}`, token),
   createConversation: (participantId: string, token: string) =>

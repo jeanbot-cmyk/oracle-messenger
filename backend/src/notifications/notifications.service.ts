@@ -22,6 +22,8 @@ type PushPayload = {
   vibrate?: number[];
 };
 
+type PushSendResult = { targets: number; delivered: number; failed: number };
+
 function firebaseAppConfigured() {
   return Boolean(
     process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
@@ -69,11 +71,11 @@ export class NotificationsService {
     });
   }
 
-  async sendPush(userId: string, payload: PushPayload) {
+  async sendPush(userId: string, payload: PushPayload): Promise<PushSendResult> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user?.pushToken) return;
+    if (!user?.pushToken) return { targets: 0, delivered: 0, failed: 0 };
     const subscriptions = this.parseSubscriptions(user.pushToken);
-    if (!subscriptions.length) return;
+    if (!subscriptions.length) return { targets: 0, delivered: 0, failed: 0 };
 
     const results = await Promise.allSettled(
       subscriptions.map(subscription => this.sendOne(subscription, payload)),
@@ -110,6 +112,7 @@ export class NotificationsService {
         data: { pushToken: stillValid.length ? JSON.stringify(stillValid) : null },
       }).catch(() => null);
     }
+    return { targets: subscriptions.length, delivered: fulfilled, failed: rejected };
   }
 
   async sendToAll(payload: PushPayload) {
@@ -161,9 +164,9 @@ export class NotificationsService {
           ) as Record<string, string>,
           android: {
             priority: 'high',
-            ttl: 300_000,
+            ttl: 360_000,
             notification: {
-              channelId: 'oracle_messenger_incoming_calls_v4',
+              channelId: 'oracle_messenger_incoming_calls_v5',
               icon: 'notification_icon',
               color: '#102A2A',
               sound: 'oracle_call',
@@ -201,7 +204,7 @@ export class NotificationsService {
           android: {
             priority: 'high',
             notification: {
-              channelId: payload.type === 'call' ? 'oracle_messenger_incoming_calls_v4' : 'oracle_messenger_messages_v3',
+              channelId: payload.type === 'call' ? 'oracle_messenger_incoming_calls_v5' : 'oracle_messenger_messages_v3',
               icon: 'notification_icon',
               color: '#102A2A',
               sound: payload.type === 'call' ? 'oracle_call' : 'oracle_message',

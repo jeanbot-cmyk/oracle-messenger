@@ -26,7 +26,7 @@ type UseNativeConversationControllerParams = {
   setMessages: Dispatch<SetStateAction<Message[]>>;
   setNotice: (message: string) => void;
   setReplyTo: (message: Message | null) => void;
-  setSelected: (conversation: Conversation | null) => void;
+  setSelected: Dispatch<SetStateAction<Conversation | null>>;
 };
 
 export function useNativeConversationController({

@@ -2,7 +2,7 @@
   "expo": {
     "name": "Oracle Messenger",
     "slug": "oracle-messenger-native",
-    "version": "1.0.20260813.18",
+    "version": "1.0.20260813.19",
     "orientation": "portrait",
     "scheme": "oraclemessenger",
     "userInterfaceStyle": "automatic",
@@ -10,7 +10,7 @@
     "icon": "./assets/icon.png",
     "android": {
       "package": "online.oracle_plus.messenger",
-      "versionCode": 2026081318,
+      "versionCode": 2026081319,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",

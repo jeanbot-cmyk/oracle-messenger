@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isOfficialExpired, mergeMessagePatch, mergeMessageStatus, sortConversations, sortMessages } from '@/screens/home/homeUtils';
-import { writeCachedMessages } from '@/services/nativeConversationCache';
+import { writeCachedConversations, writeCachedMessages } from '@/services/nativeConversationCache';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
 
 type UseNativeConversationStateParams = {
@@ -59,6 +59,12 @@ export function useNativeConversationState({ session, messageSearch }: UseNative
   }, [messages, selected?.id, session?.token, session?.user.email, session?.user.id]);
 
   useEffect(() => {
+    const ownerId = session?.user.id || session?.user.email || session?.token;
+    if (!ownerId || !conversations.length) return;
+    void writeCachedConversations(ownerId, sortConversations(conversations));
+  }, [conversations, session?.token, session?.user.email, session?.user.id]);
+
+  useEffect(() => {
     const expiries = conversations
       .filter(conversation => !conversation.unreadCount && conversation.officialExpiresAt)
       .map(conversation => new Date(conversation.officialExpiresAt || '').getTime())
@@ -115,7 +121,7 @@ export function useNativeConversationState({ session, messageSearch }: UseNative
           lastMessage: sameLastMessage && conversation.lastMessage
             ? mergeMessageKeepingLocalMedia(conversation.lastMessage, message)
             : message,
-          unreadCount: sameLastMessage ? conversation.unreadCount : isCurrentOpen || isOwn ? 0 : (conversation.unreadCount || 0) + 1,
+          unreadCount: isCurrentOpen || isOwn ? 0 : sameLastMessage ? conversation.unreadCount : (conversation.unreadCount || 0) + 1,
           updatedAt: message.createdAt || conversation.updatedAt,
         };
       });
