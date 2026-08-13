@@ -15,9 +15,7 @@ BUILD_DATE="$(date -u +%Y%m%d)"
 export ORACLE_MESSENGER_VERSION_CODE="${ORACLE_MESSENGER_VERSION_CODE:-${BUILD_DATE}01}"
 export ORACLE_MESSENGER_VERSION_NAME="${ORACLE_MESSENGER_VERSION_NAME:-1.0.$BUILD_DATE.1}"
 
-if [[ ! -f "$ANDROID_DIR/app/google-services.json" ]]; then
-  printf "WARNING: app/google-services.json is missing. AAB can build, but native FCM push will not work.\n" >&2
-fi
+node "$ROOT_DIR/scripts/sync-android-google-services.js"
 
 printf "Building Oracle Messenger Android release versionCode=%s versionName=%s\n" \
   "$ORACLE_MESSENGER_VERSION_CODE" \

@@ -33,6 +33,8 @@ printf "Oracle Messenger Android preflight\n"
 printf "Root: %s\n" "$ROOT_DIR"
 printf "SDK:  %s\n\n" "$SDK_DIR"
 
+node "$ROOT_DIR/scripts/sync-android-google-services.js"
+
 check_dir "Android SDK" "$SDK_DIR"
 check_file "Android local.properties" "$ANDROID_DIR/local.properties"
 check_file "Firebase google-services.json" "$ANDROID_DIR/app/google-services.json"

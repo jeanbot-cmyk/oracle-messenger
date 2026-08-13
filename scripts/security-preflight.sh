@@ -43,7 +43,7 @@ check_not_tracked ".secrets/android/android-upload-key.txt"
 check_not_tracked "frontend/android/app/google-services.json"
 
 tracked_hits="$(
-  git grep -n -I -E -e '-----BEGIN PRIVATE KEY-----|firebase-adminsdk|LIVEKIT_API_SECRET=.+|JWT_SECRET=.{20,}|GOOGLE_CLIENT_SECRET=.{10,}' -- \
+  git grep -n -I -E -e '-----BEGIN PRIVATE KEY-----|firebase-adminsdk|LIVEKIT_API_SECRET=[^[:space:]]+|JWT_SECRET=[^[:space:]]{20,}|GOOGLE_CLIENT_SECRET=[^[:space:]]{10,}' -- \
     ':!docs' ':!scripts/security-preflight.sh' ':!.env.example' || true
 )"
 
