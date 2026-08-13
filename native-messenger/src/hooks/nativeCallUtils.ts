@@ -37,7 +37,8 @@ export const DEFAULT_ICE: RTCIceServer[] = [
   },
 ];
 
-export const CALL_OPERATION_TIMEOUT_MS = 220_000;
+export const CALL_OPERATION_TIMEOUT_MS = 300_000;
+export const CALL_RING_TIMEOUT_SECONDS = 300;
 
 export function createNativeCallId() {
   return `native-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;

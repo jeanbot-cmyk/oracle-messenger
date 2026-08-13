@@ -155,7 +155,7 @@ export class NotificationsService {
           ) as Record<string, string>,
           android: {
             priority: 'high',
-            ttl: 45_000,
+            ttl: 300_000,
             notification: {
               channelId: 'oracle_messenger_incoming_calls_v4',
               sound: 'oracle_call',

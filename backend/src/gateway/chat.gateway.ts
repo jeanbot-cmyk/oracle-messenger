@@ -33,7 +33,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // userId → socketId (en mémoire — suffisant pour 1 instance)
   // userSockets moved to SocketStateService
 
-  private readonly callNoAnswerTimeoutMs = Number(process.env.CALL_NO_ANSWER_TIMEOUT_MS || 220_000);
+  private readonly callNoAnswerTimeoutMs = Number(process.env.CALL_NO_ANSWER_TIMEOUT_MS || 300_000);
   private readonly presenceHeartbeatTimeoutMs = Number(process.env.PRESENCE_HEARTBEAT_TIMEOUT_MS || 70_000);
   private readonly presenceOfflineGraceMs = Number(process.env.PRESENCE_OFFLINE_GRACE_MS || 75_000);
   private readonly presenceBackgroundGraceMs = Number(process.env.PRESENCE_BACKGROUND_GRACE_MS || 8_000);

@@ -1,7 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { Platform } from 'react-native';
 import InCallManager from 'react-native-incall-manager';
-import { OracleCallAlert, OracleCallService, type NativeCallInfo } from '@/hooks/nativeCallUtils';
+import { CALL_RING_TIMEOUT_SECONDS, OracleCallAlert, OracleCallService, type NativeCallInfo } from '@/hooks/nativeCallUtils';
 
 type RefValue<T> = { current: T };
 type NativeCallTrace = (event: string, details?: Record<string, unknown>) => void;
@@ -92,7 +92,7 @@ export function useNativeCallAudioSession({
       InCallManager.stopRingtone?.();
       InCallManager.stopRingback?.();
       if (Platform.OS === 'android' && OracleCallAlert?.start) {
-        OracleCallAlert.start('outgoing', 220).catch(error => {
+        OracleCallAlert.start('outgoing', CALL_RING_TIMEOUT_SECONDS).catch(error => {
           trace('audio:ringback:oracle-error', { message: error instanceof Error ? error.message : String(error) });
           InCallManager.startRingback?.('_DTMF_');
         });
@@ -111,14 +111,14 @@ export function useNativeCallAudioSession({
       InCallManager.stopRingback?.();
       InCallManager.stopRingtone?.();
       if (Platform.OS === 'android' && OracleCallAlert?.start) {
-        OracleCallAlert.start('incoming', 220).catch(error => {
+        OracleCallAlert.start('incoming', CALL_RING_TIMEOUT_SECONDS).catch(error => {
           trace('audio:ringtone:oracle-error', { message: error instanceof Error ? error.message : String(error), type });
-          InCallManager.startRingtone?.('_DEFAULT_', [0, 650, 250, 650, 250, 1100], 'default', 220);
+          InCallManager.startRingtone?.('_DEFAULT_', [0, 650, 250, 650, 250, 1100], 'default', CALL_RING_TIMEOUT_SECONDS);
         });
         trace('audio:ringtone:start', { type, tone: 'oracle_call.wav' });
         return;
       }
-      InCallManager.startRingtone?.('_DEFAULT_', [0, 650, 250, 650, 250, 1100], 'default', 220);
+      InCallManager.startRingtone?.('_DEFAULT_', [0, 650, 250, 650, 250, 1100], 'default', CALL_RING_TIMEOUT_SECONDS);
       trace('audio:ringtone:start', { type, tone: '_DEFAULT_' });
     } catch (error) {
       trace('audio:ringtone:error', { message: error instanceof Error ? error.message : String(error), type });

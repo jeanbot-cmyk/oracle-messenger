@@ -173,7 +173,7 @@ class OracleCallAlertModule(
   }
 
   companion object {
-    private const val CALL_TIMEOUT_SECONDS = 220L
+    private const val CALL_TIMEOUT_SECONDS = 300L
     private const val INCOMING_TARGET_VOLUME = 0.34f
     private const val OUTGOING_TARGET_VOLUME = 0.22f
     private const val VOLUME_FADE_STEPS = 12

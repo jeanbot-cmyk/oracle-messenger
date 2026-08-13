@@ -101,7 +101,7 @@ class OracleIncomingCallNotificationModule(
 
   companion object {
     private const val CHANNEL_ID = "oracle_messenger_incoming_calls_v4"
-    private const val CALL_TIMEOUT_MS = 220_000L
+    private const val CALL_TIMEOUT_MS = 300_000L
     private val CALL_VIBRATION_PATTERN = longArrayOf(0, 650, 250, 650, 250, 1100)
 
     private fun notificationId(callId: String): Int = 42000 + kotlin.math.abs(callId.hashCode() % 1000)
