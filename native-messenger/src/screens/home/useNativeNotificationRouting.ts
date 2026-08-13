@@ -208,12 +208,17 @@ export function useNativeNotificationRouting({
       void handleNativeDeepLink(url);
     } else if ((type === 'call' || type === 'call-sync') && callId) {
       void handleNativeDeepLink(`oraclemessenger://call?action=open&callId=${encodeURIComponent(callId)}${conversationId ? `&conversationId=${encodeURIComponent(conversationId)}` : ''}`);
+    } else if (type === 'official-message' && conversationId) {
+      setActiveTab('chats');
+      setSelected(null);
+      void openConversationById(conversationId);
     } else if (conversationId) {
+      setActiveTab('chats');
       void openConversationById(conversationId);
     } else if (callId) {
       void handleNativeDeepLink(`oraclemessenger://call?action=open&callId=${encodeURIComponent(callId)}`);
     }
-  }, [handleNativeDeepLink, openConversationById]);
+  }, [handleNativeDeepLink, openConversationById, setActiveTab, setSelected]);
 
   useEffect(() => {
     if (initialDeepLinkHandledRef.current) return;
@@ -256,7 +261,7 @@ export function useNativeNotificationRouting({
       const data = notification.request.content.data || {};
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : null;
       const type = typeof data.type === 'string' ? data.type : '';
-      if (type === 'message' && conversationId && selectedRef.current?.id === conversationId && session.token) {
+      if ((type === 'message' || type === 'official-message') && conversationId && selectedRef.current?.id === conversationId && session.token) {
         const socket = ensureNativeSocket(session.token);
         socket.emit('conversation:join', { conversationId });
       }

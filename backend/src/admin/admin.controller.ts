@@ -56,6 +56,13 @@ export class AdminController {
     return this.admin.broadcastSalesMessage(user.id, body.content?.trim() ?? '', body.mediaUrl, body.type);
   }
 
+  @Post('system-message')
+  async systemMessage(@CurrentUser() user: any, @Body() body: { content?: string; mediaUrl?: string; type?: string }) {
+    requireAdmin(user);
+    if (!body.content?.trim() && !body.mediaUrl?.trim()) throw new ForbiddenException('Contenu requis');
+    return this.admin.broadcastSalesMessage(user.id, body.content?.trim() ?? '', body.mediaUrl, body.type);
+  }
+
   @Get('countries')
   async countries(@CurrentUser() user: any) {
     requireAdmin(user);

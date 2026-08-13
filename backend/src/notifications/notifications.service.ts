@@ -8,6 +8,20 @@ type StoredPushTarget =
   | { type: 'web'; endpoint: string; keys?: Record<string, string>; [key: string]: any }
   | { type: 'fcm'; token: string; platform?: string; [key: string]: any };
 
+type PushPayload = {
+  title?: string;
+  body?: string;
+  url?: string;
+  image?: string;
+  tag?: string;
+  type?: string;
+  callId?: string;
+  conversationId?: string;
+  status?: string;
+  requireInteraction?: boolean;
+  vibrate?: number[];
+};
+
 function firebaseAppConfigured() {
   return Boolean(
     process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
@@ -55,11 +69,7 @@ export class NotificationsService {
     });
   }
 
-  async sendPush(userId: string, payload: {
-    title?: string; body?: string; url?: string; image?: string; tag?: string;
-    type?: string; callId?: string; conversationId?: string; status?: string;
-    requireInteraction?: boolean; vibrate?: number[];
-  }) {
+  async sendPush(userId: string, payload: PushPayload) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user?.pushToken) return;
     const subscriptions = this.parseSubscriptions(user.pushToken);
@@ -102,16 +112,12 @@ export class NotificationsService {
     }
   }
 
-  async sendToAll(payload: { title: string; body: string }) {
+  async sendToAll(payload: PushPayload) {
     const users = await this.prisma.user.findMany({ where: { pushToken: { not: null } } });
     await Promise.allSettled(users.map(u => this.sendPush(u.id, payload)));
   }
 
-  private async sendOne(subscription: StoredPushTarget, payload: {
-    title?: string; body?: string; url?: string; image?: string; tag?: string;
-    type?: string; callId?: string; conversationId?: string; status?: string;
-    requireInteraction?: boolean; vibrate?: number[];
-  }) {
+  private async sendOne(subscription: StoredPushTarget, payload: PushPayload) {
     if (subscription.type === 'fcm') {
       if (!getApps().length) throw new Error('Firebase Admin non configuré pour l’envoi FCM');
       if (payload.type === 'call-sync') {
@@ -158,6 +164,8 @@ export class NotificationsService {
             ttl: 300_000,
             notification: {
               channelId: 'oracle_messenger_incoming_calls_v4',
+              icon: 'notification_icon',
+              color: '#102A2A',
               sound: 'oracle_call',
               priority: 'max',
               visibility: 'public',
@@ -190,13 +198,15 @@ export class NotificationsService {
             requireInteraction: payload.requireInteraction ? 'true' : undefined,
           }).filter(([, value]) => value !== undefined && value !== null),
         ) as Record<string, string>,
-        android: {
-          priority: 'high',
-          notification: {
-            channelId: payload.type === 'call' ? 'oracle_messenger_incoming_calls_v4' : 'oracle_messenger_messages_v3',
-            sound: payload.type === 'call' ? 'oracle_call' : 'oracle_message',
+          android: {
             priority: 'high',
-            visibility: 'public',
+            notification: {
+              channelId: payload.type === 'call' ? 'oracle_messenger_incoming_calls_v4' : 'oracle_messenger_messages_v3',
+              icon: 'notification_icon',
+              color: '#102A2A',
+              sound: payload.type === 'call' ? 'oracle_call' : 'oracle_message',
+              priority: 'high',
+              visibility: 'public',
             tag: payload.tag,
           },
         },

@@ -248,6 +248,8 @@ export const api = {
     apiRequest<any>('/admin/ai-auto/settings', { method: 'POST', body: JSON.stringify({ settings }) }, token),
   adminNotify: (token: string, data: { title: string; body: string; url?: string }) =>
     apiRequest<any>('/admin/notify', { method: 'POST', body: JSON.stringify(data) }, token),
+  adminSystemMessage: (token: string, data: { content?: string; mediaUrl?: string; type?: string }) =>
+    apiRequest<any>('/admin/system-message', { method: 'POST', body: JSON.stringify(data) }, token),
   adminBroadcast: (token: string, data: { content?: string; mediaUrl?: string; type?: string }) =>
     apiRequest<any>('/admin/broadcast', { method: 'POST', body: JSON.stringify(data) }, token),
 };

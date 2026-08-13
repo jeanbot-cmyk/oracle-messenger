@@ -168,6 +168,15 @@ export class ChatService {
     return Boolean(expiresAt && expiresAt.getTime() <= Date.now());
   }
 
+  private isDedicatedOfficialConversationForViewer(conv: any, userId: string) {
+    if (conv?.type !== this.officialConversationType) return true;
+    const participants = Array.isArray(conv?.participants) ? conv.participants : [];
+    if (!participants.some((participant: any) => participant.userId === userId)) return false;
+    if (!participants.some((participant: any) => participant.user?.email === this.officialSystemEmail)) return false;
+    const realParticipants = participants.filter((participant: any) => participant.user?.email !== this.officialSystemEmail);
+    return realParticipants.length === 1 && realParticipants[0]?.userId === userId;
+  }
+
   async isOfficialConversation(conversationId: string) {
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
@@ -178,7 +187,19 @@ export class ChatService {
 
   private toConversationSummary(conv: any, userId: string, unreadCount: number) {
     const isOfficial = conv.type === this.officialConversationType;
-    const others = conv.participants.filter((pt: any) => pt.userId !== userId).map((pt: any) => pt.user);
+    const systemParticipant = isOfficial
+      ? conv.participants.find((pt: any) => pt.user?.email === this.officialSystemEmail)
+      : null;
+    const others = isOfficial
+      ? [{
+          id: systemParticipant?.userId ?? systemParticipant?.user?.id ?? 'oracle-messenger-official',
+          name: this.officialConversationName,
+          username: 'o_messenger',
+          avatar: this.officialConversationAvatar,
+          status: 'online',
+          lastSeen: null,
+        }]
+      : conv.participants.filter((pt: any) => pt.userId !== userId).map((pt: any) => pt.user);
     const lastMessage = conv.messages?.[0] ?? null;
     const officialOpenedAt = this.getOfficialOpenedAt(conv)?.toISOString();
     const officialExpiresAt = this.getOfficialExpiresAt(conv)?.toISOString();
@@ -234,7 +255,7 @@ export class ChatService {
       include: {
         conversation: {
           include: {
-            participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
+            participants: { include: { user: { select: { id: true, email: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
             messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
           },
         },
@@ -250,6 +271,7 @@ export class ChatService {
     const summaries = participations.map(p => {
       const conv = p.conversation;
       const convWithViewer = { ...conv, viewerLastReadAt: p.lastReadAt };
+      if (!this.isDedicatedOfficialConversationForViewer(convWithViewer, userId)) return null;
       if (this.isOfficialExpired(convWithViewer)) return null;
       const unread = unreadByConversation.get(conv.id) ?? 0;
       return this.toConversationSummary(convWithViewer, userId, unread);
@@ -294,7 +316,7 @@ export class ChatService {
         ],
       },
       include: {
-        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
+        participants: { include: { user: { select: { id: true, email: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
         messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
       },
       orderBy: { updatedAt: 'desc' },
@@ -309,6 +331,7 @@ export class ChatService {
     const summaries = conversations.map(conv => {
       const participant = conv.participants.find((item: any) => item.userId === userId);
       const convWithViewer = { ...conv, viewerLastReadAt: participant?.lastReadAt };
+      if (!this.isDedicatedOfficialConversationForViewer(convWithViewer, userId)) return null;
       if (this.isOfficialExpired(convWithViewer)) return null;
       const unread = unreadByConversation.get(conv.id) ?? 0;
       return this.toConversationSummary(convWithViewer, userId, unread);
@@ -328,12 +351,13 @@ export class ChatService {
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: {
-        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
+        participants: { include: { user: { select: { id: true, email: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
             messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
       },
     });
     if (!conv) throw new NotFoundException();
     const convWithViewer = { ...conv, viewerLastReadAt: participant.lastReadAt };
+    if (!this.isDedicatedOfficialConversationForViewer(convWithViewer, userId)) throw new NotFoundException();
     if (this.isOfficialExpired(convWithViewer)) throw new NotFoundException();
     const unread = await this.prisma.message.count({
       where: this.unreadWhere(conv.id, userId, participant.lastReadAt),
@@ -502,11 +526,16 @@ export class ChatService {
       where: { id: conversationId },
       select: {
         type: true,
+        participants: { include: { user: { select: { id: true, email: true } } } },
         messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true } },
       },
     });
     if (!conv) throw new NotFoundException();
-    if (this.isOfficialExpired({ ...conv, viewerLastReadAt: participant.lastReadAt })) {
+    const convWithViewer = { ...conv, viewerLastReadAt: participant.lastReadAt };
+    if (!this.isDedicatedOfficialConversationForViewer(convWithViewer, userId)) {
+      throw new NotFoundException();
+    }
+    if (this.isOfficialExpired(convWithViewer)) {
       throw new NotFoundException();
     }
     const messages = await this.prisma.message.findMany({

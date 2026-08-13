@@ -167,7 +167,7 @@ export function AdminPage({ token, onBack }: { token: string; onBack: () => void
             caption: message.trim() || undefined,
           })
         : message.trim();
-      const result = await api.adminBroadcast(token, {
+      const result = await api.adminSystemMessage(token, {
         content,
         type: broadcastMedia?.type || 'text',
       });
@@ -274,8 +274,8 @@ export function AdminPage({ token, onBack }: { token: string; onBack: () => void
       </View>
 
       {systemOpen ? (
-        <Section title="Message système">
-        <Text style={styles.pageCopy}>Ce message arrive dans la conversation officielle O.Messenger. Texte seul, média seul ou texte avec image, vidéo, audio ou document.</Text>
+      <Section title="Conversation système O.Messenger">
+        <Text style={styles.pageCopy}>Ce message crée ou met à jour une vraie conversation officielle, épinglée en haut et marquée O.Messenger vérifié. Ce n’est pas une simple notification Android.</Text>
         <TextInput value={message} onChangeText={setMessage} placeholder="Rédigez votre annonce, lien ou message officiel..." placeholderTextColor={colors.muted} multiline style={[styles.input, styles.textarea]} />
         <View style={styles.actionRow}>
           <SecondaryButton label="Image/vidéo" onPress={pickBroadcastMedia} disabled={busy} />
@@ -292,7 +292,8 @@ export function AdminPage({ token, onBack }: { token: string; onBack: () => void
         </Section>
       ) : null}
 
-      <Section title="Notification globale">
+      <Section title="Alerte push simple">
+        <Text style={styles.pageCopy}>Pour un message officiel visible dans les discussions, utilisez la conversation système O.Messenger ci-dessus.</Text>
         <TextInput value={notifTitle} onChangeText={setNotifTitle} placeholder="Titre notification" placeholderTextColor={colors.muted} style={styles.input} />
         <TextInput value={notifBody} onChangeText={setNotifBody} placeholder="Message notification" placeholderTextColor={colors.muted} multiline style={[styles.input, styles.textarea]} />
         <PrimaryButton label="Envoyer notification" onPress={notifyAll} disabled={busy || !notifTitle.trim() || !notifBody.trim()} />

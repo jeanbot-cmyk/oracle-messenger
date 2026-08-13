@@ -223,7 +223,7 @@ export default function AdminPage() {
         setBroadcastMsg('Fichier prêt. Envoi du message système...');
       }
 
-      const r = await fetch(`${api}/admin/broadcast`, {
+      const r = await fetch(`${api}/admin/system-message`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -418,7 +418,10 @@ export default function AdminPage() {
 
         {/* Notif push */}
         <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, marginBottom:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)' }}>
-          <h2 style={{ fontSize:18, fontWeight:600, color:'var(--text-primary)', margin:'0 0 16px' }}>📣 Notification Push manuelle</h2>
+          <h2 style={{ fontSize:18, fontWeight:600, color:'var(--text-primary)', margin:'0 0 6px' }}>📣 Alerte push simple</h2>
+          <p style={{ fontSize:13, color:'var(--text-muted)', margin:'0 0 16px' }}>
+            Cette zone envoie seulement une notification Android/PWA. Pour créer une vraie conversation officielle en haut des discussions, utilisez le bloc Message système.
+          </p>
           <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
             <input value={notif.title} onChange={e => setNotif(v=>({...v,title:e.target.value}))}
               placeholder="Titre de la notification"

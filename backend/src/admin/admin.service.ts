@@ -141,7 +141,15 @@ export class AdminService {
     const unreadCount = await this.getOfficialUnreadCount(conv, userId);
     const officialOpenedAt = unreadCount > 0 ? null : this.getOfficialOpenedAt(conv, userId)?.toISOString() ?? null;
     const officialExpiresAt = unreadCount > 0 ? null : this.getOfficialExpiresAt(conv, userId)?.toISOString() ?? null;
-    const others = conv.participants.filter((pt: any) => pt.userId !== userId).map((pt: any) => pt.user);
+    const systemParticipant = conv.participants.find((pt: any) => pt.user?.email === this.officialSystemEmail);
+    const others = [{
+      id: systemParticipant?.userId ?? systemParticipant?.user?.id ?? 'oracle-messenger-official',
+      name: this.officialConversationName,
+      username: 'o_messenger',
+      avatar: this.officialConversationAvatar,
+      status: 'online',
+      lastSeen: null,
+    }];
     return {
       id: conv.id,
       type: conv.type,
@@ -187,6 +195,57 @@ export class AdminService {
     });
   }
 
+  private isDedicatedOfficialConversation(conv: any, userId: string, systemUserId: string) {
+    const participants = Array.isArray(conv?.participants) ? conv.participants : [];
+    const participantIds = participants.map((participant: any) => participant.userId);
+    if (!participantIds.includes(userId) || !participantIds.includes(systemUserId)) return false;
+    const realParticipants = participants.filter((participant: any) => participant.user?.email !== this.officialSystemEmail);
+    return realParticipants.length === 1 && realParticipants[0]?.userId === userId;
+  }
+
+  private async getOrCreateOfficialConversationForUser(userId: string, systemUserId: string) {
+    const candidates = await this.prisma.conversation.findMany({
+      where: {
+        type: 'official',
+        participants: { some: { userId } },
+      },
+      include: {
+        participants: { include: { user: { select: { id: true, email: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
+        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    const existing = candidates.find(conv => this.isDedicatedOfficialConversation(conv, userId, systemUserId));
+    if (existing) {
+      return this.prisma.conversation.update({
+        where: { id: existing.id },
+        data: {
+          name: this.officialConversationName,
+          avatar: this.officialConversationAvatar,
+        },
+        include: {
+          participants: { include: { user: { select: { id: true, email: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
+          messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+        },
+      });
+    }
+
+    return this.prisma.conversation.create({
+      data: {
+        type: 'official',
+        name: this.officialConversationName,
+        avatar: this.officialConversationAvatar,
+        participants: {
+          create: [{ userId: systemUserId }, { userId }],
+        },
+      },
+      include: {
+        participants: { include: { user: { select: { id: true, email: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
+        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    });
+  }
+
   async broadcastSalesMessage(adminId: string, content: string, mediaUrl?: string, type = 'text') {
     const systemUser = await this.getOrCreateOfficialSystemUser();
     const cleanText = content?.trim() || '';
@@ -206,46 +265,7 @@ export class AdminService {
     let failed = 0;
     for (const user of users) {
       try {
-        let conv = await this.prisma.conversation.findFirst({
-          where: {
-            type: 'official',
-            participants: { some: { userId: user.id } },
-          },
-          include: {
-            participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
-            messages: { orderBy: { createdAt: 'desc' }, take: 1 },
-          },
-        });
-
-        if (!conv) {
-          conv = await this.prisma.conversation.create({
-            data: {
-              type: 'official',
-              name: this.officialConversationName,
-              avatar: this.officialConversationAvatar,
-              participants: {
-                create: [{ userId: systemUser.id }, { userId: user.id }],
-              },
-            },
-            include: {
-              participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
-              messages: { orderBy: { createdAt: 'desc' }, take: 1 },
-            },
-          });
-        } else if (!conv.participants.some((participant: any) => participant.userId === systemUser.id)) {
-          conv = await this.prisma.conversation.update({
-            where: { id: conv.id },
-            data: {
-              name: this.officialConversationName,
-              avatar: this.officialConversationAvatar,
-              participants: { create: [{ userId: systemUser.id }] },
-            },
-            include: {
-              participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
-              messages: { orderBy: { createdAt: 'desc' }, take: 1 },
-            },
-          });
-        }
+        const conv = await this.getOrCreateOfficialConversationForUser(user.id, systemUser.id);
 
         const messageType = ['image', 'video', 'audio', 'voice', 'file', 'document'].includes(type)
           ? type
@@ -296,24 +316,31 @@ export class AdminService {
           this.socketState.server?.to(socketId).emit('message:new', msg);
         }
 
+        const notificationBody = messageType === 'image'
+          ? 'Photo officielle'
+          : messageType === 'video'
+            ? 'Vidéo officielle'
+            : messageType === 'audio' || messageType === 'voice'
+              ? 'Message vocal officiel'
+              : messageType === 'file' || messageType === 'document'
+                ? 'Fichier officiel'
+                : effectiveCaption;
+        await this.notifications.sendPush(user.id, {
+          title: this.officialConversationName,
+          body: notificationBody,
+          type: 'official-message',
+          conversationId: conv.id,
+          url: `oraclemessenger://notification?conversationId=${encodeURIComponent(conv.id)}`,
+          tag: `official-${conv.id}`,
+          image: messageType === 'image' && effectiveMediaUrl ? effectiveMediaUrl : undefined,
+        }).catch(() => {});
+
         sent++;
       } catch (error) {
         failed++;
         this.logger.warn(`Official broadcast failed for user ${user.id}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-
-    // Push notification pour les utilisateurs hors ligne
-    const notificationBody = type === 'image'
-      ? 'Photo officielle'
-      : type === 'video'
-        ? 'Vidéo officielle'
-        : type === 'audio' || type === 'voice'
-          ? 'Message vocal officiel'
-          : type === 'file' || type === 'document'
-            ? 'Fichier officiel'
-            : effectiveCaption;
-    await this.notifications.sendToAll({ title: this.officialConversationName, body: notificationBody }).catch(() => {});
 
     return { success: failed === 0, sent, failed, total: users.length };
   }
