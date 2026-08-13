@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -69,6 +70,7 @@ class OracleCallForegroundService : Service() {
     val title = if (callType == "video") "Appel vidéo en cours" else "Appel audio en cours"
     return NotificationCompat.Builder(this, CHANNEL_ID)
       .setSmallIcon(R.drawable.notification_icon)
+      .setLargeIcon(BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher))
       .setContentTitle(title)
       .setContentText(callerName)
       .setOngoing(true)

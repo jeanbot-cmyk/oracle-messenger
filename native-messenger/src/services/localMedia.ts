@@ -36,9 +36,18 @@ export function extractPayload(content: string): MediaPayload | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw);
-    if (typeof parsed?.url === 'string') {
+    const url = [
+      parsed?.url,
+      parsed?.mediaUrl,
+      parsed?.fileUrl,
+      parsed?.downloadUrl,
+      parsed?.localUri,
+      parsed?.path,
+      parsed?.uri,
+    ].find(value => typeof value === 'string' && value.trim()) as string | undefined;
+    if (url) {
       return {
-        url: parsed.url,
+        url,
         size: Number.isFinite(Number(parsed.size)) && Number(parsed.size) > 0 ? Math.floor(Number(parsed.size)) : undefined,
         checksum: typeof parsed.checksum === 'string' && /^[a-f0-9]{64}$/i.test(parsed.checksum)
           ? parsed.checksum.toLowerCase()
@@ -48,7 +57,7 @@ export function extractPayload(content: string): MediaPayload | null {
       };
     }
   } catch {}
-  return raw.startsWith('http') ? { url: raw } : null;
+  return /^(https?:\/\/|file:\/\/|content:\/\/|\/uploads\/)/i.test(raw) ? { url: raw } : null;
 }
 
 function extensionFromPayload(payload: MediaPayload, type: string) {

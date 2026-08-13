@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Image, Linking, Modal, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
-import { AlertCircle, CheckCircle2, Cloud, ExternalLink, Maximize2, Mic2, Paperclip, UploadCloud, X } from 'lucide-react-native';
+import { AlertCircle, CheckCircle2, Cloud, ExternalLink, Image as ImageIcon, Maximize2, Mic2, Paperclip, UploadCloud, X } from 'lucide-react-native';
 import { OracleAudioPlayer, OracleVideoPlayer } from '@/screens/features/NativeMediaPlayers';
 import type { LocalGalleryItem } from '@/services/localMedia';
 import { colors } from '@/theme/colors';
 import type { Message } from '@/types/messenger';
-import { formatBytes, messagePreview, parseMediaPayload } from './homeUtils';
+import { formatBytes, isTechnicalMediaName, parseMediaPayload } from './homeUtils';
 import { NativePhotoViewer } from './NativePhotoViewer';
 
 type NativeChatMediaMessageProps = {
@@ -83,6 +83,37 @@ function LinkedCaption({ text, light = false }: { text?: string; light?: boolean
   );
 }
 
+function visualLabelForMessage(message: Message) {
+  if (message.type === 'gif') return 'GIF';
+  if (message.type === 'sticker') return 'Sticker';
+  if (message.type === 'video') return 'Vidéo';
+  if (message.type === 'audio' || message.type === 'voice') return 'Message vocal';
+  if (message.type === 'image') return 'Image';
+  return 'Fichier';
+}
+
+function safeDisplayName(name?: string | null, fallback = 'Fichier') {
+  const clean = String(name || '').trim();
+  if (!clean || isTechnicalMediaName(clean)) return fallback;
+  return clean;
+}
+
+function MediaPlaceholder({ message, mine = false }: { message: Message; mine?: boolean }) {
+  const label = visualLabelForMessage(message);
+  const Icon = message.type === 'image' || message.type === 'gif' || message.type === 'sticker' ? ImageIcon : Paperclip;
+  return (
+    <View style={[styles.mediaPlaceholder, mine ? styles.mediaPlaceholderMine : styles.mediaPlaceholderOther]}>
+      <View style={styles.mediaPlaceholderIcon}>
+        <Icon size={21} color={colors.header} strokeWidth={2.6} />
+      </View>
+      <View style={styles.mediaPlaceholderText}>
+        <Text numberOfLines={1} style={styles.mediaPlaceholderTitle}>{label}</Text>
+        <Text numberOfLines={1} style={styles.mediaPlaceholderMeta}>Pièce jointe indisponible localement</Text>
+      </View>
+    </View>
+  );
+}
+
 export function NativeChatMediaMessage({ message, localItem, mine = false, avatar, avatarLabel }: NativeChatMediaMessageProps) {
   const [imageOpen, setImageOpen] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
@@ -98,9 +129,10 @@ export function NativeChatMediaMessage({ message, localItem, mine = false, avata
     );
   }
   if (!sourceUrl) {
-    return <Text style={styles.bubbleText}>{messagePreview(message)}</Text>;
+    return <MediaPlaceholder message={message} mine={mine} />;
   }
-  const displayName = localItem?.name || payload?.name;
+  const visualLabel = visualLabelForMessage(message);
+  const displayName = safeDisplayName(localItem?.name || payload?.name, visualLabel);
   const displaySize = localItem?.size || payload?.size;
   const displayMime = localItem?.mime || payload?.mime;
   const localBadge = localItem ? 'Local' : 'Serveur';
@@ -112,7 +144,6 @@ export function NativeChatMediaMessage({ message, localItem, mine = false, avata
   const uploadOverlay = <MediaUploadOverlay state={payload?.uploadState} progress={payload?.uploadProgress} error={payload?.uploadError} />;
 
   if (message.type === 'image' || message.type === 'gif' || message.type === 'sticker') {
-    const visualLabel = message.type === 'gif' ? 'GIF' : message.type === 'sticker' ? 'Sticker' : 'Image';
     return (
       <>
         <Pressable
@@ -284,6 +315,13 @@ function InlineUploadState({ state, progress, error }: { state?: string; progres
 
 const styles = StyleSheet.create({
   bubbleText: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '700' },
+  mediaPlaceholder: { width: 238, maxWidth: '100%', minHeight: 72, borderRadius: 16, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderWidth: 1 },
+  mediaPlaceholderMine: { backgroundColor: 'rgba(255,255,255,0.64)', borderColor: 'rgba(16,42,42,0.08)' },
+  mediaPlaceholderOther: { backgroundColor: 'rgba(16,42,42,0.045)', borderColor: 'rgba(16,42,42,0.08)' },
+  mediaPlaceholderIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#EAF4F1', alignItems: 'center', justifyContent: 'center' },
+  mediaPlaceholderText: { flex: 1, minWidth: 0 },
+  mediaPlaceholderTitle: { color: colors.header, fontSize: 13.5, lineHeight: 18, fontWeight: '900' },
+  mediaPlaceholderMeta: { color: colors.muted, fontSize: 11.5, lineHeight: 15, fontWeight: '800', marginTop: 2 },
   stickerBox: { minWidth: 118, maxWidth: 180, minHeight: 106, borderRadius: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1 },
   stickerMine: { backgroundColor: 'rgba(255,255,255,0.68)', borderColor: 'rgba(16,42,42,0.08)' },
   stickerOther: { backgroundColor: 'rgba(16,42,42,0.035)', borderColor: 'rgba(16,42,42,0.07)' },

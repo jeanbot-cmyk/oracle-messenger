@@ -5,7 +5,7 @@ import { NativeChatMediaMessage } from './NativeChatMediaMessage';
 import type { LocalGalleryItem } from '@/services/localMedia';
 import { colors } from '@/theme/colors';
 import type { Message } from '@/types/messenger';
-import { highQualityImageUri, initials, messagePreview, parseCallTraceMessage, parseContactPayload, type CallTraceMessage } from './homeUtils';
+import { highQualityImageUri, initials, messagePreview, parseCallTraceMessage, parseContactPayload, parseMediaPayload, type CallTraceMessage } from './homeUtils';
 
 type NativeMessageListProps = {
   conversationId: string;
@@ -97,6 +97,18 @@ function renderLinkedMessageText(content: string) {
       ))}
     </Text>
   );
+}
+
+function inferMediaTypeFromContent(message: Message) {
+  if (message.type !== 'text') return message.type;
+  const payload = parseMediaPayload(message.content);
+  if (!payload?.url) return 'text';
+  const mime = String(payload.mime || '').toLowerCase();
+  const url = String(payload.url || '').toLowerCase().split('?')[0] || '';
+  if (mime.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(url)) return mime.includes('gif') || url.endsWith('.gif') ? 'gif' : 'image';
+  if (mime.startsWith('video/') || /\.(mp4|webm|mov|3gp|mkv)$/i.test(url)) return 'video';
+  if (mime.startsWith('audio/') || /\.(mp3|m4a|aac|ogg|wav|amr)$/i.test(url)) return 'audio';
+  return 'file';
 }
 
 function NativeCallTraceMessage({
@@ -345,9 +357,9 @@ export function NativeMessageList({
               ) : (
                 item.type === 'contact'
                   ? <NativeContactMessage content={item.content} />
-                  : item.type === 'text'
+                  : item.type === 'text' && inferMediaTypeFromContent(item) === 'text'
                   ? renderLinkedMessageText(item.content)
-                  : <NativeChatMediaMessage message={item} localItem={localMediaByMessageId[item.id]} mine={mine} />
+                  : <NativeChatMediaMessage message={{ ...item, type: inferMediaTypeFromContent(item) }} localItem={localMediaByMessageId[item.id]} mine={mine} />
               )}
               <ReactionBadges reactions={item.reactions} />
               {callTrace ? null : (

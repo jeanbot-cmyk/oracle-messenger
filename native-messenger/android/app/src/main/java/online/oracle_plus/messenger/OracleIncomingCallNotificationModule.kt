@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.media.AudioAttributes
 import android.net.Uri
 import android.os.Build
@@ -61,9 +62,13 @@ class OracleIncomingCallNotificationModule(
     manager.createNotificationChannel(channel)
   }
 
+  private fun largeLogo() =
+    BitmapFactory.decodeResource(reactContext.resources, R.mipmap.ic_launcher)
+
   private fun buildNotification(callId: String, conversationId: String, callerName: String, callType: String) =
     NotificationCompat.Builder(reactContext, CHANNEL_ID)
       .setSmallIcon(R.drawable.notification_icon)
+      .setLargeIcon(largeLogo())
       .setContentTitle(if (callType == "video") "Appel video entrant" else "Appel audio entrant")
       .setContentText(callerName.ifBlank { "Oracle Messenger" })
       .setCategory(NotificationCompat.CATEGORY_CALL)

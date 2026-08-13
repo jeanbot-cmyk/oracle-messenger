@@ -153,19 +153,30 @@ export function messagePreview(message?: Message | null) {
   if (message.isDeleted) return 'Message supprimé';
   const callTrace = message.type === 'text' ? parseCallTraceMessage(message.content) : null;
   if (callTrace) return ['missed', 'refused', 'cancelled'].includes(callTrace.status) ? `🚫 ${callTrace.label}` : callTrace.label;
-  if (message.type === 'text') return message.content;
+  if (message.type === 'text') {
+    const payload = parseMediaPayload(message.content);
+    if (payload?.url) return mediaPreviewLabel(payload, message.content, 'Fichier');
+    return message.content;
+  }
   if (message.type === 'contact') {
     const contact = parseContactPayload(message.content);
     return contact.name || contact.username || 'Contact';
   }
   const payload = parseMediaPayload(message.content);
-  const mediaName = mediaPreviewName(payload, message.content);
-  if (message.type === 'image') return mediaName || 'Image';
-  if (message.type === 'gif') return mediaName || 'GIF';
-  if (message.type === 'sticker') return payload?.emoji || mediaName || 'Sticker';
-  if (message.type === 'video') return mediaName || 'Vidéo';
-  if (message.type === 'audio' || message.type === 'voice') return mediaName || 'Note vocale';
-  return mediaName || 'Fichier';
+  if (message.type === 'image') return mediaPreviewLabel(payload, message.content, 'Image');
+  if (message.type === 'gif') return mediaPreviewLabel(payload, message.content, 'GIF');
+  if (message.type === 'sticker') return payload?.emoji || mediaPreviewLabel(payload, message.content, 'Sticker');
+  if (message.type === 'video') return mediaPreviewLabel(payload, message.content, 'Vidéo');
+  if (message.type === 'audio' || message.type === 'voice') return mediaPreviewLabel(payload, message.content, 'Note vocale');
+  return mediaPreviewLabel(payload, message.content, 'Fichier');
+}
+
+function mediaPreviewLabel(payload: MediaPayload | null | undefined, rawContent: string | null | undefined, fallback: string) {
+  const name = mediaPreviewName(payload, rawContent);
+  if (!name) return fallback;
+  if (isTechnicalMediaName(name)) return fallback;
+  if (fallback !== 'Fichier') return fallback;
+  return name;
 }
 
 function mediaPreviewName(payload?: MediaPayload | null, rawContent?: string | null) {
@@ -177,6 +188,17 @@ function mediaPreviewName(payload?: MediaPayload | null, rawContent?: string | n
   if (!raw) return '';
   if (/^https?:\/\//i.test(raw) || raw.includes('/')) return basenameFromUri(raw);
   return raw.startsWith('{') ? '' : raw;
+}
+
+export function isTechnicalMediaName(value?: string | null) {
+  const clean = String(value || '').trim();
+  if (!clean) return true;
+  const withoutExt = clean.replace(/\.[a-z0-9]{1,8}$/i, '');
+  if (/^[0-9a-f]{16,}$/i.test(withoutExt)) return true;
+  if (/^[0-9]{8,}$/.test(withoutExt)) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(withoutExt)) return true;
+  if (/^(image|media|file|upload|oracle-media|broadcast)-[0-9]+(?:-[a-z0-9]+)?$/i.test(withoutExt)) return true;
+  return false;
 }
 
 function basenameFromUri(value: string) {
@@ -191,10 +213,19 @@ function basenameFromUri(value: string) {
 
 export function parseMediaPayload(content?: string | null): MediaPayload | null {
   if (!content) return null;
+  const raw = String(content).trim();
   try {
-    const parsed = JSON.parse(content);
+    const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return null;
-    const url = typeof parsed.url === 'string' ? parsed.url : '';
+    const url = [
+      parsed.url,
+      parsed.mediaUrl,
+      parsed.fileUrl,
+      parsed.downloadUrl,
+      parsed.localUri,
+      parsed.path,
+      parsed.uri,
+    ].find(value => typeof value === 'string' && value.trim()) as string | undefined;
     const emoji = typeof parsed.emoji === 'string' ? parsed.emoji.trim().slice(0, 12) : '';
     if (!url && !emoji) return null;
     return {
@@ -216,6 +247,7 @@ export function parseMediaPayload(content?: string | null): MediaPayload | null 
       uploadError: typeof parsed.uploadError === 'string' ? parsed.uploadError.trim().slice(0, 140) : undefined,
     };
   } catch {
+    if (/^(https?:\/\/|file:\/\/|content:\/\/|\/uploads\/)/i.test(raw)) return { url: raw };
     return null;
   }
 }

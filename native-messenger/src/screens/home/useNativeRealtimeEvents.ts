@@ -1,4 +1,4 @@
-import { useEffect, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { markConversationReadLocally, sortConversations } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
@@ -42,6 +42,8 @@ export function useNativeRealtimeEvents({
   handleUserOnline,
   handleUserOffline,
 }: UseNativeRealtimeEventsParams) {
+  const summaryRefreshTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
   useEffect(() => {
     if (!session?.token) return;
     const socket = ensureNativeSocket(session.token);
@@ -81,8 +83,21 @@ export function useNativeRealtimeEvents({
       });
     };
 
+    const scheduleConversationSummaryRefresh = (conversationId: string) => {
+      if (!conversationId) return;
+      const existing = summaryRefreshTimersRef.current[conversationId];
+      if (existing) clearTimeout(existing);
+      summaryRefreshTimersRef.current[conversationId] = setTimeout(() => {
+        delete summaryRefreshTimersRef.current[conversationId];
+        api.conversation(conversationId, session.token)
+          .then(applyConversationSummary)
+          .catch(() => undefined);
+      }, 320);
+    };
+
     const onMessageNew = (message: Message) => {
       upsertMessage(message);
+      scheduleConversationSummaryRefresh(message.conversationId);
       if (message.senderId !== sessionRef.current?.user.id) {
         socket.emit('message:delivered', { messageId: message.id });
         if (selectedRef.current?.id === message.conversationId) {
@@ -167,6 +182,8 @@ export function useNativeRealtimeEvents({
     socket.on('user:offline', onUserOffline);
 
     return () => {
+      Object.values(summaryRefreshTimersRef.current).forEach(timer => clearTimeout(timer));
+      summaryRefreshTimersRef.current = {};
       socket.off('message:new', onMessageNew);
       socket.off('conversation:upsert', onConversationUpsert);
       socket.off('message:update', onMessageUpdate);
