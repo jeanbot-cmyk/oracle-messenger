@@ -34,6 +34,10 @@ const EXPECTED = {
       clientId: '734297398479-irrshc48k2d7kotc696gofbellvll43i.apps.googleusercontent.com',
       sha1: 'cdb22720d6fb5728a90a3327fd276b283d32a178',
     },
+    {
+      clientId: '734297398479-lroihgl276ld6f5m6ubf38bq2qni7plc.apps.googleusercontent.com',
+      sha1: '5e8f16062ea3cd2c4a0d547876baa6f38cabf625',
+    },
   ],
 };
 

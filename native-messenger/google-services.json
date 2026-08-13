@@ -38,6 +38,14 @@
           }
         },
         {
+          "client_id": "734297398479-lroihgl276ld6f5m6ubf38bq2qni7plc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "online.oracle_plus.messenger",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
           "client_id": "734297398479-rids78si56kck1u3sjrgnivfdtpr7e89.apps.googleusercontent.com",
           "client_type": 3
         }
