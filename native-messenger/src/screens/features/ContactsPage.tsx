@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Image, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Image, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as Contacts from 'expo-contacts';
 import * as Crypto from 'expo-crypto';
-import { RefreshCw, Search, UserPlus, X } from 'lucide-react-native';
+import { RefreshCw, Search, Trash2, UserPlus, X } from 'lucide-react-native';
 import { FRONTEND_URL } from '@/config/env';
 import { NativePhotoViewer } from '@/screens/home/NativePhotoViewer';
 import { highQualityImageUri } from '@/screens/home/homeUtils';
@@ -36,6 +36,7 @@ type InvitePhoneStatus = {
 
 const CONTACT_CACHE_KEY = 'oracle-native-contacts';
 const MANUAL_CONTACT_KEY = 'oracle-native-manual-contacts';
+const HIDDEN_CONTACT_KEY = 'oracle-native-hidden-contacts';
 const ORACLE_MESSENGER_ICON = require('../../../assets/icon.png');
 const INTERNATIONAL_DIAL_CODES = [
   '225', '237', '221', '223', '226', '224', '228', '229', '227',
@@ -161,6 +162,20 @@ function contactKey(contact: LocalContact) {
   return `${contact.name.trim().toLowerCase()}|${phones}|${emails}`;
 }
 
+function contactIdentityKey(contact: LocalContact) {
+  const phones = contact.phones
+    .map(phone => {
+      const parsed = analyzePhone(phone);
+      return parsed.e164 || parsed.digits || parsed.suffix9 || parsed.suffix8;
+    })
+    .filter(Boolean)
+    .sort()
+    .join(',');
+  const emails = contact.emails.map(email => email.trim().toLowerCase()).filter(Boolean).sort().join(',');
+  const identity = `${phones}|${emails}`;
+  return identity !== '|' ? identity : contactKey(contact);
+}
+
 function mergeContacts(base: LocalContact[], extra: LocalContact[]) {
   const seen = new Set<string>();
   const merged: LocalContact[] = [];
@@ -258,6 +273,24 @@ async function writeStoredContacts(key: string, contacts: LocalContact[]) {
   await AsyncStorage.setItem(key, JSON.stringify(contacts));
 }
 
+async function readHiddenContactKeys(key: string) {
+  try {
+    const parsed = JSON.parse(await AsyncStorage.getItem(key) || '[]');
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeHiddenContactKeys(key: string, values: string[]) {
+  await AsyncStorage.setItem(key, JSON.stringify([...new Set(values.filter(Boolean))]));
+}
+
+function filterHiddenContacts(contacts: LocalContact[], hiddenKeys: string[]) {
+  const hidden = new Set(hiddenKeys);
+  return contacts.filter(contact => !hidden.has(contactIdentityKey(contact)));
+}
+
 function buildInviteMessage(contact: LocalContact, user: User) {
   const senderName = user.name?.trim() || 'Un contact';
   const phoneLine = formatOwnPhone(user.phone) ? `\nMon contact : ${formatOwnPhone(user.phone)}` : '';
@@ -270,11 +303,13 @@ function LocalContactRow({
   contact,
   creating,
   onPress,
+  onDelete,
   onAvatarPress,
 }: {
   contact: EnrichedContact;
   creating: boolean;
   onPress: () => void;
+  onDelete: (contact: EnrichedContact) => void;
   onAvatarPress: (preview: { uri?: string | null; name: string }) => void;
 }) {
   const { local, appUser } = contact;
@@ -311,6 +346,19 @@ function LocalContactRow({
         <Text numberOfLines={1} style={styles.localRowSub}>{displaySub}</Text>
       </View>
       <Text style={[styles.localRowAction, appUser ? styles.writeAction : styles.inviteAction]}>{appUser ? 'Écrire' : 'Inviter'}</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Supprimer ${displayName}`}
+        disabled={creating}
+        onPress={event => {
+          event.stopPropagation();
+          onDelete(contact);
+        }}
+        hitSlop={8}
+        style={[styles.localDeleteButton, creating && styles.disabledButton]}
+      >
+        <Trash2 size={17} color={colors.danger} strokeWidth={2.4} />
+      </Pressable>
     </Pressable>
   );
 }
@@ -345,6 +393,7 @@ export function ContactsPage({
 
   const cacheKey = `${CONTACT_CACHE_KEY}:${user.id}`;
   const manualKey = `${MANUAL_CONTACT_KEY}:${user.id}`;
+  const hiddenKey = `${HIDDEN_CONTACT_KEY}:${user.id}`;
   const visibleContacts = useMemo(() => enrichedContacts.filter(contact => matchesContact(contact, query)), [enrichedContacts, query]);
   const oracleContacts = visibleContacts.filter(contact => contact.appUser);
   const inviteContacts = visibleContacts.filter(contact => !contact.appUser);
@@ -374,13 +423,15 @@ export function ContactsPage({
     async function restoreContacts() {
       const cached = await readStoredContacts(cacheKey);
       const manual = await readStoredContacts(manualKey);
-      let restored = mergeContacts(cached, manual);
+      const hidden = await readHiddenContactKeys(hiddenKey);
+      let restored = mergeContacts(filterHiddenContacts(cached, hidden), filterHiddenContacts(manual, hidden));
       if (!restored.length) {
         const permission = await Contacts.getPermissionsAsync().catch(() => null);
         if (permission?.granted) {
           const deviceContacts = await readDeviceContacts().catch(() => []);
-          restored = mergeContacts(deviceContacts, manual);
-          if (deviceContacts.length) await writeStoredContacts(cacheKey, deviceContacts);
+          const visibleDeviceContacts = filterHiddenContacts(deviceContacts, hidden);
+          restored = mergeContacts(visibleDeviceContacts, filterHiddenContacts(manual, hidden));
+          if (deviceContacts.length) await writeStoredContacts(cacheKey, visibleDeviceContacts);
         }
       }
       if (!active || !restored.length) return;
@@ -394,7 +445,7 @@ export function ContactsPage({
     return () => {
       active = false;
     };
-  }, [cacheKey, manualKey, matchLocalContacts]);
+  }, [cacheKey, hiddenKey, manualKey, matchLocalContacts]);
 
   const createConversation = useCallback(async (contact: User) => {
     setBusy(true);
@@ -423,13 +474,15 @@ export function ContactsPage({
         return;
       }
       const deviceContacts = await readDeviceContacts();
-      const manual = await readStoredContacts(manualKey);
-      const all = mergeContacts(deviceContacts, manual);
+      const hidden = await readHiddenContactKeys(hiddenKey);
+      const manual = filterHiddenContacts(await readStoredContacts(manualKey), hidden);
+      const visibleDeviceContacts = filterHiddenContacts(deviceContacts, hidden);
+      const all = mergeContacts(visibleDeviceContacts, manual);
       setLocalContacts(all);
       setEnrichedContacts(localOnlyContacts(all));
       setImported(Boolean(all.length));
-      setImportedCount(deviceContacts.flatMap(contact => contact.phones).length);
-      await writeStoredContacts(cacheKey, deviceContacts);
+      setImportedCount(visibleDeviceContacts.flatMap(contact => contact.phones).length);
+      await writeStoredContacts(cacheKey, visibleDeviceContacts);
       if (!all.length) {
         setActionNotice('');
         setNotice('Aucun contact avec numéro ou email n’a été trouvé dans ce téléphone.');
@@ -442,7 +495,7 @@ export function ContactsPage({
       setActionNotice('');
       setBusy(false);
     }
-  }, [cacheKey, manualKey, matchLocalContacts]);
+  }, [cacheKey, hiddenKey, manualKey, matchLocalContacts]);
 
   const startInvite = useCallback((contact: LocalContact) => {
     setInviteContact(contact);
@@ -478,8 +531,11 @@ export function ContactsPage({
       avatar: null,
     };
     const manual = await readStoredContacts(manualKey);
+    const hidden = await readHiddenContactKeys(hiddenKey);
+    const nextHidden = hidden.filter(key => key !== contactIdentityKey(contact));
     const nextManual = mergeContacts([contact], manual);
     const nextContacts = mergeContacts(localContacts, nextManual);
+    await writeHiddenContactKeys(hiddenKey, nextHidden);
     await writeStoredContacts(manualKey, nextManual);
     setLocalContacts(nextContacts);
     setEnrichedContacts(localOnlyContacts(nextContacts));
@@ -510,7 +566,55 @@ export function ContactsPage({
     } finally {
       setBusy(false);
     }
-  }, [createConversation, localContacts, manualKey, matchLocalContacts, newName, newPhone, token]);
+  }, [createConversation, hiddenKey, localContacts, manualKey, matchLocalContacts, newName, newPhone, token]);
+
+  const deleteLocalContact = useCallback((contact: EnrichedContact) => {
+    const displayName = contact.local.name.trim() || contact.appUser?.name || 'ce contact';
+    Alert.alert(
+      'Supprimer le contact',
+      `Retirer ${displayName} de vos contacts Oracle Messenger ? Les conversations et fichiers existants ne seront pas supprimés.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setBusy(true);
+              setNotice('');
+              setActionNotice('');
+              try {
+                const key = contactIdentityKey(contact.local);
+                const hidden = await readHiddenContactKeys(hiddenKey);
+                const cached = await readStoredContacts(cacheKey);
+                const manual = await readStoredContacts(manualKey);
+                const nextHidden = [...new Set([...hidden, key])];
+                const nextCached = cached.filter(item => contactIdentityKey(item) !== key);
+                const nextManual = manual.filter(item => contactIdentityKey(item) !== key);
+                await Promise.all([
+                  writeHiddenContactKeys(hiddenKey, nextHidden),
+                  writeStoredContacts(cacheKey, nextCached),
+                  writeStoredContacts(manualKey, nextManual),
+                  contact.appUser?.id ? api.deleteContact(contact.appUser.id, token).catch(() => null) : Promise.resolve(null),
+                ]);
+                const nextContacts = mergeContacts(nextCached, nextManual);
+                setLocalContacts(nextContacts);
+                setEnrichedContacts(localOnlyContacts(nextContacts));
+                setImported(Boolean(nextContacts.length));
+                setImportedCount(nextContacts.flatMap(item => item.phones).length);
+                if (nextContacts.length) void matchLocalContacts(nextContacts, true);
+                setActionNotice('Contact supprimé de ce compte.');
+              } catch (error) {
+                setNotice(error instanceof Error ? error.message : 'Suppression du contact impossible.');
+              } finally {
+                setBusy(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [cacheKey, hiddenKey, manualKey, matchLocalContacts, token]);
 
   const shareInvite = useCallback(async () => {
     if (!inviteContact) return;
@@ -670,7 +774,7 @@ export function ContactsPage({
                   <View style={styles.contactGroup}>
                     <Text style={styles.groupTitle}>Déjà sur Oracle Messenger</Text>
                     {oracleContacts.map((contact, index) => (
-                      <LocalContactRow key={`oracle-${contactKey(contact.local)}-${index}`} contact={contact} creating={busy} onPress={() => handleLocalContactPress(contact)} onAvatarPress={setAvatarPreview} />
+                      <LocalContactRow key={`oracle-${contactKey(contact.local)}-${index}`} contact={contact} creating={busy} onPress={() => handleLocalContactPress(contact)} onDelete={deleteLocalContact} onAvatarPress={setAvatarPreview} />
                     ))}
                   </View>
                 ) : null}
@@ -678,7 +782,7 @@ export function ContactsPage({
                   <View style={styles.contactGroup}>
                     <Text style={styles.groupTitle}>À inviter</Text>
                     {inviteContacts.map((contact, index) => (
-                      <LocalContactRow key={`invite-${contactKey(contact.local)}-${index}`} contact={contact} creating={busy} onPress={() => handleLocalContactPress(contact)} onAvatarPress={setAvatarPreview} />
+                      <LocalContactRow key={`invite-${contactKey(contact.local)}-${index}`} contact={contact} creating={busy} onPress={() => handleLocalContactPress(contact)} onDelete={deleteLocalContact} onAvatarPress={setAvatarPreview} />
                     ))}
                   </View>
                 ) : null}
@@ -825,6 +929,7 @@ const styles = StyleSheet.create({
   localRowAction: { fontSize: 14, lineHeight: 18, fontWeight: '900', flexShrink: 0 },
   writeAction: { color: colors.header },
   inviteAction: { color: colors.brand },
+  localDeleteButton: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.42)', paddingHorizontal: 14, paddingBottom: 14 },
   sheet: { width: '100%', maxHeight: '88%', borderRadius: 24, backgroundColor: colors.surface, paddingHorizontal: 20, paddingTop: 22, paddingBottom: 18, gap: 12 },
   sheetHandle: { width: 44, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong, alignSelf: 'center', marginBottom: 6 },

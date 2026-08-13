@@ -857,10 +857,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     try {
       const msg = await this.chat.editMessage(data.messageId, client.data.userId, data.content);
-      this.server.to(`conv:${msg.conversationId}`).emit('message:update', {
+      const payload = {
         id: msg.id,
-        patch: { content: msg.content, isEdited: true },
-      });
+        patch: { content: msg.content, isEdited: true, updatedAt: msg.updatedAt },
+      };
+      const participantIds = await this.chat.getParticipantIds(msg.conversationId);
+      this.server.to(`conv:${msg.conversationId}`).emit('message:update', payload);
+      for (const uid of participantIds) {
+        this.socketState.emitToUser(uid, 'message:update', payload);
+      }
+      await this.broadcastConversationSummaries(msg.conversationId, participantIds);
     } catch {}
   }
 
@@ -870,11 +876,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { messageId: string; conversationId: string },
   ) {
     try {
-      await this.chat.deleteMessage(data.messageId, client.data.userId);
-      this.server.to(`conv:${data.conversationId}`).emit('message:delete', {
-        conversationId: data.conversationId,
-        messageId: data.messageId,
-      });
+      const msg = await this.chat.deleteMessage(data.messageId, client.data.userId);
+      const participantIds = await this.chat.getParticipantIds(msg.conversationId);
+      const payload = {
+        conversationId: msg.conversationId,
+        messageId: msg.id,
+      };
+      this.server.to(`conv:${msg.conversationId}`).emit('message:delete', payload);
+      for (const uid of participantIds) {
+        this.socketState.emitToUser(uid, 'message:delete', payload);
+      }
+      await this.broadcastConversationSummaries(msg.conversationId, participantIds);
     } catch {}
   }
 

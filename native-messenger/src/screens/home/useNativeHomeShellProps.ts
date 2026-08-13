@@ -117,6 +117,7 @@ export function useNativeHomeShellProps({
     onStopVoiceRecording: composer.stopVoiceRecording,
     onLockVoiceRecording: composer.lockVoiceRecording,
     onSendVoicePreview: composer.sendVoicePreview,
+    onSendVisualAsset: composer.sendVisualAsset,
     onAskAiDraft: composer.askAiDraft,
     onSend: composer.send,
     onConversationSearchChange: setConversationSearch,

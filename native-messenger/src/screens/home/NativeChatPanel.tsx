@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, PanResponder, Platform, StyleSheet, Text } from 'react-native';
-import { NativeChatComposer } from '@/screens/home/NativeChatComposer';
+import { NativeChatComposer, type NativeVisualMessageAsset } from '@/screens/home/NativeChatComposer';
 import { NativeChatHeader } from '@/screens/home/NativeChatHeader';
 import { NativeMessageActionPanels } from '@/screens/home/NativeMessageActionPanels';
 import { NativeMessageList } from '@/screens/home/NativeMessageList';
@@ -57,6 +57,7 @@ type NativeChatPanelProps = {
   onStopVoiceRecording: () => void | Promise<unknown>;
   onLockVoiceRecording: () => void;
   onSendVoicePreview: () => void | Promise<void>;
+  onSendVisualAsset: (asset: NativeVisualMessageAsset) => void | Promise<void>;
   onAskAiDraft: () => void | Promise<void>;
   onOpenAiTools: () => void;
   onSend: () => void | Promise<void>;
@@ -109,6 +110,7 @@ export function NativeChatPanel({
   onStopVoiceRecording,
   onLockVoiceRecording,
   onSendVoicePreview,
+  onSendVisualAsset,
   onAskAiDraft,
   onOpenAiTools,
   onSend,
@@ -205,6 +207,7 @@ export function NativeChatPanel({
         onStopVoiceRecording={onStopVoiceRecording}
         onLockVoiceRecording={onLockVoiceRecording}
         onSendVoicePreview={onSendVoicePreview}
+        onSendVisualAsset={onSendVisualAsset}
         onAskAiDraft={onAskAiDraft}
         onOpenAiTools={onOpenAiTools}
         onSend={onSend}

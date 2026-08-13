@@ -3,9 +3,12 @@ import { useNativeMessageMedia } from '@/screens/home/useNativeMessageMedia';
 import { useNativeTextMessageSender } from '@/screens/home/useNativeTextMessageSender';
 import { useNativeTypingPresence } from '@/screens/home/useNativeTypingPresence';
 import { useNativeVoiceRecorder } from '@/screens/home/useNativeVoiceRecorder';
+import { socketAck } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
 import { readNativeDraft, writeNativeDraft } from '@/services/nativeDrafts';
+import { ensureNativeSocket } from '@/services/nativeSocket';
 import type { Conversation, Message } from '@/types/messenger';
+import type { NativeVisualMessageAsset } from './NativeChatComposer';
 
 type UseNativeComposerControllerParams = {
   selected: Conversation | null;
@@ -104,6 +107,68 @@ export function useNativeComposerController({
     setNotice,
   });
 
+  const sendVisualAsset = useCallback(async (asset: NativeVisualMessageAsset) => {
+    if (!selected || !token || !currentUserId) {
+      setNotice('Ouvrez une conversation avant d’envoyer ce contenu.');
+      return;
+    }
+    if (asset.kind === 'gif' && !asset.url) {
+      setNotice('GIF indisponible.');
+      return;
+    }
+    if (asset.kind === 'sticker' && !asset.emoji && !asset.url) {
+      setNotice('Sticker indisponible.');
+      return;
+    }
+    const localMessageId = `local-${asset.kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const content = JSON.stringify(asset.kind === 'gif'
+      ? {
+          url: asset.url,
+          name: asset.name,
+          mime: asset.mime || 'image/gif',
+          width: asset.width,
+          height: asset.height,
+        }
+      : {
+          url: asset.url,
+          emoji: asset.emoji,
+          name: asset.name,
+          mime: asset.mime || 'application/vnd.oracle-messenger.sticker',
+          width: asset.width,
+          height: asset.height,
+        });
+    const optimisticMessage: Message = {
+      id: localMessageId,
+      conversationId: selected.id,
+      senderId: currentUserId,
+      content,
+      type: asset.kind,
+      status: 'sending',
+      createdAt: new Date().toISOString(),
+    };
+    upsertMessage(optimisticMessage);
+    setNotice('');
+    try {
+      const socket = ensureNativeSocket(token);
+      let message: Message;
+      try {
+        message = await socketAck<Message>(socket, 'message:send', {
+          conversationId: selected.id,
+          content,
+          type: asset.kind,
+        });
+      } catch (error) {
+        if (socket.connected) throw error;
+        message = await api.sendMessage(selected.id, token, content, asset.kind);
+      }
+      patchMessage(localMessageId, { ...message, status: message.status || 'sent' });
+      void refreshConversations().catch(() => undefined);
+    } catch (error) {
+      patchMessage(localMessageId, { status: 'failed', updatedAt: new Date().toISOString() });
+      setNotice(error instanceof Error ? error.message : `Envoi ${asset.kind === 'gif' ? 'GIF' : 'sticker'} impossible.`);
+    }
+  }, [currentUserId, patchMessage, refreshConversations, selected, setNotice, token, upsertMessage]);
+
   const {
     voiceRecording,
     voiceStartedAt,
@@ -191,6 +256,7 @@ export function useNativeComposerController({
     stopVoiceRecording,
     lockVoiceRecording,
     sendVoicePreview,
+    sendVisualAsset,
     toggleVoiceRecording,
     cancelVoiceRecording,
     clearComposerContext,

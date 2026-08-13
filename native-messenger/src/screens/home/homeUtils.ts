@@ -4,13 +4,14 @@ import type { Conversation, Message } from '@/types/messenger';
 export type Country = { code: string; name: string; dial: string; flag: string };
 export type PaystackScope = 'ai' | 'flyer' | 'video' | 'business';
 export type MediaPayload = {
-  url: string;
+  url?: string;
   localUri?: string;
   size?: number;
   checksum?: string;
   mime?: string;
   name?: string;
   caption?: string;
+  emoji?: string;
   thumbnail?: string;
   duration?: number;
   width?: number;
@@ -160,6 +161,8 @@ export function messagePreview(message?: Message | null) {
   const payload = parseMediaPayload(message.content);
   const mediaName = mediaPreviewName(payload, message.content);
   if (message.type === 'image') return mediaName || 'Image';
+  if (message.type === 'gif') return mediaName || 'GIF';
+  if (message.type === 'sticker') return payload?.emoji || mediaName || 'Sticker';
   if (message.type === 'video') return mediaName || 'Vidéo';
   if (message.type === 'audio' || message.type === 'voice') return mediaName || 'Note vocale';
   return mediaName || 'Fichier';
@@ -192,15 +195,17 @@ export function parseMediaPayload(content?: string | null): MediaPayload | null 
     const parsed = JSON.parse(content);
     if (!parsed || typeof parsed !== 'object') return null;
     const url = typeof parsed.url === 'string' ? parsed.url : '';
-    if (!url) return null;
+    const emoji = typeof parsed.emoji === 'string' ? parsed.emoji.trim().slice(0, 12) : '';
+    if (!url && !emoji) return null;
     return {
-      url,
+      url: url || undefined,
       localUri: typeof parsed.localUri === 'string' ? parsed.localUri : undefined,
       size: typeof parsed.size === 'number' ? parsed.size : undefined,
       checksum: typeof parsed.checksum === 'string' ? parsed.checksum : undefined,
       mime: typeof parsed.mime === 'string' ? parsed.mime : undefined,
       name: typeof parsed.name === 'string' ? parsed.name : undefined,
       caption: typeof parsed.caption === 'string' ? parsed.caption.trim() : undefined,
+      emoji: emoji || undefined,
       thumbnail: typeof parsed.thumbnail === 'string' ? parsed.thumbnail : undefined,
       duration: typeof parsed.duration === 'number' ? parsed.duration : undefined,
       width: typeof parsed.width === 'number' ? parsed.width : undefined,

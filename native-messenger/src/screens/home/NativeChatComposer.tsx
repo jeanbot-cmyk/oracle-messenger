@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, Image as ImageIcon, Keyboard, Mic, Paperclip, Search, Send, Smile, Sparkles, Sticker, X } from 'lucide-react-native';
 import { OracleAudioPlayer } from '@/screens/features/NativeMediaPlayers';
@@ -20,6 +20,35 @@ const EMOJI_CATEGORIES = [
 ];
 const RECENT_EMOJIS = ['❤️', '🥰', '😆', '🫣', '😔', '👍', '😘', '🤭', '😁', '😖', '😄', '🧐'];
 const EMOJI_CATEGORY_TITLES = ['Emojis et personnes', 'Gestes', 'Favoris', 'Travail', 'Nourriture', 'Activités', 'Voyages'];
+type EmojiMode = 'emoji' | 'gif' | 'sticker';
+export type NativeVisualMessageAsset = {
+  kind: 'gif' | 'sticker';
+  label: string;
+  name: string;
+  url?: string;
+  emoji?: string;
+  mime?: string;
+  width?: number;
+  height?: number;
+};
+const GIF_LIBRARY: NativeVisualMessageAsset[] = [
+  { kind: 'gif', label: 'Bravo', name: 'bravo.gif', url: 'https://media.giphy.com/media/111ebonMs90YLu/giphy.gif', mime: 'image/gif', width: 480, height: 360 },
+  { kind: 'gif', label: 'Merci', name: 'merci.gif', url: 'https://media.giphy.com/media/3oEdva9BUHPIs2SkGk/giphy.gif', mime: 'image/gif', width: 480, height: 360 },
+  { kind: 'gif', label: 'Oui', name: 'oui.gif', url: 'https://media.giphy.com/media/GCvktC0KFy9l6/giphy.gif', mime: 'image/gif', width: 480, height: 360 },
+  { kind: 'gif', label: 'Salut', name: 'salut.gif', url: 'https://media.giphy.com/media/l0FF56cexcW2JAXCJj/giphy.gif', mime: 'image/gif', width: 480, height: 360 },
+  { kind: 'gif', label: 'OK', name: 'ok.gif', url: 'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif', mime: 'image/gif', width: 480, height: 360 },
+  { kind: 'gif', label: 'Top', name: 'top.gif', url: 'https://media.giphy.com/media/26ufdipQqU2lhNA4g/giphy.gif', mime: 'image/gif', width: 480, height: 360 },
+];
+const STICKER_LIBRARY: NativeVisualMessageAsset[] = [
+  { kind: 'sticker', label: 'J’aime', name: 'Sticker j’aime', emoji: '👍' },
+  { kind: 'sticker', label: 'Amour', name: 'Sticker amour', emoji: '❤️' },
+  { kind: 'sticker', label: 'Rire', name: 'Sticker rire', emoji: '😂' },
+  { kind: 'sticker', label: 'Prière', name: 'Sticker prière', emoji: '🙏' },
+  { kind: 'sticker', label: 'Feu', name: 'Sticker feu', emoji: '🔥' },
+  { kind: 'sticker', label: 'Validé', name: 'Sticker validé', emoji: '✅' },
+  { kind: 'sticker', label: 'Triste', name: 'Sticker triste', emoji: '😢' },
+  { kind: 'sticker', label: 'Surpris', name: 'Sticker surpris', emoji: '😮' },
+];
 
 const MIC_RECORD_START_DELAY_MS = 0;
 
@@ -45,6 +74,7 @@ type NativeChatComposerProps = {
   onStopVoiceRecording: () => void | Promise<unknown>;
   onLockVoiceRecording: () => void;
   onSendVoicePreview: () => void | Promise<void>;
+  onSendVisualAsset: (asset: NativeVisualMessageAsset) => void | Promise<void>;
   onAskAiDraft: () => void | Promise<void>;
   onOpenAiTools: () => void;
   onSend: () => void | Promise<void>;
@@ -72,6 +102,7 @@ export function NativeChatComposer({
   onStopVoiceRecording,
   onLockVoiceRecording,
   onSendVoicePreview,
+  onSendVisualAsset,
   onAskAiDraft,
   onOpenAiTools,
   onSend,
@@ -81,6 +112,7 @@ export function NativeChatComposer({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
   const [attachmentOpen, setAttachmentOpen] = useState(false);
+  const [emojiMode, setEmojiMode] = useState<EmojiMode>('emoji');
   const [emojiCategory, setEmojiCategory] = useState(0);
   const [, setRecordingTick] = useState(0);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -119,6 +151,12 @@ export function NativeChatComposer({
   function insertEmoji(emoji: string) {
     selectionHaptic();
     onDraftChange(`${draft}${emoji}`);
+  }
+
+  function sendVisualAsset(asset: NativeVisualMessageAsset) {
+    selectionHaptic();
+    setEmojiOpen(false);
+    void onSendVisualAsset(asset);
   }
 
   function runAttachment(action: () => void | Promise<void>) {
@@ -278,19 +316,22 @@ export function NativeChatComposer({
         <View style={styles.emojiPanel}>
           <View style={styles.emojiGrip} />
           <View style={styles.emojiToolRow}>
-            <Pressable style={styles.emojiToolIcon} onPress={() => undefined}>
+            <Pressable style={styles.emojiToolIcon} onPress={() => {
+              selectionHaptic();
+              setEmojiMode(current => current === 'emoji' ? 'gif' : 'emoji');
+            }}>
               <Search size={24} color={colors.text} strokeWidth={2.3} />
             </Pressable>
             <View style={styles.emojiModeSegment}>
-              <View style={[styles.emojiModeButton, styles.emojiModeButtonActive]}>
-                <Smile size={22} color={colors.header} strokeWidth={2.4} />
-              </View>
-              <View style={styles.emojiModeButton}>
-                <Text style={styles.emojiGifText}>GIF</Text>
-              </View>
-              <View style={styles.emojiModeButton}>
-                <Sticker size={22} color={colors.muted} strokeWidth={2.2} />
-              </View>
+              <Pressable onPress={() => setEmojiMode('emoji')} style={[styles.emojiModeButton, emojiMode === 'emoji' && styles.emojiModeButtonActive]}>
+                <Smile size={22} color={emojiMode === 'emoji' ? colors.header : colors.muted} strokeWidth={2.4} />
+              </Pressable>
+              <Pressable onPress={() => setEmojiMode('gif')} style={[styles.emojiModeButton, emojiMode === 'gif' && styles.emojiModeButtonActive]}>
+                <Text style={[styles.emojiGifText, emojiMode === 'gif' && styles.emojiGifTextActive]}>GIF</Text>
+              </Pressable>
+              <Pressable onPress={() => setEmojiMode('sticker')} style={[styles.emojiModeButton, emojiMode === 'sticker' && styles.emojiModeButtonActive]}>
+                <Sticker size={22} color={emojiMode === 'sticker' ? colors.header : colors.muted} strokeWidth={2.2} />
+              </Pressable>
             </View>
             <Pressable style={styles.emojiToolIcon} onPress={() => {
               selectionHaptic();
@@ -299,37 +340,58 @@ export function NativeChatComposer({
               <X size={23} color={colors.text} strokeWidth={2.5} />
             </Pressable>
           </View>
-          <ScrollView style={styles.emojiGridScroll} contentContainerStyle={styles.emojiGrid}>
-            <Text style={styles.emojiSectionTitle}>Récents</Text>
-            <View style={styles.emojiGridBlock}>
-              {RECENT_EMOJIS.map((emoji, index) => (
-                <Pressable key={`recent-${emoji}-${index}`} onPress={() => insertEmoji(emoji)} style={styles.emojiButton}>
-                  <Text style={styles.emojiText}>{emoji}</Text>
+          {emojiMode === 'emoji' ? (
+            <>
+              <ScrollView style={styles.emojiGridScroll} contentContainerStyle={styles.emojiGrid}>
+                <Text style={styles.emojiSectionTitle}>Récents</Text>
+                <View style={styles.emojiGridBlock}>
+                  {RECENT_EMOJIS.map((emoji, index) => (
+                    <Pressable key={`recent-${emoji}-${index}`} onPress={() => insertEmoji(emoji)} style={styles.emojiButton}>
+                      <Text style={styles.emojiText}>{emoji}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Text style={styles.emojiSectionTitle}>{EMOJI_CATEGORY_TITLES[emojiCategory] || 'Emojis'}</Text>
+                <View style={styles.emojiGridBlock}>
+                  {activeEmojiCategory.emojis.map((emoji, index) => (
+                    <Pressable key={`${activeEmojiCategory.label}-${emoji}-${index}`} onPress={() => insertEmoji(emoji)} style={styles.emojiButton}>
+                      <Text style={styles.emojiText}>{emoji}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </ScrollView>
+              <View style={styles.emojiCategoryBar}>
+                <Pressable style={[styles.emojiCategoryButton, styles.emojiCategoryButtonActive]}>
+                  <Keyboard size={20} color={colors.header} strokeWidth={2.2} />
+                </Pressable>
+                {EMOJI_CATEGORIES.map((category, index) => (
+                  <Pressable key={category.label} onPress={() => {
+                    selectionHaptic();
+                    setEmojiCategory(index);
+                  }} style={[styles.emojiCategoryButton, emojiCategory === index && styles.emojiCategoryButtonActive]}>
+                    <Text style={[styles.emojiCategoryText, emojiCategory === index && styles.emojiCategoryTextActive]}>{category.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </>
+          ) : (
+            <ScrollView style={styles.emojiGridScroll} contentContainerStyle={styles.visualAssetGrid}>
+              {(emojiMode === 'gif' ? GIF_LIBRARY : STICKER_LIBRARY).map(asset => (
+                <Pressable
+                  key={`${asset.kind}-${asset.name}`}
+                  onPress={() => sendVisualAsset(asset)}
+                  style={({ pressed }) => [styles.visualAssetButton, pressed && styles.visualAssetPressed]}
+                >
+                  {asset.kind === 'gif' && asset.url ? (
+                    <Image source={{ uri: asset.url }} style={styles.gifPreview} resizeMode="cover" />
+                  ) : (
+                    <Text style={styles.stickerPreview}>{asset.emoji}</Text>
+                  )}
+                  <Text numberOfLines={1} style={styles.visualAssetLabel}>{asset.label}</Text>
                 </Pressable>
               ))}
-            </View>
-            <Text style={styles.emojiSectionTitle}>{EMOJI_CATEGORY_TITLES[emojiCategory] || 'Emojis'}</Text>
-            <View style={styles.emojiGridBlock}>
-              {activeEmojiCategory.emojis.map((emoji, index) => (
-                <Pressable key={`${activeEmojiCategory.label}-${emoji}-${index}`} onPress={() => insertEmoji(emoji)} style={styles.emojiButton}>
-                  <Text style={styles.emojiText}>{emoji}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </ScrollView>
-          <View style={styles.emojiCategoryBar}>
-            <Pressable style={[styles.emojiCategoryButton, styles.emojiCategoryButtonActive]}>
-              <Keyboard size={20} color={colors.header} strokeWidth={2.2} />
-            </Pressable>
-            {EMOJI_CATEGORIES.map((category, index) => (
-              <Pressable key={category.label} onPress={() => {
-                selectionHaptic();
-                setEmojiCategory(index);
-              }} style={[styles.emojiCategoryButton, emojiCategory === index && styles.emojiCategoryButtonActive]}>
-                <Text style={[styles.emojiCategoryText, emojiCategory === index && styles.emojiCategoryTextActive]}>{category.label}</Text>
-              </Pressable>
-            ))}
-          </View>
+            </ScrollView>
+          )}
         </View>
       ) : null}
       {attachmentOpen ? (
@@ -466,6 +528,7 @@ const styles = StyleSheet.create({
   emojiModeButton: { flex: 1, height: '100%', alignItems: 'center', justifyContent: 'center', borderLeftWidth: 1, borderLeftColor: colors.border },
   emojiModeButtonActive: { backgroundColor: colors.surface, borderLeftWidth: 0 },
   emojiGifText: { color: colors.muted, fontSize: 13.5, lineHeight: 17, fontWeight: '900' },
+  emojiGifTextActive: { color: colors.header },
   emojiGridScroll: { flex: 1 },
   emojiGrid: { paddingHorizontal: 14, paddingTop: 6, paddingBottom: 12 },
   emojiSectionTitle: { width: '100%', color: colors.muted, fontSize: 13, lineHeight: 17, fontWeight: '900', marginTop: 8, marginBottom: 7 },
@@ -477,6 +540,12 @@ const styles = StyleSheet.create({
   emojiCategoryButtonActive: { backgroundColor: colors.surface },
   emojiCategoryText: { color: colors.muted, fontSize: 20, lineHeight: 24 },
   emojiCategoryTextActive: { color: colors.header },
+  visualAssetGrid: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 14, flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  visualAssetButton: { width: '30.8%', minHeight: 92, borderRadius: 14, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  visualAssetPressed: { opacity: 0.84, transform: [{ scale: 0.985 }] },
+  gifPreview: { width: '100%', height: 68, backgroundColor: '#0F172A' },
+  stickerPreview: { fontSize: 42, lineHeight: 50 },
+  visualAssetLabel: { width: '100%', color: colors.text, fontSize: 11.5, lineHeight: 15, fontWeight: '900', textAlign: 'center', paddingHorizontal: 6, paddingVertical: 6 },
   attachmentPanel: { marginBottom: 6, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 8, flexDirection: 'row', gap: 8, shadowColor: '#102A2A', shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
   attachmentAction: { flex: 1, minHeight: 52, borderRadius: 15, backgroundColor: '#EAF4F1', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 6 },
   attachmentText: { color: colors.header, fontSize: 12, lineHeight: 15, fontWeight: '900' },

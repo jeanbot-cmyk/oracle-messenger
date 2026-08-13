@@ -6,6 +6,7 @@ import { runOnJS } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeBottomTabs } from '@/screens/home/NativeBottomTabs';
 import { NativeChatPanel } from '@/screens/home/NativeChatPanel';
+import type { NativeVisualMessageAsset } from '@/screens/home/NativeChatComposer';
 import { NativeCallOverlay } from '@/screens/home/NativeCallOverlay';
 import { NativeConversationList } from '@/screens/home/NativeConversationList';
 import { NativeFeatureShell } from '@/screens/home/NativeFeatureShell';
@@ -72,6 +73,7 @@ export type NativeHomeShellProps = {
   onStopVoiceRecording: () => void | Promise<unknown>;
   onLockVoiceRecording: () => void;
   onSendVoicePreview: () => void | Promise<void>;
+  onSendVisualAsset: (asset: NativeVisualMessageAsset) => void | Promise<void>;
   onAskAiDraft: () => void | Promise<void>;
   onOpenAiTools?: () => void;
   onSend: () => void | Promise<void>;
@@ -167,6 +169,7 @@ export function NativeHomeShell({
   onStopVoiceRecording,
   onLockVoiceRecording,
   onSendVoicePreview,
+  onSendVisualAsset,
   onAskAiDraft,
   onOpenAiTools,
   onSend,
@@ -319,6 +322,7 @@ export function NativeHomeShell({
           onStopVoiceRecording={onStopVoiceRecording}
           onLockVoiceRecording={onLockVoiceRecording}
           onSendVoicePreview={onSendVoicePreview}
+          onSendVisualAsset={onSendVisualAsset}
           onAskAiDraft={onAskAiDraft}
           onOpenAiTools={onOpenAiTools || (() => onTabPress('ai'))}
           onSend={onSend}

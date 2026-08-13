@@ -9,7 +9,7 @@ import { checkNativeStorageForWrite } from '@/services/nativeStorageHealth';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import type { Conversation, Message } from '@/types/messenger';
 
-export type NativeMessageMediaKind = 'image' | 'file' | 'video' | 'audio' | 'voice';
+export type NativeMessageMediaKind = 'image' | 'file' | 'video' | 'audio' | 'voice' | 'gif' | 'sticker';
 const MAX_NATIVE_UPLOAD_BYTES = 18 * 1024 * 1024;
 const MAX_DATA_URL_FALLBACK_BYTES = 12 * 1024 * 1024;
 
@@ -50,6 +50,8 @@ async function localFileSize(uri: string, fallback?: number) {
 
 function mediaLabel(kind: NativeMessageMediaKind) {
   if (kind === 'image') return 'image';
+  if (kind === 'gif') return 'GIF';
+  if (kind === 'sticker') return 'sticker';
   if (kind === 'video') return 'vidéo';
   if (kind === 'audio' || kind === 'voice') return 'audio';
   return 'fichier';

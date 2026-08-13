@@ -88,6 +88,14 @@ export function NativeChatMediaMessage({ message, localItem, mine = false, avata
   const payload = parseMediaPayload(message.content);
   const localPayloadUri = mine && isLocalMediaUri(payload?.localUri) ? payload?.localUri : undefined;
   const sourceUrl = localItem?.uri || localPayloadUri || payload?.url;
+  if (message.type === 'sticker' && payload?.emoji && !sourceUrl) {
+    return (
+      <View style={[styles.stickerBox, mine ? styles.stickerMine : styles.stickerOther]}>
+        <Text style={styles.stickerEmoji}>{payload.emoji}</Text>
+        <Text numberOfLines={1} style={styles.stickerLabel}>{payload.name || 'Sticker'}</Text>
+      </View>
+    );
+  }
   if (!sourceUrl) {
     return <Text style={styles.bubbleText}>{messagePreview(message)}</Text>;
   }
@@ -102,12 +110,13 @@ export function NativeChatMediaMessage({ message, localItem, mine = false, avata
   const mediaMeta = [displayName, durationLabel, formatBytes(displaySize), localBadge].filter(Boolean).join(' - ');
   const uploadOverlay = <MediaUploadOverlay state={payload?.uploadState} progress={payload?.uploadProgress} error={payload?.uploadError} />;
 
-  if (message.type === 'image') {
+  if (message.type === 'image' || message.type === 'gif' || message.type === 'sticker') {
+    const visualLabel = message.type === 'gif' ? 'GIF' : message.type === 'sticker' ? 'Sticker' : 'Image';
     return (
       <>
         <Pressable
           accessibilityRole="imagebutton"
-          accessibilityLabel="Agrandir l’image"
+          accessibilityLabel={`Agrandir ${visualLabel.toLowerCase()}`}
           onPress={() => setImageOpen(true)}
           android_ripple={{ color: 'rgba(16,42,42,0.10)' }}
           style={({ pressed }) => [styles.chatMediaBox, pressed ? styles.mediaPressed : null]}
@@ -117,14 +126,14 @@ export function NativeChatMediaMessage({ message, localItem, mine = false, avata
           <View style={styles.mediaOpenBadge}>
             <Maximize2 size={14} color="#FFFFFF" strokeWidth={2.8} />
           </View>
-          <Text numberOfLines={1} style={styles.chatMediaCaption}>{mediaMeta || `Image - ${localBadge}`}</Text>
+          <Text numberOfLines={1} style={styles.chatMediaCaption}>{mediaMeta || `${visualLabel} - ${localBadge}`}</Text>
           <LinkedCaption text={caption} />
         </Pressable>
         <NativePhotoViewer
           visible={imageOpen}
           uri={sourceUrl}
-          title={displayName || 'Image'}
-          fallbackText="IMG"
+          title={displayName || visualLabel}
+          fallbackText={visualLabel.slice(0, 3).toUpperCase()}
           imageResizeMode="contain"
           onClose={() => setImageOpen(false)}
         />
@@ -256,6 +265,11 @@ function InlineUploadState({ state, progress, error }: { state?: string; progres
 
 const styles = StyleSheet.create({
   bubbleText: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: '700' },
+  stickerBox: { minWidth: 118, maxWidth: 180, minHeight: 106, borderRadius: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1 },
+  stickerMine: { backgroundColor: 'rgba(255,255,255,0.68)', borderColor: 'rgba(16,42,42,0.08)' },
+  stickerOther: { backgroundColor: 'rgba(16,42,42,0.035)', borderColor: 'rgba(16,42,42,0.07)' },
+  stickerEmoji: { fontSize: 58, lineHeight: 66 },
+  stickerLabel: { color: colors.muted, fontSize: 11.5, lineHeight: 15, fontWeight: '800', marginTop: 4 },
   chatMediaBox: { position: 'relative', width: 238, maxWidth: '100%', borderRadius: 16, overflow: 'hidden', backgroundColor: 'rgba(16,42,42,0.06)' },
   mediaPressed: { opacity: 0.88, transform: [{ scale: 0.992 }] },
   chatImage: { width: '100%', backgroundColor: '#050505' },

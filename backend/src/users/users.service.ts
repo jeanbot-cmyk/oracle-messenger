@@ -168,6 +168,20 @@ export class UsersService {
     return user;
   }
 
+  async deleteContact(ownerId: string, contactUserId: string) {
+    const cleanContactUserId = String(contactUserId || '').trim();
+    if (!cleanContactUserId || cleanContactUserId === ownerId) {
+      throw new BadRequestException('Contact invalide');
+    }
+    const result = await this.prisma.contact.deleteMany({
+      where: {
+        ownerId,
+        contactUserId: cleanContactUserId,
+      },
+    });
+    return { ok: true, deleted: result.count };
+  }
+
   async setOnline(id: string, online: boolean) {
     return this.prisma.user.update({
       where: { id },

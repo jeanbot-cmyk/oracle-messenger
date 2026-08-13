@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Post, Query, Param, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Delete, Get, Patch, Post, Query, Param, Body, UseGuards, Request } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
 import { UsersService } from './users.service';
 
@@ -37,6 +37,12 @@ export class UsersController {
   @UseGuards(JwtGuard)
   matchContact(@Request() req: any, @Body() body: { hashes?: string[]; phone?: string; email?: string }) {
     return this.users.matchExplicitContact(req.user.id, body ?? {});
+  }
+
+  @Delete('contacts/:contactUserId')
+  @UseGuards(JwtGuard)
+  deleteContact(@Request() req: any, @Param('contactUserId') contactUserId: string) {
+    return this.users.deleteContact(req.user.id, contactUserId);
   }
 
   @Get('me/has-phone')

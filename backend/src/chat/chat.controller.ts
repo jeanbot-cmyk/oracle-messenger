@@ -110,6 +110,22 @@ export class ChatController {
     await this.broadcastConversationSummaries(conversationId, participantIds);
   }
 
+  private async broadcastMessagePatch(conversationId: string, messageId: string, patch: Record<string, unknown>) {
+    const participantIds = await this.chat.getParticipantIds(conversationId);
+    for (const uid of participantIds) {
+      this.socketState.emitToUser(uid, 'message:update', { id: messageId, patch });
+    }
+    await this.broadcastConversationSummaries(conversationId, participantIds);
+  }
+
+  private async broadcastMessageDelete(conversationId: string, messageId: string) {
+    const participantIds = await this.chat.getParticipantIds(conversationId);
+    for (const uid of participantIds) {
+      this.socketState.emitToUser(uid, 'message:delete', { conversationId, messageId });
+    }
+    await this.broadcastConversationSummaries(conversationId, participantIds);
+  }
+
   @Get('conversations')
   list(@Request() req: any) {
     return this.chat.getConversations(req.user.id);
@@ -192,11 +208,23 @@ export class ChatController {
 
   @Delete('messages/:id')
   delete(@Param('id') id: string, @Request() req: any) {
-    return this.chat.deleteMessage(id, req.user.id);
+    return this.chat.deleteMessage(id, req.user.id)
+      .then(async message => {
+        await this.broadcastMessageDelete(message.conversationId, message.id);
+        return message;
+      });
   }
 
   @Patch('messages/:id')
   edit(@Param('id') id: string, @Body('content') content: string, @Request() req: any) {
-    return this.chat.editMessage(id, req.user.id, content);
+    return this.chat.editMessage(id, req.user.id, content)
+      .then(async message => {
+        await this.broadcastMessagePatch(message.conversationId, message.id, {
+          content: message.content,
+          isEdited: true,
+          updatedAt: message.updatedAt,
+        });
+        return message;
+      });
   }
 }

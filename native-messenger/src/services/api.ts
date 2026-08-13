@@ -129,6 +129,8 @@ export const api = {
     apiRequest<User | null>('/users/match-contact', { method: 'POST', body: JSON.stringify(data) }, token),
   matchPhoneHashes: (token: string, hashes: string[]) =>
     apiRequest<User[]>('/users/match-phone-hashes', { method: 'POST', body: JSON.stringify({ hashes }) }, token),
+  deleteContact: (contactUserId: string, token: string) =>
+    apiRequest<{ ok?: boolean; deleted?: number }>(`/users/contacts/${encodeURIComponent(contactUserId)}`, { method: 'DELETE' }, token),
   byUsername: (username: string) => apiGet<User>(`/users/u/${encodeURIComponent(username)}`),
   conversations: (token: string) => apiGet<Conversation[]>('/conversations', token),
   searchConversations: (query: string, token: string) =>

@@ -19,6 +19,10 @@ export class AdminService {
     private socketState: SocketStateService,
   ) {}
 
+  private isSocketInRoom(socketId: string, room: string) {
+    return this.socketState.server?.sockets.sockets.get(socketId)?.rooms.has(room) ?? false;
+  }
+
   async getStats() {
     const [totalUsers, premiumUsers, totalMessages, totalConversations, pwaInstalls] = await Promise.all([
       this.prisma.user.count({ where: this.realUserWhere }),
@@ -105,7 +109,38 @@ export class AdminService {
     return { tracked: true, total: await this.prisma.pwaInstall.count() };
   }
 
-  private toOfficialConversationSummary(conv: any, userId: string, unreadCount = 1) {
+  private getOfficialOpenedAt(conv: any, userId: string) {
+    const participant = conv.participants.find((pt: any) => pt.userId === userId);
+    const lastMessage = conv.messages?.[0] ?? null;
+    if (!participant?.lastReadAt || !lastMessage?.createdAt) return null;
+    const readAt = new Date(participant.lastReadAt);
+    const messageAt = new Date(lastMessage.createdAt);
+    if (Number.isNaN(readAt.getTime()) || Number.isNaN(messageAt.getTime())) return null;
+    return readAt.getTime() >= messageAt.getTime() ? readAt : null;
+  }
+
+  private getOfficialExpiresAt(conv: any, userId: string) {
+    const openedAt = this.getOfficialOpenedAt(conv, userId);
+    if (!openedAt) return null;
+    return new Date(openedAt.getTime() + 24 * 60 * 60 * 1000);
+  }
+
+  private async getOfficialUnreadCount(conv: any, userId: string) {
+    const participant = conv.participants.find((pt: any) => pt.userId === userId);
+    return this.prisma.message.count({
+      where: {
+        conversationId: conv.id,
+        senderId: { not: userId },
+        isDeleted: false,
+        ...(participant?.lastReadAt ? { createdAt: { gt: participant.lastReadAt } } : {}),
+      },
+    });
+  }
+
+  private async toOfficialConversationSummary(conv: any, userId: string) {
+    const unreadCount = await this.getOfficialUnreadCount(conv, userId);
+    const officialOpenedAt = unreadCount > 0 ? null : this.getOfficialOpenedAt(conv, userId)?.toISOString() ?? null;
+    const officialExpiresAt = unreadCount > 0 ? null : this.getOfficialExpiresAt(conv, userId)?.toISOString() ?? null;
     const others = conv.participants.filter((pt: any) => pt.userId !== userId).map((pt: any) => pt.user);
     return {
       id: conv.id,
@@ -118,15 +153,15 @@ export class AdminService {
       isPinned: unreadCount > 0,
       isOfficial: true,
       isVerified: true,
-      officialOpenedAt: null,
-      officialExpiresAt: null,
+      officialOpenedAt,
+      officialExpiresAt,
       officialState: {
         received: true,
         unread: unreadCount > 0,
-        opened_at: null,
-        expires_at: null,
-        openedAt: null,
-        expiresAt: null,
+        opened_at: officialOpenedAt,
+        expires_at: officialExpiresAt,
+        openedAt: officialOpenedAt,
+        expiresAt: officialExpiresAt,
       },
       updatedAt: conv.updatedAt,
     };
@@ -163,7 +198,7 @@ export class AdminService {
 
     // Get or create one official O.Messenger conversation for each user.
     const users = await this.prisma.user.findMany({
-      where: { id: { not: systemUser.id } },
+      where: { ...this.realUserWhere, id: { not: systemUser.id } },
       select: { id: true },
     });
 
@@ -250,13 +285,16 @@ export class AdminService {
             messages: { orderBy: { createdAt: 'desc' }, take: 1 },
           },
         });
-        const officialSummary = this.toOfficialConversationSummary(updatedConv, user.id);
+        const officialSummary = await this.toOfficialConversationSummary(updatedConv, user.id);
 
         // Émettre en temps réel via socket si l'utilisateur est connecté
+        const room = `conv:${conv.id}`;
         this.socketState.emitToUser(user.id, 'conversation:upsert', officialSummary);
-        this.socketState.emitToUser(user.id, 'message:new', msg);
-        // Émettre aussi dans la room de la conversation
-        this.socketState.server?.to(`conv:${conv.id}`).emit('message:new', msg);
+        this.socketState.server?.to(room).emit('message:new', msg);
+        for (const socketId of this.socketState.getSocketIds(user.id)) {
+          if (this.isSocketInRoom(socketId, room)) continue;
+          this.socketState.server?.to(socketId).emit('message:new', msg);
+        }
 
         sent++;
       } catch (error) {

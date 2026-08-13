@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { mergeMessagePatch, mergeMessageStatus, sortConversations, sortMessages } from '@/screens/home/homeUtils';
+import { isOfficialExpired, mergeMessagePatch, mergeMessageStatus, sortConversations, sortMessages } from '@/screens/home/homeUtils';
 import { writeCachedMessages } from '@/services/nativeConversationCache';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
 
@@ -58,6 +58,27 @@ export function useNativeConversationState({ session, messageSearch }: UseNative
     void writeCachedMessages(ownerId, selected.id, messages);
   }, [messages, selected?.id, session?.token, session?.user.email, session?.user.id]);
 
+  useEffect(() => {
+    const expiries = conversations
+      .filter(conversation => !conversation.unreadCount && conversation.officialExpiresAt)
+      .map(conversation => new Date(conversation.officialExpiresAt || '').getTime())
+      .filter(Number.isFinite);
+    if (!expiries.length) return;
+
+    const nextExpiry = Math.min(...expiries);
+    const delay = Math.max(0, nextExpiry - Date.now() + 250);
+    const timer = setTimeout(() => {
+      setConversations(current => {
+        if (!current.some(isOfficialExpired)) return current;
+        const next = sortConversations(current);
+        if (next.length === current.length && next.every((item, index) => item === current[index])) return current;
+        return next;
+      });
+    }, Math.min(delay, 2_147_483_647));
+
+    return () => clearTimeout(timer);
+  }, [conversations]);
+
   const upsertConversation = useCallback((conversation: Conversation) => {
     setConversations(current => {
       const exists = current.some(item => item.id === conversation.id);
@@ -88,10 +109,13 @@ export function useNativeConversationState({ session, messageSearch }: UseNative
         found = true;
         const isCurrentOpen = selectedRef.current?.id === message.conversationId;
         const isOwn = message.senderId === sessionRef.current?.user.id;
+        const sameLastMessage = conversation.lastMessage?.id === message.id;
         return {
           ...conversation,
-          lastMessage: message,
-          unreadCount: isCurrentOpen || isOwn ? 0 : (conversation.unreadCount || 0) + 1,
+          lastMessage: sameLastMessage && conversation.lastMessage
+            ? mergeMessageKeepingLocalMedia(conversation.lastMessage, message)
+            : message,
+          unreadCount: sameLastMessage ? conversation.unreadCount : isCurrentOpen || isOwn ? 0 : (conversation.unreadCount || 0) + 1,
           updatedAt: message.createdAt || conversation.updatedAt,
         };
       });
