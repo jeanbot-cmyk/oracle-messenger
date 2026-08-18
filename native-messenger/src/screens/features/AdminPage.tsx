@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
@@ -53,6 +53,22 @@ function DashboardCard({ icon, value, label, sub, tint }: { icon: string; value:
   );
 }
 
+function formatDateTime(value?: string | Date | null) {
+  if (!value) return 'Date inconnue';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Date inconnue';
+  return date.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    + ' '
+    + date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function riskText(receipt: any) {
+  const audit = receipt?.audit && typeof receipt.audit === 'object' ? receipt.audit : {};
+  const score = audit.riskScore ?? receipt?.riskScore ?? 0;
+  const level = audit.riskLevel ?? receipt?.riskLevel ?? receipt?.status ?? 'à vérifier';
+  return `Risque ${valueText(score)}/100 · ${String(level)}`;
+}
+
 export function AdminPage({ token, onBack }: { token: string; onBack: () => void }) {
   const [data, setData] = useState<any>(null);
   const [message, setMessage] = useState('');
@@ -66,27 +82,36 @@ export function AdminPage({ token, onBack }: { token: string; onBack: () => void
   const [systemOpen, setSystemOpen] = useState(true);
   const [lastUpdatedAt, setLastUpdatedAt] = useState('');
 
-  const load = useCallback(async () => {
-    setBusy(true);
+  const load = useCallback(async (showBusy = true) => {
+    if (showBusy) setBusy(true);
     try {
-      const [stats, metrics, users, countries, ai] = await Promise.all([
+      const [stats, metrics, users, countries, ai, businessWesternUnion] = await Promise.all([
         api.adminStats(token),
         api.adminMetrics(token),
         api.adminUsers(token),
         api.adminCountries(token),
         api.adminAiAuto(token),
+        api.adminBusinessWesternUnion(token).catch(error => ({
+          error: error instanceof Error ? error.message : 'Boîte Western Union indisponible.',
+          receipts: [],
+        })),
       ]);
-      setData({ stats, metrics, users, countries, ai });
+      setData({ stats, metrics, users, countries, ai, businessWesternUnion });
       setLastUpdatedAt(new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       setNotice('');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Admin indisponible ou accès réservé.');
     } finally {
-      setBusy(false);
+      if (showBusy) setBusy(false);
     }
   }, [token]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(true); }, [load]);
+
+  useEffect(() => {
+    const timer = setInterval(() => { void load(false); }, 10_000);
+    return () => clearInterval(timer);
+  }, [load]);
 
   const uploadBroadcastMedia = useCallback(async (input: { uri: string; name?: string; mime?: string; kind: string }) => {
     setBusy(true);
@@ -174,8 +199,15 @@ export function AdminPage({ token, onBack }: { token: string; onBack: () => void
       setMessage('');
       setBroadcastMedia(null);
       const sent = Number(result?.sent ?? 0);
+      const failed = Number(result?.failed ?? 0);
       const total = Number(result?.total ?? 0);
-      setNotice(total > 0 ? `Message système envoyé à ${sent}/${total} utilisateur(s).` : 'Message système envoyé.');
+      if (total <= 0) {
+        setNotice('Message système non envoyé : aucun utilisateur destinataire trouvé.');
+      } else if (failed > 0) {
+        setNotice(`Message système partiel : ${sent}/${total} utilisateur(s), ${failed} échec(s).`);
+      } else {
+        setNotice(`Message système envoyé à ${sent}/${total} utilisateur(s).`);
+      }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Message système impossible.');
     } finally {
@@ -255,7 +287,7 @@ export function AdminPage({ token, onBack }: { token: string; onBack: () => void
           <Text style={styles.dashboardNoticeTitle}>Tableau de bord temps réel</Text>
           <Text style={styles.dashboardNoticeSub}>Rafraîchissement automatique toutes les 10s · dernière mise à jour {lastUpdatedAt || '--:--:--'}</Text>
         </View>
-        <Pressable style={styles.refreshButton} onPress={load} disabled={busy}>
+        <Pressable style={styles.refreshButton} onPress={() => load(true)} disabled={busy}>
           <Text style={styles.refreshButtonText}>Actualiser</Text>
         </Pressable>
       </View>
@@ -267,11 +299,51 @@ export function AdminPage({ token, onBack }: { token: string; onBack: () => void
 
       <View style={styles.dashboardList}>
         <DashboardCard icon="👥" value={data?.stats?.totalUsers ?? data?.users?.length ?? 0} label="Utilisateurs" sub={`${valueText(data?.stats?.premiumUsers ?? data?.stats?.premium ?? 0)} premium`} tint="#EEF2F1" />
-        <DashboardCard icon="●" value={data?.stats?.onlineUsers ?? 0} label="En ligne maintenant" sub="WebSocket + API" tint="#EAFBF1" />
+        <DashboardCard icon="G" value={data?.stats?.googleRegisteredUsers ?? 0} label="Inscrits via Google" sub="comptes OAuth Google réels" tint="#EAF2FF" />
+        <DashboardCard icon="●" value={data?.stats?.realtimeConnectedUsers ?? data?.stats?.onlineUsers ?? 0} label="Connectés temps réel" sub={`${valueText(data?.stats?.realtimeSocketConnections ?? data?.stats?.realtime?.socketConnections ?? 0)} connexion(s) socket`} tint="#EAFBF1" />
+        <DashboardCard icon="✓" value={data?.stats?.activeRealtimeUsers ?? data?.stats?.realtime?.activeUsers ?? 0} label="Présence active" sub={`heartbeat ${valueText(data?.stats?.realtime?.heartbeatMaxAgeMs ?? 70000)} ms`} tint="#ECFDF5" />
         <DashboardCard icon="📲" value={data?.stats?.pwaInstalls ?? 0} label="Installations PWA" sub="installations enregistrées" tint="#F3EFFF" />
         <DashboardCard icon="💬" value={data?.stats?.totalMessages ?? 0} label="Messages" sub={`${valueText(data?.stats?.totalConversations ?? data?.stats?.conversations ?? 0)} conversations`} tint="#EFF6FF" />
         <DashboardCard icon="⚡" value={`${data?.metrics?.cpu ?? 0}%`} label="CPU serveur" sub={`charge ${valueText(data?.metrics?.loadAvg1m ?? 0)}`} tint="#FFF7ED" />
       </View>
+
+      <Section title="Boîte de réception paiements">
+        <Text style={styles.pageCopy}>Reçus Western Union entreprise envoyés par les utilisateurs, avec score de contrôle, transaction et aperçu du document reçu.</Text>
+        {data?.businessWesternUnion?.error ? (
+          <Text style={styles.warningText}>{data.businessWesternUnion.error}</Text>
+        ) : null}
+        {!data?.businessWesternUnion?.receipts?.length ? (
+          <Text style={styles.empty}>Aucun reçu Western Union reçu pour le moment.</Text>
+        ) : null}
+        {data?.businessWesternUnion?.receipts?.slice?.(0, 12)?.map((receipt: any) => (
+          <View key={receipt.id || receipt.transactionNumber} style={styles.receiptCard}>
+            <View style={styles.receiptHead}>
+              <View style={styles.receiptUser}>
+                <Text numberOfLines={1} style={styles.cardTitle}>{receipt.name || receipt.senderFullName || 'Utilisateur'}</Text>
+                <Text numberOfLines={1} style={styles.cardMeta}>{receipt.email || receipt.phone || receipt.userId || 'Compte non identifié'}</Text>
+              </View>
+              <View style={styles.receiptStatusPill}>
+                <Text style={styles.receiptStatusText}>{String(receipt.status || 'pending').toUpperCase()}</Text>
+              </View>
+            </View>
+            <View style={styles.receiptBody}>
+              {receipt.receiptDataUrl ? (
+                <Image source={{ uri: receipt.receiptDataUrl }} style={styles.receiptImage} resizeMode="cover" />
+              ) : (
+                <View style={styles.receiptImageEmpty}><Text style={styles.receiptImageEmptyText}>Reçu</Text></View>
+              )}
+              <View style={styles.receiptInfo}>
+                <Text style={styles.infoValue}>{valueText(receipt.amountFcfa)} FCFA</Text>
+                <Text style={styles.cardMeta}>Transaction : {receipt.transactionNumber || 'non lue'}</Text>
+                <Text style={styles.cardMeta}>Expéditeur : {receipt.senderFullName || 'non renseigné'}</Text>
+                <Text style={styles.cardMeta}>Pays : {receipt.senderCountry || 'non renseigné'}</Text>
+                <Text style={styles.cardMeta}>Envoyé : {formatDateTime(receipt.submittedAt)}</Text>
+                <Text style={styles.receiptRisk}>{riskText(receipt)}</Text>
+              </View>
+            </View>
+          </View>
+        ))}
+      </Section>
 
       {systemOpen ? (
       <Section title="Conversation système O.Messenger">
@@ -362,6 +434,18 @@ const styles = StyleSheet.create({
   dashboardLabel: { color: colors.secondary, fontSize: 12.5, lineHeight: 16, fontWeight: '900', marginTop: 2 },
   dashboardSub: { color: colors.muted, fontSize: 12, lineHeight: 16, fontWeight: '800', marginTop: 3 },
   pageCopy: { color: colors.muted, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
+  warningText: { color: '#92400E', backgroundColor: '#FFFBEB', borderColor: '#F59E0B', borderWidth: 1, borderRadius: 14, padding: 11, fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  receiptCard: { borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 12, gap: 10, shadowColor: '#102A2A', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
+  receiptHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  receiptUser: { flex: 1, minWidth: 0 },
+  receiptStatusPill: { minHeight: 28, borderRadius: 14, paddingHorizontal: 10, backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: 'rgba(16,42,42,0.12)', alignItems: 'center', justifyContent: 'center' },
+  receiptStatusText: { color: colors.header, fontSize: 10.5, lineHeight: 13, fontWeight: '900' },
+  receiptBody: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  receiptImage: { width: 86, height: 112, borderRadius: 12, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border },
+  receiptImageEmpty: { width: 86, height: 112, borderRadius: 12, backgroundColor: colors.input, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  receiptImageEmptyText: { color: colors.muted, fontSize: 12, lineHeight: 15, fontWeight: '900' },
+  receiptInfo: { flex: 1, minWidth: 0, gap: 3 },
+  receiptRisk: { color: colors.header, fontSize: 12.5, lineHeight: 17, fontWeight: '900', marginTop: 4 },
   input: { minHeight: 48, borderRadius: 15, backgroundColor: colors.input, color: colors.text, paddingHorizontal: 14, paddingVertical: 10, fontWeight: '800', borderWidth: 1, borderColor: 'transparent' },
   textarea: { minHeight: 96, textAlignVertical: 'top' },
   empty: { color: colors.muted, fontSize: 13, fontWeight: '800', paddingVertical: 10 },

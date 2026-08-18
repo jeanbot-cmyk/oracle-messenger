@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
-import { Linking } from 'react-native';
+import { AppState, Linking } from 'react-native';
+import { useLocalSearchParams, usePathname } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import {
   parseCallActionDeepLink,
+  parseConferenceDeepLink,
   parseConversationTarget,
   parseInviteTarget,
   parsePaystackDeepLink,
@@ -10,12 +12,52 @@ import {
 import type { PendingNativeCallAction } from '@/screens/home/usePendingNativeCallAction';
 import type { NativeTabKey } from '@/screens/NativeFeaturePages';
 import { api } from '@/services/api';
+import { nativeDebugLog } from '@/services/nativeLogger';
 import { ensureNativeSocket } from '@/services/nativeSocket';
-import { configureAndroidNotifications, registerPushToken } from '@/services/notifications';
+import { configureAndroidNotifications, consumePendingIncomingCallAction, registerPushToken } from '@/services/notifications';
+import { rememberPendingConference } from '@/services/pendingConference';
 import { clearPendingInvite, readPendingInvite, rememberPendingInvite } from '@/services/pendingInvite';
+import { clearPendingPaystackPayment, verifyPaystackScope } from '@/services/pendingPaystack';
 import type { AuthSession, Conversation } from '@/types/messenger';
 
 type RefValue<T> = { current: T };
+type RouteParam = string | string[] | undefined;
+
+function firstRouteParam(value: RouteParam) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function normalizeCallAction(value: RouteParam): 'accept' | 'reject' | 'open' {
+  const action = firstRouteParam(value);
+  return action === 'accept' || action === 'reject' || action === 'open' ? action : 'open';
+}
+
+function buildCallDeepLinkFromRoute(pathname: string, params: {
+  open?: RouteParam;
+  action?: RouteParam;
+  callAction?: RouteParam;
+  callId?: RouteParam;
+  conversationId?: RouteParam;
+  conv?: RouteParam;
+}) {
+  const openTarget = firstRouteParam(params.open);
+  if (pathname !== '/call' && openTarget !== 'call' && firstRouteParam(params.callAction) == null) return null;
+  const action = normalizeCallAction(params.callAction ?? params.action);
+  const callId = firstRouteParam(params.callId);
+  const conversationId = firstRouteParam(params.conversationId) || firstRouteParam(params.conv);
+  const query = new URLSearchParams({ action });
+  if (callId) query.set('callId', callId);
+  if (conversationId) query.set('conversationId', conversationId);
+  return `oraclemessenger://call?${query.toString()}`;
+}
+
+function tabForPaystackScope(scope: 'ai' | 'flyer' | 'video' | 'business' | 'conference' | 'conference-book'): NativeTabKey {
+  if (scope === 'ai') return 'ai';
+  if (scope === 'flyer') return 'flyers';
+  if (scope === 'video') return 'videos';
+  if (scope === 'conference' || scope === 'conference-book') return 'meeting';
+  return 'business';
+}
 
 type UseNativeNotificationRoutingParams = {
   session: AuthSession | null;
@@ -48,9 +90,20 @@ export function useNativeNotificationRouting({
   setBusy,
   setNotice,
 }: UseNativeNotificationRoutingParams) {
+  const routeParams = useLocalSearchParams<{
+    open?: RouteParam;
+    action?: RouteParam;
+    callAction?: RouteParam;
+    callId?: RouteParam;
+    conversationId?: RouteParam;
+    conv?: RouteParam;
+  }>();
+  const pathname = usePathname();
   const sessionRef = useRef<AuthSession | null>(null);
   const initialDeepLinkHandledRef = useRef(false);
   const initialNotificationResponseHandledRef = useRef(false);
+  const pendingCallDeepLinkRef = useRef<string | null>(null);
+  const handledCallActionRef = useRef({ key: '', at: 0 });
 
   useEffect(() => {
     sessionRef.current = session;
@@ -64,7 +117,7 @@ export function useNativeNotificationRouting({
     if (!session?.token) return;
     registerPushToken(session.token)
       .catch(error => {
-        console.info('[NativeNotifications]', {
+        nativeDebugLog('[NativeNotifications]', {
           event: 'push-register-error',
           message: error instanceof Error ? error.message : String(error),
         });
@@ -78,13 +131,11 @@ export function useNativeNotificationRouting({
     setBusy(true);
     setNotice('Vérification Paystack en cours...');
     try {
-      if (parsed.scope === 'ai') await api.aiAutoVerifyPaystack(activeSession.token, parsed.reference);
-      else if (parsed.scope === 'flyer') await api.aiFlyerVerifyPaystack(activeSession.token, parsed.reference);
-      else if (parsed.scope === 'video') await api.aiVideoVerifyPaystack(activeSession.token, parsed.reference);
-      else await api.businessVerifyPaystack(activeSession.token, parsed.reference);
-      setActiveTab(parsed.scope === 'business' ? 'business' : 'payments');
+      await verifyPaystackScope(activeSession.token, parsed.scope, parsed.reference);
+      await clearPendingPaystackPayment(parsed.reference);
+      setActiveTab(tabForPaystackScope(parsed.scope));
       setSelected(null);
-      setNotice('Paiement vérifié côté serveur.');
+      setNotice('Paiement vérifié côté serveur, service débloqué.');
       await refreshConversations(activeSession.token);
     } catch (error) {
       setActiveTab('payments');
@@ -131,20 +182,51 @@ export function useNativeNotificationRouting({
     }
   }, [openConversationById, refreshConversations, setActiveTab, setBusy, setNotice]);
 
+  const openConferenceTarget = useCallback(async (url: string) => {
+    const target = parseConferenceDeepLink(url);
+    if (!target) return false;
+    await rememberPendingConference(target.slug);
+    setSelected(null);
+    setActiveTab('meeting');
+    setNotice('Salle de conférence prête à ouvrir.');
+    return true;
+  }, [setActiveTab, setNotice, setSelected]);
+
   const handleNativeDeepLink = useCallback(async (url: string) => {
     const callAction = parseCallActionDeepLink(url);
     if (callAction) {
-      setSelected(null);
-      setActiveTab('chats');
-      if (callAction.conversationId) {
-        openConversationById(callAction.conversationId).catch(() => null);
+      if (!sessionRef.current?.token) {
+        pendingCallDeepLinkRef.current = url;
+        setNotice('Appel entrant en cours de synchronisation...');
+        return;
       }
+      const actionKey = `${callAction.action}:${callAction.callId || ''}:${callAction.conversationId || ''}`;
+      const handled = handledCallActionRef.current;
+      if (handled.key === actionKey && Date.now() - handled.at < 1500) return;
+      const markCallActionHandled = () => {
+        handledCallActionRef.current = { key: actionKey, at: Date.now() };
+      };
+      nativeDebugLog('[NativeNotifications]', {
+        event: 'call-deeplink',
+        action: callAction.action,
+        callId: callAction.callId,
+        conversationId: callAction.conversationId,
+      });
+      setActiveTab('chats');
+      setSelected(null);
       if (callAction.action === 'open') {
         if (callAction.callId) {
           const prepared = await prepareIncomingCall(callAction.callId);
+          nativeDebugLog('[NativeNotifications]', {
+            event: 'call-open-prepared',
+            callId: callAction.callId,
+            prepared,
+          });
           setNotice(prepared ? 'Appel ouvert depuis la notification.' : 'Appel entrant introuvable ou deja termine.');
+          if (prepared) markCallActionHandled();
         } else {
           setNotice('');
+          markCallActionHandled();
         }
         return;
       }
@@ -152,9 +234,12 @@ export function useNativeNotificationRouting({
         if (currentCallId && (!callAction.callId || callAction.callId === currentCallId)) {
           clearPendingCallAction();
           await answerNativeCall(true);
+          markCallActionHandled();
         } else if (callAction.callId && await prepareIncomingCall(callAction.callId)) {
           clearPendingCallAction();
+          nativeDebugLog('[NativeNotifications]', { event: 'call-accept-prepared', callId: callAction.callId });
           await answerNativeCall(true);
+          markCallActionHandled();
         } else {
           queuePendingCallAction({ action: 'accept', callId: callAction.callId, conversationId: callAction.conversationId });
           setNotice('Appel entrant en cours de synchronisation...');
@@ -163,9 +248,12 @@ export function useNativeNotificationRouting({
         if (currentCallId && (!callAction.callId || callAction.callId === currentCallId)) {
           clearPendingCallAction();
           await answerNativeCall(false);
+          markCallActionHandled();
         } else if (callAction.callId && await prepareIncomingCall(callAction.callId)) {
           clearPendingCallAction();
+          nativeDebugLog('[NativeNotifications]', { event: 'call-reject-prepared', callId: callAction.callId });
           await answerNativeCall(false);
+          markCallActionHandled();
         } else {
           queuePendingCallAction({ action: 'reject', callId: callAction.callId, conversationId: callAction.conversationId });
           setNotice('Refus de l’appel en attente de synchronisation...');
@@ -173,6 +261,7 @@ export function useNativeNotificationRouting({
       }
       return;
     }
+    if (await openConferenceTarget(url)) return;
     if (await openInviteTarget(url)) return;
     const conversationTarget = parseConversationTarget(url);
     if (conversationTarget) {
@@ -189,6 +278,7 @@ export function useNativeNotificationRouting({
     clearPendingCallAction,
     currentCallId,
     openConversationById,
+    openConferenceTarget,
     openInviteTarget,
     prepareIncomingCall,
     queuePendingCallAction,
@@ -198,12 +288,34 @@ export function useNativeNotificationRouting({
     verifyPaystackReturn,
   ]);
 
+  useEffect(() => {
+    const callRouteDeepLink = buildCallDeepLinkFromRoute(pathname, routeParams);
+    if (!callRouteDeepLink) return;
+    void handleNativeDeepLink(callRouteDeepLink);
+  }, [handleNativeDeepLink, pathname, routeParams]);
+
+  const consumePendingNativeCallAction = useCallback(() => {
+    if (!sessionRef.current?.token) return;
+    consumePendingIncomingCallAction()
+      .then(pending => {
+        if (pending?.url) void handleNativeDeepLink(pending.url);
+      })
+      .catch(() => null);
+  }, [handleNativeDeepLink]);
+
   const handleNotificationResponse = useCallback((response: Notifications.NotificationResponse) => {
     const data = response.notification.request.content.data || {};
     const url = typeof data.url === 'string' ? data.url : null;
     const conversationId = typeof data.conversationId === 'string' ? data.conversationId : null;
     const callId = typeof data.callId === 'string' ? data.callId : null;
     const type = typeof data.type === 'string' ? data.type : '';
+    nativeDebugLog('[NativeNotifications]', {
+      event: 'notification-response',
+      type,
+      callId,
+      conversationId,
+      hasUrl: Boolean(url),
+    });
     if (url) {
       void handleNativeDeepLink(url);
     } else if ((type === 'call' || type === 'call-sync') && callId) {
@@ -239,12 +351,25 @@ export function useNativeNotificationRouting({
 
   useEffect(() => {
     if (!session?.token) return;
+    const pendingCallDeepLink = pendingCallDeepLinkRef.current;
+    if (pendingCallDeepLink) {
+      pendingCallDeepLinkRef.current = null;
+      void handleNativeDeepLink(pendingCallDeepLink);
+    }
+    consumePendingNativeCallAction();
     readPendingInvite()
       .then(username => {
         if (username) void openInviteTarget(`oraclemessenger://invite/${encodeURIComponent(username)}`);
       })
       .catch(() => undefined);
-  }, [openInviteTarget, session?.token]);
+  }, [consumePendingNativeCallAction, handleNativeDeepLink, openInviteTarget, session?.token]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') consumePendingNativeCallAction();
+    });
+    return () => subscription.remove();
+  }, [consumePendingNativeCallAction]);
 
   useEffect(() => {
     if (!session?.token) return;
@@ -261,6 +386,13 @@ export function useNativeNotificationRouting({
       const data = notification.request.content.data || {};
       const conversationId = typeof data.conversationId === 'string' ? data.conversationId : null;
       const type = typeof data.type === 'string' ? data.type : '';
+      nativeDebugLog('[NativeNotifications]', {
+        event: 'notification-received',
+        type,
+        callId: typeof data.callId === 'string' ? data.callId : null,
+        conversationId,
+        selectedConversationId: selectedRef.current?.id,
+      });
       if ((type === 'message' || type === 'official-message') && conversationId && selectedRef.current?.id === conversationId && session.token) {
         const socket = ensureNativeSocket(session.token);
         socket.emit('conversation:join', { conversationId });

@@ -1,6 +1,11 @@
 import { useCallback, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api } from '@/services/api';
+import {
+  clearPendingPaystackPayment,
+  rememberPendingPaystackPayment,
+  verifyPaystackScope,
+} from '@/services/pendingPaystack';
 import { colors } from '@/theme/colors';
 import { AlertText, Loading, PageHeader, PrimaryButton, SecondaryButton, Section } from './FeatureUi';
 
@@ -26,6 +31,7 @@ export function PaymentsPage({ token }: { token: string }) {
             ? await api.aiVideoInitializePaystack(token)
             : await api.businessInitializePaystack(token);
       setReference(data.reference || '');
+      await rememberPendingPaystackPayment(scope, data.reference);
       await Linking.openURL(data.authorizationUrl);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Initialisation paiement impossible.');
@@ -40,13 +46,8 @@ export function PaymentsPage({ token }: { token: string }) {
     setBusy(true);
     setNotice('');
     try {
-      const data = scope === 'ai'
-        ? await api.aiAutoVerifyPaystack(token, clean)
-        : scope === 'flyer'
-          ? await api.aiFlyerVerifyPaystack(token, clean)
-          : scope === 'video'
-            ? await api.aiVideoVerifyPaystack(token, clean)
-            : await api.businessVerifyPaystack(token, clean);
+      const data = await verifyPaystackScope(token, scope, clean);
+      await clearPendingPaystackPayment(clean);
       setResult(data);
       setNotice('Vérification serveur terminée.');
     } catch (error) {

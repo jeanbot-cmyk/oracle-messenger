@@ -13,7 +13,6 @@ import { ProfilePage } from './features/ProfilePage';
 import { SpiritualityPage } from './features/SpiritualityPage';
 import { StoriesPage } from './features/StoriesPage';
 import { ToolsPage } from './features/ToolsPage';
-import { WebPage } from './features/WebPage';
 import { useLanguage } from '@/services/language';
 import { colors } from '@/theme/colors';
 
@@ -30,7 +29,6 @@ export type NativeTabKey =
   | 'menu'
   | 'contacts'
   | 'gallery'
-  | 'web'
   | 'spirituality'
   | 'ai'
   | 'flyers'
@@ -57,21 +55,23 @@ type FeatureProps = {
   onLogout: () => Promise<void>;
   onOpenTab: (tab: NativeTabKey) => void;
   onBackToChats?: () => void;
+  contactsAutoImportKey?: number;
   callDiagnostics?: NativeCallDiagnosticEntry[];
   onClearCallDiagnostics?: () => void;
+  initialStoryAuthorId?: string | null;
+  initialStoryOpenKey?: number;
   isAdmin?: boolean;
 };
 
-export function NativeFeaturePage({ tab, session, onOpenConversation, onStartCallFromPeer, onRefreshConversations, onLogout, onOpenTab, onBackToChats, callDiagnostics, onClearCallDiagnostics, isAdmin }: FeatureProps) {
+export function NativeFeaturePage({ tab, session, onOpenConversation, onStartCallFromPeer, onRefreshConversations, onLogout, onOpenTab, onBackToChats, contactsAutoImportKey, callDiagnostics, onClearCallDiagnostics, initialStoryAuthorId, initialStoryOpenKey, isAdmin }: FeatureProps) {
   const token = session.token;
   const ownerId = session.user.id || session.user.email || token;
   const userName = session.user.name || session.user.email || 'Utilisateur';
   if (tab === 'calls') return <CallsPage token={token} ownerId={ownerId} onOpenContacts={() => onOpenTab('contacts')} onStartCallFromPeer={onStartCallFromPeer} callDiagnostics={callDiagnostics || []} onClearCallDiagnostics={onClearCallDiagnostics || (() => undefined)} isAdmin={Boolean(isAdmin)} />;
-  if (tab === 'contacts') return <ContactsPage token={token} user={session.user} onOpenConversation={onOpenConversation} onRefreshConversations={onRefreshConversations} onBack={onBackToChats || (() => onOpenTab('chats'))} />;
-  if (tab === 'stories') return <StoriesPage token={token} userId={session.user.id} onBack={onBackToChats || (() => onOpenTab('chats'))} />;
+  if (tab === 'contacts') return <ContactsPage token={token} user={session.user} initialAutoImportKey={contactsAutoImportKey} onOpenConversation={onOpenConversation} onStartCallFromPeer={onStartCallFromPeer} onRefreshConversations={onRefreshConversations} onBack={onBackToChats || (() => onOpenTab('chats'))} />;
+  if (tab === 'stories') return <StoriesPage token={token} userId={session.user.id} initialAuthorId={initialStoryAuthorId} initialOpenKey={initialStoryOpenKey} onBack={onBackToChats || (() => onOpenTab('chats'))} />;
   if (tab === 'storyCamera') return <StoriesPage token={token} userId={session.user.id} initialMode="camera" onBack={onBackToChats || (() => onOpenTab('chats'))} />;
   if (tab === 'gallery') return <GalleryPage token={token} userId={session.user.id} />;
-  if (tab === 'web') return <WebPage />;
   if (tab === 'spirituality') return <SpiritualityPage />;
   if (tab === 'tools') return <ToolsPage token={token} ownerId={ownerId} userName={userName} initialMode="directory" onOpenTab={onOpenTab} />;
   if (tab === 'meeting') return <ToolsPage token={token} ownerId={ownerId} userName={userName} initialMode="meeting" onOpenTab={onOpenTab} />;

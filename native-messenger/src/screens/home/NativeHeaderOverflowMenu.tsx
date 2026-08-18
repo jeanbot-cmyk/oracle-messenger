@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Linking, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { BriefcaseBusiness, Camera, DoorOpen, Globe2, Languages, Moon, Shield, Share2, Sparkles, Sun, User } from 'lucide-react-native';
+import { BriefcaseBusiness, Camera, DoorOpen, Languages, Moon, Shield, Share2, Sparkles, Sun, User } from 'lucide-react-native';
 import type { NativeTabKey } from '@/screens/NativeFeaturePages';
 import { LANGUAGES, readAppSettings, saveAppSettings, type LanguageCode, useLanguage } from '@/services/language';
 import { shareOracleMessengerApp } from '@/services/shareOracleApp';
@@ -16,7 +16,6 @@ type HeaderMenuItem = {
 };
 
 const SPIRITUALITY_URL = 'https://oracle-plus.online';
-const ORACLE_WEB_URL = 'https://web.oracle-plus.online';
 
 function Divider() {
   return <View style={styles.divider} />;
@@ -92,7 +91,6 @@ export function NativeHeaderOverflowMenu({
   const selectedLanguage = LANGUAGES.find(item => item.code === language);
   const rows: HeaderMenuItem[] = [
     { icon: Sparkles, title: t('menu.spirituality'), subtitle: 'Consultation spirituelle', action: () => openExternalUrl(SPIRITUALITY_URL) },
-    { icon: Globe2, title: t('menu.web'), subtitle: 'Créer mon site web, appli ou boutique', action: () => openExternalUrl(ORACLE_WEB_URL) },
     { icon: Camera, title: t('menu.gallery'), subtitle: 'Galerie locale', action: () => openTab('gallery') },
     { icon: BriefcaseBusiness, title: t('menu.business'), subtitle: 'CRM & Business Hub', action: () => openTab('business') },
     { icon: theme === 'light' ? Moon : Sun, title: theme === 'light' ? t('menu.dark') : t('menu.light'), action: () => saveSettings({ theme: theme === 'light' ? 'dark' : 'light' }) },
@@ -112,12 +110,11 @@ export function NativeHeaderOverflowMenu({
         >
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.menuContent}>
             <MenuRow item={rows[0]} onClose={onClose} />
+            <Divider />
             <MenuRow item={rows[1]} onClose={onClose} />
-            <Divider />
             <MenuRow item={rows[2]} onClose={onClose} />
-            <MenuRow item={rows[3]} onClose={onClose} />
             <Divider />
-            <MenuRow item={rows[4]} onClose={onClose} />
+            <MenuRow item={rows[3]} onClose={onClose} />
             <Pressable
               accessibilityRole="button"
               onPress={() => setLanguageOpen(current => !current)}
@@ -152,17 +149,17 @@ export function NativeHeaderOverflowMenu({
               </View>
             ) : null}
             <Divider />
-            <MenuRow item={rows[6]} onClose={onClose} />
+            <MenuRow item={rows[5]} onClose={onClose} />
             <Divider />
-            <MenuRow item={rows[7]} onClose={onClose} />
+            <MenuRow item={rows[6]} onClose={onClose} />
             {isAdmin ? (
               <>
                 <Divider />
-                <MenuRow item={rows[8]} onClose={onClose} />
+                <MenuRow item={rows[7]} onClose={onClose} />
               </>
             ) : null}
             <Divider />
-            <MenuRow item={rows[isAdmin ? 9 : 8]} onClose={onClose} />
+            <MenuRow item={rows[isAdmin ? 8 : 7]} onClose={onClose} />
           </ScrollView>
         </Pressable>
       </Pressable>

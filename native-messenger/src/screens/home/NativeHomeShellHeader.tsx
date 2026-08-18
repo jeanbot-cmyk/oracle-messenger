@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitleWrap: { flex: 1, minWidth: 0, paddingRight: 10 },
-  headerTitle: { color: colors.text, fontSize: 28, lineHeight: 34, fontWeight: '900', letterSpacing: 0 },
+  headerTitle: { color: colors.title, fontSize: 28, lineHeight: 34, fontWeight: '900', letterSpacing: 0 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerButton: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
 });

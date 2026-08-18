@@ -43,6 +43,7 @@ export function useNativeMessageActions({
 }: UseNativeMessageActionsParams) {
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [forwardMessages, setForwardMessages] = useState<Message[]>([]);
+  const [actionMessage, setActionMessage] = useState<Message | null>(null);
 
   const clearMessageSelection = useCallback(() => {
     setSelectedMessageIds([]);
@@ -55,12 +56,11 @@ export function useNativeMessageActions({
   const resetMessageActions = useCallback(() => {
     setSelectedMessageIds([]);
     setForwardMessages([]);
+    setActionMessage(null);
   }, []);
 
   const deleteOwnMessage = useCallback((message: Message) => {
     if (!token || message.senderId !== currentUserId) return;
-    const socket = ensureNativeSocket(token);
-    socket.emit('message:delete', { conversationId: message.conversationId, messageId: message.id });
     api.deleteMessage(message.id, token)
       .then(() => {
         markMessageDeleted(message.conversationId, message.id);
@@ -72,6 +72,7 @@ export function useNativeMessageActions({
 
   const deleteMessageForMe = useCallback((message: Message) => {
     if (!message.conversationId || !message.id) return;
+    setActionMessage(null);
     markMessageDeleted(message.conversationId, message.id);
     removeLocalGalleryItem(message.id).catch(() => null);
     hideMessagesForMe(message.conversationId, [message.id], ownerId || currentUserId)
@@ -84,11 +85,39 @@ export function useNativeMessageActions({
     return messages.filter(message => ids.has(message.id));
   }, [messages, selectedMessageIds]);
 
-  const reactToMessage = useCallback((message: Message, emoji: string | null) => {
-    if (!token) return;
-    const socket = ensureNativeSocket(token);
-    socket.emit('message:react', { messageId: message.id, emoji });
-  }, [token]);
+  const closeMessageActions = useCallback(() => {
+    setActionMessage(null);
+  }, []);
+
+  const reactToMessage = useCallback(async (message: Message, emoji: string | null) => {
+    if (!token || !currentUserId) return;
+    const previousReactions = Array.isArray(message.reactions) ? message.reactions : [];
+    const optimisticReactions = emoji
+      ? [
+          ...previousReactions.filter(reaction => reaction.userId !== currentUserId),
+          { emoji, userId: currentUserId, updatedAt: new Date().toISOString() },
+        ]
+      : previousReactions.filter(reaction => reaction.userId !== currentUserId);
+    setBusy(true);
+    upsertMessage({ ...message, reactions: optimisticReactions });
+    setActionMessage(current => current?.id === message.id ? { ...current, reactions: optimisticReactions } : current);
+    try {
+      const socket = ensureNativeSocket(token);
+      const response = await socketAck<{ ok?: boolean; message?: string; id?: string; patch?: Partial<Message> }>(socket, 'message:react', {
+        messageId: message.id,
+        emoji,
+      });
+      if (response?.ok === false) throw new Error(response.message || 'Réaction refusée.');
+      const patch = response?.patch || {};
+      upsertMessage({ ...message, reactions: optimisticReactions, ...patch, id: response?.id || message.id });
+      setActionMessage(null);
+    } catch (error) {
+      upsertMessage({ ...message, reactions: previousReactions });
+      setNotice(error instanceof Error ? error.message : 'Réaction impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [currentUserId, setBusy, setNotice, token, upsertMessage]);
 
   const toggleMessageSelection = useCallback((messageId: string) => {
     setSelectedMessageIds(current => (
@@ -103,6 +132,7 @@ export function useNativeMessageActions({
     if (!body.trim()) return;
     try {
       await Share.share({ message: body });
+      setActionMessage(null);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Partage impossible.');
     }
@@ -114,16 +144,31 @@ export function useNativeMessageActions({
     try {
       await Clipboard.setStringAsync(text);
       setNotice('Message copié.');
+      setActionMessage(null);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Copie impossible.');
     }
   }, [setNotice]);
+
+  const replyToMessage = useCallback((message: Message) => {
+    setReplyTo(message);
+    setEditingMessage(null);
+    setActionMessage(null);
+  }, [setEditingMessage, setReplyTo]);
+
+  const editMessage = useCallback((message: Message) => {
+    setEditingMessage(message);
+    setReplyTo(null);
+    setDraft(message.content);
+    setActionMessage(null);
+  }, [setDraft, setEditingMessage, setReplyTo]);
 
   const beginForward = useCallback((items: Message[]) => {
     const valid = items.filter(message => !message.isDeleted);
     if (!valid.length) return;
     setForwardMessages(valid.slice(0, 50));
     setSelectedMessageIds([]);
+    setActionMessage(null);
   }, []);
 
   const forwardToConversation = useCallback(async (conversation: Conversation) => {
@@ -133,10 +178,13 @@ export function useNativeMessageActions({
     try {
       const socket = ensureNativeSocket(token);
       for (const message of forwardMessages) {
+        const clientMessageId = `local-forward-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const forwarded = await socketAck<Message>(socket, 'message:send', {
           conversationId: conversation.id,
           content: message.content,
           type: message.type,
+          clientMessageId,
+          clientSentAt: new Date().toISOString(),
         });
         if (selected?.id === conversation.id) upsertMessage({ ...forwarded, status: forwarded.status || 'sent' });
       }
@@ -186,6 +234,7 @@ export function useNativeMessageActions({
   }, [currentUserId, deleteOwnMessage, markMessageDeleted, ownerId, selectedMessages, setNotice]);
 
   const deleteOwnMessageWithConfirm = useCallback((message: Message) => {
+    setActionMessage(null);
     Alert.alert('Supprimer', 'Supprimer ce message pour tous les participants ?', [
       { text: 'Annuler', style: 'cancel' },
       {
@@ -197,39 +246,25 @@ export function useNativeMessageActions({
   }, [deleteOwnMessage]);
 
   const openMessageActions = useCallback((message: Message) => {
-    const mine = message.senderId === currentUserId;
-    const currentReaction = message.reactions?.find(reaction => reaction.userId === currentUserId)?.emoji || '';
-    const buttons: { text: string; style?: 'cancel' | 'destructive'; onPress?: () => void }[] = [
-      { text: 'Répondre', onPress: () => { setReplyTo(message); setEditingMessage(null); } },
-      ...QUICK_REACTIONS.map(emoji => ({
-        text: currentReaction === emoji ? `Retirer ${emoji}` : `Réagir ${emoji}`,
-        onPress: () => reactToMessage(message, currentReaction === emoji ? null : emoji),
-      })),
-      { text: 'Copier', onPress: () => copyMessage(message) },
-      { text: 'Sélectionner', onPress: () => toggleMessageSelection(message.id) },
-      { text: 'Transférer', onPress: () => beginForward([message]) },
-      { text: 'Partager', onPress: () => shareMessages([message]) },
-    ];
-    if (mine && message.type === 'text' && !message.isDeleted) {
-      buttons.push({ text: 'Modifier', onPress: () => { setEditingMessage(message); setReplyTo(null); setDraft(message.content); } });
-    }
-    if (!message.isDeleted) {
-      buttons.push({ text: 'Supprimer pour moi', style: 'destructive', onPress: () => deleteMessageForMe(message) });
-    }
-    if (mine && !message.isDeleted) {
-      buttons.push({ text: 'Supprimer pour tous', style: 'destructive', onPress: () => deleteOwnMessageWithConfirm(message) });
-    }
-    buttons.push({ text: 'Annuler', style: 'cancel' });
-    Alert.alert('Message', messagePreview(message), buttons);
-  }, [beginForward, copyMessage, currentUserId, deleteMessageForMe, deleteOwnMessageWithConfirm, reactToMessage, setDraft, setEditingMessage, setReplyTo, shareMessages, toggleMessageSelection]);
+    setActionMessage(message);
+  }, []);
 
   return {
     selectedMessageIds,
     selectedMessages,
     forwardMessages,
+    actionMessage,
+    quickReactions: QUICK_REACTIONS,
     clearMessageSelection,
     clearForwardMessages,
+    closeMessageActions,
     resetMessageActions,
+    reactToMessage,
+    replyToMessage,
+    copyMessage,
+    editMessage,
+    deleteMessageForMe,
+    deleteOwnMessageWithConfirm,
     toggleMessageSelection,
     shareMessages,
     beginForward,

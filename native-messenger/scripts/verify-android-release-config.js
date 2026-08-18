@@ -17,8 +17,8 @@ const apkPathArg = apkArgIndex >= 0
 
 const EXPECTED = {
   packageName: 'online.oracle_plus.messenger',
-  versionName: '1.0.20260813.23',
-  versionCode: 2026081323,
+  versionName: '1.0.20260818.13',
+  versionCode: 2026081813,
   newArchEnabled: true,
   webClientId: '734297398479-rids78si56kck1u3sjrgnivfdtpr7e89.apps.googleusercontent.com',
   androidClients: [

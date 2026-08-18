@@ -8,8 +8,8 @@ async function bootstrap() {
     logger: ['error', 'warn', 'log'],
     bodyParser: false,
   });
-  app.use(require('express').json({ limit: process.env.JSON_LIMIT ?? '25mb' }));
-  app.use(require('express').urlencoded({ limit: process.env.JSON_LIMIT ?? '25mb', extended: true }));
+  app.use(require('express').json({ limit: process.env.JSON_LIMIT ?? '150mb' }));
+  app.use(require('express').urlencoded({ limit: process.env.JSON_LIMIT ?? '150mb', extended: true }));
   app.use('/uploads', require('express').static(
     process.env.MEDIA_UPLOAD_DIR || join(process.cwd(), 'uploads'),
     {
@@ -22,9 +22,12 @@ async function bootstrap() {
     .split(',')
     .map(origin => origin.trim())
     .filter(Boolean);
+  const isLocalDevOrigin = (origin?: string) => (
+    !!origin && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)
+  );
   app.enableCors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      if (!origin || allowedOrigins.includes(origin) || isLocalDevOrigin(origin)) return callback(null, true);
       return callback(new Error('Origin not allowed by CORS'), false);
     },
     credentials: true,

@@ -30,6 +30,13 @@ loadEnvFile(path.join(repoRoot, 'backend/.env'));
 
 const { PrismaClient } = backendRequire('@prisma/client');
 const { io } = nativeRequire('socket.io-client');
+const nativeAppConfig = JSON.parse(fs.readFileSync(path.join(repoRoot, 'native-messenger/app.json'), 'utf8')).expo || {};
+const currentClient = {
+  app: 'oracle-messenger-native',
+  platform: 'android',
+  versionName: nativeAppConfig.version || 'unknown',
+  versionCode: Number(nativeAppConfig.android?.versionCode || 0),
+};
 
 const nowStamp = new Date().toISOString().replace(/[:.]/g, '-');
 const BACKEND_URL = process.env.ORACLE_AB_BACKEND_URL || process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`;
@@ -41,7 +48,8 @@ const OFFLINE_BATCH_COUNT = Number(process.env.ORACLE_AB_OFFLINE_BATCH_COUNT || 
 const LONG_CONVERSATION_COUNT = Number(process.env.ORACLE_AB_LONG_CONVERSATION_COUNT || 1000);
 const CRITICAL_READ_REPEAT_COUNT = Number(process.env.ORACLE_AB_CRITICAL_READ_REPEAT_COUNT || 20);
 const NO_EVENT_WINDOW_MS = Number(process.env.ORACLE_AB_NO_EVENT_WINDOW_MS || 2500);
-const CALL_NO_ANSWER_EXPECT_MS = Number(process.env.ORACLE_AB_CALL_NO_ANSWER_EXPECT_MS || 8000);
+const CALL_NO_ANSWER_TIMEOUT_MS = Number(process.env.CALL_NO_ANSWER_TIMEOUT_MS || 90_000);
+const CALL_NO_ANSWER_EXPECT_MS = Number(process.env.ORACLE_AB_CALL_NO_ANSWER_EXPECT_MS || (CALL_NO_ANSWER_TIMEOUT_MS + 5_000));
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -341,6 +349,16 @@ async function seedUsersAndConversation(trace) {
       update: { source: 'production_audit' },
     });
 
+    await prisma.message.deleteMany({ where: { conversationId: conversation.id } });
+    await prisma.participant.updateMany({
+      where: { conversationId: conversation.id },
+      data: { lastReadAt: null },
+    });
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { updatedAt: new Date() },
+    });
+
     trace.event('LAB', 'seed:ready', {
       userA: users.A.id,
       userB: users.B.id,
@@ -384,7 +402,13 @@ async function loadLabIdentity(trace) {
 
 function createSocketClient(trace, label, token, overrides = {}) {
   const socket = io(BACKEND_URL, {
-    auth: { token },
+    auth: { token, client: currentClient },
+    extraHeaders: {
+      'X-Oracle-App': currentClient.app,
+      'X-Oracle-Platform': currentClient.platform,
+      'X-Oracle-Version': currentClient.versionName,
+      'X-Oracle-Version-Code': String(currentClient.versionCode),
+    },
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionAttempts: 8,
@@ -680,12 +704,24 @@ async function runOfflineBatchScenario(trace, ctx, fromLabel, toLabel, count) {
 async function runPresenceScenario(trace, ctx) {
   await emitAck(trace, 'A', ctx.A.socket, 'presence:heartbeat', { state: 'active', at: new Date().toISOString() });
   await emitAck(trace, 'B', ctx.B.socket, 'presence:heartbeat', { state: 'active', at: new Date().toISOString() });
+  const connectedPromise = waitForSocketEvent(trace, 'A', ctx.A.socket, 'user:online', event => event?.userId === ctx.B.id && event?.status === 'connected', TIMEOUT_MS);
   await emitAck(trace, 'B', ctx.B.socket, 'presence:heartbeat', { state: 'background', at: new Date().toISOString() });
-  await waitForSocketEvent(trace, 'A', ctx.A.socket, 'user:offline', event => event?.userId === ctx.B.id, 15_000);
-  const onlinePromise = waitForSocketEvent(trace, 'A', ctx.A.socket, 'user:online', event => event?.userId === ctx.B.id, TIMEOUT_MS);
+  await connectedPromise;
+  const activePromise = waitForSocketEvent(trace, 'A', ctx.A.socket, 'user:online', event => event?.userId === ctx.B.id && event?.status === 'online', TIMEOUT_MS);
+  await emitAck(trace, 'B', ctx.B.socket, 'presence:heartbeat', { state: 'active', at: new Date().toISOString() });
+  await activePromise;
+
+  const offlinePromise = waitForSocketEvent(trace, 'A', ctx.A.socket, 'user:offline', event => event?.userId === ctx.B.id, 15_000);
+  ctx.B.socket.disconnect();
+  trace.event('B', 'socket:manual-disconnect:presence', {});
+  await offlinePromise;
+
+  const onlinePromise = waitForSocketEvent(trace, 'A', ctx.A.socket, 'user:online', event => event?.userId === ctx.B.id && event?.status === 'online', TIMEOUT_MS);
+  ctx.B.socket = await connectClient(trace, 'B', ctx.B.token);
+  emit(trace, 'B', ctx.B.socket, 'conversation:join', { conversationId: ctx.conversationId });
   await emitAck(trace, 'B', ctx.B.socket, 'presence:heartbeat', { state: 'active', at: new Date().toISOString() });
   await onlinePromise;
-  trace.pass('presence:B-background-active', {});
+  trace.pass('presence:B-active-connected-offline-reconnect', {});
 }
 
 async function runMultiSocketPresenceScenario(trace, ctx) {
@@ -698,11 +734,14 @@ async function runMultiSocketPresenceScenario(trace, ctx) {
   trace.event('B', 'socket:manual-disconnect:B1', {});
   await waitForNoSocketEvent(trace, 'A', ctx.A.socket, 'user:offline', event => event?.userId === ctx.B.id);
 
+  const connectedPromise = waitForSocketEvent(trace, 'A', ctx.A.socket, 'user:online', event => event?.userId === ctx.B.id && event?.status === 'connected', TIMEOUT_MS);
   await emitAck(trace, 'B2', socketB2, 'presence:heartbeat', { state: 'background', at: new Date().toISOString(), socket: 'B2' });
-  await waitForSocketEvent(trace, 'A', ctx.A.socket, 'user:offline', event => event?.userId === ctx.B.id, Math.max(TIMEOUT_MS, 15_000));
-
+  await connectedPromise;
+  const offlinePromise = waitForSocketEvent(trace, 'A', ctx.A.socket, 'user:offline', event => event?.userId === ctx.B.id, Math.max(TIMEOUT_MS, 15_000));
   socketB2.disconnect();
   trace.event('B2', 'socket:manual-disconnect:B2', {});
+  await offlinePromise;
+
   const onlinePromise = waitForSocketEvent(trace, 'A', ctx.A.socket, 'user:online', event => event?.userId === ctx.B.id, TIMEOUT_MS);
   ctx.B.socket = await connectClient(trace, 'B', ctx.B.token);
   emit(trace, 'B', ctx.B.socket, 'conversation:join', { conversationId: ctx.conversationId });
@@ -711,50 +750,121 @@ async function runMultiSocketPresenceScenario(trace, ctx) {
   trace.pass('presence:B-multi-socket-convergence', {});
 }
 
+async function runTypingScenario(trace, ctx) {
+  emit(trace, 'A', ctx.A.socket, 'conversation:join', { conversationId: ctx.conversationId });
+  emit(trace, 'B', ctx.B.socket, 'conversation:join', { conversationId: ctx.conversationId });
+  await sleep(150);
+
+  const startPromise = waitForSocketEvent(
+    trace,
+    'B',
+    ctx.B.socket,
+    'typing:start',
+    event => event?.conversationId === ctx.conversationId && event?.userId === ctx.A.id,
+  );
+  const noSelfStartPromise = waitForNoSocketEvent(
+    trace,
+    'A',
+    ctx.A.socket,
+    'typing:start',
+    event => event?.conversationId === ctx.conversationId && event?.userId === ctx.A.id,
+    450,
+  );
+  emit(trace, 'A', ctx.A.socket, 'typing:start', { conversationId: ctx.conversationId });
+  await Promise.all([startPromise, noSelfStartPromise]);
+
+  const stopPromise = waitForSocketEvent(
+    trace,
+    'B',
+    ctx.B.socket,
+    'typing:stop',
+    event => event?.conversationId === ctx.conversationId && event?.userId === ctx.A.id,
+  );
+  const noSelfStopPromise = waitForNoSocketEvent(
+    trace,
+    'A',
+    ctx.A.socket,
+    'typing:stop',
+    event => event?.conversationId === ctx.conversationId && event?.userId === ctx.A.id,
+    450,
+  );
+  emit(trace, 'A', ctx.A.socket, 'typing:stop', { conversationId: ctx.conversationId });
+  await Promise.all([stopPromise, noSelfStopPromise]);
+
+  const restartPromise = waitForSocketEvent(
+    trace,
+    'B',
+    ctx.B.socket,
+    'typing:start',
+    event => event?.conversationId === ctx.conversationId && event?.userId === ctx.A.id,
+  );
+  emit(trace, 'A', ctx.A.socket, 'typing:start', { conversationId: ctx.conversationId });
+  await restartPromise;
+
+  const offlinePromise = waitForSocketEvent(trace, 'B', ctx.B.socket, 'user:offline', event => event?.userId === ctx.A.id, 15_000);
+  ctx.A.socket.disconnect();
+  trace.event('A', 'socket:manual-disconnect:typing', {});
+  await offlinePromise;
+
+  const onlinePromise = waitForSocketEvent(trace, 'B', ctx.B.socket, 'user:online', event => event?.userId === ctx.A.id, TIMEOUT_MS);
+  ctx.A.socket = await connectClient(trace, 'A', ctx.A.token);
+  emit(trace, 'A', ctx.A.socket, 'conversation:join', { conversationId: ctx.conversationId });
+  await emitAck(trace, 'A', ctx.A.socket, 'presence:heartbeat', { state: 'active', at: new Date().toISOString() });
+  await onlinePromise;
+
+  trace.pass('typing:start-stop-disconnect-reconnect', {});
+}
+
 async function runCallSignalingScenario(trace, ctx, type = 'audio') {
   const callId = `audit-${type}-${Date.now()}`;
+  const requestedMediaProvider = process.env.ORACLE_AB_FORCE_WEBRTC === 'true' ? 'webrtc' : 'livekit';
   const incomingPromise = waitForSocketEvent(trace, 'B', ctx.B.socket, 'call:incoming', event => event?.callId === callId);
   const started = await emitAck(trace, 'A', ctx.A.socket, 'call:start', {
     callId,
     conversationId: ctx.conversationId,
     type,
     targetUserIds: [ctx.B.id],
-    mediaProvider: 'webrtc',
+    mediaProvider: requestedMediaProvider,
   });
   if (!started?.ok) throw new Error(`call:start failed for ${type}`);
+  const mediaProvider = started.mediaProvider === 'webrtc' ? 'webrtc' : 'livekit';
   await incomingPromise;
   emit(trace, 'B', ctx.B.socket, 'call:incoming:received', { callId, conversationId: ctx.conversationId });
   await waitForSocketEvent(trace, 'A', ctx.A.socket, 'call:incoming:received', event => event?.callId === callId);
   const answeredPromise = waitForSocketEvent(trace, 'A', ctx.A.socket, 'call:answered', event => event?.callId === callId && event?.accepted === true);
-  const answer = await emitAck(trace, 'B', ctx.B.socket, 'call:answer', { callId, accepted: true, mediaProvider: 'webrtc' });
+  const answer = await emitAck(trace, 'B', ctx.B.socket, 'call:answer', { callId, accepted: true, mediaProvider });
   if (!answer?.ok || !answer.accepted) throw new Error(`call:answer failed for ${type}`);
   await answeredPromise;
 
-  const offer = { type: 'offer', sdp: 'v=0\r\no=oracle-audit 0 0 IN IP4 127.0.0.1\r\ns=Oracle Audit\r\nt=0 0\r\n' };
-  const answerSdp = { type: 'answer', sdp: 'v=0\r\no=oracle-audit 0 0 IN IP4 127.0.0.1\r\ns=Oracle Audit\r\nt=0 0\r\n' };
-  const ice = { candidate: 'candidate:1 1 UDP 2122260223 127.0.0.1 9 typ host', sdpMid: '0', sdpMLineIndex: 0 };
+  if (mediaProvider === 'webrtc') {
+    const offer = { type: 'offer', sdp: 'v=0\r\no=oracle-audit 0 0 IN IP4 127.0.0.1\r\ns=Oracle Audit\r\nt=0 0\r\n' };
+    const answerSdp = { type: 'answer', sdp: 'v=0\r\no=oracle-audit 0 0 IN IP4 127.0.0.1\r\ns=Oracle Audit\r\nt=0 0\r\n' };
+    const ice = { candidate: 'candidate:1 1 UDP 2122260223 127.0.0.1 9 typ host', sdpMid: '0', sdpMLineIndex: 0 };
 
-  const offerPromise = waitForSocketEvent(trace, 'B', ctx.B.socket, 'webrtc:offer', event => event?.callId === callId);
-  emit(trace, 'A', ctx.A.socket, 'webrtc:offer', { callId, targetUserId: ctx.B.id, sdp: offer });
-  await offerPromise;
+    const offerPromise = waitForSocketEvent(trace, 'B', ctx.B.socket, 'webrtc:offer', event => event?.callId === callId);
+    emit(trace, 'A', ctx.A.socket, 'webrtc:offer', { callId, targetUserId: ctx.B.id, sdp: offer });
+    await offerPromise;
 
-  const answerPromise = waitForSocketEvent(trace, 'A', ctx.A.socket, 'webrtc:answer', event => event?.callId === callId);
-  emit(trace, 'B', ctx.B.socket, 'webrtc:answer', { callId, targetUserId: ctx.A.id, sdp: answerSdp });
-  await answerPromise;
+    const answerPromise = waitForSocketEvent(trace, 'A', ctx.A.socket, 'webrtc:answer', event => event?.callId === callId);
+    emit(trace, 'B', ctx.B.socket, 'webrtc:answer', { callId, targetUserId: ctx.A.id, sdp: answerSdp });
+    await answerPromise;
 
-  const iceToBPromise = waitForSocketEvent(trace, 'B', ctx.B.socket, 'webrtc:ice', event => event?.callId === callId);
-  emit(trace, 'A', ctx.A.socket, 'webrtc:ice', { callId, targetUserId: ctx.B.id, candidate: ice });
-  await iceToBPromise;
+    const iceToBPromise = waitForSocketEvent(trace, 'B', ctx.B.socket, 'webrtc:ice', event => event?.callId === callId);
+    emit(trace, 'A', ctx.A.socket, 'webrtc:ice', { callId, targetUserId: ctx.B.id, candidate: ice });
+    await iceToBPromise;
 
-  const iceToAPromise = waitForSocketEvent(trace, 'A', ctx.A.socket, 'webrtc:ice', event => event?.callId === callId);
-  emit(trace, 'B', ctx.B.socket, 'webrtc:ice', { callId, targetUserId: ctx.A.id, candidate: ice });
-  await iceToAPromise;
+    const iceToAPromise = waitForSocketEvent(trace, 'A', ctx.A.socket, 'webrtc:ice', event => event?.callId === callId);
+    emit(trace, 'B', ctx.B.socket, 'webrtc:ice', { callId, targetUserId: ctx.A.id, candidate: ice });
+    await iceToAPromise;
+  } else {
+    trace.event('LAB', `call-media-provider:${type}`, { callId, mediaProvider });
+  }
 
   const endedA = waitForSocketEvent(trace, 'A', ctx.A.socket, 'call:ended', event => event?.callId === callId);
   const endedB = waitForSocketEvent(trace, 'B', ctx.B.socket, 'call:ended', event => event?.callId === callId);
   emit(trace, 'A', ctx.A.socket, 'call:end', { callId });
   await Promise.all([endedA, endedB]);
-  trace.pass(`call-signaling:${type}:A->B`, { callId });
+  trace.pass(`call-signaling:${type}:A->B`, { callId, mediaProvider });
 }
 
 async function runVoiceMessageScenario(trace, ctx, fromLabel, toLabel) {
@@ -840,7 +950,7 @@ async function runLongConversationScenario(trace, ctx, count) {
   const prisma = new PrismaClient();
   const prefix = `Long conversation ${NAMESPACE} ${Date.now()}`;
   try {
-    const baseTime = Date.now() + 1000;
+    const baseTime = Date.now() - (count * 1000);
     const rows = [];
     for (let index = 0; index < count; index += 1) {
       const sequence = String(index + 1).padStart(4, '0');
@@ -1021,6 +1131,7 @@ async function main() {
 
     await runPresenceScenario(trace, ctx);
     await runMultiSocketPresenceScenario(trace, ctx);
+    await runTypingScenario(trace, ctx);
     await runMessagingScenario(trace, ctx, 'A', 'B', `Message de test A -> B ${new Date().toISOString()}`);
     await runMessagingScenario(trace, ctx, 'B', 'A', `Message de test B -> A ${new Date().toISOString()}`);
     await runCriticalUnreadReadRegressionScenario(trace, ctx, CRITICAL_READ_REPEAT_COUNT);

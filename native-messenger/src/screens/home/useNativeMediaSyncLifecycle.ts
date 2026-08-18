@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { AppState } from 'react-native';
+import { AppState, InteractionManager } from 'react-native';
 import type { AuthSession, Message } from '@/types/messenger';
 
 type UseNativeMediaSyncLifecycleParams = {
@@ -17,21 +17,31 @@ export function useNativeMediaSyncLifecycle({
 }: UseNativeMediaSyncLifecycleParams) {
   useEffect(() => {
     if (!session?.token) return;
-    refreshLocalMediaIndex().catch(() => null);
+    InteractionManager.runAfterInteractions(() => {
+      refreshLocalMediaIndex().catch(() => null);
+    });
     let resumeTimer: ReturnType<typeof setTimeout> | null = null;
+    let startupTask: { cancel: () => void } | null = null;
     const startupTimer = setTimeout(() => {
-      runMediaSync(session.token, session.user.id);
-    }, 900);
+      startupTask = InteractionManager.runAfterInteractions(() => {
+        if (AppState.currentState === 'active') {
+          void runMediaSync(session.token, session.user.id).catch(() => null);
+        }
+      });
+    }, 2500);
     const subscription = AppState.addEventListener('change', state => {
       if (state === 'active') {
         if (resumeTimer) clearTimeout(resumeTimer);
         resumeTimer = setTimeout(() => {
-          runMediaSync(session.token, session.user.id);
-        }, 450);
+          InteractionManager.runAfterInteractions(() => {
+            void runMediaSync(session.token, session.user.id).catch(() => null);
+          });
+        }, 1200);
       }
     });
     return () => {
       clearTimeout(startupTimer);
+      startupTask?.cancel();
       if (resumeTimer) clearTimeout(resumeTimer);
       subscription.remove();
     };

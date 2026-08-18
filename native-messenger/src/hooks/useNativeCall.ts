@@ -2,17 +2,23 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 import { MediaStream } from '@livekit/react-native-webrtc';
 import type { Socket } from 'socket.io-client';
-import { type NativeCallDiagnosticEntry, type NativeCallInfo, type NativeCallState } from '@/hooks/nativeCallUtils';
+import { CALL_RING_TIMEOUT_SECONDS, type NativeCallDiagnosticEntry, type NativeCallInfo, type NativeCallState } from '@/hooks/nativeCallUtils';
 import { useNativeCallActions } from '@/hooks/useNativeCallActions';
 import { useNativeCallAudioSession } from '@/hooks/useNativeCallAudioSession';
 import { useNativeLiveKitCall } from '@/hooks/useNativeLiveKitCall';
 import { useNativeCallMediaControls } from '@/hooks/useNativeCallMediaControls';
 import { useNativeCallPeerConnections } from '@/hooks/useNativeCallPeerConnections';
 import { useNativeCallSocketEvents } from '@/hooks/useNativeCallSocketEvents';
+import { isNativeDebugEnabled, nativeDebugLog } from '@/services/nativeLogger';
 import { cancelIncomingCallNotification } from '@/services/notifications';
 import type { AuthSession } from '@/types/messenger';
 
 export type { NativeCallInfo, NativeCallState } from '@/hooks/nativeCallUtils';
+
+function shouldKeepCallTrace(event: string) {
+  if (isNativeDebugEnabled()) return true;
+  return /fail|error|reject|timeout|disconnect|watchdog|busy|unavailable|permission/i.test(event);
+}
 
 export function useNativeCall(session: AuthSession | null) {
   const [callState, setCallState] = useState<NativeCallState>('idle');
@@ -32,9 +38,12 @@ export function useNativeCall(session: AuthSession | null) {
   const callStateRef = useRef<NativeCallState>('idle');
   const speakerOnRef = useRef(false);
   const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stateWatchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cleanupInProgressRef = useRef(false);
+  const localMediaReadyRef = useRef<Promise<boolean> | null>(null);
 
   const trace = useCallback((event: string, details: Record<string, unknown> = {}) => {
+    const shouldKeep = shouldKeepCallTrace(event);
     const payload = {
       callId: callInfoRef.current?.callId,
       conversationId: callInfoRef.current?.conversationId,
@@ -43,11 +52,12 @@ export function useNativeCall(session: AuthSession | null) {
       details,
       at: new Date().toISOString(),
     };
+    if (!shouldKeep) return;
     setCallDiagnostics(current => [{
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       ...payload,
-    }, ...current].slice(0, 80));
-    console.info('[NativeCall]', payload);
+    }, ...current].slice(0, isNativeDebugEnabled() ? 80 : 24));
+    nativeDebugLog('[NativeCall]', payload);
     socketRef.current?.emit('call:diagnostic', payload);
   }, []);
 
@@ -71,6 +81,7 @@ export function useNativeCall(session: AuthSession | null) {
     applyAudioRoute,
     startAudioSession,
     startOutgoingRingback,
+    playCallFailureCue,
     startIncomingRingtone,
     stopIncomingRingtone,
     startForegroundCallService,
@@ -81,7 +92,7 @@ export function useNativeCall(session: AuthSession | null) {
     trace,
   });
 
-  const { getLocalStream, toggleMute, toggleCamera, switchCamera } = useNativeCallMediaControls({
+  const { ensureMediaPermissions, getLocalStream, toggleMute, toggleCamera, switchCamera } = useNativeCallMediaControls({
     localStreamRef,
     cameraFacing,
     setLocalStream,
@@ -95,6 +106,7 @@ export function useNativeCall(session: AuthSession | null) {
   const {
     liveKitActiveRef,
     isLiveKitActive,
+    hasLiveKitRemotePeer,
     connectLiveKit,
     disconnectLiveKit,
     toggleLiveKitMute,
@@ -129,6 +141,7 @@ export function useNativeCall(session: AuthSession | null) {
   } = useNativeCallPeerConnections({
     socketRef,
     localStreamRef,
+    localMediaReadyRef,
     callInfoRef,
     callStateRef,
     setRemoteStreams,
@@ -137,7 +150,20 @@ export function useNativeCall(session: AuthSession | null) {
     trace,
   });
 
-  const cleanup = useCallback((emitEnd = false) => {
+  const resetRemoteStreams = useCallback(() => {
+    setRemoteStreams(new Map());
+  }, []);
+
+  const removeRemoteParticipantStream = useCallback((targetUserId: string) => {
+    setRemoteStreams(current => {
+      const next = new Map(current);
+      next.delete(targetUserId);
+      return next;
+    });
+    trace('livekit:remote-participant-stream-removed', { targetUserId });
+  }, [trace]);
+
+  const cleanup = useCallback((emitEnd = false, finalNotice = 'Appel terminé.') => {
     const info = callInfoRef.current;
     if (!info && callStateRef.current === 'idle') return;
     if (cleanupInProgressRef.current) return;
@@ -145,13 +171,15 @@ export function useNativeCall(session: AuthSession | null) {
     if (emitEnd && info) socketRef.current?.emit('call:end', { callId: info.callId });
     cancelIncomingCallNotification(info?.callId).catch(() => null);
     stopIncomingRingtone();
-    setCallNotice('Appel terminé.');
+    setCallNotice(finalNotice);
     if (callStateRef.current !== 'idle') setStateSafe('ended');
 
     if (cleanupTimerRef.current) clearTimeout(cleanupTimerRef.current);
     cleanupTimerRef.current = setTimeout(() => {
       const wasLiveKitActive = disconnectLiveKit(true);
       resetPeerConnections();
+      resetRemoteStreams();
+      localMediaReadyRef.current = null;
       if (!wasLiveKitActive) localStreamRef.current?.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
       setLocalStream(null);
@@ -163,13 +191,64 @@ export function useNativeCall(session: AuthSession | null) {
       setCallNotice('');
       cleanupInProgressRef.current = false;
       cleanupTimerRef.current = null;
-      trace('call:cleanup', { emitEnd });
-    }, 140);
-  }, [disconnectLiveKit, resetPeerConnections, setInfoSafe, setStateSafe, stopAudioSession, stopIncomingRingtone, trace]);
+      trace('call:cleanup', { emitEnd, finalNotice });
+    }, 1200);
+  }, [disconnectLiveKit, resetPeerConnections, resetRemoteStreams, setInfoSafe, setStateSafe, stopAudioSession, stopIncomingRingtone, trace]);
 
   useEffect(() => () => {
     if (cleanupTimerRef.current) clearTimeout(cleanupTimerRef.current);
+    if (stateWatchdogTimerRef.current) clearTimeout(stateWatchdogTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    if (stateWatchdogTimerRef.current) {
+      clearTimeout(stateWatchdogTimerRef.current);
+      stateWatchdogTimerRef.current = null;
+    }
+
+    const watchdogByState: Partial<Record<NativeCallState, { timeoutMs: number; notice: string }>> = {
+      searching: {
+        timeoutMs: 25_000,
+        notice: 'Recherche appel trop longue. Vérifiez la connexion puis réessayez.',
+      },
+      connecting: {
+        timeoutMs: 45_000,
+        notice: 'Connexion média impossible. L’appel a été arrêté proprement.',
+      },
+      reconnecting: {
+        timeoutMs: 45_000,
+        notice: 'Reconnexion média impossible. L’appel a été arrêté proprement.',
+      },
+      calling: {
+        timeoutMs: (CALL_RING_TIMEOUT_SECONDS + 8) * 1000,
+        notice: 'Appel sans réponse.',
+      },
+      ringing: {
+        timeoutMs: (CALL_RING_TIMEOUT_SECONDS + 8) * 1000,
+        notice: 'Appel sans réponse.',
+      },
+    };
+    const watchdog = watchdogByState[callState];
+    if (!watchdog) return;
+
+    stateWatchdogTimerRef.current = setTimeout(() => {
+      if (callStateRef.current !== callState) return;
+      setCallNotice(watchdog.notice);
+      trace('call:state-watchdog:timeout', {
+        callState,
+        timeoutMs: watchdog.timeoutMs,
+        callId: callInfoRef.current?.callId,
+      });
+      cleanup(true, watchdog.notice);
+    }, watchdog.timeoutMs);
+
+    return () => {
+      if (stateWatchdogTimerRef.current) {
+        clearTimeout(stateWatchdogTimerRef.current);
+        stateWatchdogTimerRef.current = null;
+      }
+    };
+  }, [callState, cleanup, trace]);
 
   const { startCall, prepareIncomingCall, answerCall, addParticipants } = useNativeCallActions({
     session,
@@ -178,13 +257,16 @@ export function useNativeCall(session: AuthSession | null) {
     callInfoRef,
     callStateRef,
     cleanup,
+    ensureMediaPermissions,
     getLocalStream,
     connectLiveKit,
     startAudioSession,
     startOutgoingRingback,
+    playCallFailureCue,
     stopIncomingRingtone,
     startForegroundCallService,
     setIceServers,
+    localMediaReadyRef,
     setInfoSafe,
     setStateSafe,
     setCallNotice,
@@ -198,6 +280,7 @@ export function useNativeCall(session: AuthSession | null) {
   useNativeCallSocketEvents({
     sessionToken: session?.token,
     currentUserId: session?.user.id,
+    cameraFacing,
     socketRef,
     callInfoRef,
     callStateRef,
@@ -207,12 +290,16 @@ export function useNativeCall(session: AuthSession | null) {
     setCallNotice,
     startIncomingRingtone,
     stopIncomingRingtone,
+    playCallFailureCue,
     sendOffer,
     isLiveKitActive,
+    hasLiveKitRemotePeer,
+    connectLiveKit,
     handleOffer,
     handleAnswer,
     handleIce,
     removePeerConnection,
+    removeRemoteParticipantStream,
     trace,
   });
 
@@ -227,14 +314,72 @@ export function useNativeCall(session: AuthSession | null) {
   }, [liveKitActiveRef, setCallNotice, toggleLiveKitMute, toggleMute]);
 
   const toggleCameraControl = useCallback(() => {
+    const currentInfo = callInfoRef.current;
+    if (currentInfo?.type === 'video') {
+      const switchToAudio = () => {
+        const latest = callInfoRef.current;
+        if (latest) setInfoSafe({ ...latest, type: 'audio' });
+        localStreamRef.current?.getVideoTracks().forEach(track => { track.enabled = false; });
+        setCameraOff(true);
+        setCallNotice('Mode audio activé.');
+        trace('media:mode-switch', { type: 'audio' });
+      };
+      if (liveKitActiveRef.current) {
+        const disableCamera = isCameraOff ? Promise.resolve(true) : toggleLiveKitCamera();
+        disableCamera
+          .then((handled) => {
+            if (!handled) return;
+            switchToAudio();
+          })
+          .catch(error => {
+            setCallNotice(error instanceof Error ? error.message : 'Passage en audio impossible.');
+          });
+        return;
+      }
+      switchToAudio();
+      return;
+    }
     if (liveKitActiveRef.current) {
-      toggleLiveKitCamera().catch(error => {
+      toggleLiveKitCamera().then((handled) => {
+        if (!handled) return;
+        const info = callInfoRef.current;
+        if (info && info.type !== 'video') {
+          setInfoSafe({ ...info, type: 'video' });
+          setCallNotice('Vidéo activée.');
+        }
+      }).catch(error => {
         setCallNotice(error instanceof Error ? error.message : 'Caméra indisponible.');
       });
       return;
     }
+    const info = callInfoRef.current;
+    if (info?.type !== 'video') {
+      getLocalStream('video', cameraFacing)
+        .then(() => {
+          const latest = callInfoRef.current;
+          if (latest) setInfoSafe({ ...latest, type: 'video' });
+          setCameraOff(false);
+          setCallNotice('Vidéo activée.');
+          const participants = latest?.participants ?? [];
+          participants.forEach(targetUserId => {
+            if (targetUserId && targetUserId !== session?.user.id) {
+              sendOffer(targetUserId).catch(error => {
+                trace('webrtc:video-upgrade:offer-error', {
+                  targetUserId,
+                  message: error instanceof Error ? error.message : String(error),
+                });
+              });
+            }
+          });
+          trace('webrtc:video-upgrade:started', { participants: participants.length });
+        })
+        .catch(error => {
+          setCallNotice(error instanceof Error ? error.message : 'Caméra indisponible.');
+        });
+      return;
+    }
     toggleCamera();
-  }, [liveKitActiveRef, setCallNotice, toggleCamera, toggleLiveKitCamera]);
+  }, [cameraFacing, getLocalStream, isCameraOff, liveKitActiveRef, sendOffer, session?.user.id, setCallNotice, setCameraOff, setInfoSafe, toggleCamera, toggleLiveKitCamera, trace]);
 
   const switchCameraControl = useCallback(() => {
     if (liveKitActiveRef.current) {
@@ -267,7 +412,12 @@ export function useNativeCall(session: AuthSession | null) {
     prepareIncomingCall,
     answerCall,
     addParticipants,
-    endCall: () => cleanup(true),
+    endCall: () => cleanup(
+      true,
+      ['searching', 'calling', 'ringing', 'incoming'].includes(callStateRef.current)
+        ? 'Appel annulé.'
+        : 'Appel terminé.',
+    ),
     toggleMute: toggleMuteControl,
     toggleCamera: toggleCameraControl,
     switchCamera: switchCameraControl,

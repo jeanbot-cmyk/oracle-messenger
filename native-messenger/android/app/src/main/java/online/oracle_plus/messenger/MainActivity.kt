@@ -1,8 +1,10 @@
 package online.oracle_plus.messenger
 import expo.modules.splashscreen.SplashScreenManager
 
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -21,6 +23,28 @@ class MainActivity : ReactActivity() {
     SplashScreenManager.registerOnActivity(this)
     // @generated end expo-splashscreen
     super.onCreate(null)
+    handlePotentialCallIntent(intent)
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handlePotentialCallIntent(intent)
+  }
+
+  private fun handlePotentialCallIntent(intent: Intent?) {
+    val isCallIntent = OracleIncomingCallNotificationModule.rememberPendingCallIntent(this, intent)
+    if (!isCallIntent) return
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+      setShowWhenLocked(true)
+      setTurnScreenOn(true)
+    }
+    @Suppress("DEPRECATION")
+    window.addFlags(
+      WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+    )
   }
 
   /**

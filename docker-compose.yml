@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -23,12 +21,82 @@ services:
     volumes:
       - redis_data:/data
 
+  coturn:
+    image: coturn/coturn:4.6.2
+    restart: unless-stopped
+    entrypoint: ["/bin/sh"]
+    command:
+      - -ec
+      - |
+        args="-c /etc/coturn/turnserver.conf --realm=${TURN_REALM:-oracle-messenger} --server-name=${TURN_REALM:-oracle-messenger} --external-ip=${TURN_PUBLIC_IP:-127.0.0.1} --user=${TURN_USERNAME}:${TURN_CREDENTIAL}"
+        if [ -s /etc/coturn/tls/fullchain.pem ] && [ -s /etc/coturn/tls/privkey.pem ]; then
+          args="$$args --cert=/etc/coturn/tls/fullchain.pem --pkey=/etc/coturn/tls/privkey.pem"
+        fi
+        exec turnserver $$args
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "5349:5349/tcp"
+      - "49160-49220:49160-49220/udp"
+    volumes:
+      - ./infra/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - ${TURN_TLS_DIR_HOST_PATH:-./.secrets/turn}:/etc/coturn/tls:ro
+
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    entrypoint: ["/bin/sh"]
+    command:
+      - -ec
+      - |
+        cat > /tmp/livekit.yaml <<EOF
+        port: 7880
+        bind_addresses:
+          - "0.0.0.0"
+        rtc:
+          tcp_port: 7881
+          port_range_start: ${LIVEKIT_UDP_START:-50000}
+          port_range_end: ${LIVEKIT_UDP_END:-50100}
+          use_external_ip: false
+          node_ip: ${LIVEKIT_PUBLIC_IP:-127.0.0.1}
+        EOF
+        if [ -n "${LIVEKIT_TURN_HOST:-}" ]; then
+          cat >> /tmp/livekit.yaml <<EOF
+          turn_servers:
+            - host: ${LIVEKIT_TURN_HOST}
+              port: ${LIVEKIT_TURN_PORT:-443}
+              protocol: ${LIVEKIT_TURN_PROTOCOL:-tls}
+              username: ${TURN_USERNAME}
+              credential: ${TURN_CREDENTIAL}
+          allow_tcp_fallback: true
+          tcp_fallback_rtt_threshold: 1
+          allow_udp_unstable_fallback: true
+        EOF
+        fi
+        cat >> /tmp/livekit.yaml <<EOF
+        redis:
+          address: "redis:6379"
+        keys:
+          ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
+        logging:
+          level: info
+        EOF
+        exec /livekit-server --config /tmp/livekit.yaml --node-ip "${LIVEKIT_PUBLIC_IP}"
+    depends_on:
+      redis:
+        condition: service_started
+    ports:
+      - "7880:7880/tcp"
+      - "7881:7881/tcp"
+      - "50000-50100:50000-50100/udp"
+
   backend:
     build: ./backend
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://oracle:${POSTGRES_PASSWORD}@postgres:5432/oracle_messenger
       REDIS_URL: redis://redis:6379
+      ORACLE_STRICT_REALTIME: ${ORACLE_STRICT_REALTIME:-false}
       JWT_SECRET: ${JWT_SECRET}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
@@ -46,21 +114,29 @@ services:
       TURN_URLS: ${TURN_URLS:-}
       TURN_USERNAME: ${TURN_USERNAME:-}
       TURN_CREDENTIAL: ${TURN_CREDENTIAL:-}
+      ALLOW_PUBLIC_TURN_FALLBACK: ${ALLOW_PUBLIC_TURN_FALLBACK:-false}
       LIVEKIT_URL: ${LIVEKIT_URL:-}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+      MAX_AUDIO_CALL_PARTICIPANTS: ${MAX_AUDIO_CALL_PARTICIPANTS:-100}
+      MAX_VIDEO_CALL_PARTICIPANTS: ${MAX_VIDEO_CALL_PARTICIPANTS:-10}
       FIREBASE_SERVICE_ACCOUNT_JSON: ${FIREBASE_SERVICE_ACCOUNT_JSON:-}
-      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-admin.json
       PORT: 3001
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
+      coturn:
+        condition: service_started
+      livekit:
+        condition: service_started
     ports:
       - "3001:3001"
     volumes:
       - media_uploads:/app/uploads
+      - ${FIREBASE_ADMIN_HOST_PATH:-./.secrets/firebase-admin.json}:/run/secrets/firebase-admin.json:ro
 
   frontend:
     build: ./frontend

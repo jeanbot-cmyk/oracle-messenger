@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { CALL_RING_TIMEOUT_SECONDS } from '@/hooks/nativeCallUtils';
 
 export type PendingNativeCallAction = {
   action: 'accept' | 'reject';
@@ -33,7 +34,7 @@ export function usePendingNativeCallAction({ answerNativeCall, currentCallId, on
       pendingCallActionRef.current = null;
       pendingCallActionTimerRef.current = null;
       onNotice('Appel entrant introuvable ou deja termine.');
-    }, 45000);
+    }, CALL_RING_TIMEOUT_SECONDS * 1000);
   }, [clearPendingCallAction, onNotice]);
 
   useEffect(() => {

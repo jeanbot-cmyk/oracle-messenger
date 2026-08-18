@@ -33,6 +33,7 @@ model User {
   aiMemories       AiMemory[]
   stories          Story[]
   storyViews       StoryView[]
+  storyInteractions StoryInteraction[]
   callLogs         CallLog[]
   pwaInstall       PwaInstall?
   contacts         Contact[]     @relation("ContactOwner")
@@ -52,6 +53,19 @@ model User {
   businessReminders BusinessReminder[]
   businessSubscription BusinessSubscription?
   businessSubscriptionPayments BusinessSubscriptionPayment[]
+  conferenceRooms ConferenceRoom[] @relation("ConferenceHost")
+  conferenceSubscription ConferenceSubscription?
+  conferencePayments ConferencePayment[]
+  conferenceParticipations ConferenceParticipant[]
+  conferenceQuestions ConferenceQuestion[]
+  conferenceReactions ConferenceReaction[]
+  conferencePollVotes ConferencePollVote[]
+  conferenceDocuments ConferenceDocument[]
+  conferenceAiSummaries ConferenceAiSummary[]
+  conferenceBooks ConferenceBook[] @relation("ConferenceBookHost")
+  conferenceBookPurchases ConferenceBookPurchase[]
+  groupInvitationsReceived GroupInvitation[] @relation("GroupInvitedUser")
+  groupInvitationsSent     GroupInvitation[] @relation("GroupInvitedBy")
 
   @@index([phoneDigitsHash])
   @@index([phoneLast8Hash])
@@ -254,10 +268,20 @@ model AiFlyerGeneration {
   userId      String
   prompt      String   @db.Text
   mode        String   @default("paid") // free | paid
+  status      String   @default("COMPLETED") // QUEUED | PROCESSING | COMPLETED | DOWNLOADABLE | FAILED
   mime        String?
   imageBytes  Int?
   imageHash   String?
+  fileUrl     String?  @db.Text
+  downloadUrl String?  @db.Text
+  filePath    String?
+  fileName    String?
   title       String?
+  completedAt DateTime?
+  failedAt    DateTime?
+  expiresAt   DateTime?
+  downloadedAt DateTime?
+  purgedAt    DateTime?
   createdAt   DateTime @default(now())
 
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -288,14 +312,24 @@ model AiVideoGeneration {
   userId          String
   prompt          String   @db.Text
   mode            String   @default("premium") // free | premium | admin
+  status          String   @default("COMPLETED") // QUEUED | PROCESSING | COMPLETED | DOWNLOADABLE | FAILED
   mime            String?
   videoBytes      Int?
   videoHash       String?
+  fileUrl         String?  @db.Text
+  downloadUrl     String?  @db.Text
+  filePath        String?
+  fileName        String?
   durationSeconds Int
   aspectRatio     String
   quality         String
   referenceCount  Int      @default(0)
   title           String?
+  completedAt     DateTime?
+  failedAt        DateTime?
+  expiresAt       DateTime?
+  downloadedAt    DateTime?
+  purgedAt        DateTime?
   createdAt       DateTime @default(now())
 
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -352,11 +386,14 @@ model Conversation {
   type         String   @default("direct") // direct | group
   name         String?
   avatar       String?
+  description  String?  @db.Text
+  messagePolicy String  @default("ALL_PARTICIPANTS") // ALL_PARTICIPANTS | ADMINS_ONLY
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   participants Participant[]
   messages     Message[]
+  invitations  GroupInvitation[]
 }
 
 model Participant {
@@ -365,6 +402,8 @@ model Participant {
   conversationId String
   joinedAt       DateTime     @default(now())
   lastReadAt     DateTime?
+  role           String       @default("member") // admin | member
+  canSendMessages Boolean     @default(true)
 
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -374,10 +413,32 @@ model Participant {
   @@index([userId, lastReadAt])
 }
 
+model GroupInvitation {
+  id             String       @id @default(uuid())
+  conversationId String
+  invitedUserId  String
+  invitedById    String
+  status         String       @default("PENDING") // INVITED | PENDING | ACCEPTED | DECLINED | REMOVED | LEFT
+  respondedAt    DateTime?
+  cancelledAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  invitedUser    User         @relation("GroupInvitedUser", fields: [invitedUserId], references: [id], onDelete: Cascade)
+  invitedBy      User         @relation("GroupInvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, invitedUserId])
+  @@index([invitedUserId, status])
+  @@index([conversationId, status])
+  @@index([invitedById])
+}
+
 model Message {
   id             String   @id @default(uuid())
   conversationId String
   senderId       String
+  clientMessageId String?
   content        String   @db.Text
   type           String   @default("text")
   status         String   @default("sent")
@@ -398,6 +459,7 @@ model Message {
   @@index([conversationId, senderId, createdAt(sort: Desc)])
   @@index([senderId, createdAt(sort: Desc)])
   @@index([replyToId])
+  @@unique([senderId, clientMessageId])
 }
 
 model MessageReaction {
@@ -436,6 +498,233 @@ model MessageLocalSave {
   @@index([userId])
 }
 
+model ConferenceSubscription {
+  id          String    @id @default(uuid())
+  userId      String    @unique
+  planCode    String    @default("conference_50_70m")
+  capacity    Int       @default(50)
+  activeUntil DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ConferencePayment {
+  id               String    @id @default(uuid())
+  userId           String
+  reference        String    @unique
+  planCode         String
+  amountFcfa       Int
+  capacity         Int
+  months           Int       @default(0)
+  durationMinutes  Int       @default(70)
+  status           String    @default("pending")
+  authorizationUrl String?
+  paidAt           DateTime?
+  downloadedAt     DateTime?
+  purgedAt         DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+model ConferenceRoom {
+  id                   String                  @id @default(uuid())
+  hostId               String
+  slug                 String                  @unique
+  title                String
+  description          String?
+  phone                String?
+  contactInfo          String?
+  coverUrl             String?
+  speakerName          String?
+  scheduledAt          DateTime?
+  durationMinutes      Int                     @default(70)
+  logoUrl              String?
+  visualIdentity       String?
+  sourceMode           String                  @default("camera")
+  prerecordedLocalName String?
+  status               String                  @default("draft")
+  planCode             String                  @default("conference_50_70m")
+  capacity             Int                     @default(50)
+  aiWordLimit          Int                     @default(3500)
+  aiWordsUsed          Int                     @default(0)
+  livekitRoom          String                  @unique
+  startedAt            DateTime?
+  endedAt              DateTime?
+  expiresAt            DateTime?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  host                 User                    @relation("ConferenceHost", fields: [hostId], references: [id], onDelete: Cascade)
+  participants         ConferenceParticipant[]
+  questions            ConferenceQuestion[]
+  reactions            ConferenceReaction[]
+  polls                ConferencePoll[]
+  documents            ConferenceDocument[]
+  aiSummaries          ConferenceAiSummary[]
+  book                 ConferenceBook?
+
+  @@index([hostId, updatedAt(sort: Desc)])
+  @@index([status])
+}
+
+model ConferenceParticipant {
+  id         String         @id @default(uuid())
+  roomId     String
+  userId     String
+  role       String         @default("viewer")
+  handStatus String         @default("none")
+  handRaisedAt DateTime?
+  micAllowed Boolean        @default(false)
+  micAllowedAt DateTime?
+  joinedAt   DateTime       @default(now())
+  lastSeenAt DateTime       @default(now())
+  leftAt     DateTime?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  room       ConferenceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId, leftAt, lastSeenAt])
+  @@index([roomId, handStatus, handRaisedAt])
+}
+
+model ConferenceQuestion {
+  id         String         @id @default(uuid())
+  roomId     String
+  userId     String
+  content    String         @db.Text
+  answer     String?        @db.Text
+  isPinned   Boolean        @default(false)
+  isAnswered Boolean        @default(false)
+  isDeleted  Boolean        @default(false)
+  priority   Int            @default(0)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  room       ConferenceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt(sort: Desc)])
+}
+
+model ConferenceReaction {
+  id        String         @id @default(uuid())
+  roomId    String
+  userId    String
+  emoji     String
+  createdAt DateTime       @default(now())
+
+  room      ConferenceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt(sort: Desc)])
+}
+
+model ConferencePoll {
+  id          String               @id @default(uuid())
+  roomId      String
+  question    String
+  options     String               @db.Text
+  showResults Boolean              @default(true)
+  status      String               @default("open")
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  room        ConferenceRoom       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  votes       ConferencePollVote[]
+
+  @@index([roomId, createdAt(sort: Desc)])
+}
+
+model ConferencePollVote {
+  id          String         @id @default(uuid())
+  pollId      String
+  userId      String
+  optionIndex Int
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  poll        ConferencePoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, userId])
+}
+
+model ConferenceDocument {
+  id        String         @id @default(uuid())
+  roomId    String
+  userId    String
+  title     String
+  url       String?
+  mime      String?
+  kind      String         @default("link")
+  createdAt DateTime       @default(now())
+
+  room      ConferenceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt(sort: Desc)])
+}
+
+model ConferenceAiSummary {
+  id         String         @id @default(uuid())
+  roomId     String
+  userId     String
+  promptType String
+  content    String         @db.Text
+  createdAt  DateTime       @default(now())
+
+  room       ConferenceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ConferenceBook {
+  id        String   @id @default(uuid())
+  roomId    String   @unique
+  hostId    String
+  title     String
+  content   String   @db.Text
+  preview   String   @db.Text
+  pdfUrl    String?
+  pageCount Int      @default(1)
+  status    String   @default("draft")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  room      ConferenceRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  host      User           @relation("ConferenceBookHost", fields: [hostId], references: [id], onDelete: Cascade)
+  purchases ConferenceBookPurchase[]
+
+  @@index([roomId, status])
+}
+
+model ConferenceBookPurchase {
+  id               String    @id @default(uuid())
+  bookId           String
+  userId           String
+  reference        String    @unique
+  amountFcfa       Int       @default(2000)
+  status           String    @default("pending")
+  authorizationUrl String?
+  paidAt           DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  book             ConferenceBook @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([bookId, userId])
+  @@index([userId, createdAt(sort: Desc)])
+}
+
 // Stories — visibles 24h, partagées entre utilisateurs
 model Story {
   id          String   @id @default(uuid())
@@ -447,7 +736,11 @@ model Story {
   expiresAt   DateTime
   createdAt   DateTime @default(now())
   views       StoryView[]
+  interactions StoryInteraction[]
   author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([authorId, expiresAt, createdAt(sort: Desc)])
+  @@index([expiresAt, createdAt(sort: Desc)])
 }
 
 model StoryView {
@@ -458,6 +751,24 @@ model StoryView {
   story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@unique([storyId, userId])
+  @@index([userId, storyId])
+  @@index([storyId, viewedAt(sort: Desc)])
+}
+
+model StoryInteraction {
+  id        String   @id @default(uuid())
+  storyId   String
+  userId    String
+  type      String
+  content   String?  @db.Text
+  emoji     String?
+  createdAt DateTime @default(now())
+  story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([storyId, createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
+  @@unique([storyId, userId, type, emoji])
 }
 
 // Mémoire IA — 7 jours conversations, 1 mois global

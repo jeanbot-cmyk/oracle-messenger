@@ -11,6 +11,9 @@ export class AdminService {
   private readonly officialConversationName = 'O.Messenger';
   private readonly officialConversationAvatar = '/icons/oracle-system-avatar.svg';
   private readonly officialSystemEmail = 'system-aura@oracle-messenger.local';
+  private readonly officialSystemGoogleId = 'system-aura-messenger';
+  private readonly officialBroadcastConcurrency = 12;
+  private readonly presenceHeartbeatTimeoutMs = Number(process.env.PRESENCE_HEARTBEAT_TIMEOUT_MS || 70_000);
   private readonly realUserWhere = { email: { not: this.officialSystemEmail } };
 
   constructor(
@@ -23,25 +26,108 @@ export class AdminService {
     return this.socketState.server?.sockets.sockets.get(socketId)?.rooms.has(room) ?? false;
   }
 
+  private parseNonNegativeInteger(value?: string | null) {
+    const clean = String(value ?? '').trim();
+    if (!clean) return null;
+    const normalized = clean.replace(/[\s,_]/g, '');
+    if (!/^\d+$/.test(normalized)) return null;
+    const parsed = Number(normalized);
+    if (!Number.isSafeInteger(parsed) || parsed < 0) return null;
+    return parsed;
+  }
+
+  private getPlayStoreDownloads() {
+    const raw = process.env.PLAY_STORE_DOWNLOADS_TOTAL
+      ?? process.env.PLAYSTORE_DOWNLOADS_TOTAL
+      ?? process.env.GOOGLE_PLAY_INSTALLS_TOTAL
+      ?? '';
+    const count = this.parseNonNegativeInteger(raw);
+    const hasRawValue = String(raw || '').trim().length > 0;
+    if (count === null) {
+      return {
+        configured: false,
+        count: null,
+        source: hasRawValue ? 'invalid_configuration' : 'not_configured',
+        reportedAt: null,
+        note: hasRawValue
+          ? 'PLAY_STORE_DOWNLOADS_TOTAL doit être un entier officiel exporté depuis Google Play Console.'
+          : 'Configurez PLAY_STORE_DOWNLOADS_TOTAL depuis Google Play Console pour compter Play Store.',
+      };
+    }
+    return {
+      configured: true,
+      count,
+      source: process.env.PLAY_STORE_DOWNLOADS_SOURCE?.trim() || 'google_play_console',
+      reportedAt: process.env.PLAY_STORE_DOWNLOADS_REPORTED_AT?.trim() || null,
+      note: 'Valeur Play Store fournie par la configuration serveur.',
+    };
+  }
+
+  private async countRealUsersByIds(userIds: string[]) {
+    if (!userIds.length) return 0;
+    return this.prisma.user.count({
+      where: { ...this.realUserWhere, id: { in: userIds } },
+    });
+  }
+
   async getStats() {
-    const [totalUsers, premiumUsers, totalMessages, totalConversations, pwaInstalls] = await Promise.all([
+    const connectedUserIds = this.socketState.getOnlineUserIds();
+    const activePresenceUserIds = this.socketState.getActivePresenceUserIds(this.presenceHeartbeatTimeoutMs);
+    const [
+      totalUsers,
+      googleRegisteredUsers,
+      premiumUsers,
+      totalMessages,
+      totalConversations,
+      pwaInstalls,
+      realtimeConnectedUsers,
+      activeRealtimeUsers,
+    ] = await Promise.all([
       this.prisma.user.count({ where: this.realUserWhere }),
+      this.prisma.user.count({ where: { ...this.realUserWhere, googleId: { not: this.officialSystemGoogleId } } }),
       this.prisma.user.count({ where: { ...this.realUserWhere, isPremium: true } }),
       this.prisma.message.count({ where: { isDeleted: false } }),
       this.prisma.conversation.count(),
       this.prisma.pwaInstall.count(),
+      this.countRealUsersByIds(connectedUserIds),
+      this.countRealUsersByIds(activePresenceUserIds),
     ]);
-    const onlineUserIds = this.socketState.getOnlineUserIds();
-    const onlineUsers = await this.prisma.user.count({
-      where: { ...this.realUserWhere, id: { in: onlineUserIds.length ? onlineUserIds : [''] } },
-    });
+    const playStore = this.getPlayStoreDownloads();
+    const playStoreCount = playStore.count ?? 0;
+    const knownDownloads = pwaInstalls + playStoreCount;
     return {
       totalUsers,
+      googleRegisteredUsers,
       premiumUsers,
       totalMessages,
       totalConversations,
-      onlineUsers,
+      onlineUsers: realtimeConnectedUsers,
+      realtimeConnectedUsers,
+      activeRealtimeUsers,
+      realtimeSocketConnections: this.socketState.getConnectedSocketCount(),
       pwaInstalls,
+      playStoreInstalls: playStore.count,
+      totalDownloads: knownDownloads,
+      totalDownloadsComplete: playStore.configured,
+      downloads: {
+        knownTotal: knownDownloads,
+        complete: playStore.configured,
+        sources: {
+          pwa: {
+            configured: true,
+            count: pwaInstalls,
+            source: 'PwaInstall table',
+          },
+          playStore,
+        },
+      },
+      realtime: {
+        connectedUsers: realtimeConnectedUsers,
+        activeUsers: activeRealtimeUsers,
+        socketConnections: this.socketState.getConnectedSocketCount(),
+        heartbeatMaxAgeMs: this.presenceHeartbeatTimeoutMs,
+        source: 'Socket.IO server memory',
+      },
     };
   }
 
@@ -176,23 +262,154 @@ export class AdminService {
   }
 
   private async getOrCreateOfficialSystemUser() {
-    return this.prisma.user.upsert({
+    const existingByEmail = await this.prisma.user.findUnique({
       where: { email: this.officialSystemEmail },
-      update: {
-        name: this.officialConversationName,
-        username: 'o_messenger',
-        avatar: this.officialConversationAvatar,
-        status: 'online',
+      select: { id: true },
+    });
+    const existingByGoogleId = existingByEmail ? null : await this.prisma.user.findUnique({
+      where: { googleId: this.officialSystemGoogleId },
+      select: { id: true },
+    });
+    const existing = existingByEmail ?? existingByGoogleId;
+    const username = await this.getAvailableOfficialUsername(existing?.id);
+    const googleId = await this.getAvailableOfficialGoogleId(existing?.id);
+    const data = {
+      googleId,
+      email: this.officialSystemEmail,
+      name: this.officialConversationName,
+      username,
+      avatar: this.officialConversationAvatar,
+      status: 'online',
+    };
+
+    if (existing) {
+      return this.prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          googleId,
+          email: this.officialSystemEmail,
+          name: this.officialConversationName,
+          username,
+          avatar: this.officialConversationAvatar,
+          status: 'online',
+        },
+      });
+    }
+
+    return this.prisma.user.create({
+      data,
+    });
+  }
+
+  private async getAvailableOfficialUsername(ownerId?: string) {
+    const candidates = ['o_messenger', 'oracle_messenger_official', 'o_messenger_official'];
+    for (const username of candidates) {
+      const existing = await this.prisma.user.findUnique({
+        where: { username },
+        select: { id: true },
+      });
+      if (!existing || existing.id === ownerId) return username;
+    }
+    return `oracle_messenger_system_${Date.now()}`;
+  }
+
+  private async getAvailableOfficialGoogleId(ownerId?: string) {
+    const candidates = [this.officialSystemGoogleId, 'oracle-messenger-system-account'];
+    for (const googleId of candidates) {
+      const existing = await this.prisma.user.findUnique({
+        where: { googleId },
+        select: { id: true },
+      });
+      if (!existing || existing.id === ownerId) return googleId;
+    }
+    return `oracle-messenger-system-${Date.now()}`;
+  }
+
+  private officialParticipantUserSelect() {
+    return {
+      id: true,
+      email: true,
+      name: true,
+      username: true,
+      avatar: true,
+      status: true,
+      lastSeen: true,
+    };
+  }
+
+  private chunk<T>(items: T[], size: number) {
+    const chunks: T[][] = [];
+    for (let index = 0; index < items.length; index += size) {
+      chunks.push(items.slice(index, index + size));
+    }
+    return chunks;
+  }
+
+  private async deliverOfficialMessageToUser(
+    userId: string,
+    systemUserId: string,
+    message: {
+      type: string;
+      content: string;
+      caption: string;
+      mediaUrl: string;
+    },
+  ) {
+    const conv = await this.getOrCreateOfficialConversationForUser(userId, systemUserId);
+    const msg = await this.prisma.message.create({
+      data: {
+        conversationId: conv.id,
+        senderId: systemUserId,
+        content: message.content,
+        type: message.type,
+        status: 'sent',
       },
-      create: {
-        googleId: 'system-aura-messenger',
-        email: this.officialSystemEmail,
+      include: { sender: { select: { id:true, name:true, username:true, avatar:true } } },
+    });
+    const updatedConv = await this.prisma.conversation.update({
+      where: { id: conv.id },
+      data: {
         name: this.officialConversationName,
-        username: 'o_messenger',
         avatar: this.officialConversationAvatar,
-        status: 'online',
+        updatedAt: new Date(),
+      },
+      include: {
+        participants: { include: { user: { select: this.officialParticipantUserSelect() } } },
+        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
+    const officialSummary = await this.toOfficialConversationSummary(updatedConv, userId);
+
+    const room = `conv:${conv.id}`;
+    this.socketState.emitToUser(userId, 'conversation:upsert', officialSummary);
+    this.socketState.server?.to(room).emit('message:new', msg);
+    for (const socketId of this.socketState.getSocketIds(userId)) {
+      if (this.isSocketInRoom(socketId, room)) continue;
+      this.socketState.server?.to(socketId).emit('message:new', msg);
+    }
+
+    const notificationBody = message.type === 'image'
+      ? 'Photo officielle'
+      : message.type === 'video'
+        ? 'Vidéo officielle'
+        : message.type === 'audio' || message.type === 'voice'
+          ? 'Message vocal officiel'
+          : message.type === 'file' || message.type === 'document'
+            ? 'Fichier officiel'
+            : message.caption;
+    void this.notifications.sendPush(userId, {
+      title: this.officialConversationName,
+      body: notificationBody,
+      type: 'official-message',
+      conversationId: conv.id,
+      url: `oraclemessenger://notification?conversationId=${encodeURIComponent(conv.id)}`,
+      tag: `official-${conv.id}`,
+      image: message.type === 'image' && message.mediaUrl ? message.mediaUrl : undefined,
+    }).catch(error => {
+      this.logger.warn(`Official push failed for user ${userId}: ${error instanceof Error ? error.message : String(error)}`);
+    });
+
+    return { conversationId: conv.id, messageId: msg.id };
   }
 
   private isDedicatedOfficialConversation(conv: any, userId: string, systemUserId: string) {
@@ -261,87 +478,46 @@ export class AdminService {
       select: { id: true },
     });
 
+    const messageType = ['image', 'video', 'audio', 'voice', 'file', 'document'].includes(type)
+      ? type
+      : effectiveMediaUrl
+        ? 'file'
+        : 'text';
+    const messageContent = messageType === 'text'
+      ? effectiveCaption
+      : JSON.stringify({
+          url: effectiveMediaUrl,
+          name: contentMedia?.name || effectiveCaption || 'Message officiel',
+          mime: contentMedia?.mime || this.inferBroadcastMime(messageType, effectiveMediaUrl),
+          size: contentMedia?.size,
+          checksum: contentMedia?.checksum,
+          caption: contentMedia?.caption || effectiveCaption || undefined,
+          official: true,
+        });
+    const officialMessage = {
+      type: messageType,
+      content: messageContent,
+      caption: effectiveCaption,
+      mediaUrl: effectiveMediaUrl,
+    };
+
+    this.logger.log(`Official broadcast started by ${adminId}: ${users.length} recipient(s), type=${messageType}`);
     let sent = 0;
     let failed = 0;
-    for (const user of users) {
-      try {
-        const conv = await this.getOrCreateOfficialConversationForUser(user.id, systemUser.id);
-
-        const messageType = ['image', 'video', 'audio', 'voice', 'file', 'document'].includes(type)
-          ? type
-          : effectiveMediaUrl
-            ? 'file'
-          : 'text';
-        const messageContent = messageType === 'text'
-          ? effectiveCaption
-          : JSON.stringify({
-              url: effectiveMediaUrl,
-              name: contentMedia?.name || effectiveCaption || 'Message officiel',
-              mime: contentMedia?.mime || this.inferBroadcastMime(messageType, effectiveMediaUrl),
-              size: contentMedia?.size,
-              checksum: contentMedia?.checksum,
-              caption: contentMedia?.caption || effectiveCaption || undefined,
-              official: true,
-            });
-        const msg = await this.prisma.message.create({
-          data: {
-            conversationId: conv.id,
-            senderId: systemUser.id,
-            content: messageContent,
-            type: messageType,
-            status: 'sent',
-          },
-          include: { sender: { select: { id:true, name:true, username:true, avatar:true } } },
-        });
-        const updatedConv = await this.prisma.conversation.update({
-          where: { id: conv.id },
-          data: {
-            name: this.officialConversationName,
-            avatar: this.officialConversationAvatar,
-            updatedAt: new Date(),
-          },
-          include: {
-            participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
-            messages: { orderBy: { createdAt: 'desc' }, take: 1 },
-          },
-        });
-        const officialSummary = await this.toOfficialConversationSummary(updatedConv, user.id);
-
-        // Émettre en temps réel via socket si l'utilisateur est connecté
-        const room = `conv:${conv.id}`;
-        this.socketState.emitToUser(user.id, 'conversation:upsert', officialSummary);
-        this.socketState.server?.to(room).emit('message:new', msg);
-        for (const socketId of this.socketState.getSocketIds(user.id)) {
-          if (this.isSocketInRoom(socketId, room)) continue;
-          this.socketState.server?.to(socketId).emit('message:new', msg);
+    for (const batch of this.chunk(users, this.officialBroadcastConcurrency)) {
+      const results = await Promise.allSettled(batch.map(user => this.deliverOfficialMessageToUser(user.id, systemUser.id, officialMessage)));
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          sent++;
+          return;
         }
-
-        const notificationBody = messageType === 'image'
-          ? 'Photo officielle'
-          : messageType === 'video'
-            ? 'Vidéo officielle'
-            : messageType === 'audio' || messageType === 'voice'
-              ? 'Message vocal officiel'
-              : messageType === 'file' || messageType === 'document'
-                ? 'Fichier officiel'
-                : effectiveCaption;
-        await this.notifications.sendPush(user.id, {
-          title: this.officialConversationName,
-          body: notificationBody,
-          type: 'official-message',
-          conversationId: conv.id,
-          url: `oraclemessenger://notification?conversationId=${encodeURIComponent(conv.id)}`,
-          tag: `official-${conv.id}`,
-          image: messageType === 'image' && effectiveMediaUrl ? effectiveMediaUrl : undefined,
-        }).catch(() => {});
-
-        sent++;
-      } catch (error) {
         failed++;
-        this.logger.warn(`Official broadcast failed for user ${user.id}: ${error instanceof Error ? error.message : String(error)}`);
-      }
+        const userId = batch[index]?.id ?? 'unknown';
+        this.logger.warn(`Official broadcast failed for user ${userId}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+      });
     }
 
+    this.logger.log(`Official broadcast finished: sent=${sent}, failed=${failed}, total=${users.length}`);
     return { success: failed === 0, sent, failed, total: users.length };
   }
 

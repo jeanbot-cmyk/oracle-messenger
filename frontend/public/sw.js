@@ -1,19 +1,11 @@
-// Oracle Messenger — Service Worker v201
+// Oracle Messenger — Service Worker v202
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '201-20260810-native-calls-icon-safe';
+const CACHE_VERSION = '202-20260815-light-browser-navigation';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 const NAVIGATION_TIMEOUT_MS = 1200;
 
 const STATIC_SHELL = [
   '/',
-  '/chat',
-  '/contacts',
-  '/profile',
-  '/tools',
-  '/business',
-  '/gallery',
-  '/stories',
-  '/onboarding',
   '/install',
   '/reset-pwa.html',
   '/manifest.json',

@@ -19,6 +19,12 @@ export class CallsController {
     return this.calls.getIceServers();
   }
 
+  /** GET /calls/sfu-status — disponibilité LiveKit pour appels de groupe */
+  @Get('sfu-status')
+  getSfuStatus() {
+    return this.calls.getSfuStatus();
+  }
+
   /** POST /calls/sfu-token — jeton LiveKit pour appels de groupe scalables */
   @Post('sfu-token')
   createSfuToken(

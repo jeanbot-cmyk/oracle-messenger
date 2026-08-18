@@ -1,8 +1,9 @@
 import { ensureNativeSocket } from '@/services/nativeSocket';
+import { BACKEND_URL } from '@/config/env';
 import type { Conversation, Message } from '@/types/messenger';
 
 export type Country = { code: string; name: string; dial: string; flag: string };
-export type PaystackScope = 'ai' | 'flyer' | 'video' | 'business';
+export type PaystackScope = 'ai' | 'flyer' | 'video' | 'business' | 'conference' | 'conference-book';
 export type MediaPayload = {
   url?: string;
   localUri?: string;
@@ -16,6 +17,9 @@ export type MediaPayload = {
   duration?: number;
   width?: number;
   height?: number;
+  albumId?: string;
+  albumIndex?: number;
+  albumCount?: number;
   waveform?: number[];
   uploadState?: 'uploading' | 'failed' | 'complete';
   uploadProgress?: number;
@@ -50,6 +54,46 @@ const MESSAGE_STATUS_RANK: Record<string, number> = {
 
 export function initials(name?: string | null) {
   return String(name || '?').trim().slice(0, 2).toUpperCase();
+}
+
+const TEXT_LINK_PATTERN = /((?:https?:\/\/|www\.)[^\s<>()]+|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(?::\d{2,5})?(?:\/[^\s<>()]*)?)/gi;
+
+export type TextLinkPart = {
+  text: string;
+  link: boolean;
+};
+
+function trimTrailingLinkPunctuation(value: string) {
+  return value.replace(/[.,!?;:)\]}]+$/u, '');
+}
+
+export function normalizeTextLinkUrl(rawUrl: string) {
+  const cleanUrl = trimTrailingLinkPunctuation(String(rawUrl || '').trim());
+  if (/^https?:\/\//i.test(cleanUrl)) return cleanUrl;
+  return `https://${cleanUrl.replace(/^www\./i, 'www.')}`;
+}
+
+export function splitTextLinks(text: string): TextLinkPart[] {
+  const parts: TextLinkPart[] = [];
+  let cursor = 0;
+  for (const match of text.matchAll(TEXT_LINK_PATTERN)) {
+    const raw = match[0];
+    const index = match.index || 0;
+    const previous = index > 0 ? text[index - 1] : '';
+    const protocolOrWww = /^(https?:\/\/|www\.)/i.test(raw);
+    if (!protocolOrWww && /[\w@.-]/.test(previous)) continue;
+
+    const clean = trimTrailingLinkPunctuation(raw);
+    if (!clean) continue;
+    if (index > cursor) parts.push({ text: text.slice(cursor, index), link: false });
+    parts.push({ text: clean, link: true });
+    const trailing = raw.slice(clean.length);
+    if (trailing) parts.push({ text: trailing, link: false });
+    cursor = index + raw.length;
+  }
+  if (cursor < text.length) parts.push({ text: text.slice(cursor), link: false });
+  if (!parts.length) parts.push({ text, link: false });
+  return parts;
 }
 
 export function isOfficialConversation(conversation?: Conversation | null) {
@@ -142,10 +186,28 @@ export function conversationAvatar(conversation?: Conversation | null) {
 export function highQualityImageUri(uri?: string | null) {
   const raw = String(uri || '').trim();
   if (!raw) return null;
+  if (/^\/uploads\//i.test(raw)) return `${BACKEND_URL}${raw}`;
   return raw
     .replace(/=s\d+(-c)?(?=$|[&#?])/i, '=s1024-c')
     .replace(/\/s\d+(-c)?\//i, '/s1024-c/')
     .replace(/([?&]sz=)\d+/i, '$11024');
+}
+
+export function fastAvatarUri(uri?: string | null) {
+  const raw = String(uri || '').trim();
+  if (!raw) return null;
+  if (/^\/uploads\//i.test(raw)) return `${BACKEND_URL}${raw}`;
+  return raw
+    .replace(/=s\d+(-c)?(?=$|[&#?])/i, '=s160-c')
+    .replace(/\/s\d+(-c)?\//i, '/s160-c/')
+    .replace(/([?&]sz=)\d+/i, '$1160');
+}
+
+export function normalizedMediaUri(uri?: string | null) {
+  const raw = String(uri || '').trim();
+  if (!raw) return undefined;
+  if (/^\/(?:uploads|media|files)\//i.test(raw)) return `${BACKEND_URL}${raw}`;
+  return raw;
 }
 
 export function messagePreview(message?: Message | null) {
@@ -153,6 +215,7 @@ export function messagePreview(message?: Message | null) {
   if (message.isDeleted) return 'Message supprimé';
   const callTrace = message.type === 'text' ? parseCallTraceMessage(message.content) : null;
   if (callTrace) return ['missed', 'refused', 'cancelled'].includes(callTrace.status) ? `🚫 ${callTrace.label}` : callTrace.label;
+  if (message.type === 'system') return message.content || 'Événement de groupe';
   if (message.type === 'text') {
     const payload = parseMediaPayload(message.content);
     if (payload?.url) return mediaPreviewLabel(payload, message.content, 'Fichier');
@@ -227,9 +290,9 @@ export function parseMediaPayload(content?: string | null): MediaPayload | null 
       parsed.uri,
     ].find(value => typeof value === 'string' && value.trim()) as string | undefined;
     const emoji = typeof parsed.emoji === 'string' ? parsed.emoji.trim().slice(0, 12) : '';
-    if (!url && !emoji) return null;
+    if (!url && !emoji && !parsed.uploadState && !parsed.mime && !parsed.albumId) return null;
     return {
-      url: url || undefined,
+      url: normalizedMediaUri(url),
       localUri: typeof parsed.localUri === 'string' ? parsed.localUri : undefined,
       size: typeof parsed.size === 'number' ? parsed.size : undefined,
       checksum: typeof parsed.checksum === 'string' ? parsed.checksum : undefined,
@@ -237,17 +300,20 @@ export function parseMediaPayload(content?: string | null): MediaPayload | null 
       name: typeof parsed.name === 'string' ? parsed.name : undefined,
       caption: typeof parsed.caption === 'string' ? parsed.caption.trim() : undefined,
       emoji: emoji || undefined,
-      thumbnail: typeof parsed.thumbnail === 'string' ? parsed.thumbnail : undefined,
+      thumbnail: typeof parsed.thumbnail === 'string' ? normalizedMediaUri(parsed.thumbnail) : undefined,
       duration: typeof parsed.duration === 'number' ? parsed.duration : undefined,
       width: typeof parsed.width === 'number' ? parsed.width : undefined,
       height: typeof parsed.height === 'number' ? parsed.height : undefined,
+      albumId: typeof parsed.albumId === 'string' ? parsed.albumId.trim() : undefined,
+      albumIndex: typeof parsed.albumIndex === 'number' ? parsed.albumIndex : undefined,
+      albumCount: typeof parsed.albumCount === 'number' ? parsed.albumCount : undefined,
       waveform: Array.isArray(parsed.waveform) ? parsed.waveform.filter((value: unknown): value is number => typeof value === 'number') : undefined,
       uploadState: ['uploading', 'failed', 'complete'].includes(String(parsed.uploadState)) ? parsed.uploadState : undefined,
       uploadProgress: typeof parsed.uploadProgress === 'number' ? Math.max(0, Math.min(100, parsed.uploadProgress)) : undefined,
       uploadError: typeof parsed.uploadError === 'string' ? parsed.uploadError.trim().slice(0, 140) : undefined,
     };
   } catch {
-    if (/^(https?:\/\/|file:\/\/|content:\/\/|\/uploads\/)/i.test(raw)) return { url: raw };
+    if (/^(https?:\/\/|file:\/\/|content:\/\/|\/uploads\/)/i.test(raw)) return { url: normalizedMediaUri(raw) };
     return null;
   }
 }
@@ -320,8 +386,25 @@ export function mergeMessageStatus(current?: string | null, incoming?: string | 
   return incomingRank >= currentRank ? incomingStatus : currentStatus;
 }
 
+function isValidMessageDate(value?: string | null) {
+  return Boolean(value && Number.isFinite(Date.parse(value)));
+}
+
+function isOptimisticLocalMessage(message: Pick<Message, 'id' | 'clientMessageId'>) {
+  return message.id.startsWith('local-') || Boolean(message.clientMessageId?.startsWith('local-'));
+}
+
+export function mergeMessageCreatedAt(current: Message, incomingCreatedAt?: string | null): string {
+  if (isOptimisticLocalMessage(current) && isValidMessageDate(current.createdAt)) {
+    return current.createdAt;
+  }
+  if (incomingCreatedAt && isValidMessageDate(incomingCreatedAt)) return incomingCreatedAt;
+  return isValidMessageDate(current.createdAt) ? current.createdAt : new Date().toISOString();
+}
+
 export function mergeMessagePatch(current: Message, patch: Partial<Message>) {
   const next: Message = { ...current, ...patch };
+  next.createdAt = mergeMessageCreatedAt(current, patch.createdAt);
   if (patch.status !== undefined) {
     next.status = mergeMessageStatus(current.status, patch.status);
   }
@@ -470,7 +553,7 @@ function waitForSocketReady(socket: ReturnType<typeof ensureNativeSocket>, timeo
     };
     socket.on('connect', onConnect);
     socket.on('connect_error', onError);
-    if (!(socket as { active?: boolean }).active) socket.connect();
+    if (!socket.connected) socket.connect();
   });
 }
 
@@ -490,8 +573,37 @@ export function parsePaystackDeepLink(url: string): { scope: PaystackScope; refe
   const params = new URLSearchParams(query);
   const scope = params.get('scope');
   const reference = params.get('reference');
-  if (!reference || !['ai', 'flyer', 'video', 'business'].includes(scope || '')) return null;
+  if (!reference || !['ai', 'flyer', 'video', 'business', 'conference', 'conference-book'].includes(scope || '')) return null;
   return { scope: scope as PaystackScope, reference };
+}
+
+export function parseConferenceDeepLink(url: string): { slug: string } | null {
+  const raw = String(url || '').trim();
+  let slug = '';
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol === 'oraclemessenger:') {
+      if (parsed.hostname.toLowerCase() === 'conference') {
+        slug = parsed.pathname.replace(/^\/+/, '') || parsed.searchParams.get('slug') || '';
+      } else {
+        const match = parsed.pathname.match(/^\/conference\/([^/?#]+)/i);
+        slug = match?.[1]?.trim() || parsed.searchParams.get('slug') || '';
+      }
+    } else if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      const match = parsed.pathname.match(/^\/conference\/([^/?#]+)/i);
+      slug = match?.[1]?.trim() || '';
+    } else {
+      return null;
+    }
+  } catch {
+    if (raw.startsWith('oraclemessenger://conference')) {
+      slug = raw.replace(/^oraclemessenger:\/\/conference\/?/i, '').split(/[?#]/)[0]?.trim();
+    } else {
+      return null;
+    }
+  }
+  if (!slug) return null;
+  return { slug: decodeURIComponent(slug) };
 }
 
 export function parseCallActionDeepLink(url: string): { action: 'accept' | 'reject' | 'open'; callId?: string | null; conversationId?: string | null } | null {

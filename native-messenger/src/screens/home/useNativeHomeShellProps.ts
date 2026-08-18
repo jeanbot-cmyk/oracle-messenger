@@ -62,6 +62,14 @@ export function useNativeHomeShellProps({
 }: UseNativeHomeShellPropsParams): NativeHomeShellProps | null {
   if (!session || needsOnboarding) return null;
 
+  const openConversationImmediately = (conversation: Conversation) => {
+    setActiveTab('chats');
+    setMessageSearch('');
+    requestAnimationFrame(() => {
+      void conversationsController.loadMessages(conversation);
+    });
+  };
+
   return {
     session,
     nativeCall,
@@ -79,6 +87,8 @@ export function useNativeHomeShellProps({
     selectedMessageIds: conversationsController.selectedMessageIds,
     selectedMessages: conversationsController.selectedMessages,
     forwardMessages: conversationsController.forwardMessages,
+    actionMessage: conversationsController.actionMessage,
+    quickReactions: conversationsController.quickReactions,
     localMediaByMessageId,
     draft: composer.draft,
     replyTo: composer.replyTo,
@@ -94,7 +104,7 @@ export function useNativeHomeShellProps({
       setActiveTab(tab);
       if (tab !== 'chats') setSelected(null);
     },
-    onOpenConversationFromFeature: conversationsController.openConversationFromFeature,
+    onOpenConversationFromFeature: openConversationImmediately,
     onLogout: logout,
     onBackFromChat: () => setSelected(null),
     onMessageSearchChange: setMessageSearch,
@@ -103,6 +113,13 @@ export function useNativeHomeShellProps({
     onDeleteSelectedMessages: conversationsController.deleteSelectedOwnMessages,
     onClearMessageSelection: conversationsController.clearMessageSelection,
     onClearForwardMessages: conversationsController.clearForwardMessages,
+    onCloseMessageActions: conversationsController.closeMessageActions,
+    onReactMessage: conversationsController.reactToMessage,
+    onReplyMessage: conversationsController.replyToMessage,
+    onCopyMessage: conversationsController.copyMessage,
+    onEditMessage: conversationsController.editMessage,
+    onDeleteMessageForMe: conversationsController.deleteMessageForMe,
+    onDeleteMessageForAll: conversationsController.deleteOwnMessageWithConfirm,
     onForwardToConversation: conversationsController.forwardToConversation,
     onToggleMessageSelection: conversationsController.toggleMessageSelection,
     onOpenMessageActions: conversationsController.openMessageActions,
@@ -121,10 +138,8 @@ export function useNativeHomeShellProps({
     onAskAiDraft: composer.askAiDraft,
     onSend: composer.send,
     onConversationSearchChange: setConversationSearch,
-    onOpenConversationFromList: conversation => {
-      setActiveTab('chats');
-      conversationsController.loadMessages(conversation);
-    },
+    onOpenConversationFromList: openConversationImmediately,
     onConversationActions: conversationsController.openConversationActions,
+    onDeleteConversations: conversationsController.deleteConversations,
   };
 }

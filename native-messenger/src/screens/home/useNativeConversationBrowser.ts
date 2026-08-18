@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } fr
 import type { NativeTabKey } from '@/screens/NativeFeaturePages';
 import { sortConversations } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
-import { readCachedConversations, writeCachedConversations } from '@/services/nativeConversationCache';
+import { readCachedConversationsAny, writeCachedConversations } from '@/services/nativeConversationCache';
 import type { Conversation } from '@/types/messenger';
 
 type UseNativeConversationBrowserParams = {
@@ -28,15 +28,16 @@ export function useNativeConversationBrowser({
 }: UseNativeConversationBrowserParams) {
   const conversationSearchRequestRef = useRef(0);
 
-  const refreshConversations = useCallback(async (activeToken = token) => {
+  const refreshConversations = useCallback(async (activeToken = token, activeOwnerId?: string) => {
     if (!activeToken) return;
     const query = conversationSearch.trim();
+    const cacheOwnerId = activeOwnerId || ownerId || activeToken;
     let restoredFromCache = false;
     if (!query) {
-      const cached = await readCachedConversations(ownerId || activeToken);
+      const cached = await readCachedConversationsAny([cacheOwnerId, ownerId, activeOwnerId, activeToken]);
       if (cached.length) {
         restoredFromCache = true;
-          setConversations(sortConversations(cached));
+        setConversations(sortConversations(cached));
         setNotice('');
       }
     }
@@ -45,7 +46,7 @@ export function useNativeConversationBrowser({
       const items = query ? await api.searchConversations(query, activeToken) : await api.conversations(activeToken);
       const sortedItems = sortConversations(items);
       setConversations(sortedItems);
-      if (!query) await writeCachedConversations(ownerId || activeToken, sortedItems);
+      if (!query) await writeCachedConversations(cacheOwnerId, sortedItems);
       setNotice(items.length ? '' : query ? 'Aucune conversation trouvée.' : 'Aucune conversation pour ce compte.');
     } catch (error) {
       setNotice(restoredFromCache
@@ -65,11 +66,11 @@ export function useNativeConversationBrowser({
       void (async () => {
         let restoredFromCache = false;
         if (!query) {
-          const cached = await readCachedConversations(ownerId || token);
+          const cached = await readCachedConversationsAny([ownerId, token]);
           if (conversationSearchRequestRef.current !== requestId) return;
           if (cached.length) {
             restoredFromCache = true;
-              setConversations(sortConversations(cached));
+            setConversations(sortConversations(cached));
             setNotice('');
           }
         }

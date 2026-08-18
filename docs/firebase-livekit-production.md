@@ -15,7 +15,20 @@ Required for reliable native Android push notifications and incoming-call alerts
 7. Configure one backend environment variable:
    - `FIREBASE_SERVICE_ACCOUNT_JSON` with the full JSON content, or
    - `GOOGLE_APPLICATION_CREDENTIALS` pointing to a mounted JSON file.
-8. Rebuild backend and Android AAB.
+8. When using `GOOGLE_APPLICATION_CREDENTIALS`, mount the service account file in the backend container:
+
+   ```yaml
+   GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/firebase-admin.json
+   FIREBASE_ADMIN_HOST_PATH=/root/secrets/oracle-messenger/firebase-admin.json
+   ```
+
+   The container must expose:
+
+   ```yaml
+   /root/secrets/oracle-messenger/firebase-admin.json:/run/secrets/firebase-admin.json:ro
+   ```
+
+9. Rebuild backend and Android AAB.
 
 Validation:
 
@@ -34,7 +47,17 @@ Required environment:
 LIVEKIT_URL=wss://livekit.oracle-plus.online
 LIVEKIT_API_KEY=replace_me
 LIVEKIT_API_SECRET=replace_me
+MAX_AUDIO_CALL_PARTICIPANTS=100
+MAX_VIDEO_CALL_PARTICIPANTS=10
 ```
+
+Local secret file prepared for deployment:
+
+```bash
+.secrets/livekit.env
+```
+
+The deployment script loads that file automatically before starting the LiveKit container.
 
 Backend endpoint already prepared:
 

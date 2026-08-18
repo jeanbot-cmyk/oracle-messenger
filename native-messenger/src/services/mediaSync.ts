@@ -1,6 +1,7 @@
 import { api } from '@/services/api';
 import { ensureMediaStoredLocally, isMediaMessage } from '@/services/localMedia';
 import { enqueueNativeMediaDownload } from '@/services/nativeMediaWorker';
+import { nativeDebugLog } from '@/services/nativeLogger';
 import type { Message } from '@/types/messenger';
 
 let activeSync: Promise<MediaSyncResult> | null = null;
@@ -57,7 +58,7 @@ export function syncPendingMedia(token: string, currentUserId?: string, knownMes
       const pending = await api.pendingMedia(token);
       for (const message of pending) byId.set(message.id, message);
     } catch (error) {
-      console.info('[MediaSync]', {
+      nativeDebugLog('[MediaSync]', {
         event: 'pending-media-fetch-failed',
         message: error instanceof Error ? error.message : String(error),
       });
@@ -74,7 +75,7 @@ export function syncPendingMedia(token: string, currentUserId?: string, knownMes
         result.savedMessageIds.push(message.id);
       } catch (error) {
         result.failedMessageIds.push(message.id);
-        console.info('[MediaSync]', {
+        nativeDebugLog('[MediaSync]', {
           event: 'media-save-retry-needed',
           messageId: message.id,
           error: error instanceof Error ? error.message : String(error),

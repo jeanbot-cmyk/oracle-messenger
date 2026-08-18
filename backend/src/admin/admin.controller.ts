@@ -3,6 +3,7 @@ import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AdminService } from './admin.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { BusinessService } from '../business/business.service';
 
 const ADMIN_EMAILS = ['tchingankonggeorges@gmail.com', 'tchingangankonggeorges@gmail.com'];
 const ADMIN_PHONES = ['+2250504673829', '+2250700508618'];
@@ -18,7 +19,7 @@ function requireAdmin(user: any) {
 @Controller('admin')
 @UseGuards(JwtGuard)
 export class AdminController {
-  constructor(private admin: AdminService, private prisma: PrismaService) {}
+  constructor(private admin: AdminService, private prisma: PrismaService, private business: BusinessService) {}
 
   @Get('stats')
   async stats(@CurrentUser() user: any) {
@@ -131,5 +132,20 @@ export class AdminController {
       })
     )));
     return this.aiAuto(user);
+  }
+
+  @Get('business-western-union')
+  async getBusinessWesternUnion(@CurrentUser() user: any) {
+    requireAdmin(user);
+    return {
+      config: await this.business.getWesternUnionPaymentConfig(),
+      receipts: await this.business.getWesternUnionReceiptsForAdmin(),
+    };
+  }
+
+  @Post('business-western-union')
+  async updateBusinessWesternUnion(@CurrentUser() user: any, @Body() body: any) {
+    requireAdmin(user);
+    return this.business.updateWesternUnionPaymentConfig(body ?? {});
   }
 }

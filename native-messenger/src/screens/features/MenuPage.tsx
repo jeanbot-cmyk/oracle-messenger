@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Bot, BriefcaseBusiness, CalendarDays, ChevronRight, Contact, CreditCard, Database, FileText, Globe, Image, Languages, LockKeyhole, LogOut, Moon, NotebookPen, Search, Server, Shield, Smartphone, Settings, Share2, Sparkles, Sun, User, Video, Wand2, X } from 'lucide-react-native';
+import { Bot, BriefcaseBusiness, CalendarDays, ChevronRight, Contact, CreditCard, Database as DatabaseIcon, FileText, Image, Languages, LogOut, Moon, NotebookPen, Search, Shield, Settings, Share2, Sparkles, Sun, User, Video, Wand2 } from 'lucide-react-native';
 import type { NativeTabKey } from '@/screens/NativeFeaturePages';
+import { NativeLegalDocumentPanel } from '@/legal/NativeLegalDocumentPanel';
+import type { LegalDocumentId } from '@/legal/oracleLegalDocuments';
 import { LANGUAGES, readAppSettings, saveAppSettings, type LanguageCode, useLanguage } from '@/services/language';
 import { shareOracleMessengerApp } from '@/services/shareOracleApp';
 import { colors } from '@/theme/colors';
@@ -18,8 +20,7 @@ type MenuItem = {
 };
 
 const SPIRITUALITY_URL = 'https://oracle-plus.online';
-const ORACLE_WEB_MENU_URL = 'https://web.oracle-plus.online';
-type LegalView = 'privacy' | 'terms';
+type LegalView = LegalDocumentId;
 
 function ServiceRow({ item, onOpenTab }: { item: MenuItem; onOpenTab: (tab: NativeTabKey) => void }) {
   const Icon = item.icon;
@@ -72,114 +73,6 @@ function MenuSection({ title, items, onOpenTab }: { title: string; items: MenuIt
   );
 }
 
-function LegalBullet({ text }: { text: string }) {
-  return (
-    <View style={styles.legalBulletRow}>
-      <View style={styles.legalDot} />
-      <Text style={styles.legalText}>{text}</Text>
-    </View>
-  );
-}
-
-function LegalBlock({ icon: Icon, title, items }: { icon: typeof Shield; title: string; items: string[] }) {
-  return (
-    <View style={styles.legalBlock}>
-      <View style={styles.legalBlockHead}>
-        <View style={styles.legalIcon}><Icon size={17} color={colors.header} strokeWidth={2.2} /></View>
-        <Text style={styles.legalBlockTitle}>{title}</Text>
-      </View>
-      {items.map(item => <LegalBullet key={item} text={item} />)}
-    </View>
-  );
-}
-
-function LegalPanel({ view, onClose }: { view: LegalView; onClose: () => void }) {
-  const privacy = view === 'privacy';
-  return (
-    <View style={styles.legalPanel}>
-      <View style={styles.legalHeader}>
-        <View style={styles.legalHeaderIcon}>
-          {privacy ? <Shield size={20} color="#FFFFFF" strokeWidth={2.3} /> : <FileText size={20} color="#FFFFFF" strokeWidth={2.3} />}
-        </View>
-        <View style={styles.legalHeaderText}>
-          <Text style={styles.legalTitle}>{privacy ? 'Confidentialité Oracle Messenger' : 'Conditions Oracle Messenger'}</Text>
-          <Text style={styles.legalSubtitle}>
-            {privacy
-              ? 'Ce résumé explique où les données sont conservées et comment les échanges sont protégés.'
-              : 'Ces règles encadrent l’utilisation du compte, des messages, des médias, de l’IA et des paiements.'}
-          </Text>
-        </View>
-        <Pressable accessibilityRole="button" accessibilityLabel="Fermer" onPress={onClose} style={styles.legalClose}>
-          <X size={18} color={colors.header} strokeWidth={2.5} />
-        </Pressable>
-      </View>
-
-      {privacy ? (
-        <>
-          <LegalBlock
-            icon={Smartphone}
-            title="Données conservées côté utilisateur"
-            items={[
-              'Les préférences comme la langue, le thème, certains caches de conversation et les médias sauvegardés restent sur ce téléphone.',
-              'Les notes et rappels locaux sont enregistrés côté utilisateur quand la fonction est locale.',
-              'L’utilisateur peut fermer sa session sur ce téléphone ; les données locales sensibles ne sont pas utilisées hors de l’application.',
-            ]}
-          />
-          <LegalBlock
-            icon={Server}
-            title="Données synchronisées avec le serveur"
-            items={[
-              'Le compte, les conversations, les messages, les médias envoyés, les statuts, les crédits et les paiements doivent être synchronisés serveur pour fonctionner entre appareils.',
-              'Les accès aux conversations, stories et fichiers sont contrôlés par compte et permissions.',
-              'Les données IA ou entreprise ne sont utilisées que pour les fonctions activées par l’utilisateur.',
-            ]}
-          />
-          <LegalBlock
-            icon={LockKeyhole}
-            title="Sécurisation des lignes"
-            items={[
-              'Les échanges réseau passent par HTTPS/TLS afin de chiffrer la ligne entre l’application et le serveur.',
-              'Chaque requête protégée utilise un jeton de session ; le serveur vérifie l’identité avant de répondre.',
-              'Les fichiers envoyés sont contrôlés par type, taille et autorisation avant stockage.',
-              'Les appels utilisent la signalisation sécurisée du compte et des jetons temporaires lorsque LiveKit/WebRTC est utilisé.',
-            ]}
-          />
-        </>
-      ) : (
-        <>
-          <LegalBlock
-            icon={User}
-            title="Compte et responsabilité"
-            items={[
-              'L’utilisateur doit utiliser son propre compte et garder son téléphone, son compte Google et sa session Oracle Messenger protégés.',
-              'Il est interdit d’usurper une identité, de harceler, de diffuser des contenus illégaux ou d’utiliser le service pour nuire.',
-              'Les fonctionnalités peuvent être limitées si le compte viole les règles de sécurité ou les lois applicables.',
-            ]}
-          />
-          <LegalBlock
-            icon={Database}
-            title="Messages, médias et stockage"
-            items={[
-              'Les contenus envoyés restent sous la responsabilité de l’utilisateur qui les partage.',
-              'Les données locales côté utilisateur servent à accélérer l’application et permettre la consultation hors connexion quand c’est possible.',
-              'Les données serveur servent à livrer les messages, restaurer les conversations, vérifier les paiements et synchroniser les appareils.',
-            ]}
-          />
-          <LegalBlock
-            icon={Sparkles}
-            title="IA, crédits et paiements"
-            items={[
-              'Les outils IA utilisent les consignes fournies par l’utilisateur et les limites du plan actif.',
-              'Les crédits et abonnements sont validés côté serveur afin d’éviter les doubles facturations et les soldes incorrects.',
-              'Une génération IA ou un service payant ne doit être lancé que si l’utilisateur comprend le coût affiché.',
-            ]}
-          />
-        </>
-      )}
-    </View>
-  );
-}
-
 export function MenuPage({ isAdmin, onOpenTab, onLogout }: { isAdmin: boolean; onOpenTab: (tab: NativeTabKey) => void; onLogout: () => void | Promise<void> }) {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [languageOpen, setLanguageOpen] = useState(false);
@@ -214,6 +107,11 @@ export function MenuPage({ isAdmin, onOpenTab, onLogout }: { isAdmin: boolean; o
     setLanguageOpen(false);
     setLegalView(current => current === 'terms' ? null : 'terms');
   };
+  const openDataPolicy = () => {
+    setNotice('');
+    setLanguageOpen(false);
+    setLegalView(current => current === 'data' ? null : 'data');
+  };
   const openExternalUrl = (url: string) => {
     void Linking.openURL(url).catch(() => undefined);
   };
@@ -228,13 +126,12 @@ export function MenuPage({ isAdmin, onOpenTab, onLogout }: { isAdmin: boolean; o
   const services: MenuItem[] = [
     { icon: BriefcaseBusiness, label: t('menu.business'), sub: 'CRM & Business Hub', tab: 'business' },
     { icon: Image, label: t('menu.gallery'), sub: 'Galerie locale', tab: 'gallery' },
-    { icon: Globe, label: t('menu.web'), sub: 'Créer mon site web, appli ou boutique.', action: () => openExternalUrl(ORACLE_WEB_MENU_URL) },
     { icon: Bot, label: t('menu.ai'), sub: 'Préparer des réponses automatiques avec un prompt contrôlé.', tab: 'ai' },
     { icon: Wand2, label: t('menu.flyers'), sub: "Créez des affiches et flyers professionnels avec l'intelligence artificielle.", tab: 'flyers' },
     { icon: Video, label: t('menu.videos'), sub: 'Créez vos vidéos de présentation IA avec voix off et musique.', tab: 'videos' },
     { icon: CreditCard, label: t('menu.payments'), sub: 'Paystack et vérification serveur des crédits.', tab: 'payments' },
     { icon: Languages, label: t('menu.translate'), sub: 'Rédiger, reformuler ou traduire un message avant envoi.', tab: 'translate' },
-    { icon: Video, label: t('menu.meeting'), sub: 'Créer ou rejoindre une salle avec un lien partageable.', tab: 'meeting' },
+    { icon: Video, label: t('menu.meeting'), sub: 'Créer ou rejoindre une salle de direct avec un lien partageable.', tab: 'meeting' },
     { icon: NotebookPen, label: t('menu.notes'), sub: 'Notes locales conservées sur ce téléphone.', tab: 'notes' },
     { icon: CalendarDays, label: t('menu.events'), sub: 'Rappels locaux avec notification Android.', tab: 'events' },
     { icon: Sparkles, label: t('menu.spirituality'), sub: 'Consultation spirituelle.', action: () => openExternalUrl(SPIRITUALITY_URL) },
@@ -257,6 +154,7 @@ export function MenuPage({ isAdmin, onOpenTab, onLogout }: { isAdmin: boolean; o
     },
     { icon: Settings, label: 'Paramètres', sub: 'Notifications, sécurité et stockage.', tab: 'profile' },
     { icon: Shield, label: t('menu.privacy'), sub: 'Politique de confidentialité Oracle Messenger.', action: openPrivacy },
+    { icon: DatabaseIcon, label: 'Données', sub: 'Stockage local, transit serveur, conservation et suppression.', action: openDataPolicy },
     { icon: FileText, label: t('menu.terms'), sub: "Règles d'utilisation et services Oracle Messenger.", action: openTerms },
     ...(isAdmin ? [{ icon: Shield, label: t('menu.admin'), sub: 'Statistiques, notifications et message système.', tab: 'admin' as NativeTabKey }] : []),
     { icon: Share2, label: t('menu.share'), sub: 'Partager Oracle Messenger.', action: shareApp },
@@ -279,7 +177,7 @@ export function MenuPage({ isAdmin, onOpenTab, onLogout }: { isAdmin: boolean; o
         <Text maxFontSizeMultiplier={1.08} style={styles.pageSubtitle}>{t('menu.subtitle')}</Text>
       </View>
       <View style={styles.noticeWrap}><AlertText text={notice} /></View>
-      {legalView ? <LegalPanel view={legalView} onClose={() => setLegalView(null)} /> : null}
+      {legalView ? <NativeLegalDocumentPanel documentId={legalView} onClose={() => setLegalView(null)} embedded /> : null}
       <MenuSection title={t('menu.account')} items={accountItems} onOpenTab={onOpenTab} />
       <MenuSection title={t('menu.services')} items={serviceItems} onOpenTab={onOpenTab} />
       {settingItems.length ? (
@@ -328,7 +226,7 @@ const styles = StyleSheet.create({
   searchRow: { minHeight: 44, borderRadius: 22, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14 },
   searchInput: { flex: 1, minHeight: 42, color: colors.text, fontSize: 15, fontWeight: '600', paddingHorizontal: 0 },
   pageIntro: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
-  pageTitle: { color: colors.text, fontSize: 20, lineHeight: 24, fontWeight: '900' },
+  pageTitle: { color: colors.title, fontSize: 20, lineHeight: 24, fontWeight: '900' },
   pageSubtitle: { color: colors.muted, fontSize: 13, lineHeight: 19, fontWeight: '600', marginTop: 4 },
   noticeWrap: { marginHorizontal: 16 },
   legalPanel: { marginHorizontal: 16, marginTop: 10, marginBottom: 4, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, overflow: 'hidden', shadowColor: '#102A2A', shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 4 },

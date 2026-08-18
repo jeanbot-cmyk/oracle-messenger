@@ -56,9 +56,68 @@ function normalizeMessages(items: Message[]) {
     .slice(-MAX_CACHED_MESSAGES);
 }
 
+function messageStatusRank(status?: string | null) {
+  switch (String(status || 'sent').toLowerCase()) {
+    case 'read':
+    case 'seen':
+      return 4;
+    case 'delivered':
+    case 'received':
+      return 3;
+    case 'sent':
+      return 2;
+    case 'sending':
+    case 'pending':
+    case 'queued':
+    case 'uploading':
+      return 1;
+    case 'failed':
+    case 'error':
+      return 0;
+    default:
+      return 2;
+  }
+}
+
+function strongestMessageStatus(current?: string | null, incoming?: string | null) {
+  return messageStatusRank(incoming) >= messageStatusRank(current)
+    ? String(incoming || 'sent').toLowerCase()
+    : String(current || 'sent').toLowerCase();
+}
+
+function sameClientMessage(current: Message, incoming: Message) {
+  if (current.conversationId !== incoming.conversationId || current.senderId !== incoming.senderId) return false;
+  const currentClientId = current.clientMessageId || (current.id?.startsWith('local-') ? current.id : '');
+  const incomingClientId = incoming.clientMessageId || (incoming.id?.startsWith('local-') ? incoming.id : '');
+  if (currentClientId && incomingClientId && currentClientId === incomingClientId) return true;
+  if (incoming.clientMessageId && current.id === incoming.clientMessageId) return true;
+  if (current.clientMessageId && incoming.id === current.clientMessageId) return true;
+  return false;
+}
+
+function mergeCachedMessage(current: Message, incoming: Message): Message {
+  return {
+    ...current,
+    ...incoming,
+    status: strongestMessageStatus(current.status, incoming.status) as Message['status'],
+  };
+}
+
 export async function readCachedConversations(ownerId?: string | null) {
   const raw = await AsyncStorage.getItem(conversationsKey(ownerId)).catch(() => null);
   return normalizeConversations(parseArray<Conversation>(raw));
+}
+
+export async function readCachedConversationsAny(ownerIds: (string | null | undefined)[]) {
+  const seen = new Set<string>();
+  for (const ownerId of ownerIds) {
+    const key = safeKey(ownerId);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const conversations = await readCachedConversations(ownerId);
+    if (conversations.length) return conversations;
+  }
+  return [];
 }
 
 export async function writeCachedConversations(ownerId: string | null | undefined, conversations: Conversation[]) {
@@ -71,9 +130,32 @@ export async function readCachedMessages(ownerId: string | null | undefined, con
   return normalizeMessages(parseArray<Message>(raw));
 }
 
+export async function readCachedMessagesAny(ownerIds: (string | null | undefined)[], conversationId: string) {
+  const seen = new Set<string>();
+  for (const ownerId of ownerIds) {
+    const key = safeKey(ownerId);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const messages = await readCachedMessages(ownerId, conversationId);
+    if (messages.length) return messages;
+  }
+  return [];
+}
+
 export async function writeCachedMessages(ownerId: string | null | undefined, conversationId: string, messages: Message[]) {
   if (!ownerId || !conversationId) return;
   await AsyncStorage.setItem(messagesKey(ownerId, conversationId), JSON.stringify(normalizeMessages(messages))).catch(() => undefined);
+}
+
+export async function upsertCachedMessage(ownerId: string | null | undefined, conversationId: string, message: Message) {
+  if (!ownerId || !conversationId || !message?.id) return [];
+  const current = await readCachedMessages(ownerId, conversationId);
+  const exists = current.some(item => item.id === message.id || sameClientMessage(item, message));
+  const next = normalizeMessages(exists
+    ? current.map(item => item.id === message.id || sameClientMessage(item, message) ? mergeCachedMessage(item, message) : item)
+    : [...current, message]);
+  await AsyncStorage.setItem(messagesKey(ownerId, conversationId), JSON.stringify(next));
+  return next;
 }
 
 export async function clearCachedConversation(ownerId: string | null | undefined, conversationId: string) {

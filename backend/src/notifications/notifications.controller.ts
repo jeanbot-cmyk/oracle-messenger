@@ -14,7 +14,8 @@ export class NotificationsController {
 
   @Post('subscribe')
   @UseGuards(JwtGuard)
-  subscribe(@Body() body: any, @Request() req: any) {
-    return this.notif.savePushSubscription(req.user.id, body);
+  async subscribe(@Body() body: any, @Request() req: any) {
+    await this.notif.savePushSubscription(req.user.id, body);
+    return { ok: true };
   }
 }

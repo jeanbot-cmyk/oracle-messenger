@@ -11,14 +11,13 @@ const FEATURE_TITLES: Partial<Record<NativeTabKey, string>> = {
   stories: 'Actus',
   storyCamera: 'Caméra',
   tools: 'Outils',
-  meeting: 'Outils',
+  meeting: 'Salle de conférence',
   translate: 'Outils',
   notes: 'Outils',
   events: 'Outils',
   menu: 'Menu',
   contacts: 'Sélectionner un contact',
   gallery: 'Galerie',
-  web: 'Web',
   spirituality: 'Spiritualité',
   ai: 'Outils',
   flyers: 'Outils',
@@ -42,10 +41,10 @@ export function NativeFeatureShell({
 }) {
   const panResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gesture) => (
-      Math.abs(gesture.dx) > 72 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.35
+      Math.abs(gesture.dx) > 106 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.65
     ),
     onPanResponderRelease: (_, gesture) => {
-      if (Math.abs(gesture.dx) > 86 && Math.abs(gesture.dy) < 54) {
+      if (Math.abs(gesture.dx) > 130 && Math.abs(gesture.dy) < 52) {
         selectionHaptic();
         if (onSwipeTab) onSwipeTab(gesture.dx < 0 ? 'next' : 'previous');
         else onBackToChats();
@@ -92,6 +91,6 @@ const styles = StyleSheet.create({
   },
   backButton: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   titleWrap: { flex: 1, minWidth: 0 },
-  title: { color: colors.text, fontSize: 19, lineHeight: 23, fontWeight: '900' },
+  title: { color: colors.title, fontSize: 19, lineHeight: 23, fontWeight: '900' },
   content: { flex: 1 },
 });

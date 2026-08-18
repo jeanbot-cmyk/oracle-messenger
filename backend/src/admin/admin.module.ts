@@ -4,9 +4,10 @@ import { AdminService } from './admin.service';
 import { AuthModule } from '../auth/auth.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { GatewayModule } from '../gateway/gateway.module';
+import { BusinessModule } from '../business/business.module';
 
 @Module({
-  imports: [AuthModule, NotificationsModule, GatewayModule],
+  imports: [AuthModule, NotificationsModule, GatewayModule, BusinessModule],
   controllers: [AdminController],
   providers: [AdminService],
 })

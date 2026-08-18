@@ -54,53 +54,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        {/* Capture beforeinstallprompt as early as possible, before React hydrates */}
+        {/* Capture the install prompt without starting diagnostics or cache work on every page. */}
         <script dangerouslySetInnerHTML={{ __html: `
-          (function() {
-            function log(event, detail) {
-              try {
-                var item = {
-                  event: event,
-                  detail: detail || {},
-                  time: new Date().toISOString(),
-                  path: location.pathname + location.search,
-                  ua: navigator.userAgent
-                };
-                var key = 'oracle-pwa-install-log';
-                var current = JSON.parse(localStorage.getItem(key) || '[]');
-                current.push(item);
-                localStorage.setItem(key, JSON.stringify(current.slice(-30)));
-                window.__oraclePwaInstallLog = current.slice(-30);
-              } catch (err) {}
-            }
-            window.__oraclePwaLog = log;
-            log('boot', {
-              standalone: window.matchMedia && window.matchMedia('(display-mode: standalone)').matches,
-              sw: 'serviceWorker' in navigator,
-              protocol: location.protocol
-            });
-            window.addEventListener('appinstalled', function() {
-              log('appinstalled');
-            });
-            window.addEventListener('error', function(e) {
-              log('error', { message: e.message, source: e.filename, line: e.lineno });
-            });
-            window.addEventListener('unhandledrejection', function(e) {
-              log('unhandledrejection', { reason: String(e.reason && (e.reason.message || e.reason) || '') });
-            });
-          })();
           window.addEventListener('beforeinstallprompt', function(e) {
             e.preventDefault();
             window.__installPrompt = e;
             window.__pwaPrompt = e;
-            if (window.__oraclePwaLog) {
-              window.__oraclePwaLog('beforeinstallprompt', { platforms: e.platforms || [] });
-            }
             window.dispatchEvent(new CustomEvent('oracle:pwa-prompt-ready'));
           });
         `}} />
       </head>
-      <body style={{ height: '100vh', overflow: 'hidden', background: 'var(--bg-app)' }}>
+      <body style={{ minHeight: '100dvh', overflowX: 'hidden', background: 'var(--bg-app)' }}>
         <Providers>{children}</Providers>
       </body>
     </html>

@@ -20,7 +20,7 @@ function NativeLoadingState({ text = 'Chargement Oracle Messenger...' }: { text?
 export function NativeHomeScreen() {
   const home = useNativeHomeController();
 
-  if (home.loading) {
+  if (home.loading && !home.session) {
     return <NativeLoadingState />;
   }
 

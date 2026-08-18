@@ -182,11 +182,46 @@ export class UsersService {
     return { ok: true, deleted: result.count };
   }
 
-  async setOnline(id: string, online: boolean) {
+  async setPresence(id: string, status: 'online' | 'connected' | 'offline') {
     return this.prisma.user.update({
       where: { id },
-      data: { status: online ? 'online' : 'offline', lastSeen: online ? undefined : new Date() },
+      data: {
+        status,
+        lastSeen: status === 'offline' ? new Date() : null,
+      },
     });
+  }
+
+  async setOnline(id: string, online: boolean) {
+    return this.setPresence(id, online ? 'online' : 'offline');
+  }
+
+  async markOnlineUsersOfflineExcept(connectedUserIds: string[], keepRecentlyConnectedMs = 0) {
+    const keepOnlineIds = [...new Set((connectedUserIds ?? []).filter(Boolean))];
+    const connectedCutoff = new Date(Date.now() - Math.max(0, keepRecentlyConnectedMs));
+    const staleUsers = await this.prisma.user.findMany({
+      where: {
+        status: { in: ['online', 'connected'] },
+        ...(keepOnlineIds.length ? { id: { notIn: keepOnlineIds } } : {}),
+        OR: [
+          { status: 'online' },
+          {
+            status: 'connected',
+            ...(keepRecentlyConnectedMs > 0 ? { updatedAt: { lt: connectedCutoff } } : {}),
+          },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!staleUsers.length) return [];
+
+    const lastSeen = new Date();
+    const staleIds = staleUsers.map(user => user.id);
+    await this.prisma.user.updateMany({
+      where: { id: { in: staleIds } },
+      data: { status: 'offline', lastSeen },
+    });
+    return staleIds.map(userId => ({ userId, lastSeen }));
   }
 
   async savePushToken(userId: string, token: string) {

@@ -18,6 +18,10 @@ export class ChatController {
   }
 
   private messagePreview(message: any) {
+    if (message?.type === 'system') {
+      const content = String(message.content || '');
+      return content.length > 80 ? `${content.slice(0, 80)}...` : content;
+    }
     if (message?.type === 'text') {
       const content = String(message.content || '');
       return content.length > 80 ? `${content.slice(0, 80)}...` : content;
@@ -37,24 +41,8 @@ export class ChatController {
     }
   }
 
-  private async confirmDeliveredForConnectedRecipients(messageId: string, conversationId: string, recipientIds: string[]) {
-    const uniqueRecipientIds = [...new Set(recipientIds)];
-    if (!uniqueRecipientIds.length) return;
-
-    let latestMessage: Awaited<ReturnType<ChatService['markMessageDelivered']>> | null = null;
-    for (const recipientId of uniqueRecipientIds) {
-      latestMessage = await this.chat.markMessageDelivered(messageId, recipientId).catch(() => latestMessage);
-    }
-    if (!latestMessage) return;
-
-    const payload = {
-      id: latestMessage.id,
-      patch: { status: latestMessage.status, updatedAt: latestMessage.updatedAt },
-    };
-    const participantIds = await this.chat.getParticipantIds(conversationId);
-    for (const uid of participantIds) {
-      this.socketState.emitToUser(uid, 'message:update', payload);
-    }
+  private emitConversationDeleted(userId: string, conversationId: string) {
+    this.socketState.emitToUser(userId, 'conversation:delete', { conversationId });
   }
 
   private async emitCreatedMessageToParticipants(message: any, senderId: string) {
@@ -64,18 +52,21 @@ export class ChatController {
 
     const senderName = message.sender?.name ?? 'Oracle Messenger';
     const preview = this.messagePreview(message);
-    const deliverableRecipientIds = new Set<string>();
-
     for (const participantId of participantIds) {
       if (participantId === senderId) continue;
       const socketIds = this.socketState.getSocketIds(participantId);
       const hasOpenConversation = socketIds.some(socketId => this.isSocketInRoom(socketId, room));
       if (socketIds.length) {
-        deliverableRecipientIds.add(participantId);
         for (const socketId of socketIds) {
           if (this.isSocketInRoom(socketId, room)) continue;
           this.socketState.server?.to(socketId).emit('message:new', message);
         }
+        console.info('[message:http:socket-emitted:awaiting-client-ack]', {
+          messageId: message.id,
+          conversationId: message.conversationId,
+          receiverId: participantId,
+          sockets: socketIds.length,
+        });
       }
       if (!hasOpenConversation) {
         const pushResult = await this.notif.sendPush(participantId, {
@@ -86,12 +77,53 @@ export class ChatController {
           type: 'message',
           conversationId: message.conversationId,
         }).catch(() => ({ targets: 0, delivered: 0, failed: 1 }));
-        if (pushResult.delivered > 0) deliverableRecipientIds.add(participantId);
+        if (pushResult.delivered > 0) {
+          console.info('[message:push:queued-not-delivered]', {
+            messageId: message.id,
+            conversationId: message.conversationId,
+            receiverId: participantId,
+          });
+        }
       }
     }
 
-    await this.confirmDeliveredForConnectedRecipients(message.id, message.conversationId, [...deliverableRecipientIds]);
     await this.broadcastConversationSummaries(message.conversationId, participantIds);
+    return message;
+  }
+
+  private async emitGroupInvitation(invitation: any) {
+    if (!invitation?.invitedUserId) return;
+    this.socketState.emitToUser(invitation.invitedUserId, 'group:invitation', invitation);
+    const groupName = invitation.group?.name || 'un groupe';
+    const inviterName = invitation.invitedBy?.name || 'Un administrateur';
+    await this.notif.sendPush(invitation.invitedUserId, {
+      title: 'Invitation de groupe',
+      body: `${inviterName} vous invite à rejoindre ${groupName}.`,
+      url: `oraclemessenger://group-invitation?invitationId=${encodeURIComponent(invitation.id)}`,
+      tag: `group-invitation-${invitation.id}`,
+      type: 'group-invitation',
+      conversationId: invitation.conversationId,
+    }).catch(() => ({ targets: 0, delivered: 0, failed: 1 }));
+  }
+
+  private emitGroupInvitationUpdate(invitation: any, extraUserIds: string[] = []) {
+    const userIds = [...new Set([invitation?.invitedUserId, invitation?.invitedById, ...extraUserIds].filter(Boolean))];
+    for (const userId of userIds) {
+      this.socketState.emitToUser(userId, 'group:invitation:update', invitation);
+    }
+  }
+
+  private async dispatchGroupMutation(result: any, conversationId?: string) {
+    const invitations = Array.isArray(result?.invitations) ? result.invitations : [];
+    await Promise.all(invitations.map(invitation => this.emitGroupInvitation(invitation)));
+    if (result?.invitation) this.emitGroupInvitationUpdate(result.invitation, result.remainingParticipantIds ?? []);
+    if (result?.systemMessage) {
+      await this.emitCreatedMessageToParticipants(result.systemMessage, result.systemMessage.senderId);
+      return;
+    }
+    if (conversationId || result?.conversation?.id) {
+      await this.broadcastConversationSummaries(conversationId ?? result.conversation.id);
+    }
   }
 
   private async broadcastConversationRead(
@@ -145,13 +177,116 @@ export class ChatController {
   }
 
   @Post('conversations/group')
-  createGroup(@Body() body: { name?: string; participantIds?: string[]; avatar?: string }, @Request() req: any) {
-    return this.chat.createGroup(req.user.id, body ?? {});
+  createGroup(@Body() body: { name?: string; participantIds?: string[]; avatar?: string; description?: string }, @Request() req: any) {
+    return this.chat.createGroup(req.user.id, body ?? {})
+      .then(async result => {
+        await this.dispatchGroupMutation(result, result.conversation?.id);
+        return result.conversation;
+      });
   }
 
   @Post('conversations/:id/participants')
   addGroupParticipants(@Param('id') id: string, @Body() body: { participantIds?: string[] }, @Request() req: any) {
-    return this.chat.addGroupParticipants(id, req.user.id, body?.participantIds ?? []);
+    return this.chat.addGroupParticipants(id, req.user.id, body?.participantIds ?? [])
+      .then(async result => {
+        await this.dispatchGroupMutation(result, id);
+        return result.conversation;
+      });
+  }
+
+  @Patch('conversations/:id/group')
+  updateGroup(
+    @Param('id') id: string,
+    @Body() body: { name?: string; avatar?: string | null; description?: string | null; messagePolicy?: string },
+    @Request() req: any,
+  ) {
+    return this.chat.updateGroup(id, req.user.id, body ?? {})
+      .then(async result => {
+        await this.dispatchGroupMutation(result, id);
+        return result.conversation;
+      });
+  }
+
+  @Get('group-invitations')
+  groupInvitations(@Request() req: any) {
+    return this.chat.getPendingGroupInvitations(req.user.id);
+  }
+
+  @Post('group-invitations/:invitationId/accept')
+  acceptGroupInvitation(@Param('invitationId') invitationId: string, @Request() req: any) {
+    return this.chat.acceptGroupInvitation(invitationId, req.user.id)
+      .then(async result => {
+        await this.dispatchGroupMutation(result, result.conversation?.id);
+        if (result.conversation?.id) await this.broadcastConversationSummaries(result.conversation.id);
+        return result;
+      });
+  }
+
+  @Post('group-invitations/:invitationId/decline')
+  declineGroupInvitation(@Param('invitationId') invitationId: string, @Request() req: any) {
+    return this.chat.declineGroupInvitation(invitationId, req.user.id)
+      .then(result => {
+        this.emitGroupInvitationUpdate(result.invitation);
+        return result;
+      });
+  }
+
+  @Delete('conversations/:id/invitations/:invitationId')
+  cancelGroupInvitation(@Param('id') id: string, @Param('invitationId') invitationId: string, @Request() req: any) {
+    return this.chat.cancelGroupInvitation(id, req.user.id, invitationId)
+      .then(async result => {
+        this.emitGroupInvitationUpdate(result.invitation, [result.invitedUserId]);
+        await this.dispatchGroupMutation(result, id);
+        return result.conversation;
+      });
+  }
+
+  @Delete('conversations/:id/participants/:participantId')
+  removeGroupParticipant(@Param('id') id: string, @Param('participantId') participantId: string, @Request() req: any) {
+    return this.chat.removeGroupParticipant(id, req.user.id, participantId)
+      .then(async result => {
+        this.emitConversationDeleted(result.removedUserId, id);
+        await this.dispatchGroupMutation(result, id);
+        return result.conversation;
+      });
+  }
+
+  @Patch('conversations/:id/participants/:participantId/role')
+  setGroupParticipantRole(
+    @Param('id') id: string,
+    @Param('participantId') participantId: string,
+    @Body() body: { role?: string },
+    @Request() req: any,
+  ) {
+    return this.chat.setGroupParticipantRole(id, req.user.id, participantId, body?.role ?? 'member')
+      .then(async result => {
+        await this.dispatchGroupMutation(result, id);
+        return result.conversation;
+      });
+  }
+
+  @Patch('conversations/:id/participants/:participantId/permission')
+  setGroupParticipantPermission(
+    @Param('id') id: string,
+    @Param('participantId') participantId: string,
+    @Body() body: { canSendMessages?: boolean },
+    @Request() req: any,
+  ) {
+    return this.chat.setGroupParticipantPermission(id, req.user.id, participantId, body?.canSendMessages !== false)
+      .then(async result => {
+        await this.dispatchGroupMutation(result, id);
+        return result.conversation;
+      });
+  }
+
+  @Post('conversations/:id/leave')
+  leaveGroup(@Param('id') id: string, @Request() req: any) {
+    return this.chat.leaveGroup(id, req.user.id)
+      .then(async result => {
+        this.emitConversationDeleted(result.leftUserId, id);
+        await this.dispatchGroupMutation(result, id);
+        return { ok: true };
+      });
   }
 
   @Get('conversations/:id')
@@ -161,7 +296,16 @@ export class ChatController {
 
   @Delete('conversations/:id')
   deleteConversation(@Param('id') id: string, @Request() req: any) {
-    return this.chat.deleteConversationForUser(id, req.user.id);
+    return this.chat.getConversation(id, req.user.id)
+      .then(conversation => {
+        if (conversation.type !== 'group') return this.chat.deleteConversationForUser(id, req.user.id);
+        return this.chat.leaveGroup(id, req.user.id)
+          .then(async result => {
+            this.emitConversationDeleted(result.leftUserId, id);
+            await this.dispatchGroupMutation(result, id);
+            return { ok: true };
+          });
+      });
   }
 
   @Get('conversations/:id/messages')
@@ -190,13 +334,25 @@ export class ChatController {
   @Post('conversations/:id/messages')
   send(
     @Param('id') id: string,
-    @Body() body: { content: string; type?: string; replyToId?: string },
+    @Body() body: { content: string; type?: string; replyToId?: string; clientMessageId?: string },
     @Request() req: any,
   ) {
-    return this.chat.createMessage(id, req.user.id, body.content, body.type, body.replyToId)
+    return this.chat.createMessage(id, req.user.id, body.content, body.type, body.replyToId, body.clientMessageId)
       .then(async message => {
-        await this.emitCreatedMessageToParticipants(message, req.user.id);
-        return { ...message, status: message.status || 'sent' };
+        await this.emitCreatedMessageToParticipants(message, req.user.id)
+          .catch(error => {
+            console.warn('[message:http:broadcast:error]', {
+            messageId: message.id,
+            conversationId: message.conversationId,
+            error: error?.message ?? error,
+            });
+            return null;
+          });
+        return {
+          ...message,
+          status: message.status || 'sent',
+          updatedAt: message.updatedAt,
+        };
       });
   }
 
@@ -206,7 +362,53 @@ export class ChatController {
     @Body() body: { checksum?: string; size?: number },
     @Request() req: any,
   ) {
-    return this.chat.markMediaSavedLocally(id, req.user.id, body?.checksum, body?.size);
+    return this.chat.markMediaSavedLocally(id, req.user.id, body?.checksum, body?.size)
+      .then(async result => {
+        const message = (result as any)?.message;
+        if ((result as any)?.ackConfirmed && message?.id && message?.conversationId) {
+          await this.broadcastMessagePatch(message.conversationId, message.id, {
+            status: message.status,
+            updatedAt: message.updatedAt,
+          });
+        }
+        return result;
+      });
+  }
+
+  @Post('messages/:id/delivered')
+  markMessageDelivered(
+    @Param('id') id: string,
+    @Request() req: any,
+  ) {
+    return this.chat.markMessageDelivered(id, req.user.id)
+      .then(async message => {
+        await this.broadcastMessagePatch(message.conversationId, message.id, {
+          status: message.status,
+          updatedAt: message.updatedAt,
+        });
+        return {
+          id: message.id,
+          conversationId: message.conversationId,
+          status: message.status,
+          updatedAt: message.updatedAt,
+        };
+      });
+  }
+
+  @Post('messages/:id/media-ready')
+  finalizeMediaMessage(
+    @Param('id') id: string,
+    @Body() body: { content?: string },
+    @Request() req: any,
+  ) {
+    return this.chat.updateMediaMessageContent(id, req.user.id, body?.content ?? '')
+      .then(async message => {
+        await this.broadcastMessagePatch(message.conversationId, message.id, {
+          content: message.content,
+          updatedAt: message.updatedAt,
+        });
+        return message;
+      });
   }
 
   @Delete('messages/:id')

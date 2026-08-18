@@ -1,15 +1,32 @@
 import { BACKEND_URL } from '@/config/env';
-import type { AuthSession, Conversation, Message, User } from '@/types/messenger';
+import { nativeClientHeaders } from '@/services/appVersion';
+import type { AuthSession, Conversation, GroupInvitation, Message, User } from '@/types/messenger';
 
 const REQUEST_TIMEOUT_MS = 12000;
-const UPLOAD_TIMEOUT_MS = 60000;
+const UPLOAD_TIMEOUT_MS = 180000;
 const AI_TEXT_TIMEOUT_MS = 45000;
 const AI_IMAGE_TIMEOUT_MS = 120000;
 const AI_VIDEO_TIMEOUT_MS = 240000;
+const ADMIN_BROADCAST_TIMEOUT_MS = 120000;
 
 export type HealthResponse = {
   status: string;
   timestamp?: string;
+};
+
+export type ConferenceRoomPayload = {
+  title?: string;
+  description?: string;
+  phone?: string;
+  contactInfo?: string;
+  coverUrl?: string;
+  speakerName?: string;
+  scheduledAt?: string;
+  logoUrl?: string;
+  visualIdentity?: string;
+  sourceMode?: 'camera' | 'prerecorded';
+  prerecordedLocalName?: string;
+  planCode?: string;
 };
 
 async function parseError(response: Response) {
@@ -24,7 +41,10 @@ async function parseError(response: Response) {
 
 export async function apiGet<T>(path: string, token?: string): Promise<T> {
   const response = await fetchWithTimeout(`${BACKEND_URL}${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    headers: {
+      ...nativeClientHeaders(),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
   });
   if (!response.ok) throw new Error(await parseError(response));
   return response.json() as Promise<T>;
@@ -35,6 +55,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}, token?: st
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...nativeClientHeaders(),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
@@ -73,7 +94,7 @@ async function apiUploadFile(
   if (data.kind) formData.append('kind', data.kind);
   const response = await fetchWithTimeout(`${BACKEND_URL}/media/upload-file`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { ...nativeClientHeaders(), Authorization: `Bearer ${token}` },
     body: formData as any,
   }, UPLOAD_TIMEOUT_MS);
   if (!response.ok) throw new Error(await parseError(response));
@@ -91,6 +112,20 @@ export const api = {
     ),
   mediaUploadFile: apiUploadFile,
   iceServers: (token: string) => apiGet<{ iceServers?: RTCIceServer[] }>('/calls/ice-servers', token),
+  sfuStatus: (token: string) =>
+    apiGet<{
+      enabled: boolean;
+      provider?: string;
+      maxAudioParticipants?: number;
+      maxVideoParticipants?: number;
+      strictRealtime?: boolean;
+      privateTurnConfigured?: boolean;
+      industrialReady?: boolean;
+      reason?: string;
+    }>(
+      '/calls/sfu-status',
+      token,
+    ),
   sfuToken: (token: string, room: string, name?: string) =>
     apiRequest<{ enabled: boolean; provider?: string; url?: string; room?: string; token?: string; reason?: string }>(
       '/calls/sfu-token',
@@ -139,12 +174,62 @@ export const api = {
     apiGet<Conversation[]>(`/conversations/search?q=${encodeURIComponent(query)}`, token),
   createConversation: (participantId: string, token: string) =>
     apiRequest<Conversation>('/conversations', { method: 'POST', body: JSON.stringify({ participantId }) }, token),
-  createGroup: (token: string, data: { name?: string; participantIds: string[]; avatar?: string }) =>
+  createGroup: (token: string, data: { name?: string; participantIds: string[]; avatar?: string; description?: string }) =>
     apiRequest<Conversation>('/conversations/group', { method: 'POST', body: JSON.stringify(data) }, token),
   addGroupMembers: (token: string, conversationId: string, participantIds: string[]) =>
     apiRequest<Conversation>(
       `/conversations/${encodeURIComponent(conversationId)}/participants`,
       { method: 'POST', body: JSON.stringify({ participantIds }) },
+      token,
+    ),
+  updateGroup: (token: string, conversationId: string, data: { name?: string; avatar?: string | null; description?: string | null; messagePolicy?: string }) =>
+    apiRequest<Conversation>(
+      `/conversations/${encodeURIComponent(conversationId)}/group`,
+      { method: 'PATCH', body: JSON.stringify(data) },
+      token,
+    ),
+  pendingGroupInvitations: (token: string) =>
+    apiGet<GroupInvitation[]>('/group-invitations', token),
+  acceptGroupInvitation: (token: string, invitationId: string) =>
+    apiRequest<{ conversation?: Conversation; invitation?: GroupInvitation }>(
+      `/group-invitations/${encodeURIComponent(invitationId)}/accept`,
+      { method: 'POST', body: JSON.stringify({}) },
+      token,
+    ),
+  declineGroupInvitation: (token: string, invitationId: string) =>
+    apiRequest<{ invitation?: GroupInvitation }>(
+      `/group-invitations/${encodeURIComponent(invitationId)}/decline`,
+      { method: 'POST', body: JSON.stringify({}) },
+      token,
+    ),
+  cancelGroupInvitation: (token: string, conversationId: string, invitationId: string) =>
+    apiRequest<Conversation>(
+      `/conversations/${encodeURIComponent(conversationId)}/invitations/${encodeURIComponent(invitationId)}`,
+      { method: 'DELETE' },
+      token,
+    ),
+  removeGroupMember: (token: string, conversationId: string, participantId: string) =>
+    apiRequest<Conversation>(
+      `/conversations/${encodeURIComponent(conversationId)}/participants/${encodeURIComponent(participantId)}`,
+      { method: 'DELETE' },
+      token,
+    ),
+  setGroupMemberRole: (token: string, conversationId: string, participantId: string, role: 'admin' | 'member') =>
+    apiRequest<Conversation>(
+      `/conversations/${encodeURIComponent(conversationId)}/participants/${encodeURIComponent(participantId)}/role`,
+      { method: 'PATCH', body: JSON.stringify({ role }) },
+      token,
+    ),
+  setGroupMemberPermission: (token: string, conversationId: string, participantId: string, canSendMessages: boolean) =>
+    apiRequest<Conversation>(
+      `/conversations/${encodeURIComponent(conversationId)}/participants/${encodeURIComponent(participantId)}/permission`,
+      { method: 'PATCH', body: JSON.stringify({ canSendMessages }) },
+      token,
+    ),
+  leaveGroup: (token: string, conversationId: string) =>
+    apiRequest<{ ok?: boolean }>(
+      `/conversations/${encodeURIComponent(conversationId)}/leave`,
+      { method: 'POST', body: JSON.stringify({}) },
       token,
     ),
   deleteConversation: (conversationId: string, token: string) =>
@@ -160,12 +245,25 @@ export const api = {
       { method: 'POST', body: JSON.stringify(messageId ? { messageId } : {}) },
       token,
     ),
+  markMessageDelivered: (messageId: string, token: string) =>
+    apiRequest<{ id: string; conversationId: string; status?: string; updatedAt?: string }>(
+      `/messages/${encodeURIComponent(messageId)}/delivered`,
+      { method: 'POST', body: JSON.stringify({}) },
+      token,
+    ),
   pendingMedia: (token: string) => apiGet<Message[]>('/messages/media-pending?limit=80', token),
-  sendMessage: (conversationId: string, token: string, content: string, type = 'text', replyToId?: string) =>
+  sendMessage: (conversationId: string, token: string, content: string, type = 'text', replyToId?: string, clientMessageId?: string) =>
     apiRequest<Message>(
       `/conversations/${encodeURIComponent(conversationId)}/messages`,
-      { method: 'POST', body: JSON.stringify({ content, type, replyToId }) },
+      { method: 'POST', body: JSON.stringify({ content, type, replyToId, clientMessageId }) },
       token,
+    ),
+  finalizeMediaMessage: (messageId: string, token: string, content: string) =>
+    apiRequest<Message>(
+      `/messages/${encodeURIComponent(messageId)}/media-ready`,
+      { method: 'POST', body: JSON.stringify({ content }) },
+      token,
+      UPLOAD_TIMEOUT_MS,
     ),
   editMessage: (messageId: string, token: string, content: string) =>
     apiRequest<Message>(`/messages/${encodeURIComponent(messageId)}`, { method: 'PATCH', body: JSON.stringify({ content }) }, token),
@@ -182,6 +280,12 @@ export const api = {
     apiRequest<any>('/stories', { method: 'POST', body: JSON.stringify(data) }, token),
   viewStory: (token: string, id: string) =>
     apiRequest<any>(`/stories/${encodeURIComponent(id)}/view`, { method: 'POST', body: JSON.stringify({}) }, token),
+  interactStory: (token: string, id: string, data: { type: 'like' | 'reaction' | 'comment'; content?: string; emoji?: string }) =>
+    apiRequest<any>(
+      `/stories/${encodeURIComponent(id)}/interactions`,
+      { method: 'POST', body: JSON.stringify(data) },
+      token,
+    ),
   deleteStory: (token: string, id: string) =>
     apiRequest<void>(`/stories/${encodeURIComponent(id)}`, { method: 'DELETE' }, token),
   businessOverview: (token: string) => apiGet<any>('/business/overview', token),
@@ -195,6 +299,63 @@ export const api = {
     apiRequest<any>('/business/reminders', { method: 'POST', body: JSON.stringify(data) }, token),
   businessMarkReminderDone: (token: string, id: string, done = true) =>
     apiRequest<any>(`/business/reminders/${encodeURIComponent(id)}/done`, { method: 'PATCH', body: JSON.stringify({ done }) }, token),
+  conferenceOverview: (token: string) => apiGet<any>('/conference/plans', token),
+  conferenceCreateRoom: (token: string, data: ConferenceRoomPayload) =>
+    apiRequest<any>('/conference/rooms', { method: 'POST', body: JSON.stringify(data) }, token),
+  conferenceUpdateRoom: (token: string, id: string, data: ConferenceRoomPayload) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }, token),
+  conferenceStartRoom: (token: string, id: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(id)}/start`, { method: 'POST', body: JSON.stringify({}) }, token),
+  conferenceStopRoom: (token: string, id: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(id)}/stop`, { method: 'POST', body: JSON.stringify({}) }, token),
+  conferenceJoinRoom: (token: string, slug: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/join`, { method: 'POST', body: JSON.stringify({}) }, token),
+  conferenceHeartbeat: (token: string, slug: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/heartbeat`, { method: 'POST', body: JSON.stringify({}) }, token),
+  conferenceState: (token: string, slug: string) =>
+    apiGet<any>(`/conference/rooms/${encodeURIComponent(slug)}/state`, token),
+  conferenceRaiseHand: (token: string, slug: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/hand/raise`, { method: 'POST', body: JSON.stringify({}) }, token),
+  conferenceCancelHand: (token: string, slug: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/hand/cancel`, { method: 'POST', body: JSON.stringify({}) }, token),
+  conferenceAllowHand: (token: string, slug: string, participantId: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/hand/${encodeURIComponent(participantId)}/allow`, { method: 'POST', body: JSON.stringify({}) }, token),
+  conferenceRefuseHand: (token: string, slug: string, participantId: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/hand/${encodeURIComponent(participantId)}/refuse`, { method: 'POST', body: JSON.stringify({}) }, token),
+  conferenceRevokeHand: (token: string, slug: string, participantId: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/hand/${encodeURIComponent(participantId)}/revoke`, { method: 'POST', body: JSON.stringify({}) }, token),
+  conferenceAddQuestion: (token: string, slug: string, content: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/questions`, { method: 'POST', body: JSON.stringify({ content }) }, token),
+  conferenceAnswerQuestion: (token: string, slug: string, questionId: string, answer: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/questions/${encodeURIComponent(questionId)}/answer`, { method: 'POST', body: JSON.stringify({ answer }) }, token),
+  conferenceUpdateQuestion: (token: string, slug: string, questionId: string, data: { isPinned?: boolean; isAnswered?: boolean; isDeleted?: boolean; priority?: number }) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/questions/${encodeURIComponent(questionId)}`, { method: 'PATCH', body: JSON.stringify(data) }, token),
+  conferenceAddReaction: (token: string, slug: string, emoji: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/reactions`, { method: 'POST', body: JSON.stringify({ emoji }) }, token),
+  conferenceCreatePoll: (token: string, slug: string, data: { question: string; options: string[]; showResults?: boolean }) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/polls`, { method: 'POST', body: JSON.stringify(data) }, token),
+  conferenceClosePoll: (token: string, slug: string, pollId: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/polls/${encodeURIComponent(pollId)}/close`, { method: 'POST', body: JSON.stringify({}) }, token),
+  conferenceVotePoll: (token: string, slug: string, pollId: string, optionIndex: number) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/polls/${encodeURIComponent(pollId)}/vote`, { method: 'POST', body: JSON.stringify({ optionIndex }) }, token),
+  conferenceShareDocument: (token: string, slug: string, data: { title: string; url?: string; mime?: string; kind?: string }) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/documents`, { method: 'POST', body: JSON.stringify(data) }, token),
+  conferenceAiSummary: (token: string, slug: string, promptType: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/ai-summary`, { method: 'POST', body: JSON.stringify({ promptType }) }, token, AI_TEXT_TIMEOUT_MS),
+  conferenceBook: (token: string, slug: string) =>
+    apiGet<any>(`/conference/rooms/${encodeURIComponent(slug)}/book`, token),
+  conferenceGenerateBook: (token: string, slug: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/book/generate`, { method: 'POST', body: JSON.stringify({}) }, token, AI_TEXT_TIMEOUT_MS),
+  conferenceInitializeBookPaystack: (token: string, slug: string, nativeReturn = true) =>
+    apiRequest<{ reference: string; authorizationUrl: string; amountFcfa?: number }>(`/conference/rooms/${encodeURIComponent(slug)}/book/paystack/initialize`, { method: 'POST', body: JSON.stringify({ nativeReturn }) }, token),
+  conferenceVerifyBookPaystack: (token: string, reference: string) =>
+    apiRequest<any>('/conference/book/paystack/verify', { method: 'POST', body: JSON.stringify({ reference }) }, token),
+  conferenceMarkBookDownloaded: (token: string, slug: string) =>
+    apiRequest<any>(`/conference/rooms/${encodeURIComponent(slug)}/book/downloaded`, { method: 'POST', body: JSON.stringify({}) }, token),
+  conferenceInitializePaystack: (token: string, planCode: string, nativeReturn = true) =>
+    apiRequest<{ reference: string; authorizationUrl: string }>('/conference/paystack/initialize', { method: 'POST', body: JSON.stringify({ planCode, nativeReturn }) }, token),
+  conferenceVerifyPaystack: (token: string, reference: string) =>
+    apiRequest<any>('/conference/paystack/verify', { method: 'POST', body: JSON.stringify({ reference }) }, token),
   aiAutoOverview: (token: string) => apiGet<any>('/ai-auto/overview', token),
   aiAutoSaveConfig: (token: string, data: { prompt?: string; delayMs?: number; maxWords?: number; recipientScope?: string; isEnabled?: boolean; dailyLimit?: number | null }) =>
     apiRequest<any>('/ai-auto/config', { method: 'POST', body: JSON.stringify(data) }, token),
@@ -219,6 +380,12 @@ export const api = {
   aiFlyerOverview: (token: string) => apiGet<any>('/ai-flyer/overview', token),
   aiFlyerGenerate: (token: string, prompt: string, referenceImages: { dataUrl: string; mime: string; name?: string }[] = []) =>
     apiRequest<any>('/ai-flyer/generate', { method: 'POST', body: JSON.stringify({ prompt, referenceImages }) }, token, AI_IMAGE_TIMEOUT_MS),
+  aiFlyerMarkDownloaded: (token: string, generationId: string) =>
+    apiRequest<{ ok?: boolean; status?: string; downloadedAt?: string | null; purgedAt?: string | null }>(
+      `/ai-flyer/generations/${encodeURIComponent(generationId)}/downloaded`,
+      { method: 'POST', body: JSON.stringify({}) },
+      token,
+    ),
   aiFlyerInitializePaystack: (token: string, nativeReturn = true) =>
     apiRequest<{ reference: string; authorizationUrl: string }>('/ai-flyer/paystack/initialize', { method: 'POST', body: JSON.stringify({ nativeReturn }) }, token),
   aiFlyerVerifyPaystack: (token: string, reference: string) =>
@@ -235,6 +402,12 @@ export const api = {
     paymentReference?: string;
     referenceImages?: { dataUrl: string; mime: string; name?: string }[];
   }) => apiRequest<any>('/ai-video/generate', { method: 'POST', body: JSON.stringify(data) }, token, AI_VIDEO_TIMEOUT_MS),
+  aiVideoMarkDownloaded: (token: string, generationId: string) =>
+    apiRequest<{ ok?: boolean; status?: string; downloadedAt?: string | null; purgedAt?: string | null }>(
+      `/ai-video/generations/${encodeURIComponent(generationId)}/downloaded`,
+      { method: 'POST', body: JSON.stringify({}) },
+      token,
+    ),
   aiVideoInitializePaystack: (token: string, nativeReturn = true) =>
     apiRequest<{ reference: string; authorizationUrl: string }>('/ai-video/paystack/initialize', { method: 'POST', body: JSON.stringify({ nativeReturn }) }, token),
   aiVideoVerifyPaystack: (token: string, reference: string) =>
@@ -248,10 +421,11 @@ export const api = {
     apiRequest<any>('/admin/ai-auto/plans', { method: 'POST', body: JSON.stringify({ plans }) }, token),
   adminSaveAiSettings: (token: string, settings: Record<string, string>) =>
     apiRequest<any>('/admin/ai-auto/settings', { method: 'POST', body: JSON.stringify({ settings }) }, token),
+  adminBusinessWesternUnion: (token: string) => apiGet<any>('/admin/business-western-union', token),
   adminNotify: (token: string, data: { title: string; body: string; url?: string }) =>
     apiRequest<any>('/admin/notify', { method: 'POST', body: JSON.stringify(data) }, token),
   adminSystemMessage: (token: string, data: { content?: string; mediaUrl?: string; type?: string }) =>
-    apiRequest<any>('/admin/system-message', { method: 'POST', body: JSON.stringify(data) }, token),
+    apiRequest<any>('/admin/system-message', { method: 'POST', body: JSON.stringify(data) }, token, ADMIN_BROADCAST_TIMEOUT_MS),
   adminBroadcast: (token: string, data: { content?: string; mediaUrl?: string; type?: string }) =>
-    apiRequest<any>('/admin/broadcast', { method: 'POST', body: JSON.stringify(data) }, token),
+    apiRequest<any>('/admin/broadcast', { method: 'POST', body: JSON.stringify(data) }, token, ADMIN_BROADCAST_TIMEOUT_MS),
 };

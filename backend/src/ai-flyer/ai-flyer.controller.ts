@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtGuard } from '../auth/jwt.guard';
 import { AiFlyerService } from './ai-flyer.service';
@@ -16,6 +16,11 @@ export class AiFlyerController {
   @Post('generate')
   generate(@CurrentUser() user: any, @Body() body: { prompt?: string; referenceImages?: any[] }) {
     return this.aiFlyer.generate(user.id, body?.prompt ?? '', body?.referenceImages ?? []);
+  }
+
+  @Post('generations/:id/downloaded')
+  markDownloaded(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.aiFlyer.markDownloaded(user.id, id);
   }
 
   @Post('paystack/initialize')

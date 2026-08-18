@@ -1,17 +1,19 @@
-import { useCallback, useRef, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import type { NativeTabKey } from '@/screens/NativeFeaturePages';
 import { markConversationReadLocally, sortConversations } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
-import { readCachedConversations, readCachedMessages, writeCachedConversations, writeCachedMessages } from '@/services/nativeConversationCache';
+import { readCachedConversationsAny, readCachedMessagesAny, writeCachedConversations, writeCachedMessages } from '@/services/nativeConversationCache';
 import { filterHiddenMessages } from '@/services/nativeHiddenMessages';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
+import { emitDeliveredAcks, latestIncomingMessage } from './nativeMessageReceipts';
 
 type RefValue<T> = { current: T };
 
 type UseNativeMessageLoaderParams = {
   token?: string;
   currentUserId?: string;
+  ownerId?: string;
   selected: Conversation | null;
   messages: Message[];
   sessionRef: RefValue<AuthSession | null>;
@@ -61,6 +63,7 @@ function mergeMessagesKeepingLocalMedia(localCandidates: Message[], serverMessag
 export function useNativeMessageLoader({
   token,
   currentUserId,
+  ownerId,
   selected,
   messages,
   sessionRef,
@@ -75,19 +78,28 @@ export function useNativeMessageLoader({
   setSelected,
 }: UseNativeMessageLoaderParams) {
   const loadingOlderRef = useRef(false);
+  const selectedConversationIdRef = useRef<string | null>(selected?.id ?? null);
+  const loadMessagesRequestRef = useRef(0);
+
+  useEffect(() => {
+    selectedConversationIdRef.current = selected?.id ?? null;
+  }, [selected?.id]);
 
   const applyConversationSummary = useCallback((conversation: Conversation, activeToken: string) => {
-    const ownerId = sessionRef.current?.user.id || sessionRef.current?.user.email || activeToken;
+    const cacheOwnerId = ownerId || sessionRef.current?.user.id || sessionRef.current?.user.email || activeToken;
+    const normalizedConversation = selectedConversationIdRef.current === conversation.id
+      ? markConversationReadLocally(conversation)
+      : conversation;
     setConversations(current => {
-      const next = current.some(item => item.id === conversation.id)
-        ? current.map(item => item.id === conversation.id ? conversation : item)
-        : [conversation, ...current];
+      const next = current.some(item => item.id === normalizedConversation.id)
+        ? current.map(item => item.id === normalizedConversation.id ? normalizedConversation : item)
+        : [normalizedConversation, ...current];
       const sorted = sortConversations(next);
-      void writeCachedConversations(ownerId, sorted);
+      void writeCachedConversations(cacheOwnerId, sorted);
       return sorted;
     });
-    setSelected(current => current?.id === conversation.id ? { ...current, ...conversation } : current);
-  }, [sessionRef, setConversations, setSelected]);
+    setSelected(current => current?.id === normalizedConversation.id ? { ...current, ...normalizedConversation } : current);
+  }, [ownerId, sessionRef, setConversations, setSelected]);
 
   const refreshConversationSummary = useCallback(async (conversationId: string, activeToken: string) => {
     const summary = await api.conversation(conversationId, activeToken);
@@ -96,31 +108,48 @@ export function useNativeMessageLoader({
 
   const loadMessages = useCallback(async (conversation: Conversation, activeToken = token) => {
     if (!activeToken) return;
-    const ownerId = sessionRef.current?.user.id || sessionRef.current?.user.email || activeToken;
+    const requestId = loadMessagesRequestRef.current + 1;
+    loadMessagesRequestRef.current = requestId;
+    const cacheOwnerId = ownerId || sessionRef.current?.user.id || sessionRef.current?.user.email || activeToken;
     const switchingConversation = selected?.id !== conversation.id;
     setActiveTab('chats');
-    if (switchingConversation) {
-      setMessages([]);
-      setBusy(true);
-    }
-    setSelected(conversation);
+    const openedConversation = markConversationReadLocally(conversation);
+    selectedConversationIdRef.current = conversation.id;
     setMessageSearch('');
     resetMessageActions();
-    const cachedMessages = await filterHiddenMessages(conversation.id, await readCachedMessages(ownerId, conversation.id), ownerId);
+    setSelected(openedConversation);
+    setConversations(current => sortConversations(current.map(item => (
+      item.id === conversation.id ? markConversationReadLocally(item) : item
+    ))));
+    if (switchingConversation) {
+      setMessages([]);
+      setBusy(false);
+    }
+    const cachedMessages = await filterHiddenMessages(
+      conversation.id,
+      await readCachedMessagesAny([cacheOwnerId, ownerId, sessionRef.current?.user.id, sessionRef.current?.user.email, activeToken], conversation.id),
+      cacheOwnerId,
+    );
+    if (loadMessagesRequestRef.current !== requestId || selectedConversationIdRef.current !== conversation.id) return;
     if (cachedMessages.length) {
       setMessages(cachedMessages);
       setNotice('');
+    } else if (switchingConversation) {
+      setMessages([]);
     }
-    setBusy(!cachedMessages.length);
+    setBusy(false);
     try {
       const socket = ensureNativeSocket(activeToken);
       socket.emit('conversation:join', { conversationId: conversation.id });
-      const items = await filterHiddenMessages(conversation.id, await api.messages(conversation.id, activeToken), ownerId);
+      const items = await filterHiddenMessages(conversation.id, await api.messages(conversation.id, activeToken), cacheOwnerId);
+      if (loadMessagesRequestRef.current !== requestId || selectedConversationIdRef.current !== conversation.id) return;
       const localCandidates = selected?.id === conversation.id ? [...messages, ...cachedMessages] : cachedMessages;
       const mergedItems = mergeMessagesKeepingLocalMedia(localCandidates, items);
       setMessages(mergedItems);
-      await writeCachedMessages(ownerId, conversation.id, mergedItems);
-      const lastIncoming = [...mergedItems].reverse().find(item => item.senderId !== sessionRef.current?.user.id);
+      await writeCachedMessages(cacheOwnerId, conversation.id, mergedItems);
+      const viewerId = sessionRef.current?.user.id || currentUserId;
+      emitDeliveredAcks(socket, mergedItems, viewerId);
+      const lastIncoming = latestIncomingMessage(mergedItems, viewerId);
       let markReadPromise: Promise<unknown>;
       if (lastIncoming) {
         socket.emit('message:read', { conversationId: conversation.id, messageId: lastIncoming.id });
@@ -137,19 +166,22 @@ export function useNativeMessageLoader({
       }
       setConversations(current => sortConversations(current.map(item => item.id === conversation.id ? markConversationReadLocally(item) : item)));
       await markReadPromise.catch(() => undefined);
+      if (loadMessagesRequestRef.current !== requestId || selectedConversationIdRef.current !== conversation.id) return;
       await refreshConversationSummary(conversation.id, activeToken).catch(() => undefined);
       setNotice('');
-      runMediaSync(activeToken, currentUserId, mergedItems);
+      void runMediaSync(activeToken, currentUserId, mergedItems);
     } catch (error) {
+      if (loadMessagesRequestRef.current !== requestId || selectedConversationIdRef.current !== conversation.id) return;
       setNotice(cachedMessages.length
         ? 'Mode hors connexion : messages affichés depuis le téléphone.'
         : error instanceof Error ? error.message : 'Messages indisponibles.');
     } finally {
-      setBusy(false);
+      if (loadMessagesRequestRef.current === requestId) setBusy(false);
     }
   }, [
     currentUserId,
     messages,
+    ownerId,
     resetMessageActions,
     runMediaSync,
     sessionRef,
@@ -167,18 +199,18 @@ export function useNativeMessageLoader({
 
   const loadOlderMessages = useCallback(async () => {
     if (!token || !selected || !messages.length || loadingOlderRef.current) return;
-    const ownerId = sessionRef.current?.user.id || sessionRef.current?.user.email || token;
+    const cacheOwnerId = ownerId || sessionRef.current?.user.id || sessionRef.current?.user.email || token;
     const oldest = messages[0];
     if (!oldest?.createdAt) return;
     loadingOlderRef.current = true;
     try {
-      const older = await filterHiddenMessages(selected.id, await api.messages(selected.id, token, oldest.createdAt), ownerId);
+      const older = await filterHiddenMessages(selected.id, await api.messages(selected.id, token, oldest.createdAt), cacheOwnerId);
       if (!older.length) return;
       setMessages(current => {
         const byId = new Map<string, Message>();
         for (const message of [...older, ...current]) byId.set(message.id, message);
         const next = [...byId.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
-        void writeCachedMessages(ownerId, selected.id, next);
+        void writeCachedMessages(cacheOwnerId, selected.id, next);
         return next;
       });
       runMediaSync(token, currentUserId, older);
@@ -187,7 +219,7 @@ export function useNativeMessageLoader({
     } finally {
       loadingOlderRef.current = false;
     }
-  }, [currentUserId, messages, runMediaSync, selected, sessionRef, setMessages, setNotice, token]);
+  }, [currentUserId, messages, ownerId, runMediaSync, selected, sessionRef, setMessages, setNotice, token]);
 
   const openConversationById = useCallback(async (conversationId: string, activeToken = token) => {
     if (!activeToken || !conversationId) return;
@@ -197,7 +229,8 @@ export function useNativeMessageLoader({
       const items = await api.conversations(activeToken);
       const sortedItems = sortConversations(items);
       setConversations(sortedItems);
-      await writeCachedConversations(sessionRef.current?.user.id || sessionRef.current?.user.email || activeToken, sortedItems);
+      const cacheOwnerId = ownerId || sessionRef.current?.user.id || sessionRef.current?.user.email || activeToken;
+      await writeCachedConversations(cacheOwnerId, sortedItems);
       const conversation = sortedItems.find(item => item.id === conversationId);
       if (!conversation) {
         setActiveTab('chats');
@@ -207,7 +240,8 @@ export function useNativeMessageLoader({
       }
       await loadMessages(conversation, activeToken);
     } catch (error) {
-      const cached = await readCachedConversations(sessionRef.current?.user.id || sessionRef.current?.user.email || activeToken);
+      const cacheOwnerId = ownerId || sessionRef.current?.user.id || sessionRef.current?.user.email || activeToken;
+      const cached = await readCachedConversationsAny([cacheOwnerId, ownerId, sessionRef.current?.user.id, sessionRef.current?.user.email, activeToken]);
       const sortedCached = sortConversations(cached);
       const conversation = sortedCached.find(item => item.id === conversationId);
       if (conversation) {
@@ -219,7 +253,7 @@ export function useNativeMessageLoader({
     } finally {
       setBusy(false);
     }
-  }, [loadMessages, sessionRef, setActiveTab, setBusy, setConversations, setNotice, setSelected, token]);
+  }, [loadMessages, ownerId, sessionRef, setActiveTab, setBusy, setConversations, setNotice, setSelected, token]);
 
   const openConversationFromFeature = useCallback((conversation: Conversation) => {
     setActiveTab('chats');

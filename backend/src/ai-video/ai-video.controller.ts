@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtGuard } from '../auth/jwt.guard';
 import { AiVideoService } from './ai-video.service';
@@ -26,5 +26,10 @@ export class AiVideoController {
   @Post('generate')
   generate(@CurrentUser() user: any, @Body() body: any) {
     return this.aiVideo.generate(user.id, body);
+  }
+
+  @Post('generations/:id/downloaded')
+  markDownloaded(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.aiVideo.markDownloaded(user.id, id);
   }
 }

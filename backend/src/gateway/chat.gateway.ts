@@ -3,14 +3,36 @@ import {
   OnGatewayConnection, OnGatewayDisconnect, ConnectedSocket, MessageBody, Ack,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import Redis from 'ioredis';
 import { JwtService } from '@nestjs/jwt';
 import { ChatService } from '../chat/chat.service';
 import { UsersService } from '../users/users.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { CallsService } from '../calls/calls.service';
+import { CallsService, type LogCallDto } from '../calls/calls.service';
 import { SocketStateService } from './socket-state.service';
 import { AiAutoService } from '../ai-auto/ai-auto.service';
 import { BusinessService } from '../business/business.service';
+
+type PendingWebRtcSignal = {
+  kind: 'offer' | 'answer' | 'ice';
+  callId: string;
+  fromUserId: string;
+  targetUserId: string;
+  sdp?: RTCSessionDescriptionInit;
+  candidate?: RTCIceCandidateInit;
+  queuedAt: number;
+};
+
+type ClientVersionInfo = {
+  app?: string;
+  platform?: string;
+  versionName?: string;
+  versionCode: number;
+  updateUrl?: string;
+  fallbackUpdateUrl?: string;
+  connectedAt: number;
+};
 
 @WebSocketGateway({
   cors: {
@@ -19,7 +41,8 @@ import { BusinessService } from '../business/business.service';
         .split(',')
         .map(item => item.trim())
         .filter(Boolean);
-      if (!origin || allowed.includes(origin)) return callback(null, true);
+      const localDevOrigin = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(String(origin ?? ''));
+      if (!origin || allowed.includes(origin) || localDevOrigin) return callback(null, true);
       return callback(new Error('Origin not allowed by CORS'), false);
     },
     credentials: false,
@@ -33,25 +56,39 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // userId → socketId (en mémoire — suffisant pour 1 instance)
   // userSockets moved to SocketStateService
 
-  private readonly callNoAnswerTimeoutMs = Number(process.env.CALL_NO_ANSWER_TIMEOUT_MS || 360_000);
-  private readonly presenceHeartbeatTimeoutMs = Number(process.env.PRESENCE_HEARTBEAT_TIMEOUT_MS || 70_000);
-  private readonly presenceOfflineGraceMs = Number(process.env.PRESENCE_OFFLINE_GRACE_MS || 75_000);
+  private readonly callNoAnswerTimeoutMs = Number(process.env.CALL_NO_ANSWER_TIMEOUT_MS || 300_000);
+  private readonly presenceHeartbeatTimeoutMs = Number(process.env.PRESENCE_HEARTBEAT_TIMEOUT_MS || 30_000);
+  private readonly presenceOfflineGraceMs = Number(process.env.PRESENCE_OFFLINE_GRACE_MS || 8_000);
   private readonly presenceBackgroundGraceMs = Number(process.env.PRESENCE_BACKGROUND_GRACE_MS || 8_000);
+  private readonly presenceLockedGraceMs = Number(process.env.PRESENCE_LOCKED_GRACE_MS || 15 * 60_000);
+  private readonly maxAudioCallParticipants = Number(process.env.MAX_AUDIO_CALL_PARTICIPANTS || 100);
+  private readonly maxVideoCallParticipants = Number(process.env.MAX_VIDEO_CALL_PARTICIPANTS || 10);
+  private readonly maxPendingWebRtcSignalsPerTarget = 80;
+  private readonly minCallVersionCode = Number(process.env.MIN_CALL_CLIENT_VERSION_CODE || 2026081510);
+  private readonly updateUrl = process.env.ORACLE_MESSENGER_UPDATE_URL || 'market://details?id=online.oracle_plus.messenger';
+  private readonly fallbackUpdateUrl = process.env.ORACLE_MESSENGER_FALLBACK_UPDATE_URL || 'https://play.google.com/store/apps/details?id=online.oracle_plus.messenger';
+  private readonly strictRealtimeMode = process.env.ORACLE_STRICT_REALTIME === 'true';
 
   // callId → appel actif. La durée est comptée uniquement après acceptation réelle.
   private activeCalls = new Map<string, {
-    callerId: string; callerName: string; conversationId: string;
+    callerId: string; callerName: string; callerPhone?: string | null; originalCallerId: string; originalCallerName: string; conversationId: string;
     type: 'audio' | 'video'; startedAt: number; answered: boolean; answeredAt?: number;
     mediaProvider?: 'livekit' | 'webrtc';
     participants: Set<string>;
+    answeredUserIds: Set<string>;
     ending?: boolean; endingBy?: string;
   }>();
+  private pendingWebRtcSignals = new Map<string, PendingWebRtcSignal[]>();
+  private socketClientVersions = new Map<string, ClientVersionInfo>();
   private callTimeouts = new Map<string, NodeJS.Timeout>();
   private offlineTimers = new Map<string, NodeJS.Timeout>();
+  private deliverySyncAt = new Map<string, number>();
   private cleanupTimer?: NodeJS.Timeout;
   private presenceCleanupTimer?: NodeJS.Timeout;
   private businessReminderTimer?: NodeJS.Timeout;
   private businessReminderRunning = false;
+  private redisPub?: Redis;
+  private redisSub?: Redis;
 
   constructor(
     private jwt: JwtService,
@@ -64,8 +101,83 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private business: BusinessService,
   ) {}
 
+  private isDiagnosticCallId(callId?: string | null) {
+    return /^CALL-(DIAG|E2E|FINAL)-/.test(String(callId ?? ''));
+  }
+
+  private readClientVersion(client: Socket): ClientVersionInfo {
+    const raw = client.handshake.auth?.client ?? {};
+    const versionCode = Number(raw.versionCode ?? client.handshake.headers?.['x-oracle-version-code'] ?? 0) || 0;
+    return {
+      app: typeof raw.app === 'string' ? raw.app : undefined,
+      platform: typeof raw.platform === 'string' ? raw.platform : undefined,
+      versionName: typeof raw.versionName === 'string' ? raw.versionName : undefined,
+      versionCode,
+      updateUrl: typeof raw.updateUrl === 'string' ? raw.updateUrl : undefined,
+      fallbackUpdateUrl: typeof raw.fallbackUpdateUrl === 'string' ? raw.fallbackUpdateUrl : undefined,
+      connectedAt: Date.now(),
+    };
+  }
+
+  private isClientVersionCallCapable(info?: ClientVersionInfo | null) {
+    return Boolean(info?.versionCode && info.versionCode >= this.minCallVersionCode);
+  }
+
+  private buildUpdateRequiredPayload(info?: ClientVersionInfo | null, reason = 'calls') {
+    return {
+      title: 'Mettez à jour',
+      message: reason === 'calls'
+        ? 'Mettez à jour Oracle Messenger pour recevoir les appels. La messagerie reste disponible.'
+        : 'Mettez à jour Oracle Messenger. La messagerie reste disponible.',
+      minVersionCode: this.minCallVersionCode,
+      currentVersionCode: info?.versionCode ?? 0,
+      updateUrl: info?.updateUrl || this.updateUrl,
+      fallbackUpdateUrl: info?.fallbackUpdateUrl || this.fallbackUpdateUrl,
+      blockCalls: true,
+    };
+  }
+
+  private emitUpdateRequired(client: Socket, reason = 'calls') {
+    const info = this.socketClientVersions.get(client.id) ?? this.readClientVersion(client);
+    client.emit('app:update-required', this.buildUpdateRequiredPayload(info, reason));
+  }
+
+  private getUserConnectedCallCompatibility(userId: string) {
+    const socketIds = this.socketState.getSocketIds(userId);
+    const versions = socketIds.map(socketId => this.socketClientVersions.get(socketId)).filter(Boolean) as ClientVersionInfo[];
+    const hasKnownModernSocket = versions.some(info => this.isClientVersionCallCapable(info));
+    const hasOutdatedSocket = socketIds.some(socketId => !this.isClientVersionCallCapable(this.socketClientVersions.get(socketId)));
+    return {
+      socketIds,
+      versions,
+      hasKnownModernSocket,
+      hasOutdatedSocket,
+      callCapable: !socketIds.length || hasKnownModernSocket,
+    };
+  }
+
+  private notifyUserUpdateRequired(userId: string, reason = 'calls') {
+    const socketIds = this.socketState.getSocketIds(userId);
+    for (const socketId of socketIds) {
+      const socket = this.server.sockets.sockets.get(socketId);
+      if (!socket) continue;
+      socket.emit('app:update-required', this.buildUpdateRequiredPayload(this.socketClientVersions.get(socketId), reason));
+    }
+    this.notif.sendPush(userId, {
+      title: 'Mettez à jour',
+      body: 'Mettez à jour Oracle Messenger pour recevoir les appels. La messagerie reste disponible.',
+      url: this.fallbackUpdateUrl,
+      tag: 'oracle-update-required',
+      type: 'app_update',
+      requireInteraction: true,
+    }).catch(error => {
+      console.warn('[app:update-required:push:error]', { userId, error: error?.message ?? error });
+    });
+  }
+
   afterInit(server: Server) {
     this.socketState.setServer(server);
+    this.configureRedisSocketAdapter(server);
     server.use((client, next) => {
       try {
         const token = client.handshake.auth?.token;
@@ -89,8 +201,16 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           this.scheduleOfflineIfNoActivePresence(userId, this.presenceBackgroundGraceMs);
         }
       }
-    }, 30_000);
+      this.reconcileStoredPresence('interval').catch(error => {
+        console.warn('[presence:reconcile:error]', { source: 'interval', error: error?.message ?? error });
+      });
+    }, 12_000);
     this.presenceCleanupTimer.unref?.();
+    setTimeout(() => {
+      this.reconcileStoredPresence('startup').catch(error => {
+        console.warn('[presence:reconcile:error]', { source: 'startup', error: error?.message ?? error });
+      });
+    }, 1_500).unref?.();
     this.businessReminderTimer = setInterval(() => {
       this.dispatchDueBusinessReminderActions().catch(error => {
         console.warn('[business-ai] reminder dispatch failed', error?.message ?? error);
@@ -99,14 +219,77 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.businessReminderTimer.unref?.();
   }
 
+  private async reconcileStoredPresence(source: 'startup' | 'interval') {
+    const connectedUserIds = this.socketState.getOnlineUserIds();
+    const reconciled = await this.users.markOnlineUsersOfflineExcept(connectedUserIds, this.presenceLockedGraceMs);
+    if (!reconciled.length) return;
+    console.info('[presence:reconcile:offline]', {
+      source,
+      count: reconciled.length,
+      connectedUsers: connectedUserIds.length,
+    });
+    for (const item of reconciled) {
+      this.server.emit('user:offline', {
+        userId: item.userId,
+        status: 'offline',
+        lastSeen: item.lastSeen.toISOString(),
+      });
+    }
+  }
+
+  private configureRedisSocketAdapter(server: Server) {
+    const redisUrl = process.env.REDIS_URL;
+    if (!redisUrl) {
+      console.warn('[socket:redis-adapter:disabled]', { reason: 'REDIS_URL missing' });
+      return;
+    }
+    try {
+      this.redisPub = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: null });
+      this.redisSub = this.redisPub.duplicate();
+      Promise.all([this.redisPub.connect(), this.redisSub.connect()])
+        .then(() => {
+          server.adapter(createAdapter(this.redisPub!, this.redisSub!));
+          console.info('[socket:redis-adapter:enabled]', { redisUrl: redisUrl.replace(/\/\/.*@/, '//***@') });
+        })
+        .catch(error => {
+          console.warn('[socket:redis-adapter:error]', { error: error?.message ?? error });
+          this.redisPub?.disconnect();
+          this.redisSub?.disconnect();
+          this.redisPub = undefined;
+          this.redisSub = undefined;
+        });
+    } catch (error: any) {
+      console.warn('[socket:redis-adapter:error]', { error: error?.message ?? error });
+    }
+  }
+
   // ── Connexion ─────────────────────────────────────────────────────────────
 
   async handleConnection(client: Socket) {
     try {
       const userId = client.data.userId;
       if (!userId) { client.disconnect(); return; }
+      const clientVersion = this.readClientVersion(client);
+      this.socketClientVersions.set(client.id, clientVersion);
       this.cancelOfflineTimer(userId);
       this.socketState.setUserSocket(userId, client.id, 'background');
+      await this.users.setPresence(userId, 'connected').catch(error => {
+        console.warn('[presence:connect:connected:error]', { userId, error: error?.message ?? error });
+      });
+      this.emitUserConnected(userId);
+      console.info('[socket:connect]', {
+        userId,
+        socketId: client.id,
+        sockets: this.socketState.getSocketIds(userId).length,
+        presence: 'connected',
+        clientVersionCode: clientVersion.versionCode,
+        minCallVersionCode: this.minCallVersionCode,
+      });
+      if (!this.isClientVersionCallCapable(clientVersion)) {
+        setTimeout(() => {
+          if (this.server.sockets.sockets.has(client.id)) this.emitUpdateRequired(client, 'calls');
+        }, 350).unref?.();
+      }
       this.emitPendingCallsToClient(userId, client);
     } catch {
       client.disconnect();
@@ -117,6 +300,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = client.data.userId;
     if (!userId) return;
     this.socketState.removeUserSocket(userId, client.id);
+    this.socketClientVersions.delete(client.id);
+    console.info('[socket:disconnect]', {
+      userId,
+      socketId: client.id,
+      sockets: this.socketState.getSocketIds(userId).length,
+    });
     if (!this.socketState.hasActiveUserPresence(userId, this.presenceHeartbeatTimeoutMs)) {
       this.scheduleOfflineIfNoActivePresence(userId, this.socketState.hasUserSockets(userId) ? this.presenceBackgroundGraceMs : this.presenceOfflineGraceMs);
     }
@@ -129,6 +318,21 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.offlineTimers.delete(userId);
   }
 
+  private emitUserConnected(userId: string) {
+    this.server.emit('user:online', {
+      userId,
+      status: 'connected',
+      lastSeen: null,
+      activeUntil: null,
+      connected: true,
+    });
+  }
+
+  private async markUserOffline(userId: string) {
+    const user = await this.users.setOnline(userId, false);
+    this.server.emit('user:offline', { userId, status: 'offline', lastSeen: user.lastSeen?.toISOString?.() });
+  }
+
   private scheduleOfflineIfNoActivePresence(userId: string, delayMs: number) {
     if (this.socketState.hasActiveUserPresence(userId, this.presenceHeartbeatTimeoutMs)) {
       this.cancelOfflineTimer(userId);
@@ -139,11 +343,63 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const timer = setTimeout(async () => {
       this.offlineTimers.delete(userId);
       if (this.socketState.hasActiveUserPresence(userId, this.presenceHeartbeatTimeoutMs)) return;
-      const user = await this.users.setOnline(userId, false);
-      this.server.emit('user:offline', { userId, status: 'offline', lastSeen: user.lastSeen?.toISOString?.() });
+      const connectedGraceMs = this.presenceHeartbeatTimeoutMs + this.presenceBackgroundGraceMs;
+      if (this.socketState.hasRecentUserPresence(userId, connectedGraceMs)) {
+        await this.users.setPresence(userId, 'connected').catch(() => {});
+        this.emitUserConnected(userId);
+        this.scheduleOfflineIfNoActivePresence(userId, this.presenceBackgroundGraceMs);
+        return;
+      }
+      await this.markUserOffline(userId);
     }, Math.max(0, delayMs));
     timer.unref?.();
     this.offlineTimers.set(userId, timer);
+  }
+
+  private async emitConversationPresenceSnapshot(client: Socket, conversationId: string) {
+    const participants = await this.chat.getParticipantPresence(conversationId);
+    const activeUntil = new Date(Date.now() + this.presenceHeartbeatTimeoutMs).toISOString();
+    const snapshot = participants
+      .filter(participant => participant.userId !== client.data.userId)
+      .map(participant => {
+        const isActive = this.socketState.hasActiveUserPresence(participant.userId, this.presenceHeartbeatTimeoutMs);
+        const isConnected = isActive || this.socketState.hasRecentUserPresence(
+          participant.userId,
+          this.presenceHeartbeatTimeoutMs + this.presenceBackgroundGraceMs,
+        );
+        return {
+          userId: participant.userId,
+          status: isActive ? 'online' : isConnected ? 'connected' : 'offline',
+          lastSeen: isConnected ? null : participant.lastSeen?.toISOString?.() ?? null,
+          activeUntil: isActive ? activeUntil : null,
+          connected: isConnected,
+        };
+      });
+    client.emit('presence:snapshot', { conversationId, participants: snapshot });
+    for (const participant of snapshot) {
+      if (participant.status === 'online') {
+        client.emit('user:online', {
+          userId: participant.userId,
+          status: 'online',
+          lastSeen: null,
+          activeUntil: participant.activeUntil,
+        });
+      } else if (participant.status === 'connected') {
+        client.emit('user:online', {
+          userId: participant.userId,
+          status: 'connected',
+          lastSeen: null,
+          activeUntil: null,
+          connected: true,
+        });
+      } else {
+        client.emit('user:offline', {
+          userId: participant.userId,
+          status: 'offline',
+          lastSeen: participant.lastSeen,
+        });
+      }
+    }
   }
 
   private formatDuration(seconds?: number) {
@@ -183,13 +439,18 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private syncCallNotifications(
     callId: string,
     call: {
-      callerId: string; callerName: string; conversationId: string;
+      callerId: string; callerName: string; callerPhone?: string | null; originalCallerId?: string; originalCallerName?: string; conversationId: string;
       type: 'audio' | 'video'; startedAt: number; answered: boolean; answeredAt?: number;
       participants: Set<string>;
     },
     status: 'accepted' | 'refused' | 'ended' | 'missed' | 'cancelled',
+    recipientIds?: string[],
   ) {
-    for (const uid of call.participants) {
+    if (this.isDiagnosticCallId(callId)) return;
+    const recipients = recipientIds?.length
+      ? [...new Set(recipientIds)].filter(uid => call.participants.has(uid))
+      : [...call.participants];
+    for (const uid of recipients) {
       this.notif.sendPush(uid, {
         title: 'Oracle Messenger',
         body: '',
@@ -205,23 +466,43 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   private emitPendingCallsToClient(userId: string, client: Socket) {
+    if (!this.isClientVersionCallCapable(this.socketClientVersions.get(client.id))) {
+      this.emitUpdateRequired(client, 'calls');
+      return;
+    }
     for (const [callId, call] of this.activeCalls.entries()) {
-      if (!call.participants.has(userId) || call.callerId === userId) continue;
+      if (!call.participants.has(userId)) continue;
       client.join(`call:${callId}`);
       console.info('[call:pending:deliver]', {
         callId,
         userId,
         callerId: call.callerId,
+        role: call.callerId === userId ? 'caller' : 'receiver',
+        answered: call.answered,
       });
-      client.emit('call:incoming', {
-        callId,
-        conversationId: call.conversationId,
-        callerId: call.callerId,
-        callerName: call.callerName,
-        type: call.type,
-        mediaProvider: call.mediaProvider,
-        participants: [...call.participants].filter(id => id !== call.callerId),
-      });
+      if (call.callerId !== userId) {
+        client.emit('call:incoming', {
+          callId,
+          conversationId: call.conversationId,
+          callerId: call.callerId,
+          callerName: call.callerPhone || call.callerName,
+          callerPhone: call.callerPhone || null,
+          type: call.type,
+          mediaProvider: call.mediaProvider,
+          participants: [...call.participants].filter(id => id !== call.callerId),
+        });
+      } else if (call.answeredUserIds.size) {
+        for (const responderId of call.answeredUserIds) {
+          client.emit('call:answered', {
+            callId,
+            userId: responderId,
+            accepted: true,
+            mediaProvider: call.mediaProvider,
+            replayed: true,
+          });
+        }
+      }
+      this.deliverPendingWebRtcSignals(callId, userId);
     }
   }
 
@@ -233,6 +514,110 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private isSocketInRoom(socketId: string, room: string) {
     return this.server.sockets.sockets.get(socketId)?.rooms.has(room) ?? false;
+  }
+
+  private async getUserSocketCountGlobal(userId: string) {
+    try {
+      const sockets = await this.server.in(this.socketState.userRoom(userId)).fetchSockets();
+      return sockets.length;
+    } catch {
+      return this.socketState.getSocketIds(userId).length;
+    }
+  }
+
+  private async isUserInRoomGlobal(userId: string, room: string) {
+    try {
+      const sockets = await this.server.in(this.socketState.userRoom(userId)).fetchSockets();
+      return sockets.some(socket => socket.rooms.has(room));
+    } catch {
+      return this.socketState.getSocketIds(userId).some(sid => this.isSocketInRoom(sid, room));
+    }
+  }
+
+  private maxCallParticipants(type: 'audio' | 'video') {
+    return type === 'video' ? this.maxVideoCallParticipants : this.maxAudioCallParticipants;
+  }
+
+  private summarizeIceCandidate(candidate?: RTCIceCandidateInit | null) {
+    const raw = String(candidate?.candidate || '');
+    const typeMatch = raw.match(/\btyp\s+([a-z0-9]+)/i);
+    const protocolMatch = raw.match(/\b(udp|tcp)\b/i);
+    return {
+      candidateType: typeMatch?.[1] || 'unknown',
+      protocol: protocolMatch?.[1]?.toLowerCase() || 'unknown',
+      sdpMid: candidate?.sdpMid ?? null,
+      sdpMLineIndex: candidate?.sdpMLineIndex ?? null,
+    };
+  }
+
+  private pendingWebRtcSignalKey(callId: string, targetUserId: string) {
+    return `${callId}:${targetUserId}`;
+  }
+
+  private webRtcSignalEvent(signal: PendingWebRtcSignal) {
+    return signal.kind === 'offer'
+      ? 'webrtc:offer'
+      : signal.kind === 'answer'
+        ? 'webrtc:answer'
+        : 'webrtc:ice';
+  }
+
+  private webRtcSignalPayload(signal: PendingWebRtcSignal) {
+    return signal.kind === 'ice'
+      ? { callId: signal.callId, fromUserId: signal.fromUserId, candidate: signal.candidate }
+      : { callId: signal.callId, fromUserId: signal.fromUserId, sdp: signal.sdp };
+  }
+
+  private queuePendingWebRtcSignal(signal: PendingWebRtcSignal) {
+    if (!this.activeCalls.has(signal.callId)) return;
+    const key = this.pendingWebRtcSignalKey(signal.callId, signal.targetUserId);
+    const current = this.pendingWebRtcSignals.get(key) ?? [];
+    const next = [...current, signal].slice(-this.maxPendingWebRtcSignalsPerTarget);
+    this.pendingWebRtcSignals.set(key, next);
+    console.info('[webrtc:signal:queued]', {
+      callId: signal.callId,
+      kind: signal.kind,
+      from: signal.fromUserId,
+      to: signal.targetUserId,
+      pending: next.length,
+    });
+  }
+
+  private deliverPendingWebRtcSignals(callId: string, userId: string) {
+    const key = this.pendingWebRtcSignalKey(callId, userId);
+    const pending = this.pendingWebRtcSignals.get(key) ?? [];
+    if (!pending.length) return { delivered: 0, pending: 0 };
+
+    const socketIds = this.socketState.getSocketIds(userId);
+    let delivered = 0;
+    for (const signal of pending) {
+      const event = this.webRtcSignalEvent(signal);
+      const payload = this.webRtcSignalPayload(signal);
+      for (const sid of socketIds) {
+        const targetSocket = this.server.sockets.sockets.get(sid);
+        if (!targetSocket) continue;
+        targetSocket.emit(event, payload);
+        delivered += 1;
+      }
+    }
+
+    if (delivered > 0) {
+      this.pendingWebRtcSignals.delete(key);
+      console.info('[webrtc:signal:delivered-pending]', {
+        callId,
+        targetUserId: userId,
+        signals: pending.length,
+        sockets: socketIds.length,
+        delivered,
+      });
+    }
+    return { delivered, pending: pending.length };
+  }
+
+  private clearPendingWebRtcSignals(callId: string) {
+    for (const key of this.pendingWebRtcSignals.keys()) {
+      if (key.startsWith(`${callId}:`)) this.pendingWebRtcSignals.delete(key);
+    }
   }
 
   private sendSocketAck(
@@ -249,16 +634,10 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const payload = { conversationId, userId };
     const participantIds = await this.chat.getParticipantIds(conversationId);
-    const socketIds = new Set<string>();
     for (const uid of participantIds) {
-      for (const sid of this.socketState.getSocketIds(uid)) {
-        socketIds.add(sid);
-      }
-    }
-    for (const sid of socketIds) {
-      this.server.to(sid).emit('conversation:read', payload);
+      this.socketState.emitToUser(uid, 'conversation:read', payload);
       for (const message of updatedMessages) {
-        this.server.to(sid).emit('message:update', {
+        this.socketState.emitToUser(uid, 'message:update', {
           id: message.id,
           patch: { status: message.status, updatedAt: message.updatedAt },
         });
@@ -276,6 +655,91 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  private async broadcastMessageStatusUpdates(messages: Array<{ id: string; conversationId: string; status?: string; updatedAt?: Date | string }>) {
+    const byConversation = new Map<string, Array<{ id: string; status?: string; updatedAt?: Date | string }>>();
+    for (const message of messages) {
+      if (!message?.id || !message.conversationId) continue;
+      const current = byConversation.get(message.conversationId) ?? [];
+      current.push(message);
+      byConversation.set(message.conversationId, current);
+    }
+
+    for (const [conversationId, items] of byConversation.entries()) {
+      const participantIds = await this.chat.getParticipantIds(conversationId);
+      for (const uid of participantIds) {
+        for (const message of items) {
+          this.socketState.emitToUser(uid, 'message:update', {
+            id: message.id,
+            patch: { status: message.status, updatedAt: message.updatedAt },
+          });
+        }
+      }
+      await this.broadcastConversationSummaries(conversationId, participantIds);
+    }
+  }
+
+  private async syncPendingDeliveriesForUser(userId: string, source: string, conversationId?: string) {
+    if (!userId) return;
+    const key = conversationId ? `${userId}:${conversationId}` : userId;
+    const lastSyncAt = this.deliverySyncAt.get(key) ?? 0;
+    if (!conversationId && Date.now() - lastSyncAt < 8_000) return;
+    this.deliverySyncAt.set(key, Date.now());
+    const updated = await this.chat.markPendingMessagesDeliveredForUser(userId, conversationId);
+    if (!updated.length) return;
+    await this.broadcastMessageStatusUpdates(updated);
+    console.info('[message:delivery-sync]', {
+      userId,
+      source,
+      conversationId: conversationId ?? null,
+      updated: updated.length,
+    });
+  }
+
+  private async markMessageDeliveredFromTransport(
+    msg: any,
+    receiverIds: Iterable<string>,
+    source: 'socket' | 'push' | 'client-ack',
+  ) {
+    const ids = [...new Set([...receiverIds].filter(Boolean).filter(uid => uid !== msg.senderId))];
+    if (!msg?.id || !msg?.conversationId || !ids.length) return null;
+
+    let latest: any = null;
+    for (const receiverId of ids) {
+      latest = await this.chat.markMessageDelivered(msg.id, receiverId).catch(error => {
+        console.warn('[message:delivered:transport:error]', {
+          messageId: msg.id,
+          conversationId: msg.conversationId,
+          receiverId,
+          source,
+          error: error?.message ?? error,
+        });
+        return latest;
+      });
+    }
+    if (!latest) return null;
+
+    const payload = {
+      id: latest.id,
+      patch: {
+        status: latest.status,
+        updatedAt: latest.updatedAt,
+      },
+    };
+    const participantIds = await this.chat.getParticipantIds(latest.conversationId);
+    for (const uid of participantIds) {
+      this.socketState.emitToUser(uid, 'message:update', payload);
+    }
+    await this.broadcastConversationSummaries(latest.conversationId, participantIds);
+    console.info('[message:delivered:transport]', {
+      messageId: latest.id,
+      conversationId: latest.conversationId,
+      source,
+      receivers: ids,
+      status: latest.status,
+    });
+    return latest;
+  }
+
   private scheduleNoAnswerTimeout(callId: string) {
     this.clearCallTimeout(callId);
     const timer = setTimeout(async () => {
@@ -284,13 +748,21 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       call.ending = true;
       call.endingBy = call.callerId;
       this.syncCallNotifications(callId, call, 'missed');
-      await this.publishCallTrace(
-        call.conversationId,
-        call.callerId,
-        call.type,
-        'missed',
-      ).catch(() => {});
+      if (!this.isDiagnosticCallId(callId)) {
+        await this.publishCallTrace(
+          call.conversationId,
+          call.callerId,
+          call.type,
+          'missed',
+        ).catch(() => {});
+      }
       await this.logCallFinalState(callId, call, call.callerId, 'missed').catch(() => {});
+      console.info('[CALL_ENDED]', {
+        callId,
+        enderId: call.callerId,
+        reason: 'no-answer',
+        connected: false,
+      });
 
       for (const uid of call.participants) {
         const socketIds = this.socketState.getSocketIds(uid);
@@ -305,6 +777,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       }
 
+      this.clearPendingWebRtcSignals(callId);
       this.activeCalls.delete(callId);
       this.callTimeouts.delete(callId);
     }, this.callNoAnswerTimeoutMs);
@@ -321,49 +794,105 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return call;
   }
 
-  private getBusyCallId(userIds: string[]) {
+  private getBusyCallDetails(userIds: string[]) {
     const candidates = new Set(userIds.filter(Boolean));
     for (const [callId, call] of this.activeCalls.entries()) {
       for (const userId of candidates) {
-        if (call.participants.has(userId)) return callId;
+        if (call.participants.has(userId)) {
+          return {
+            callId,
+            userIds: [...candidates].filter(candidate => call.participants.has(candidate)),
+          };
+        }
       }
     }
     return null;
   }
 
+  private async logCallStartedState(
+    callId: string,
+    call: {
+      callerId: string; callerName: string; callerPhone?: string | null; conversationId: string;
+      type: 'audio' | 'video'; participants: Set<string>;
+    },
+    targetIds: string[],
+  ) {
+    if (this.isDiagnosticCallId(callId)) return;
+    const uniqueTargets = [...new Set(targetIds)].filter(targetId => (
+      targetId && targetId !== call.callerId && call.participants.has(targetId)
+    ));
+    const firstTargetId = uniqueTargets[0];
+    if (!firstTargetId) return;
+
+    const firstTarget = await this.users.findById(firstTargetId).catch(() => null);
+    const callerPeerName = uniqueTargets.length > 1
+      ? `${firstTarget?.phone ?? 'Participant'} + ${uniqueTargets.length - 1}`
+      : firstTarget?.phone ?? 'Contact Oracle';
+
+    await this.logCallAndNotify({
+      callId,
+      userId: call.callerId,
+      peerId: firstTargetId,
+      peerName: callerPeerName,
+      type: call.type,
+      direction: 'outgoing',
+    });
+
+    await Promise.all(uniqueTargets.map(targetId => this.logCallAndNotify({
+      callId,
+      userId: targetId,
+      peerId: call.callerId,
+      peerName: call.callerPhone || 'Contact Oracle',
+      type: call.type,
+      direction: 'incoming',
+    }).catch(error => {
+      console.warn('[call:history:start:target:error]', {
+        callId,
+        callerId: call.callerId,
+        targetId,
+        error: error?.message ?? error,
+      });
+    })));
+  }
+
   private async logCallFinalState(
     callId: string,
     call: {
-      callerId: string; callerName: string; conversationId: string;
+      callerId: string; callerName: string; callerPhone?: string | null; originalCallerId?: string; originalCallerName?: string; conversationId: string;
       type: 'audio' | 'video'; startedAt: number; answered: boolean; answeredAt?: number;
       participants: Set<string>;
     },
     enderId: string,
     reason: 'ended' | 'missed' | 'refused' | 'cancelled',
   ) {
+    if (this.isDiagnosticCallId(callId)) return;
     const connected = call.answered && !!call.answeredAt && reason === 'ended';
     const duration = connected ? Math.max(1, Math.round((Date.now() - call.answeredAt!) / 1000)) : undefined;
 
     for (const uid of call.participants) {
-      const isCallerSide = uid === call.callerId;
+      const originalCallerId = call.originalCallerId ?? call.callerId;
+      const originalCallerName = call.callerPhone || 'Contact Oracle';
+      const isCallerSide = uid === originalCallerId;
       const peerId = isCallerSide
         ? [...call.participants].find(p => p !== uid) ?? ''
-        : call.callerId;
-      let peerName = call.callerName;
+        : originalCallerId;
+      let peerName = originalCallerName;
       if (isCallerSide) {
         const peer = await this.users.findById(peerId).catch(() => null);
-        peerName = peer?.name ?? 'Inconnu';
+        peerName = peer?.phone ?? 'Contact Oracle';
       }
 
       const direction = connected
         ? (isCallerSide ? 'outgoing' : 'incoming')
+        : reason === 'missed' && isCallerSide
+          ? 'outgoing'
         : reason === 'refused'
-          ? (uid === enderId ? 'refused' : isCallerSide ? 'outgoing' : 'missed')
+          ? 'refused'
           : reason === 'cancelled'
             ? (isCallerSide ? 'cancelled' : 'missed')
-            : (isCallerSide ? 'outgoing' : 'missed');
+            : 'missed';
 
-      await this.callsSvc.logCall({
+      await this.logCallAndNotify({
         callId,
         userId: uid,
         peerId,
@@ -373,6 +902,46 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         duration,
       }).catch(() => {});
     }
+  }
+
+  private async logCallAndNotify(dto: LogCallDto) {
+    if (this.isDiagnosticCallId(dto.callId)) return null;
+    const entry = await this.callsSvc.logCall(dto);
+    this.socketState.emitToUser(dto.userId, 'call:history:changed', {
+      callId: dto.callId,
+      peerId: dto.peerId,
+      type: dto.type,
+      direction: dto.direction,
+      duration: dto.duration ?? null,
+      at: new Date().toISOString(),
+      entry: entry ? {
+        id: entry.id,
+        callId: entry.callId,
+        peerId: entry.peerId,
+        peerName: entry.peerName,
+        peerAvatar: null,
+        type: entry.type,
+        direction: entry.direction,
+        duration: entry.duration,
+        startedAt: entry.startedAt,
+      } : null,
+    });
+    return entry;
+  }
+
+  private emitCallAnsweredToParticipants(
+    call: { participants: Set<string> },
+    payload: Record<string, unknown>,
+  ) {
+    const deliveredSockets = new Set<string>();
+    for (const uid of call.participants) {
+      for (const sid of this.socketState.getSocketIds(uid)) {
+        if (deliveredSockets.has(sid)) continue;
+        deliveredSockets.add(sid);
+        this.server.to(sid).emit('call:answered', payload);
+      }
+    }
+    return deliveredSockets.size;
   }
 
   // ── Conversations ─────────────────────────────────────────────────────────
@@ -394,7 +963,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (state === 'active') {
       this.cancelOfflineTimer(userId);
       if (!wasActive) {
-        await this.users.setOnline(userId, true);
+        await this.users.setPresence(userId, 'online');
       }
       this.server.emit('user:online', {
         userId,
@@ -402,8 +971,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         activeUntil: new Date(Date.now() + this.presenceHeartbeatTimeoutMs).toISOString(),
       });
     } else if (!isActive) {
+      await this.users.setPresence(userId, 'connected').catch(() => {});
+      this.emitUserConnected(userId);
       this.scheduleOfflineIfNoActivePresence(userId, this.presenceBackgroundGraceMs);
     }
+    const clientVersion = this.socketClientVersions.get(client.id);
+    if (!this.isClientVersionCallCapable(clientVersion)) this.emitUpdateRequired(client, 'calls');
 
     return this.sendSocketAck(ack, {
       ok: true,
@@ -425,6 +998,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         return;
       }
       client.join(`conv:${data.conversationId}`);
+      await this.emitConversationPresenceSnapshot(client, data.conversationId);
       const updatedMessages = await this.chat.markConversationRead(data.conversationId, client.data.userId);
       await this.broadcastConversationRead(data.conversationId, client.data.userId, updatedMessages);
     } catch {
@@ -437,20 +1011,32 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('message:send')
   async handleMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { conversationId: string; content: string; type?: string; replyToId?: string },
+    @MessageBody() data: { conversationId: string; content: string; type?: string; replyToId?: string; clientSentAt?: string; clientMessageId?: string },
   ) {
     try {
+      const receivedAt = Date.now();
+      const clientSentAtMs = data.clientSentAt ? Date.parse(data.clientSentAt) : NaN;
       const msg = await this.chat.createMessage(
         data.conversationId,
         client.data.userId,
         data.content,
         data.type ?? 'text',
         data.replyToId,
+        data.clientMessageId,
       );
+      const serverEmittedAt = Date.now();
+      const transportTrace = {
+        clientSentAt: data.clientSentAt,
+        serverReceivedAt: new Date(receivedAt).toISOString(),
+        serverEmittedAt: new Date(serverEmittedAt).toISOString(),
+        clientToServerMs: Number.isFinite(clientSentAtMs) ? Math.max(0, receivedAt - clientSentAtMs) : undefined,
+        serverCreateAndEmitMs: serverEmittedAt - receivedAt,
+      };
+      const emittedMessage = { ...msg, transport: transportTrace };
 
       // 1. Diffuser à tous dans la room (ceux qui ont fait conversation:join)
       const conversationRoom = `conv:${data.conversationId}`;
-      this.server.to(conversationRoom).emit('message:new', msg);
+      this.server.to(conversationRoom).emit('message:new', emittedMessage);
 
       // 2. Notifier les participants connectés mais pas dans la room
       const participantIds = await this.chat.getParticipantIds(data.conversationId);
@@ -462,20 +1048,53 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         : msg.type === 'audio' ? '🎵 Audio'
         : '📎 Fichier';
 
-      const deliverableRecipientIds = new Set<string>();
+      const pushRecipientIds: string[] = [];
+      const socketDeliveredRecipientIds: string[] = [];
+      const deliveryTrace: Array<{
+        receiverId: string;
+        sockets: number;
+        openConversation: boolean;
+        pushQueued: boolean;
+      }> = [];
       for (const pid of participantIds) {
         if (pid === client.data.userId) continue;
-        const socketIds = this.socketState.getSocketIds(pid);
-        const hasOpenConversation = socketIds.some(sid => this.isSocketInRoom(sid, conversationRoom));
-        if (socketIds.length) {
-          deliverableRecipientIds.add(pid);
+        const socketCount = await this.getUserSocketCountGlobal(pid);
+        const hasOpenConversation = await this.isUserInRoomGlobal(pid, conversationRoom);
+        const receiverTrace: {
+          receiverId: string;
+          sockets: number;
+          openConversation: boolean;
+          pushQueued: boolean;
+        } = { receiverId: pid, sockets: socketCount, openConversation: hasOpenConversation, pushQueued: !hasOpenConversation };
+        if (socketCount) {
           // Connecté → socket temps réel, sauf l'écran déjà ouvert qui reçoit par la room.
-          for (const sid of socketIds) {
-            if (this.isSocketInRoom(sid, conversationRoom)) continue;
-            this.server.to(sid).emit('message:new', msg);
-          }
+          this.socketState.emitToUserExceptRoom(pid, conversationRoom, 'message:new', emittedMessage);
+          socketDeliveredRecipientIds.push(pid);
         }
         if (!hasOpenConversation) {
+          pushRecipientIds.push(pid);
+        }
+        deliveryTrace.push(receiverTrace);
+      }
+      console.info('[message:send:trace]', {
+        messageId: msg.id,
+        conversationId: data.conversationId,
+        senderId: client.data.userId,
+        type: msg.type,
+        receivers: deliveryTrace,
+        connectedRecipients: deliveryTrace.filter(item => item.sockets > 0).length,
+        pushQueuedRecipients: pushRecipientIds.length,
+        ...transportTrace,
+      });
+
+      void this.broadcastConversationSummaries(data.conversationId, participantIds)
+        .catch(error => console.warn('[message:summary:error]', {
+          messageId: msg.id,
+          error: error?.message ?? error,
+        }));
+      void (async () => {
+        const pushTrace: Array<{ receiverId: string; targets: number; delivered: number; failed: number }> = [];
+        for (const pid of pushRecipientIds) {
           const pushResult = await this.notif.sendPush(pid, {
             title: senderName,
             body: preview,
@@ -484,46 +1103,37 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
             type: 'message',
             conversationId: data.conversationId,
           }).catch(() => ({ targets: 0, delivered: 0, failed: 1 }));
-          if (pushResult.delivered > 0) deliverableRecipientIds.add(pid);
+          pushTrace.push({ receiverId: pid, ...pushResult });
         }
-      }
-      await this.confirmDeliveredForConnectedRecipients(
-        msg.id,
-        data.conversationId,
-        [...deliverableRecipientIds],
-      );
-      await this.broadcastConversationSummaries(data.conversationId, participantIds);
+        if (pushTrace.length) {
+          console.info('[message:push:trace]', {
+            messageId: msg.id,
+            conversationId: data.conversationId,
+            receivers: pushTrace,
+          });
+        }
+      })().catch(error => console.warn('[message:push:error]', {
+        messageId: msg.id,
+        error: error?.message ?? error,
+      }));
 
       this.scheduleAiAutoReplies(msg, participantIds, client.data.userId);
       this.scheduleBusinessMediaAnalysis(msg, participantIds, client.data.userId);
+      if (socketDeliveredRecipientIds.length) {
+        console.info('[message:socket-emitted:awaiting-client-ack]', {
+          messageId: msg.id,
+          conversationId: data.conversationId,
+          receivers: socketDeliveredRecipientIds,
+        });
+      }
 
-      // Return msg as acknowledgement to sender. "Delivered" is now confirmed
-      // only by the receiver device through message:delivered.
-      return { ...msg, status: 'sent' };
+      return {
+        ...emittedMessage,
+        status: 'sent',
+        updatedAt: emittedMessage.updatedAt,
+      };
     } catch (err: any) {
       client.emit('message:error', { message: err?.message ?? 'Erreur envoi' });
-    }
-  }
-
-  private async confirmDeliveredForConnectedRecipients(messageId: string, conversationId: string, recipientIds: string[]) {
-    const uniqueRecipientIds = [...new Set(recipientIds)];
-    if (!uniqueRecipientIds.length) return;
-
-    let latestMessage: Awaited<ReturnType<ChatService['markMessageDelivered']>> | null = null;
-    for (const recipientId of uniqueRecipientIds) {
-      latestMessage = await this.chat.markMessageDelivered(messageId, recipientId).catch(() => latestMessage);
-    }
-    if (!latestMessage) return;
-
-    const participantIds = await this.chat.getParticipantIds(conversationId);
-    const payload = {
-      id: latestMessage.id,
-      patch: { status: latestMessage.status, updatedAt: latestMessage.updatedAt },
-    };
-    for (const uid of participantIds) {
-      for (const sid of this.socketState.getSocketIds(uid)) {
-        this.server.to(sid).emit('message:update', payload);
-      }
     }
   }
 
@@ -617,7 +1227,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       `Nom du contact: ${senderName}`,
       `Message entrant: ${String(incomingMsg?.content || '').trim()}`,
       'Réponds directement à ce contact selon le prompt utilisateur et le prompt système.',
-      'Respecte le nombre maximum de mots configuré dans Gemini. Le gratuit reste limité côté serveur.',
+      'Respecte le nombre maximum de mots configuré pour l’agent virtuel. Le gratuit reste limité côté serveur.',
     ].join('\n');
   }
 
@@ -750,23 +1360,20 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private async emitCreatedMessageToParticipants(reply: any, senderId: string, titleFallback = 'Assistant IA') {
     const participantIds = await this.chat.getParticipantIds(reply.conversationId);
     const room = `conv:${reply.conversationId}`;
-    this.server.to(room).emit('message:new', reply);
+    const serverEmittedAt = new Date().toISOString();
+    const emittedReply = { ...reply, transport: { serverEmittedAt } };
+    this.server.to(room).emit('message:new', emittedReply);
     const senderName = reply.sender?.name ?? titleFallback;
     const preview = reply.content.length > 80 ? `${reply.content.slice(0, 80)}…` : reply.content;
-    const deliverableRecipientIds = new Set<string>();
     for (const pid of participantIds) {
       if (pid === senderId) continue;
-      const socketIds = this.socketState.getSocketIds(pid);
-      const hasOpenConversation = socketIds.some(sid => this.isSocketInRoom(sid, room));
-      if (socketIds.length) {
-        deliverableRecipientIds.add(pid);
-        for (const sid of socketIds) {
-          if (this.isSocketInRoom(sid, room)) continue;
-          this.server.to(sid).emit('message:new', reply);
-        }
+      const socketCount = await this.getUserSocketCountGlobal(pid);
+      const hasOpenConversation = await this.isUserInRoomGlobal(pid, room);
+      if (socketCount) {
+        this.socketState.emitToUserExceptRoom(pid, room, 'message:new', emittedReply);
       }
       if (!hasOpenConversation) {
-        const pushResult = await this.notif.sendPush(pid, {
+        await this.notif.sendPush(pid, {
           title: senderName,
           body: preview,
           url: `oraclemessenger://notification?conversationId=${encodeURIComponent(reply.conversationId)}`,
@@ -774,28 +1381,44 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           type: 'message',
           conversationId: reply.conversationId,
         }).catch(() => ({ targets: 0, delivered: 0, failed: 1 }));
-        if (pushResult.delivered > 0) deliverableRecipientIds.add(pid);
       }
     }
-    await this.confirmDeliveredForConnectedRecipients(reply.id, reply.conversationId, [...deliverableRecipientIds]);
     await this.broadcastConversationSummaries(reply.conversationId, participantIds);
   }
 
   @SubscribeMessage('message:delivered')
   async handleDelivered(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { messageId: string },
+    @MessageBody() data: { messageId: string; conversationId?: string; clientReceivedAt?: string; serverEmittedAt?: string },
   ) {
     try {
       const msg = await this.chat.markMessageDelivered(data.messageId, client.data.userId);
+      const serverEmittedAtMs = data.serverEmittedAt ? Date.parse(data.serverEmittedAt) : NaN;
+      const clientReceivedAtMs = data.clientReceivedAt ? Date.parse(data.clientReceivedAt) : NaN;
+      console.info('[message:delivered:ack]', {
+        messageId: data.messageId,
+        receiverId: client.data.userId,
+        conversationId: msg.conversationId,
+        status: msg.status,
+        serverToClientMs: Number.isFinite(serverEmittedAtMs) && Number.isFinite(clientReceivedAtMs)
+          ? Math.max(0, clientReceivedAtMs - serverEmittedAtMs)
+          : undefined,
+        clientAckToServerMs: Number.isFinite(clientReceivedAtMs)
+          ? Math.max(0, Date.now() - clientReceivedAtMs)
+          : undefined,
+      });
       const payload = { id: msg.id, patch: { status: msg.status, updatedAt: msg.updatedAt } };
       const participantIds = await this.chat.getParticipantIds(msg.conversationId);
       for (const uid of participantIds) {
-        for (const sid of this.socketState.getSocketIds(uid)) {
-          this.server.to(sid).emit('message:update', payload);
-        }
+        this.socketState.emitToUser(uid, 'message:update', payload);
       }
-    } catch {}
+    } catch (error: any) {
+      console.warn('[message:delivered:error]', {
+        messageId: data?.messageId,
+        receiverId: client.data.userId,
+        error: error?.message ?? error,
+      });
+    }
   }
 
   @SubscribeMessage('message:read')
@@ -805,18 +1428,32 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     try {
       const updatedMessages = await this.chat.markConversationRead(data.conversationId, client.data.userId, data.messageId);
+      console.info('[message:read:ack]', {
+        conversationId: data.conversationId,
+        messageId: data.messageId,
+        readerId: client.data.userId,
+        updated: updatedMessages.length,
+      });
       await this.broadcastConversationRead(data.conversationId, client.data.userId, updatedMessages);
-    } catch {}
+    } catch (error: any) {
+      console.warn('[message:read:error]', {
+        conversationId: data?.conversationId,
+        messageId: data?.messageId,
+        readerId: client.data.userId,
+        error: error?.message ?? error,
+      });
+    }
   }
 
   @SubscribeMessage('message:react')
   async handleReaction(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { messageId: string; emoji?: string | null },
+    @Ack() ack?: (response: Record<string, unknown>) => void,
   ) {
     try {
       const msg = await this.chat.reactToMessage(data.messageId, client.data.userId, data.emoji);
-      if (!msg) return;
+      if (!msg) return this.sendSocketAck(ack, { ok: false, message: 'Message introuvable' });
       const payload = {
         id: msg.id,
         patch: {
@@ -826,12 +1463,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
       const participantIds = await this.chat.getParticipantIds(msg.conversationId);
       for (const uid of participantIds) {
-        for (const sid of this.socketState.getSocketIds(uid)) {
-          this.server.to(sid).emit('message:update', payload);
-        }
+        this.socketState.emitToUser(uid, 'message:update', payload);
       }
+      return this.sendSocketAck(ack, { ok: true, ...payload });
     } catch (err: any) {
-      client.emit('message:error', { message: err?.message ?? 'Erreur réaction' });
+      const message = err?.message ?? 'Erreur réaction';
+      client.emit('message:error', { message });
+      return this.sendSocketAck(ack, { ok: false, message });
     }
   }
 
@@ -853,9 +1491,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       const participantIds = await this.chat.getParticipantIds(msg.conversationId);
       for (const uid of participantIds) {
-        for (const sid of this.socketState.getSocketIds(uid)) {
-          this.server.to(sid).emit('message:update', { id: msg.id, patch });
-        }
+        this.socketState.emitToUser(uid, 'message:update', { id: msg.id, patch });
       }
     } catch {}
   }
@@ -878,6 +1514,38 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
       await this.broadcastConversationSummaries(msg.conversationId, participantIds);
     } catch {}
+  }
+
+  @SubscribeMessage('message:media-ready')
+  async handleMediaReady(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { messageId: string; content: string },
+    @Ack() ack?: (response: Record<string, unknown>) => void,
+  ) {
+    try {
+      const msg = await this.chat.updateMediaMessageContent(data.messageId, client.data.userId, data.content);
+      const payload = {
+        id: msg.id,
+        patch: { content: msg.content, updatedAt: msg.updatedAt },
+      };
+      const participantIds = await this.chat.getParticipantIds(msg.conversationId);
+      this.server.to(`conv:${msg.conversationId}`).emit('message:update', payload);
+      for (const uid of participantIds) {
+        this.socketState.emitToUser(uid, 'message:update', payload);
+      }
+      await this.broadcastConversationSummaries(msg.conversationId, participantIds);
+      console.info('[message:media-ready]', {
+        messageId: msg.id,
+        conversationId: msg.conversationId,
+        senderId: client.data.userId,
+        serverEmittedAt: new Date().toISOString(),
+      });
+      return this.sendSocketAck(ack, { ok: true, message: msg });
+    } catch (err: any) {
+      const message = err?.message ?? 'Finalisation média impossible';
+      client.emit('message:error', { message });
+      return this.sendSocketAck(ack, { ok: false, message });
+    }
   }
 
   @SubscribeMessage('message:delete')
@@ -919,9 +1587,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
       for (const uid of participantIds) {
         if (uid === client.data.userId) continue;
-        for (const sid of this.socketState.getSocketIds(uid)) {
-          this.server.to(sid).emit('typing:start', payload);
-        }
+        this.socketState.emitToUser(uid, 'typing:start', payload);
       }
     } catch {}
   }
@@ -941,14 +1607,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
       for (const uid of participantIds) {
         if (uid === client.data.userId) continue;
-        for (const sid of this.socketState.getSocketIds(uid)) {
-          this.server.to(sid).emit('typing:stop', payload);
-        }
+        this.socketState.emitToUser(uid, 'typing:stop', payload);
       }
     } catch {}
   }
 
-  // ── Appels WebRTC ─────────────────────────────────────────────────────────
+  // ── Appels LiveKit/SFU ────────────────────────────────────────────────────
 
   @SubscribeMessage('call:start')
   async handleCallStart(
@@ -958,12 +1622,24 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       conversationId: string;
       type: 'audio' | 'video';
       targetUserIds: string[];
+      requestedPeerId?: string;
       mediaProvider?: 'livekit' | 'webrtc';
     },
     @Ack() ack?: (response: Record<string, unknown>) => void,
   ) {
     try {
       const callerId = client.data.userId;
+      if (!this.isClientVersionCallCapable(this.socketClientVersions.get(client.id))) {
+        const message = 'Mettez à jour Oracle Messenger pour passer des appels. La messagerie reste disponible.';
+        this.emitUpdateRequired(client, 'calls');
+        client.emit('call:error', { message, updateRequired: true });
+        return this.sendSocketAck(ack, {
+          ok: false,
+          message,
+          updateRequired: true,
+          minVersionCode: this.minCallVersionCode,
+        });
+      }
       if (!data.callId || this.activeCalls.has(data.callId)) {
         const message = 'Identifiant d’appel invalide';
         client.emit('call:error', { message });
@@ -991,22 +1667,135 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.chat.getKnownCallableUserIds(callerId),
       ]);
       const allowedTargets = new Set([...participantIds, ...knownCallableIds]);
-      const validTargets = [...new Set(data.targetUserIds ?? [])]
+      const requestedTargets = [...new Set([
+        ...(data.requestedPeerId ? [data.requestedPeerId] : []),
+        ...(data.targetUserIds ?? []),
+      ])]
         .filter(targetId => targetId !== callerId && allowedTargets.has(targetId));
+      const conversationTargets = participantIds.filter(targetId => targetId !== callerId && allowedTargets.has(targetId));
+      const validTargets = requestedTargets.length ? requestedTargets : conversationTargets;
+      if (data.requestedPeerId && !requestedTargets.includes(data.requestedPeerId)) {
+        console.warn('[call:start:requested-peer-rejected]', {
+          callId: data.callId,
+          callerId,
+          conversationId: data.conversationId,
+          requestedPeerId: data.requestedPeerId,
+          participantIds,
+          knownCallableCount: knownCallableIds.length,
+        });
+      }
       if (!validTargets.length) {
         const message = 'Aucun destinataire valide pour cet appel';
+        console.warn('[call:start:no-valid-target]', {
+          callId: data.callId,
+          callerId,
+          conversationId: data.conversationId,
+          requestedPeerId: data.requestedPeerId,
+          requestedTargets: data.targetUserIds ?? [],
+          participantIds,
+          knownCallableCount: knownCallableIds.length,
+        });
         client.emit('call:error', { message });
         return this.sendSocketAck(ack, { ok: false, message });
       }
-      const busyCallId = this.getBusyCallId([callerId, ...validTargets]);
-      if (busyCallId) {
-        const message = 'Un participant est deja dans un appel actif';
-        client.emit('call:error', { message, callId: busyCallId });
-        return this.sendSocketAck(ack, { ok: false, message, callId: busyCallId });
+      if (!requestedTargets.length && conversationTargets.length) {
+        console.info('[call:start:targets-recovered]', {
+          callId: data.callId,
+          callerId,
+          conversationId: data.conversationId,
+          recoveredTargets: conversationTargets,
+          requestedPeerId: data.requestedPeerId,
+          requestedTargets: data.targetUserIds ?? [],
+        });
+      }
+      const participantLimit = this.maxCallParticipants(data.type);
+      if (validTargets.length + 1 > participantLimit) {
+        const message = `Limite d’appel ${data.type === 'video' ? 'vidéo' : 'audio'} atteinte : ${participantLimit} participants maximum.`;
+        client.emit('call:error', { message, maxParticipants: participantLimit });
+        return this.sendSocketAck(ack, { ok: false, message, maxParticipants: participantLimit });
+      }
+      const outdatedConnectedTargets = validTargets
+        .map(targetId => ({ targetId, compatibility: this.getUserConnectedCallCompatibility(targetId) }))
+        .filter(item => item.compatibility.socketIds.length > 0 && !item.compatibility.callCapable);
+      if (outdatedConnectedTargets.length) {
+        for (const item of outdatedConnectedTargets) this.notifyUserUpdateRequired(item.targetId, 'calls');
+        const message = outdatedConnectedTargets.length === 1
+          ? 'Ce contact doit mettre à jour Oracle Messenger pour recevoir les appels. La messagerie reste disponible.'
+          : `${outdatedConnectedTargets.length} contacts doivent mettre à jour Oracle Messenger pour recevoir les appels.`;
+        console.warn('[call:start:target-update-required]', {
+          callId: data.callId,
+          callerId,
+          conversationId: data.conversationId,
+          targets: outdatedConnectedTargets.map(item => ({
+            targetId: item.targetId,
+            socketCount: item.compatibility.socketIds.length,
+            versions: item.compatibility.versions.map(version => version.versionCode),
+          })),
+          minCallVersionCode: this.minCallVersionCode,
+        });
+        client.emit('call:error', {
+          message,
+          updateRequired: true,
+          targetUserIds: outdatedConnectedTargets.map(item => item.targetId),
+        });
+        return this.sendSocketAck(ack, {
+          ok: false,
+          message,
+          updateRequired: true,
+          targetUserIds: outdatedConnectedTargets.map(item => item.targetId),
+        });
+      }
+      const sfuEnabled = this.callsSvc.isSfuEnabled();
+      const privateTurnConfigured = this.callsSvc.hasPrivateTurn();
+      if (this.strictRealtimeMode && !sfuEnabled) {
+        const message = 'Appels indisponibles : LiveKit/SFU doit être configuré pour le mode temps réel strict.';
+        client.emit('call:error', { message, industrialReady: false });
+        return this.sendSocketAck(ack, { ok: false, message, industrialReady: false });
+      }
+      if (this.strictRealtimeMode && !privateTurnConfigured) {
+        const message = 'Appels indisponibles : TURN privé obligatoire pour le mode temps réel strict.';
+        client.emit('call:error', { message, industrialReady: false });
+        return this.sendSocketAck(ack, { ok: false, message, industrialReady: false });
+      }
+      const requestedMediaProvider = data.mediaProvider === 'livekit' ? 'livekit' : 'webrtc';
+      const mediaProvider = (this.strictRealtimeMode || requestedMediaProvider === 'livekit') && sfuEnabled
+        ? 'livekit'
+        : 'webrtc';
+      const busyCall = this.getBusyCallDetails([callerId, ...validTargets]);
+      if (busyCall) {
+        const callerBusy = busyCall.userIds.includes(callerId);
+        const busyTargetIds = busyCall.userIds.filter(userId => userId !== callerId);
+        const message = callerBusy
+          ? 'Vous êtes déjà dans un appel actif.'
+          : busyTargetIds.length === 1
+            ? 'Ce contact est déjà en appel.'
+            : 'Un ou plusieurs contacts sont déjà en appel.';
+        console.info('[call:start:busy]', {
+          callId: data.callId,
+          callerId,
+          busyCallId: busyCall.callId,
+          callerBusy,
+          busyTargetIds,
+        });
+        client.emit('call:error', {
+          code: 'participant_busy',
+          message,
+          callId: busyCall.callId,
+          busyUserIds: busyCall.userIds,
+        });
+        return this.sendSocketAck(ack, {
+          ok: false,
+          code: 'participant_busy',
+          message,
+          callId: busyCall.callId,
+          busyUserIds: busyCall.userIds,
+        });
       }
 
       const caller = await this.users.findById(callerId);
       const callerName = caller?.name ?? 'Quelqu\'un';
+      const callerPhone = caller?.phone || null;
+      const diagnosticCall = this.isDiagnosticCallId(data.callId);
       console.info('[call:start]', {
         callId: data.callId,
         callerId,
@@ -1015,6 +1804,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         targets: validTargets.length,
         conversationParticipants: participantIds.length,
         knownCallable: knownCallableIds.length,
+        requestedPeerId: data.requestedPeerId,
+        requestedMediaProvider: data.mediaProvider,
+        mediaProvider,
+        mediaPolicy: mediaProvider === 'webrtc' ? 'webrtc-direct-or-fallback' : 'livekit-sfu',
+        strictRealtimeMode: this.strictRealtimeMode,
+        privateTurnConfigured,
+        diagnosticCall,
       });
 
       client.join(`call:${data.callId}`);
@@ -1023,52 +1819,159 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.activeCalls.set(data.callId, {
         callerId,
         callerName,
+        callerPhone,
+        originalCallerId: callerId,
+        originalCallerName: callerName,
         conversationId: data.conversationId,
         type: data.type,
-        mediaProvider: data.mediaProvider === 'livekit' ? 'livekit' : 'webrtc',
+        mediaProvider,
         startedAt: Date.now(),
         answered: false,
+        answeredUserIds: new Set(),
         participants: new Set([callerId, ...validTargets]),
+      });
+      const activeCall = this.activeCalls.get(data.callId);
+      if (activeCall && !diagnosticCall) {
+        await this.logCallStartedState(data.callId, activeCall, validTargets).catch(error => {
+          console.warn('[call:history:start:error]', {
+            callId: data.callId,
+            callerId,
+            targets: validTargets,
+            error: error?.message ?? error,
+          });
+        });
+      }
+      console.info('[CALL_CREATED]', {
+        callId: data.callId,
+        callerId,
+        conversationId: data.conversationId,
+        type: data.type,
+        mediaProvider,
       });
       this.scheduleNoAnswerTimeout(data.callId);
 
       for (const targetId of validTargets) {
-        this.notif.sendPush(targetId, {
-          title: `📞 Appel ${data.type === 'video' ? 'vidéo' : 'audio'} — ${callerName}`,
-          body: 'Ouvrez Oracle Messenger pour répondre.',
-          url: `oraclemessenger://call?action=open&callId=${encodeURIComponent(data.callId)}&conversationId=${encodeURIComponent(data.conversationId)}`,
-          tag: `incoming-call-${data.callId}`,
-          type: 'call',
-          callId: data.callId,
-          conversationId: data.conversationId,
-          requireInteraction: true,
-          vibrate: [1000, 300, 1000, 300, 1000, 700, 1000, 300, 1000],
-        }).catch(() => {});
-
         const socketIds = this.socketState.getSocketIds(targetId);
+        const activeSocketIds = this.socketState.getActiveSocketIds(targetId, this.presenceHeartbeatTimeoutMs);
+        if (diagnosticCall) {
+          for (const callerSocketId of this.socketState.getSocketIds(callerId)) {
+            this.server.to(callerSocketId).emit('call:delivery', {
+              callId: data.callId,
+              receiverId: targetId,
+              socketCount: socketIds.length,
+              activeSocketCount: activeSocketIds.length,
+              pushTargets: 0,
+              pushDelivered: 0,
+              pushFailed: 0,
+              reachable: socketIds.length > 0 || activeSocketIds.length > 0,
+              diagnosticCall: true,
+              at: new Date().toISOString(),
+            });
+          }
+        } else {
+          this.notif.sendPush(targetId, {
+            title: callerPhone
+              ? `📞 Appel ${data.type === 'video' ? 'vidéo' : 'audio'} — ${callerPhone}`
+              : `📞 Appel ${data.type === 'video' ? 'vidéo' : 'audio'} Oracle Messenger`,
+            body: 'Ouvrez Oracle Messenger pour répondre.',
+            url: `oraclemessenger://call?action=open&callId=${encodeURIComponent(data.callId)}&conversationId=${encodeURIComponent(data.conversationId)}`,
+            tag: `incoming-call-${data.callId}`,
+            type: 'call',
+            callId: data.callId,
+            conversationId: data.conversationId,
+            callerName: callerPhone || callerName,
+            callerPhone,
+            callType: data.type,
+            requireInteraction: true,
+            vibrate: [1000, 300, 1000, 300, 1000, 700, 1000, 300, 1000],
+          }).then(pushResult => {
+            console.info('[call:push:result]', {
+              callId: data.callId,
+              callerId,
+              receiverId: targetId,
+              targets: pushResult.targets,
+              delivered: pushResult.delivered,
+              failed: pushResult.failed,
+            });
+            for (const callerSocketId of this.socketState.getSocketIds(callerId)) {
+              this.server.to(callerSocketId).emit('call:delivery', {
+                callId: data.callId,
+                receiverId: targetId,
+                socketCount: socketIds.length,
+                activeSocketCount: activeSocketIds.length,
+                pushTargets: pushResult.targets,
+                pushDelivered: pushResult.delivered,
+                pushFailed: pushResult.failed,
+                reachable: socketIds.length > 0 || activeSocketIds.length > 0 || pushResult.delivered > 0,
+                at: new Date().toISOString(),
+              });
+            }
+          }).catch(error => {
+            console.warn('[call:push:error]', {
+              callId: data.callId,
+              callerId,
+              receiverId: targetId,
+              error: error?.message ?? error,
+            });
+            for (const callerSocketId of this.socketState.getSocketIds(callerId)) {
+              this.server.to(callerSocketId).emit('call:delivery', {
+                callId: data.callId,
+                receiverId: targetId,
+                socketCount: socketIds.length,
+                activeSocketCount: activeSocketIds.length,
+                pushTargets: 0,
+                pushDelivered: 0,
+                pushFailed: 1,
+                reachable: socketIds.length > 0 || activeSocketIds.length > 0,
+                error: error?.message ?? String(error),
+                at: new Date().toISOString(),
+              });
+            }
+          });
+        }
+
         console.info('[call:incoming:target]', {
           callId: data.callId,
+          callerId,
           targetId,
           sockets: socketIds.length,
-          pushQueued: true,
+          activeSockets: activeSocketIds.length,
+          pushQueued: !diagnosticCall,
+          notificationState: diagnosticCall ? 'diagnostic-skipped' : 'queued',
         });
         if (socketIds.length) {
           for (const sid of socketIds) {
             const targetSocket = this.server.sockets.sockets.get(sid);
             targetSocket?.join(`call:${data.callId}`);
+            console.info('[CALL_SIGNAL_SENT]', {
+              callId: data.callId,
+              fromUserId: callerId,
+              toUserId: targetId,
+              socketId: sid,
+              signal: 'call:incoming',
+              mediaProvider,
+            });
             this.server.to(sid).emit('call:incoming', {
               callId: data.callId,
               conversationId: data.conversationId,
               callerId,
-              callerName,
+              callerName: callerPhone || callerName,
+              callerPhone,
               type: data.type,
-              mediaProvider: data.mediaProvider === 'livekit' ? 'livekit' : 'webrtc',
+              mediaProvider,
               participants: validTargets,
+            });
+            console.info('[call:incoming:socket-emit]', {
+              callId: data.callId,
+              callerId,
+              receiverId: targetId,
+              socketId: sid,
+              mediaProvider,
             });
           }
         }
       }
-      return this.sendSocketAck(ack, { ok: true, callId: data.callId, targets: validTargets.length });
+      return this.sendSocketAck(ack, { ok: true, callId: data.callId, targets: validTargets.length, mediaProvider });
     } catch (err: any) {
       const message = err?.message ?? 'Erreur de démarrage d’appel';
       client.emit('call:error', { message });
@@ -1079,7 +1982,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('call:answer')
   async handleCallAnswer(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { callId: string; accepted: boolean; mediaProvider?: 'livekit' | 'webrtc' },
+    @MessageBody() data: { callId: string; accepted: boolean; mediaProvider?: 'livekit' | 'webrtc'; reason?: 'busy' | 'refused' },
     @Ack() ack?: (response: Record<string, unknown>) => void,
   ) {
     const responderId = client.data.userId;
@@ -1100,35 +2003,105 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.join(`call:${data.callId}`);
 
     if (call && data.accepted) {
-      call.answered = true;
-      call.answeredAt = Date.now();
-      this.clearCallTimeout(data.callId);
-      this.syncCallNotifications(data.callId, call, 'accepted');
-      console.info('[call:answer]', { callId: data.callId, responderId, accepted: true });
-      this.server.to(`call:${data.callId}`).emit('call:answered', {
+      if (call.mediaProvider === 'livekit' && data.mediaProvider === 'webrtc') {
+        const message = 'Réponse refusée : cet appel a été ouvert en mode LiveKit/SFU.';
+        client.emit('call:error', { message });
+        return this.sendSocketAck(ack, { ok: false, message });
+      }
+      if (call.mediaProvider === 'livekit' && !this.callsSvc.isSfuEnabled()) {
+        const message = 'LiveKit/SFU n’est pas configuré sur le serveur.';
+        client.emit('call:error', { message });
+        return this.sendSocketAck(ack, { ok: false, message });
+      }
+      if (!call.answered) {
+        call.answered = true;
+        call.answeredAt = Date.now();
+        this.clearCallTimeout(data.callId);
+      }
+      call.answeredUserIds.add(responderId);
+      this.syncCallNotifications(data.callId, call, 'accepted', [responderId]);
+      console.info('[CALL_ACCEPTED]', {
+        callId: data.callId,
+        callerId: call.callerId,
+        responderId,
+        mediaProvider: call.mediaProvider,
+      });
+      console.info('[call:answer]', {
+        callId: data.callId,
+        callerId: call.callerId,
+        responderId,
+        accepted: true,
+        callState: 'accepted',
+        mediaProvider: call.mediaProvider,
+      });
+      const answeredPayload = {
         callId: data.callId,
         userId: responderId,
         accepted: true,
         mediaProvider: call.mediaProvider,
+      };
+      this.server.to(`call:${data.callId}`).emit('call:answered', answeredPayload);
+      const directAnsweredSockets = this.emitCallAnsweredToParticipants(call, answeredPayload);
+      console.info('[call:answered:delivered]', {
+        callId: data.callId,
+        responderId,
+        directSockets: directAnsweredSockets,
       });
-      return this.sendSocketAck(ack, { ok: true, accepted: true });
+      return this.sendSocketAck(ack, {
+        ok: true,
+        accepted: true,
+        mediaProvider: call.mediaProvider,
+        room: data.callId,
+        type: call.type,
+        conversationId: call.conversationId,
+      });
     }
     if (!data.accepted && call) {
       const shouldEndCall = call.participants.size <= 2;
-      console.info('[call:answer]', { callId: data.callId, responderId, accepted: false, ended: shouldEndCall });
-      this.syncCallNotifications(data.callId, call, 'refused');
-      this.server.to(`call:${data.callId}`).emit('call:answered', {
+      console.info('[call:answer]', {
+        callId: data.callId,
+        callerId: call.callerId,
+        responderId,
+        accepted: false,
+        ended: shouldEndCall,
+        callState: shouldEndCall ? 'rejected' : 'ringing',
+      });
+      this.syncCallNotifications(
+        data.callId,
+        call,
+        'refused',
+        shouldEndCall ? undefined : [responderId],
+      );
+      const refusedReason = data.reason === 'busy' ? 'busy' : 'refused';
+      const refusedPayload = {
         callId: data.callId,
         userId: responderId,
         accepted: false,
         ended: shouldEndCall,
         mediaProvider: call.mediaProvider,
+        reason: refusedReason,
+      };
+      this.server.to(`call:${data.callId}`).emit('call:answered', refusedPayload);
+      const directRefusedSockets = this.emitCallAnsweredToParticipants(call, refusedPayload);
+      console.info('[call:refused:delivered]', {
+        callId: data.callId,
+        responderId,
+        directSockets: directRefusedSockets,
+        reason: refusedReason,
       });
-      await this.publishCallTrace(call.conversationId, responderId, call.type, 'refused').catch(() => {});
+      if (!this.isDiagnosticCallId(data.callId)) {
+        await this.publishCallTrace(call.conversationId, responderId, call.type, 'refused').catch(() => {});
+      }
       if (shouldEndCall) {
         await this.logCallFinalState(data.callId, call, responderId, 'refused').catch(() => {});
+        console.info('[CALL_ENDED]', {
+          callId: data.callId,
+          enderId: responderId,
+          reason: 'refused',
+          connected: false,
+        });
       } else {
-        await this.callsSvc.logCall({
+        await this.logCallAndNotify({
           callId: data.callId,
           userId: responderId,
           peerId: call.callerId,
@@ -1143,16 +2116,19 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
       this.clearCallTimeout(data.callId);
       if (shouldEndCall) {
+        this.clearPendingWebRtcSignals(data.callId);
         this.activeCalls.delete(data.callId);
       } else {
         call.participants.delete(responderId);
+        call.answeredUserIds.delete(responderId);
         if (!call.participants.size || [...call.participants].every(id => id === call.callerId)) {
+          this.clearPendingWebRtcSignals(data.callId);
           this.activeCalls.delete(data.callId);
         } else {
           this.scheduleNoAnswerTimeout(data.callId);
         }
       }
-      return this.sendSocketAck(ack, { ok: true, accepted: false, ended: shouldEndCall });
+      return this.sendSocketAck(ack, { ok: true, accepted: false, ended: shouldEndCall, reason: refusedReason });
     }
     return this.sendSocketAck(ack, { ok: false, message: 'Réponse appel invalide' });
   }
@@ -1167,21 +2143,40 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const callId = typeof data?.callId === 'string' ? data.callId.slice(0, 120) : '';
     const call = callId ? this.activeCalls.get(callId) : null;
     if (!call || !call.participants.has(userId)) {
+      console.info('[call:get-active]', {
+        callId,
+        userId,
+        found: Boolean(call),
+        authorized: Boolean(call?.participants.has(userId)),
+        result: 'not-found-or-unauthorized',
+      });
       return this.sendSocketAck(ack, { ok: false, message: 'Appel introuvable ou termine' });
     }
 
     client.join(`call:${callId}`);
+    console.info('[call:get-active]', {
+      callId,
+      userId,
+      callerId: call.callerId,
+      conversationId: call.conversationId,
+      type: call.type,
+      mediaProvider: call.mediaProvider,
+      answered: call.answered,
+      result: 'ok',
+    });
     if (userId !== call.callerId) {
       client.emit('call:incoming', {
         callId,
         conversationId: call.conversationId,
         callerId: call.callerId,
-        callerName: call.callerName,
+        callerName: call.callerPhone || call.callerName,
+        callerPhone: call.callerPhone || null,
         type: call.type,
         mediaProvider: call.mediaProvider,
         participants: [...call.participants].filter(id => id !== call.callerId),
       });
     }
+    this.deliverPendingWebRtcSignals(callId, userId);
 
     return this.sendSocketAck(ack, {
       ok: true,
@@ -1189,10 +2184,13 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         callId,
         conversationId: call.conversationId,
         callerId: call.callerId,
-        callerName: call.callerName,
+        callerName: call.callerPhone || call.callerName,
+        callerPhone: call.callerPhone || null,
         type: call.type,
         mediaProvider: call.mediaProvider,
         participants: [...call.participants].filter(id => id !== call.callerId),
+        answered: call.answered,
+        answeredUserIds: [...call.answeredUserIds],
       },
     });
   }
@@ -1204,7 +2202,26 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const call = this.activeCalls.get(data.callId);
     if (!call || !call.participants.has(client.data.userId)) return;
+    console.info('[call:incoming:received]', {
+      callId: data.callId,
+      callerId: call.callerId,
+      receiverId: client.data.userId,
+      conversationId: call.conversationId,
+      sockets: this.socketState.getSocketIds(client.data.userId).length,
+    });
+    console.info('[CALL_SIGNAL_RECEIVED]', {
+      callId: data.callId,
+      callerId: call.callerId,
+      receiverId: client.data.userId,
+      signal: 'call:incoming',
+    });
     for (const sid of this.socketState.getSocketIds(call.callerId)) {
+      console.info('[CALL_RINGING]', {
+        callId: data.callId,
+        callerId: call.callerId,
+        receiverId: client.data.userId,
+        callerSocketId: sid,
+      });
       this.server.to(sid).emit('call:incoming:received', {
         callId: data.callId,
         userId: client.data.userId,
@@ -1212,6 +2229,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         receivedAt: new Date().toISOString(),
       });
     }
+    this.deliverPendingWebRtcSignals(data.callId, client.data.userId);
   }
 
   @SubscribeMessage('call:diagnostic')
@@ -1229,18 +2247,52 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const event = typeof data?.event === 'string' ? data.event.slice(0, 80) : 'unknown';
     const callId = typeof data?.callId === 'string' ? data.callId.slice(0, 120) : undefined;
     const call = callId ? this.activeCalls.get(callId) : null;
-    if (callId && (!call || !call.participants.has(client.data.userId))) return;
+    if (call && !call.participants.has(client.data.userId)) return;
     const details = data?.details && typeof data.details === 'object'
       ? JSON.stringify(data.details).slice(0, 1200)
       : undefined;
     console.info('[call:diagnostic]', {
       callId,
       userId: client.data.userId,
+      activeCall: Boolean(call),
       conversationId: data?.conversationId,
       state: data?.state,
       event,
       details,
       at: data?.at,
+    });
+  }
+
+  @SubscribeMessage('client:diagnostic')
+  handleClientDiagnostic(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: {
+      id?: string;
+      at?: string;
+      event?: string;
+      feature?: string;
+      conversationId?: string;
+      messageId?: string;
+      callId?: string;
+      details?: Record<string, unknown>;
+    },
+  ) {
+    const event = typeof data?.event === 'string' ? data.event.slice(0, 100) : 'unknown';
+    const feature = typeof data?.feature === 'string' ? data.feature.slice(0, 40) : 'unknown';
+    const details = data?.details && typeof data.details === 'object'
+      ? JSON.stringify(data.details).slice(0, 1600)
+      : undefined;
+    console.info('[client:diagnostic]', {
+      id: typeof data?.id === 'string' ? data.id.slice(0, 120) : undefined,
+      userId: client.data.userId,
+      event,
+      feature,
+      conversationId: typeof data?.conversationId === 'string' ? data.conversationId.slice(0, 120) : undefined,
+      messageId: typeof data?.messageId === 'string' ? data.messageId.slice(0, 120) : undefined,
+      callId: typeof data?.callId === 'string' ? data.callId.slice(0, 120) : undefined,
+      details,
+      at: data?.at,
+      serverReceivedAt: new Date().toISOString(),
     });
   }
 
@@ -1263,20 +2315,30 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return this.sendSocketAck(ack, { ok: false, message });
     }
 
-    const [conversationParticipants, knownCallableIds] = await Promise.all([
-      this.chat.getParticipantIds(call.conversationId),
-      this.chat.getKnownCallableUserIds(inviterId),
-    ]);
-    const allowedTargets = new Set([...conversationParticipants, ...knownCallableIds]);
-    const targets = [...new Set(data.targetUserIds ?? [])]
-      .filter(targetId =>
-        targetId !== inviterId &&
-        !call.participants.has(targetId) &&
-        allowedTargets.has(targetId),
-      );
+    const requestedTargets = [...new Set(data.targetUserIds ?? [])]
+      .filter(targetId => targetId !== inviterId && !call.participants.has(targetId));
+    const existingCallableIds = new Set(await this.chat.getExistingCallableUserIds(requestedTargets, inviterId));
+    const targets = requestedTargets.filter(targetId => existingCallableIds.has(targetId));
+    const participantLimit = this.maxCallParticipants(call.type);
+    const remainingSlots = participantLimit - call.participants.size;
 
     if (!targets.length) {
       const message = 'Aucun contact disponible à ajouter à cet appel';
+      client.emit('call:error', { message });
+      return this.sendSocketAck(ack, { ok: false, message });
+    }
+    if (remainingSlots <= 0) {
+      const message = `Limite d’appel ${call.type === 'video' ? 'vidéo' : 'audio'} atteinte : ${participantLimit} participants maximum.`;
+      client.emit('call:error', { message, maxParticipants: participantLimit });
+      return this.sendSocketAck(ack, { ok: false, message, maxParticipants: participantLimit });
+    }
+    if (targets.length > remainingSlots) {
+      const message = `Vous pouvez ajouter ${remainingSlots} participant(s) maximum à cet appel.`;
+      client.emit('call:error', { message, maxParticipants: participantLimit, remainingSlots });
+      return this.sendSocketAck(ack, { ok: false, message, maxParticipants: participantLimit, remainingSlots });
+    }
+    if (call.mediaProvider === 'livekit' && !this.callsSvc.isSfuEnabled()) {
+      const message = 'LiveKit/SFU n’est pas configuré sur le serveur.';
       client.emit('call:error', { message });
       return this.sendSocketAck(ack, { ok: false, message });
     }
@@ -1284,30 +2346,86 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       callId: data.callId,
       inviterId,
       targets: targets.length,
+      participantLimit,
+      remainingSlots,
     });
 
     for (const targetId of targets) {
       call.participants.add(targetId);
+      const socketIds = this.socketState.getSocketIds(targetId);
+      const activeSocketIds = this.socketState.getActiveSocketIds(targetId, this.presenceHeartbeatTimeoutMs);
       this.notif.sendPush(targetId, {
-        title: `📞 Appel ${call.type === 'video' ? 'vidéo' : 'audio'} — ${call.callerName}`,
+        title: call.callerPhone
+          ? `📞 Appel ${call.type === 'video' ? 'vidéo' : 'audio'} — ${call.callerPhone}`
+          : `📞 Appel ${call.type === 'video' ? 'vidéo' : 'audio'} Oracle Messenger`,
         body: 'Vous êtes invité à rejoindre un appel Oracle Messenger.',
         url: `oraclemessenger://call?action=open&callId=${encodeURIComponent(data.callId)}&conversationId=${encodeURIComponent(call.conversationId)}`,
         tag: `incoming-call-${data.callId}`,
         type: 'call',
         callId: data.callId,
         conversationId: call.conversationId,
+        callerName: call.callerPhone || call.callerName,
+        callerPhone: call.callerPhone || null,
+        callType: call.type,
         requireInteraction: true,
         vibrate: [1000, 300, 1000, 300, 1000, 700, 1000, 300, 1000],
-      }).catch(() => {});
+      }).then(pushResult => {
+        console.info('[call:add-participants:push:result]', {
+          callId: data.callId,
+          inviterId,
+          receiverId: targetId,
+          targets: pushResult.targets,
+          delivered: pushResult.delivered,
+          failed: pushResult.failed,
+          sockets: socketIds.length,
+        });
+        for (const inviterSocketId of this.socketState.getSocketIds(inviterId)) {
+          this.server.to(inviterSocketId).emit('call:delivery', {
+            callId: data.callId,
+            receiverId: targetId,
+            socketCount: socketIds.length,
+            activeSocketCount: activeSocketIds.length,
+            pushTargets: pushResult.targets,
+            pushDelivered: pushResult.delivered,
+            pushFailed: pushResult.failed,
+            reachable: socketIds.length > 0 || activeSocketIds.length > 0 || pushResult.delivered > 0,
+            invited: true,
+            at: new Date().toISOString(),
+          });
+        }
+      }).catch(error => {
+        console.warn('[call:add-participants:push:error]', {
+          callId: data.callId,
+          inviterId,
+          receiverId: targetId,
+          error: error?.message ?? error,
+        });
+        for (const inviterSocketId of this.socketState.getSocketIds(inviterId)) {
+          this.server.to(inviterSocketId).emit('call:delivery', {
+            callId: data.callId,
+            receiverId: targetId,
+            socketCount: socketIds.length,
+            activeSocketCount: activeSocketIds.length,
+            pushTargets: 0,
+            pushDelivered: 0,
+            pushFailed: 1,
+            reachable: socketIds.length > 0 || activeSocketIds.length > 0,
+            invited: true,
+            error: error?.message ?? String(error),
+            at: new Date().toISOString(),
+          });
+        }
+      });
 
-      for (const sid of this.socketState.getSocketIds(targetId)) {
+      for (const sid of socketIds) {
         const targetSocket = this.server.sockets.sockets.get(sid);
         targetSocket?.join(`call:${data.callId}`);
         this.server.to(sid).emit('call:incoming', {
           callId: data.callId,
           conversationId: call.conversationId,
           callerId: call.callerId,
-          callerName: call.callerName,
+          callerName: call.callerPhone || call.callerName,
+          callerPhone: call.callerPhone || null,
           type: call.type,
           mediaProvider: call.mediaProvider,
           participants: [...call.participants].filter(id => id !== call.callerId),
@@ -1354,29 +2472,34 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       if (call.answered && call.participants.size > 2) {
         const duration = call.answeredAt ? Math.max(1, Math.round((Date.now() - call.answeredAt) / 1000)) : undefined;
-        const peerId = enderId === call.callerId
+        const originalCallerId = call.originalCallerId ?? call.callerId;
+        const originalCallerName = call.callerPhone || 'Contact Oracle';
+        const isOriginalCaller = enderId === originalCallerId;
+        const peerId = isOriginalCaller
           ? [...call.participants].find(userId => userId !== enderId)
-          : call.callerId;
+          : originalCallerId;
         if (peerId) {
-          const peer = enderId === call.callerId ? await this.users.findById(peerId).catch(() => null) : null;
-          await this.callsSvc.logCall({
+          const peer = isOriginalCaller ? await this.users.findById(peerId).catch(() => null) : null;
+          await this.logCallAndNotify({
             callId: data.callId,
             userId: enderId,
             peerId,
-            peerName: enderId === call.callerId ? peer?.name ?? 'Participant' : call.callerName,
+            peerName: isOriginalCaller ? peer?.phone ?? 'Participant' : originalCallerName,
             type: call.type,
-            direction: enderId === call.callerId ? 'outgoing' : 'incoming',
+            direction: isOriginalCaller ? 'outgoing' : 'incoming',
             duration,
           }).catch(() => {});
         }
 
         call.participants.delete(enderId);
+        call.answeredUserIds.delete(enderId);
         if (enderId === call.callerId) {
           const nextCallerId = [...call.participants][0];
           if (nextCallerId) {
             const nextCaller = await this.users.findById(nextCallerId).catch(() => null);
             call.callerId = nextCallerId;
             call.callerName = nextCaller?.name ?? call.callerName;
+            call.callerPhone = nextCaller?.phone ?? null;
           }
         }
         for (const sid of this.socketState.getSocketIds(enderId)) {
@@ -1398,13 +2521,22 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const duration = connected ? Math.max(1, Math.round((Date.now() - call.answeredAt!) / 1000)) : undefined;
       const reason = connected ? 'ended' : enderId === call.callerId ? 'cancelled' : 'missed';
       await this.logCallFinalState(data.callId, call, enderId, reason).catch(() => {});
-      await this.publishCallTrace(
-        call.conversationId,
+      console.info('[CALL_ENDED]', {
+        callId: data.callId,
         enderId,
-        call.type,
-        connected ? 'ended' : reason === 'cancelled' ? 'cancelled' : 'missed',
+        reason,
+        connected,
         duration,
-      ).catch(() => {});
+      });
+      if (!this.isDiagnosticCallId(data.callId)) {
+        await this.publishCallTrace(
+          call.conversationId,
+          enderId,
+          call.type,
+          connected ? 'ended' : reason === 'cancelled' ? 'cancelled' : 'missed',
+          duration,
+        ).catch(() => {});
+      }
 
       for (const uid of call.participants) {
         const socketIds = this.socketState.getSocketIds(uid);
@@ -1412,79 +2544,165 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
           this.server.to(sid).emit('call:ended', {
             callId: data.callId,
             userId: enderId,
+            reason,
           });
           const participantSocket = this.server.sockets.sockets.get(sid);
           participantSocket?.leave(`call:${data.callId}`);
         }
       }
 
+      this.clearPendingWebRtcSignals(data.callId);
       this.activeCalls.delete(data.callId);
     }
 
     client.leave(`call:${data.callId}`);
   }
 
-  // ── WebRTC Signaling ──────────────────────────────────────────────────────
+  // ── Signalisation WebRTC 1-to-1 / secours ────────────────────────────────
 
   @SubscribeMessage('webrtc:offer')
   handleOffer(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string; targetUserId: string; sdp: RTCSessionDescriptionInit },
+    @Ack() ack?: (response: Record<string, unknown>) => void,
   ) {
     if (!this.getAuthorizedCall(data.callId, client.data.userId, data.targetUserId)) {
-      client.emit('call:error', { message: 'Signalisation non autorisée' });
-      return;
+      const message = 'Signalisation non autorisée';
+      client.emit('call:error', { message });
+      return this.sendSocketAck(ack, { ok: false, message });
     }
     const socketIds = this.socketState.getSocketIds(data.targetUserId);
-    console.info('[webrtc:offer]', { callId: data.callId, from: client.data.userId, to: data.targetUserId, sockets: socketIds.length });
+    console.info('[webrtc:offer]', { callId: data.callId, from: client.data.userId, to: data.targetUserId, sockets: socketIds.length, sdpType: data.sdp?.type });
+    console.info('[SDP_OFFER_SENT]', { callId: data.callId, from: client.data.userId, to: data.targetUserId, sockets: socketIds.length, sdpType: data.sdp?.type });
+    let delivered = 0;
     for (const sid of socketIds) {
-      this.server.to(sid).emit('webrtc:offer', {
+      const targetSocket = this.server.sockets.sockets.get(sid);
+      if (!targetSocket) continue;
+      targetSocket.emit('webrtc:offer', {
         callId: data.callId,
         fromUserId: client.data.userId,
         sdp: data.sdp,
       });
+      delivered += 1;
     }
+    console.info('[webrtc:offer:relay-result]', { callId: data.callId, from: client.data.userId, to: data.targetUserId, sockets: socketIds.length, delivered });
+    if (delivered === 0) {
+      console.info('[webrtc:offer:offline-target]', { callId: data.callId, from: client.data.userId, to: data.targetUserId });
+      this.queuePendingWebRtcSignal({
+        kind: 'offer',
+        callId: data.callId,
+        fromUserId: client.data.userId,
+        targetUserId: data.targetUserId,
+        sdp: data.sdp,
+        queuedAt: Date.now(),
+      });
+    }
+    return this.sendSocketAck(ack, {
+      ok: true,
+      queued: delivered === 0,
+      sockets: delivered,
+    });
   }
 
   @SubscribeMessage('webrtc:answer')
   handleAnswer(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string; targetUserId: string; sdp: RTCSessionDescriptionInit },
+    @Ack() ack?: (response: Record<string, unknown>) => void,
   ) {
     if (!this.getAuthorizedCall(data.callId, client.data.userId, data.targetUserId)) {
-      client.emit('call:error', { message: 'Signalisation non autorisée' });
-      return;
+      const message = 'Signalisation non autorisée';
+      client.emit('call:error', { message });
+      return this.sendSocketAck(ack, { ok: false, message });
     }
     const socketIds = this.socketState.getSocketIds(data.targetUserId);
-    console.info('[webrtc:answer]', { callId: data.callId, from: client.data.userId, to: data.targetUserId, sockets: socketIds.length });
+    console.info('[webrtc:answer]', { callId: data.callId, from: client.data.userId, to: data.targetUserId, sockets: socketIds.length, sdpType: data.sdp?.type });
+    console.info('[SDP_ANSWER_RECEIVED]', { callId: data.callId, from: client.data.userId, to: data.targetUserId, sockets: socketIds.length, sdpType: data.sdp?.type });
+    let delivered = 0;
     for (const sid of socketIds) {
-      this.server.to(sid).emit('webrtc:answer', {
+      const targetSocket = this.server.sockets.sockets.get(sid);
+      if (!targetSocket) continue;
+      targetSocket.emit('webrtc:answer', {
         callId: data.callId,
         fromUserId: client.data.userId,
         sdp: data.sdp,
       });
+      delivered += 1;
     }
+    console.info('[webrtc:answer:relay-result]', { callId: data.callId, from: client.data.userId, to: data.targetUserId, sockets: socketIds.length, delivered });
+    if (delivered === 0) {
+      console.info('[webrtc:answer:offline-target]', { callId: data.callId, from: client.data.userId, to: data.targetUserId });
+      this.queuePendingWebRtcSignal({
+        kind: 'answer',
+        callId: data.callId,
+        fromUserId: client.data.userId,
+        targetUserId: data.targetUserId,
+        sdp: data.sdp,
+        queuedAt: Date.now(),
+      });
+    }
+    return this.sendSocketAck(ack, {
+      ok: true,
+      queued: delivered === 0,
+      sockets: delivered,
+    });
   }
 
   @SubscribeMessage('webrtc:ice')
   handleIce(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { callId: string; targetUserId: string; candidate: RTCIceCandidateInit },
+    @Ack() ack?: (response: Record<string, unknown>) => void,
   ) {
     if (!this.getAuthorizedCall(data.callId, client.data.userId, data.targetUserId)) {
-      client.emit('call:error', { message: 'Signalisation non autorisée' });
-      return;
+      const message = 'Signalisation non autorisée';
+      client.emit('call:error', { message });
+      return this.sendSocketAck(ack, { ok: false, message });
     }
     const socketIds = this.socketState.getSocketIds(data.targetUserId);
     if (socketIds.length === 0) {
       console.info('[webrtc:ice:offline-target]', { callId: data.callId, from: client.data.userId, to: data.targetUserId });
     }
+    console.info('[webrtc:ice]', {
+      callId: data.callId,
+      from: client.data.userId,
+      to: data.targetUserId,
+      sockets: socketIds.length,
+      ...this.summarizeIceCandidate(data.candidate),
+    });
+    let delivered = 0;
     for (const sid of socketIds) {
-      this.server.to(sid).emit('webrtc:ice', {
+      const targetSocket = this.server.sockets.sockets.get(sid);
+      if (!targetSocket) continue;
+      targetSocket.emit('webrtc:ice', {
         callId: data.callId,
         fromUserId: client.data.userId,
         candidate: data.candidate,
       });
+      delivered += 1;
     }
+    console.info('[webrtc:ice:relay-result]', {
+      callId: data.callId,
+      from: client.data.userId,
+      to: data.targetUserId,
+      sockets: socketIds.length,
+      delivered,
+      ...this.summarizeIceCandidate(data.candidate),
+    });
+    if (delivered === 0) {
+      this.queuePendingWebRtcSignal({
+        kind: 'ice',
+        callId: data.callId,
+        fromUserId: client.data.userId,
+        targetUserId: data.targetUserId,
+        candidate: data.candidate,
+        queuedAt: Date.now(),
+      });
+    }
+    return this.sendSocketAck(ack, {
+      ok: true,
+      queued: delivered === 0,
+      sockets: delivered,
+    });
   }
 }

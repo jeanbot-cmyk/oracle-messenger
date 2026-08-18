@@ -178,6 +178,7 @@ function MeetingTab({ userName }: { userName: string }) {
 /* ── Flyer IA ── */
 interface FlyerCreation {
   id: string;
+  generationId?: string;
   title: string;
   prompt: string;
   imageUrl: string;
@@ -292,7 +293,8 @@ function FlyerTab({ token, ownerId, paystackReference }: { token: string; ownerI
         name: image.name,
       })));
       const creation: FlyerCreation = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: data.generationId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        generationId: data.generationId,
         title: data.title || 'Flyer IA',
         prompt,
         imageUrl: data.imageUrl,
@@ -347,7 +349,7 @@ function FlyerTab({ token, ownerId, paystackReference }: { token: string; ownerI
     }
   }
 
-  function saveCreationToPhone(item: FlyerCreation) {
+  async function saveCreationToPhone(item: FlyerCreation) {
     try {
       saveToGallery(item.imageUrl, 'image', `${item.title}.png`, { mime: item.mime, source: 'ai_flyer' }, ownerId);
       const a = document.createElement('a');
@@ -356,6 +358,7 @@ function FlyerTab({ token, ownerId, paystackReference }: { token: string; ownerI
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      if (item.generationId) await api.aiFlyer.markDownloaded(token, item.generationId).catch(() => null);
       notify('Flyer enregistré.', 'success');
     } catch {
       notify('Téléchargement impossible sur ce navigateur.', 'error');
@@ -668,6 +671,7 @@ async function prepareFlyerReferenceImage(file: File): Promise<FlyerReferenceIma
 /* ── IA Vidéo ── */
 interface VideoCreation {
   id: string;
+  generationId?: string;
   title: string;
   prompt: string;
   videoUrl: string;
@@ -929,7 +933,8 @@ function VideoTab({ token, ownerId, paystackReference }: { token: string; ownerI
         referenceImages: referenceImages.map(image => ({ dataUrl: image.dataUrl, mime: image.mime, name: image.name })),
       });
       const creation: VideoCreation = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: data.generationId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        generationId: data.generationId,
         title: data.title || 'Vidéo IA',
         prompt,
         videoUrl: data.videoUrl,
@@ -972,7 +977,7 @@ function VideoTab({ token, ownerId, paystackReference }: { token: string; ownerI
     }
   }
 
-  function saveVideo(item: VideoCreation) {
+  async function saveVideo(item: VideoCreation) {
     try {
       saveToGallery(item.videoUrl, 'video', `${item.title}.mp4`, { mime: item.mime, source: 'manual' }, ownerId);
       const a = document.createElement('a');
@@ -981,6 +986,7 @@ function VideoTab({ token, ownerId, paystackReference }: { token: string; ownerI
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      if (item.generationId) await api.aiVideo.markDownloaded(token, item.generationId).catch(() => null);
       notify('Vidéo enregistrée.', 'success');
     } catch {
       notify('Téléchargement impossible sur ce navigateur.', 'error');
@@ -1014,13 +1020,13 @@ function VideoTab({ token, ownerId, paystackReference }: { token: string; ownerI
           <div style={{ flex:1, minWidth:0 }}>
             <p style={{ margin:'0 0 4px', fontSize:17, fontWeight:950, color:'var(--text-primary)' }}>Activer la vidéo Premium</p>
             <p style={{ margin:0, fontSize:12.8, lineHeight:1.45, color:'var(--text-muted)', fontWeight:700 }}>
-              Test 8 secondes gratuit une fois par semaine. Pour une vidéo 45 secondes, payez 3 000 FCFA puis lancez la génération.
+              Test 8 secondes gratuit une fois par semaine. Pour une vidéo 45 secondes, payez 3 500 FCFA puis lancez la génération.
             </p>
           </div>
         </div>
         <button onClick={() => { setDurationSeconds(45); pay(); }} disabled={loading || !overview?.paystackReady || Boolean(paymentReference)}
           style={{ width:'100%', border:'none', borderRadius:14, background:paymentReference ? '#16A34A' : '#102A2A', color:'#fff', padding:14, fontSize:15, fontWeight:950, cursor:overview?.paystackReady && !paymentReference ? 'pointer' : 'default', opacity:overview?.paystackReady ? 1 : .48 }}>
-          {paymentReference ? 'Paiement validé - créez la vidéo' : 'Payer Premium 45s - 3 000 FCFA'}
+          {paymentReference ? 'Paiement validé - créez la vidéo' : 'Payer Premium 45s - 3 500 FCFA'}
         </button>
         {!overview?.paystackReady && <Alert text="Paiement non disponible : Paystack n’est pas encore configuré sur le serveur." />}
       </div>
@@ -1092,7 +1098,7 @@ function VideoTab({ token, ownerId, paystackReference }: { token: string; ownerI
         )}
         {needsPayment && (
           <div style={{ margin:'0 0 12px', background:'#FFF7ED', border:'1px solid #FED7AA', borderRadius:12, padding:'10px 12px', color:'#9A3412', fontSize:12.5, lineHeight:1.45, fontWeight:800 }}>
-            Vidéo Premium 45 secondes : 3 000 FCFA. Le paiement doit être validé avant la génération.
+            Vidéo Premium 45 secondes : 3 500 FCFA. Le paiement doit être validé avant la génération.
             <button onClick={pay} disabled={loading || !overview?.paystackReady}
               style={{ width:'100%', marginTop:10, border:'none', borderRadius:12, background:'#102A2A', color:'#fff', padding:12, fontSize:14, fontWeight:950, cursor:overview?.paystackReady ? 'pointer' : 'default', opacity:overview?.paystackReady ? 1 : .48 }}>
               Payer avec Paystack

@@ -10,6 +10,7 @@ import android.media.AudioAttributes
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
@@ -39,6 +40,31 @@ class OracleIncomingCallNotificationModule(
       promise.resolve(true)
     } catch (error: Exception) {
       promise.reject("ORACLE_INCOMING_CALL_CANCEL_FAILED", error.message, error)
+    }
+  }
+
+  @ReactMethod
+  fun consumePendingCallAction(promise: Promise) {
+    try {
+      val prefs = reactContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+      val callId = prefs.getString(KEY_CALL_ID, null).orEmpty()
+      if (callId.isBlank()) {
+        promise.resolve(null)
+        return
+      }
+      val action = prefs.getString(KEY_ACTION, "open").orEmpty().ifBlank { "open" }
+      val conversationId = prefs.getString(KEY_CONVERSATION_ID, null).orEmpty()
+      val url = prefs.getString(KEY_URL, null).orEmpty()
+      prefs.edit().clear().apply()
+
+      promise.resolve(Arguments.createMap().apply {
+        putString("action", action)
+        putString("callId", callId)
+        putString("conversationId", conversationId)
+        putString("url", url.ifBlank { callDeepLink(action, callId, conversationId) })
+      })
+    } catch (error: Exception) {
+      promise.reject("ORACLE_PENDING_CALL_ACTION_FAILED", error.message, error)
     }
   }
 
@@ -75,7 +101,7 @@ class OracleIncomingCallNotificationModule(
       .setPriority(NotificationCompat.PRIORITY_MAX)
       .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
       .setAutoCancel(false)
-      .setOngoing(false)
+      .setOngoing(true)
       .setSound(callSoundUri())
       .setVibrate(CALL_VIBRATION_PATTERN)
       .setTimeoutAfter(CALL_TIMEOUT_MS)
@@ -87,8 +113,14 @@ class OracleIncomingCallNotificationModule(
 
   private fun activityIntent(callId: String, conversationId: String, action: String): PendingIntent {
     val intent = Intent(reactContext, MainActivity::class.java).apply {
-      flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-      data = Uri.parse("oraclemessenger://call?action=$action&callId=${Uri.encode(callId)}&conversationId=${Uri.encode(conversationId)}")
+      val deeplink = "oraclemessenger://call?action=$action&callId=${Uri.encode(callId)}&conversationId=${Uri.encode(conversationId)}"
+      this.action = Intent.ACTION_VIEW
+      flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+      data = Uri.parse(deeplink)
+      putExtra("url", deeplink)
+      putExtra("callId", callId)
+      putExtra("conversationId", conversationId)
+      putExtra("callAction", action)
     }
     return PendingIntent.getActivity(
       reactContext,
@@ -102,16 +134,59 @@ class OracleIncomingCallNotificationModule(
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
 
   private fun callSoundUri(): Uri =
-    Uri.parse("android.resource://${reactContext.packageName}/${R.raw.oracle_call}")
+    Uri.parse("android.resource://${reactContext.packageName}/${R.raw.oracle_incoming_call}")
 
   companion object {
-    private const val CHANNEL_ID = "oracle_messenger_incoming_calls_v5"
-    private const val CALL_TIMEOUT_MS = 360_000L
+    private const val PREFS_NAME = "oracle_messenger_pending_call_action"
+    private const val KEY_ACTION = "action"
+    private const val KEY_CALL_ID = "callId"
+    private const val KEY_CONVERSATION_ID = "conversationId"
+    private const val KEY_URL = "url"
+    private const val CHANNEL_ID = "oracle_messenger_incoming_calls_v8"
+    private const val CALL_TIMEOUT_MS = 300_000L
     private val CALL_VIBRATION_PATTERN = longArrayOf(0, 650, 250, 650, 250, 1100)
 
     private fun notificationId(callId: String): Int = 42000 + kotlin.math.abs(callId.hashCode() % 1000)
 
     private fun requestCode(callId: String, action: String): Int =
       kotlin.math.abs("$callId:$action".hashCode())
+
+    private fun normalizedAction(value: String?): String {
+      val clean = value?.trim()?.lowercase().orEmpty()
+      return if (clean == "accept" || clean == "reject" || clean == "open") clean else "open"
+    }
+
+    private fun callDeepLink(action: String, callId: String, conversationId: String): String {
+      val query = StringBuilder("oraclemessenger://call?action=${Uri.encode(normalizedAction(action))}&callId=${Uri.encode(callId)}")
+      if (conversationId.isNotBlank()) query.append("&conversationId=${Uri.encode(conversationId)}")
+      return query.toString()
+    }
+
+    fun rememberPendingCallIntent(context: Context, intent: Intent?): Boolean {
+      if (intent == null) return false
+      val data = intent.data
+      val isCallDeepLink = data?.scheme == "oraclemessenger" && data.host == "call"
+      val callId = data?.getQueryParameter("callId")
+        ?: intent.getStringExtra("callId")
+        ?: return false
+      if (callId.isBlank()) return false
+      val action = normalizedAction(data?.getQueryParameter("action") ?: intent.getStringExtra("callAction"))
+      val conversationId = data?.getQueryParameter("conversationId")
+        ?: data?.getQueryParameter("conv")
+        ?: intent.getStringExtra("conversationId")
+        ?: ""
+      val url = data?.toString()
+        ?: intent.getStringExtra("url")
+        ?: callDeepLink(action, callId, conversationId)
+      if (!isCallDeepLink && intent.getStringExtra("callAction").isNullOrBlank()) return false
+      context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putString(KEY_ACTION, action)
+        .putString(KEY_CALL_ID, callId)
+        .putString(KEY_CONVERSATION_ID, conversationId)
+        .putString(KEY_URL, url)
+        .apply()
+      return true
+    }
   }
 }

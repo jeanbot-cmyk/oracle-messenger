@@ -17,10 +17,15 @@ export class SocketStateService {
   setServer(server: Server) { this._server = server; }
   get server(): Server | null { return this._server; }
 
+  userRoom(userId: string) {
+    return `user:${userId}`;
+  }
+
   setUserSocket(userId: string, socketId: string, state: PresenceState = 'active') {
     const sockets = this._userSockets.get(userId) ?? new Set<string>();
     sockets.add(socketId);
     this._userSockets.set(userId, sockets);
+    this._server?.sockets.sockets.get(socketId)?.join(this.userRoom(userId));
     this.setSocketPresence(userId, socketId, state);
   }
 
@@ -36,6 +41,7 @@ export class SocketStateService {
     if (!sockets) return;
     sockets.delete(socketId);
     if (sockets.size === 0) this._userSockets.delete(userId);
+    this._server?.sockets.sockets.get(socketId)?.leave(this.userRoom(userId));
     this._socketPresence.delete(socketId);
   }
 
@@ -51,7 +57,37 @@ export class SocketStateService {
     return [...(this._userSockets.get(userId) ?? [])];
   }
 
+  getActiveSocketIds(userId: string, maxAgeMs = 70_000): string[] {
+    const now = Date.now();
+    return this.getSocketIds(userId).filter(socketId => {
+      const presence = this._socketPresence.get(socketId);
+      return Boolean(
+        presence &&
+        presence.userId === userId &&
+        presence.state === 'active' &&
+        now - presence.lastHeartbeat <= maxAgeMs,
+      );
+    });
+  }
+
   getOnlineUserIds(): string[] { return [...this._userSockets.keys()]; }
+
+  getConnectedSocketCount(): number {
+    let count = 0;
+    for (const sockets of this._userSockets.values()) count += sockets.size;
+    return count;
+  }
+
+  getActivePresenceUserIds(maxAgeMs = 70_000): string[] {
+    const now = Date.now();
+    const activeIds = new Set<string>();
+    for (const presence of this._socketPresence.values()) {
+      if (presence.state === 'active' && now - presence.lastHeartbeat <= maxAgeMs) {
+        activeIds.add(presence.userId);
+      }
+    }
+    return [...activeIds];
+  }
 
   setSocketPresence(userId: string, socketId: string, state: PresenceState = 'active') {
     if (!this.getSocketIds(userId).includes(socketId)) return;
@@ -66,6 +102,18 @@ export class SocketStateService {
         presence &&
         presence.userId === userId &&
         presence.state === 'active' &&
+        now - presence.lastHeartbeat <= maxAgeMs,
+      );
+    });
+  }
+
+  hasRecentUserPresence(userId: string, maxAgeMs = 70_000): boolean {
+    const now = Date.now();
+    return this.getSocketIds(userId).some(socketId => {
+      const presence = this._socketPresence.get(socketId);
+      return Boolean(
+        presence &&
+        presence.userId === userId &&
         now - presence.lastHeartbeat <= maxAgeMs,
       );
     });
@@ -86,9 +134,12 @@ export class SocketStateService {
   /** Emit to a specific user if connected */
   emitToUser(userId: string, event: string, data: any) {
     if (!this._server) return;
-    for (const sid of this.getSocketIds(userId)) {
-      this._server.to(sid).emit(event, data);
-    }
+    this._server.to(this.userRoom(userId)).emit(event, data);
+  }
+
+  emitToUserExceptRoom(userId: string, excludedRoom: string, event: string, data: any) {
+    if (!this._server) return;
+    this._server.to(this.userRoom(userId)).except(excludedRoom).emit(event, data);
   }
 
   /** Broadcast to ALL connected clients */

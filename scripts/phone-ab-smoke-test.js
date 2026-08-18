@@ -36,6 +36,13 @@ function requireSocketIoClient() {
 
 const { io } = requireSocketIoClient();
 
+const currentClient = {
+  app: 'oracle-messenger-native',
+  platform: 'android',
+  versionName: '1.0.20260814.6',
+  versionCode: 2026081406,
+};
+
 const inputPath = process.env.OM_PHONE_TEST_JSON;
 if (!inputPath) {
   console.error('OM_PHONE_TEST_JSON est requis');
@@ -78,7 +85,13 @@ async function api(pathname, token, options = {}) {
 
 function connectPhone(label, token) {
   const socket = io(backendUrl, {
-    auth: { token },
+    auth: { token, client: currentClient },
+    extraHeaders: {
+      'X-Oracle-App': currentClient.app,
+      'X-Oracle-Platform': currentClient.platform,
+      'X-Oracle-Version': currentClient.versionName,
+      'X-Oracle-Version-Code': String(currentClient.versionCode),
+    },
     transports: ['websocket', 'polling'],
     reconnection: false,
     timeout: 8000,
@@ -193,12 +206,22 @@ async function main() {
     await waitForEvent(phoneA, 'message:update', payload => payload?.id === received.id && Array.isArray(payload?.patch?.reactions));
     log('réaction message OK', { ack: Boolean(reactionAck) });
 
+    const sfuStatus = await api('/calls/sfu-status', users.a.token);
+    const mediaProvider = sfuStatus.enabled ? 'livekit' : 'webrtc';
+    assert(mediaProvider === 'livekit', `LiveKit/SFU indisponible: ${sfuStatus.reason || 'configuration absente'}`);
+    log('statut SFU appels OK', {
+      mediaProvider,
+      maxAudioParticipants: sfuStatus.maxAudioParticipants,
+      maxVideoParticipants: sfuStatus.maxVideoParticipants,
+    });
+
     const callId = `smoke-${Date.now()}-${uniq}`;
     const startAck = await emitAck(phoneA, 'call:start', {
       callId,
       conversationId: conv.id,
       type: 'audio',
       targetUserIds: [users.b.id],
+      mediaProvider,
     });
     assert(startAck?.ok, `call:start KO: ${JSON.stringify(startAck)}`);
     const incoming = await waitForEvent(phoneB, 'call:incoming', payload => payload?.callId === callId);
@@ -212,19 +235,7 @@ async function main() {
     await waitForEvent(phoneA, 'call:answered', payload => payload?.callId === callId && payload?.accepted === true);
     log('décrochage logique OK', { callId });
 
-    const fakeOffer = { type: 'offer', sdp: `v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=oracle-smoke-${uniq}\r\n` };
-    const fakeAnswer = { type: 'answer', sdp: `v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=oracle-smoke-answer-${uniq}\r\n` };
-    phoneA.socket.emit('webrtc:offer', { callId, targetUserId: users.b.id, sdp: fakeOffer });
-    await waitForEvent(phoneB, 'webrtc:offer', payload => payload?.callId === callId && payload?.fromUserId === users.a.id);
-    phoneB.socket.emit('webrtc:answer', { callId, targetUserId: users.a.id, sdp: fakeAnswer });
-    await waitForEvent(phoneA, 'webrtc:answer', payload => payload?.callId === callId && payload?.fromUserId === users.b.id);
-    phoneA.socket.emit('webrtc:ice', {
-      callId,
-      targetUserId: users.b.id,
-      candidate: { candidate: `candidate:1 1 udp 2122260223 192.0.2.1 54400 typ host generation 0`, sdpMid: '0', sdpMLineIndex: 0 },
-    });
-    await waitForEvent(phoneB, 'webrtc:ice', payload => payload?.callId === callId && payload?.fromUserId === users.a.id);
-    log('signalisation WebRTC offer/answer/ICE OK', { callId });
+    log('signalisation LiveKit sélectionnée', { callId, mediaProvider });
 
     const addAck = await emitAck(phoneA, 'call:add-participants', { callId, targetUserIds: [users.c.id] });
     assert(addAck?.ok, `call:add-participants KO: ${JSON.stringify(addAck)}`);
@@ -233,8 +244,15 @@ async function main() {
     log('ajout participant en appel OK', { target: users.c.id });
 
     phoneA.socket.emit('call:end', { callId });
-    await waitForEvent(phoneB, 'call:ended', payload => payload?.callId === callId);
-    log('fin appel + diffusion OK', { callId });
+    await Promise.all([
+      waitForEvent(phoneB, 'call:participant-left', payload => payload?.callId === callId && payload?.userId === users.a.id),
+      waitForEvent(phoneC, 'call:participant-left', payload => payload?.callId === callId && payload?.userId === users.a.id),
+    ]);
+    log('sortie appel groupe OK', { callId, userId: users.a.id });
+
+    phoneB.socket.emit('call:end', { callId });
+    await waitForEvent(phoneC, 'call:ended', payload => payload?.callId === callId);
+    log('fin appel groupe + diffusion OK', { callId });
 
     const historyA = await api('/calls/history?limit=10', users.a.token);
     const historyB = await api('/calls/history?limit=10', users.b.token);

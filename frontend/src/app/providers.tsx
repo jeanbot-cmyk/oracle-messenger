@@ -9,8 +9,18 @@ import { clearOldTextMessages } from '../lib/db';
 import { buildChromeInstallIntentUrl, isInstalledAppMode, shouldOpenAndroidLinkInChrome } from '../lib/androidChrome';
 import { BACKEND_URL } from '../lib/config';
 
-const CLIENT_CACHE_VERSION = '201-20260810-native-calls-icon-safe';
+const CLIENT_CACHE_VERSION = '202-20260815-light-browser-navigation';
 const PWA_INSTALL_PENDING_KEY = 'oracle-pwa-install-pending';
+
+function runWhenIdle(task: () => void) {
+  if (typeof window === 'undefined') return;
+  const idle = (window as any).requestIdleCallback as undefined | ((cb: () => void, options?: { timeout?: number }) => number);
+  if (idle) {
+    idle(task, { timeout: 3500 });
+    return;
+  }
+  window.setTimeout(task, 900);
+}
 
 function ThemeApplier() {
   const { theme, lang, setLang, langManual } = useSettings();
@@ -39,65 +49,69 @@ function ThemeApplier() {
       document.cookie = 'pwa-installed=1; path=/; max-age=31536000; SameSite=Lax';
     }
 
-    // Service Worker — register and handle updates
-    if (!nativeAppMode && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
-        .then(reg => {
-          const storedVersion = localStorage.getItem('oracle-client-cache-version');
-          if (storedVersion !== CLIENT_CACHE_VERSION && 'caches' in window) {
-            caches.keys()
-              .then(keys => Promise.all(keys.map(key => caches.delete(key))))
-              .then(() => localStorage.setItem('oracle-client-cache-version', CLIENT_CACHE_VERSION))
-              .then(() => {
-                navigator.serviceWorker.controller?.postMessage({ type: 'force-update' });
-                return reg.update().catch(() => {});
-              })
-              .catch(() => localStorage.setItem('oracle-client-cache-version', CLIENT_CACHE_VERSION));
-          }
-          // Check for updates every time the page loads
-          reg.update().catch(() => {});
-
-          // Keep the update marker without forcing a visible reload during cold start.
-          navigator.serviceWorker.addEventListener('message', e => {
-            if (e.data?.type === 'SW_UPDATED') {
-              localStorage.setItem('oracle-client-cache-version', CLIENT_CACHE_VERSION);
-              window.dispatchEvent(new CustomEvent('oracle:sw-updated', { detail: e.data }));
-            }
-          });
-        })
+    const onPrompt = (e: Event) => {
+      e.preventDefault();
+      (window as any).__installPrompt = e;
+    };
+    const onInstalled = () => {
+      localStorage.setItem(PWA_INSTALL_PENDING_KEY, '1');
+      fetch('/api/admin/pwa-install', { method: 'POST' })
+        .then(res => { if (res.ok) localStorage.removeItem(PWA_INSTALL_PENDING_KEY); })
         .catch(() => {});
+    };
+    const onServiceWorkerMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'SW_UPDATED') {
+        localStorage.setItem('oracle-client-cache-version', CLIENT_CACHE_VERSION);
+        window.dispatchEvent(new CustomEvent('oracle:sw-updated', { detail: e.data }));
+      }
+    };
 
-      // Persist the install prompt so the user can reinstall after uninstall
-      window.addEventListener('beforeinstallprompt', (e: any) => {
-        e.preventDefault();
-        (window as any).__installPrompt = e;
-      });
+    window.addEventListener('beforeinstallprompt', onPrompt);
+    window.addEventListener('appinstalled', onInstalled);
+    navigator.serviceWorker?.addEventListener?.('message', onServiceWorkerMessage);
 
-      // Track PWA installs
-      window.addEventListener('appinstalled', () => {
-        localStorage.setItem(PWA_INSTALL_PENDING_KEY, '1');
-        fetch('/api/admin/pwa-install', { method: 'POST' })
-          .then(res => { if (res.ok) localStorage.removeItem(PWA_INSTALL_PENDING_KEY); })
+    const shouldUseServiceWorker =
+      !nativeAppMode &&
+      'serviceWorker' in navigator &&
+      (
+        isStandalone ||
+        localStorage.getItem(PWA_INSTALL_PENDING_KEY) === '1' ||
+        ('Notification' in window && Notification.permission === 'granted')
+      );
+
+    if (shouldUseServiceWorker) {
+      runWhenIdle(() => {
+        navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+          .then(reg => {
+            const storedVersion = localStorage.getItem('oracle-client-cache-version');
+            if (storedVersion !== CLIENT_CACHE_VERSION && 'caches' in window) {
+              caches.keys()
+                .then(keys => Promise.all(keys.map(key => caches.delete(key))))
+                .then(() => localStorage.setItem('oracle-client-cache-version', CLIENT_CACHE_VERSION))
+                .then(() => {
+                  navigator.serviceWorker.controller?.postMessage({ type: 'force-update' });
+                  return reg.update().catch(() => {});
+                })
+                .catch(() => localStorage.setItem('oracle-client-cache-version', CLIENT_CACHE_VERSION));
+            } else {
+              reg.update().catch(() => {});
+            }
+          })
           .catch(() => {});
       });
     }
 
-    // Storage quota alert — warn if < 10% free
-    if (!nativeAppMode && navigator.storage?.estimate) {
-      navigator.storage.estimate().then(({ usage = 0, quota = 1 }) => {
-        const pctFree = ((quota - usage) / quota) * 100;
-        if (pctFree < 10 && Notification.permission === 'granted') {
-          new Notification('Oracle Messenger — Stockage', {
-            body: "Votre téléphone est presque plein. Supprimez quelques fichiers dans Oracle Messenger pour libérer de l'espace.",
-            icon: '/icons/icon-192-v20260809-premium.png',
-          });
-        }
-      }).catch(() => {});
-    }
-
     // Contacts are imported only from /contacts after an explicit user tap.
-    // Browsers display a native contact picker that cannot be styled by the app.
-    clearOldTextMessages(5).catch(() => {});
+    // Cleanup runs when the browser is idle so navigation does not feel blocked.
+    runWhenIdle(() => {
+      clearOldTextMessages(5).catch(() => {});
+    });
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onPrompt);
+      window.removeEventListener('appinstalled', onInstalled);
+      navigator.serviceWorker?.removeEventListener?.('message', onServiceWorkerMessage);
+    };
   }, []);
 
   return null;
@@ -194,7 +208,8 @@ function InstallBanner() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const path = window.location.pathname;
-    if (path === '/' || path.startsWith('/install') || isStandaloneMode()) return;
+    const explicitlyRequested = new URLSearchParams(window.location.search).get('install') === '1';
+    if (!explicitlyRequested || path === '/' || path.startsWith('/install') || isStandaloneMode()) return;
 
     const showTimer = setTimeout(() => setVisible(!isStandaloneMode()), 900);
     const onPrompt = (e: any) => {

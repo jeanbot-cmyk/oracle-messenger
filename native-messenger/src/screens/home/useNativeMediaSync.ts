@@ -31,15 +31,19 @@ export function useNativeMediaSync() {
     ));
   }, [clearMediaRefreshTimers, refreshLocalMediaIndex]);
 
+  const shouldRefreshMediaIndex = useCallback((result?: MediaSyncResult | null) => (
+    Boolean(result?.queuedNativeMessageIds.length || result?.savedMessageIds.length)
+  ), []);
+
   const runMediaSync = useCallback((activeToken: string, currentUserId?: string, knownMessages: Message[] = []) => (
     syncPendingMedia(activeToken, currentUserId, knownMessages)
       .then(result => {
         scheduleMediaIndexRefreshes(result);
+        if (shouldRefreshMediaIndex(result)) void refreshLocalMediaIndex().catch(() => null);
         return result;
       })
-      .finally(() => refreshLocalMediaIndex().catch(() => null))
       .catch(() => null)
-  ), [refreshLocalMediaIndex, scheduleMediaIndexRefreshes]);
+  ), [refreshLocalMediaIndex, scheduleMediaIndexRefreshes, shouldRefreshMediaIndex]);
 
   return {
     localMediaByMessageId,

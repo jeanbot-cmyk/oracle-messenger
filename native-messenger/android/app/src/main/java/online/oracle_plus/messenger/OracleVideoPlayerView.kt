@@ -30,6 +30,7 @@ class OracleVideoPlayerView(context: Context) : FrameLayout(context) {
       ViewGroup.LayoutParams.MATCH_PARENT,
       ViewGroup.LayoutParams.MATCH_PARENT
     )
+    videoView.setBackgroundColor(Color.BLACK)
     videoView.setMediaController(mediaController)
     mediaController.setAnchorView(videoView)
     addView(videoView)
@@ -52,8 +53,14 @@ class OracleVideoPlayerView(context: Context) : FrameLayout(context) {
       videoHeight = player.videoHeight
       updateVideoLayout()
       player.isLooping = repeat
+      player.setOnVideoSizeChangedListener { _, width, height ->
+        videoWidth = width
+        videoHeight = height
+        updateVideoLayout()
+      }
       applyMute()
       errorView.visibility = GONE
+      videoView.setBackgroundColor(Color.TRANSPARENT)
       if (!paused) videoView.start()
     }
 
@@ -81,6 +88,9 @@ class OracleVideoPlayerView(context: Context) : FrameLayout(context) {
       return
     }
     errorView.visibility = GONE
+    videoView.setBackgroundColor(Color.BLACK)
+    videoWidth = 0
+    videoHeight = 0
     videoView.setVideoURI(Uri.parse(cleanValue))
     if (!paused) videoView.start()
   }

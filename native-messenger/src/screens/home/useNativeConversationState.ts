@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { isOfficialExpired, markConversationReadLocally, mergeMessagePatch, mergeMessageStatus, sortConversations, sortMessages } from '@/screens/home/homeUtils';
+import { isOfficialExpired, markConversationReadLocally, mergeMessageCreatedAt, mergeMessagePatch, mergeMessageStatus, sortConversations, sortMessages } from '@/screens/home/homeUtils';
 import { writeCachedConversations, writeCachedMessages } from '@/services/nativeConversationCache';
 import type { AuthSession, Conversation, Message } from '@/types/messenger';
 
@@ -11,10 +11,31 @@ type UseNativeConversationStateParams = {
 function mergeMessageKeepingLocalMedia(current: Message, incoming: Message): Message {
   const localUri = localUriFromContent(current.content);
   if (!localUri || localUriFromContent(incoming.content)) {
-    return { ...current, ...incoming, status: mergeMessageStatus(current.status, incoming.status) };
+    return {
+      ...current,
+      ...incoming,
+      createdAt: mergeMessageCreatedAt(current, incoming.createdAt),
+      status: mergeMessageStatus(current.status, incoming.status),
+    };
   }
   const mergedContent = addLocalUriToContent(incoming.content, localUri);
-  return { ...current, ...incoming, content: mergedContent, status: mergeMessageStatus(current.status, incoming.status) };
+  return {
+    ...current,
+    ...incoming,
+    content: mergedContent,
+    createdAt: mergeMessageCreatedAt(current, incoming.createdAt),
+    status: mergeMessageStatus(current.status, incoming.status),
+  };
+}
+
+function isSameClientMessage(current: Message, incoming: Message) {
+  if (current.conversationId !== incoming.conversationId || current.senderId !== incoming.senderId) return false;
+  const currentClientId = current.clientMessageId || (current.id.startsWith('local-') ? current.id : '');
+  const incomingClientId = incoming.clientMessageId || (incoming.id.startsWith('local-') ? incoming.id : '');
+  if (currentClientId && incomingClientId && currentClientId === incomingClientId) return true;
+  if (incoming.clientMessageId && current.id === incoming.clientMessageId) return true;
+  if (current.clientMessageId && incoming.id === current.clientMessageId) return true;
+  return false;
 }
 
 function localUriFromContent(content?: string | null) {
@@ -55,13 +76,19 @@ export function useNativeConversationState({ session, messageSearch }: UseNative
   useEffect(() => {
     const ownerId = session?.user.id || session?.user.email || session?.token;
     if (!ownerId || !selected?.id) return;
-    void writeCachedMessages(ownerId, selected.id, messages);
+    const timer = setTimeout(() => {
+      void writeCachedMessages(ownerId, selected.id, messages);
+    }, 180);
+    return () => clearTimeout(timer);
   }, [messages, selected?.id, session?.token, session?.user.email, session?.user.id]);
 
   useEffect(() => {
     const ownerId = session?.user.id || session?.user.email || session?.token;
     if (!ownerId || !conversations.length) return;
-    void writeCachedConversations(ownerId, sortConversations(conversations));
+    const timer = setTimeout(() => {
+      void writeCachedConversations(ownerId, sortConversations(conversations));
+    }, 240);
+    return () => clearTimeout(timer);
   }, [conversations, session?.token, session?.user.email, session?.user.id]);
 
   useEffect(() => {
@@ -108,8 +135,10 @@ export function useNativeConversationState({ session, messageSearch }: UseNative
     setMessages(current => {
       const active = selectedRef.current;
       if (!active || active.id !== message.conversationId) return current;
-      const exists = current.some(item => item.id === message.id);
-      return sortMessages(exists ? current.map(item => item.id === message.id ? mergeMessageKeepingLocalMedia(item, message) : item) : [...current, message]);
+      const exists = current.some(item => item.id === message.id || isSameClientMessage(item, message));
+      return sortMessages(exists
+        ? current.map(item => item.id === message.id || isSameClientMessage(item, message) ? mergeMessageKeepingLocalMedia(item, message) : item)
+        : [...current, message]);
     });
     setConversations(current => {
       let found = false;
@@ -118,7 +147,9 @@ export function useNativeConversationState({ session, messageSearch }: UseNative
         found = true;
         const isCurrentOpen = selectedRef.current?.id === message.conversationId;
         const isOwn = message.senderId === sessionRef.current?.user.id;
-        const sameLastMessage = conversation.lastMessage?.id === message.id;
+        const sameLastMessage = Boolean(conversation.lastMessage && (
+          conversation.lastMessage.id === message.id || isSameClientMessage(conversation.lastMessage, message)
+        ));
         return {
           ...conversation,
           lastMessage: sameLastMessage && conversation.lastMessage

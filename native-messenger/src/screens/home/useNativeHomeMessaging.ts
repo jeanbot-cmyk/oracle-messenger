@@ -69,6 +69,8 @@ export function useNativeHomeMessaging({ session, ui, runMediaSync }: UseNativeH
 
   useNativeRealtimeEvents({
     session,
+    selectedConversationId: selected?.id ?? null,
+    messages,
     selectedRef,
     sessionRef,
     upsertMessage,
@@ -77,6 +79,7 @@ export function useNativeHomeMessaging({ session, ui, runMediaSync }: UseNativeH
     markMessageDeleted,
     setConversations,
     setMessages,
+    setSelected,
     runMediaSync,
     handleTypingStart,
     handleTypingStop,

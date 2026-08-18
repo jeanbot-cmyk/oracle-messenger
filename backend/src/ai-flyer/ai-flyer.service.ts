@@ -1,5 +1,6 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { createHash } from 'crypto';
+import { MediaService } from '../media/media.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 const FREE_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
@@ -11,6 +12,7 @@ const MAX_REFERENCE_IMAGES = 3;
 const MAX_REFERENCE_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_PROMPT_WORDS = 1000;
 const ADMIN_MAX_PROMPT_WORDS = 1000;
+const GENERATED_FILE_RETENTION_MS = 12 * 60 * 60 * 1000;
 const ALLOWED_REFERENCE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const IMAGE_SYSTEM_GUARDRAIL = [
   'PROMPT SYSTEME ORACLE MESSENGER IMAGE - PRIORITE ABSOLUE.',
@@ -33,12 +35,29 @@ type ReferenceImage = {
 };
 
 @Injectable()
-export class AiFlyerService {
+export class AiFlyerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AiFlyerService.name);
+  private cleanupTimer?: NodeJS.Timeout;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly media: MediaService,
+  ) {}
+
+  onModuleInit() {
+    void this.purgeExpiredDownloadables();
+    this.cleanupTimer = setInterval(() => {
+      void this.purgeExpiredDownloadables();
+    }, 15 * 60 * 1000);
+    this.cleanupTimer.unref?.();
+  }
+
+  onModuleDestroy() {
+    if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+  }
 
   async getOverview(userId: string) {
+    await this.purgeExpiredDownloadables(userId);
     const user = await this.getUser(userId);
     const isAdmin = this.isAdmin(user.phone);
     const wallet = await this.ensureWallet(userId);
@@ -77,6 +96,16 @@ export class AiFlyerService {
     const referenceImages = this.normalizeReferenceImages(referenceImagesInput);
     const wallet = await this.ensureWallet(userId);
     const mode = isAdmin ? 'admin' : await this.pickGenerationMode(userId, wallet.creditsRemaining);
+    const title = this.makeTitle(prompt);
+    const generation = await this.prisma.aiFlyerGeneration.create({
+      data: {
+        userId,
+        prompt: referenceImages.length ? `${prompt}\n\nRéférences visuelles: ${referenceImages.length}` : prompt,
+        mode,
+        title,
+        status: 'PROCESSING',
+      },
+    });
     let paidCreditReserved = false;
     if (mode === 'paid') {
       const reserved = await this.prisma.aiFlyerWallet.updateMany({
@@ -84,15 +113,31 @@ export class AiFlyerService {
         data: { creditsRemaining: { decrement: 1 } },
       });
       if (reserved.count !== 1) {
+        await this.prisma.aiFlyerGeneration.update({
+          where: { id: generation.id },
+          data: { status: 'FAILED', failedAt: new Date() },
+        }).catch(() => undefined);
         throw new ForbiddenException('Crédit Flyer insuffisant. Rechargez pour continuer.');
       }
       paidCreditReserved = true;
     }
 
     let image: { base64: string; mime: string };
+    let stored: Awaited<ReturnType<MediaService['saveBuffer']>>;
     try {
       image = await this.callGeminiImage(prompt, referenceImages, isAdmin);
+      stored = await this.media.saveBuffer({
+        buffer: Buffer.from(image.base64, 'base64'),
+        name: `${title || 'flyer-oracle-ia'}.png`,
+        mime: image.mime,
+        kind: 'ai-flyer',
+        maxBytes: Number(process.env.AI_IMAGE_MAX_BYTES || 24 * 1024 * 1024),
+      }, userId);
     } catch (error) {
+      await this.prisma.aiFlyerGeneration.update({
+        where: { id: generation.id },
+        data: { status: 'FAILED', failedAt: new Date() },
+      }).catch(() => undefined);
       if (paidCreditReserved) {
         await this.prisma.aiFlyerWallet.update({
           where: { userId },
@@ -103,8 +148,9 @@ export class AiFlyerService {
     }
     const imageBytes = Math.ceil((image.base64.length * 3) / 4);
     const imageHash = createHash('sha256').update(image.base64).digest('hex');
-    const title = this.makeTitle(prompt);
 
+    const completedAt = new Date();
+    const expiresAt = new Date(completedAt.getTime() + GENERATED_FILE_RETENTION_MS);
     try {
       await this.prisma.$transaction([
         ...(mode === 'paid'
@@ -130,15 +176,20 @@ export class AiFlyerService {
                 data: { totalGenerated: { increment: 1 } },
               }),
             ]),
-        this.prisma.aiFlyerGeneration.create({
+        this.prisma.aiFlyerGeneration.update({
+          where: { id: generation.id },
           data: {
-            userId,
-            prompt: referenceImages.length ? `${prompt}\n\nRéférences visuelles: ${referenceImages.length}` : prompt,
-            mode,
             mime: image.mime,
             imageBytes,
             imageHash,
+            fileUrl: stored.url,
+            downloadUrl: stored.url,
+            filePath: stored.path,
+            fileName: stored.name,
             title,
+            status: 'DOWNLOADABLE',
+            completedAt,
+            expiresAt,
           },
         }),
       ]);
@@ -149,17 +200,98 @@ export class AiFlyerService {
           data: { creditsRemaining: { increment: 1 } },
         });
       }
+      await this.prisma.aiFlyerGeneration.update({
+        where: { id: generation.id },
+        data: { status: 'FAILED', failedAt: new Date() },
+      }).catch(() => undefined);
       throw error;
     }
 
     return {
-      imageUrl: `data:${image.mime};base64,${image.base64}`,
+      generationId: generation.id,
+      imageUrl: stored.url,
+      url: stored.url,
+      assetUrl: stored.url,
+      downloadUrl: stored.url,
+      status: 'DOWNLOADABLE',
+      expiresAt: expiresAt.toISOString(),
+      retentionHours: 12,
       mime: image.mime,
+      size: stored.size,
+      checksum: stored.checksum,
       title,
       mode,
       referenceCount: referenceImages.length,
       overview: await this.getOverview(userId),
     };
+  }
+
+  async markDownloaded(userId: string, generationId: string) {
+    const generation = await this.prisma.aiFlyerGeneration.findUnique({ where: { id: generationId } });
+    if (!generation || generation.userId !== userId) throw new ForbiddenException('Création introuvable.');
+    if (generation.status === 'DOWNLOADED_LOCAL' || generation.status === 'EXPIRED') {
+      return {
+        ok: true,
+        status: generation.status,
+        downloadedAt: generation.downloadedAt?.toISOString() ?? null,
+        purgedAt: generation.purgedAt?.toISOString() ?? null,
+      };
+    }
+
+    const now = new Date();
+    await this.deleteGeneratedFile(generation.filePath);
+    const updated = await this.prisma.aiFlyerGeneration.update({
+      where: { id: generation.id },
+      data: {
+        status: 'DOWNLOADED_LOCAL',
+        downloadedAt: now,
+        purgedAt: now,
+        fileUrl: null,
+        downloadUrl: null,
+        filePath: null,
+      },
+    });
+    return {
+      ok: true,
+      status: updated.status,
+      downloadedAt: updated.downloadedAt?.toISOString() ?? null,
+      purgedAt: updated.purgedAt?.toISOString() ?? null,
+    };
+  }
+
+  private async purgeExpiredDownloadables(userId?: string) {
+    const now = new Date();
+    const expired = await this.prisma.aiFlyerGeneration.findMany({
+      where: {
+        ...(userId ? { userId } : {}),
+        status: 'DOWNLOADABLE',
+        expiresAt: { lte: now },
+      },
+      select: { id: true, filePath: true },
+      take: 100,
+    });
+    for (const item of expired) {
+      await this.deleteGeneratedFile(item.filePath);
+      await this.prisma.aiFlyerGeneration.update({
+        where: { id: item.id },
+        data: {
+          status: 'EXPIRED',
+          purgedAt: now,
+          fileUrl: null,
+          downloadUrl: null,
+          filePath: null,
+        },
+      }).catch(error => this.logger.warn(`Nettoyage flyer IA impossible ${item.id}: ${error instanceof Error ? error.message : String(error)}`));
+    }
+  }
+
+  private async deleteGeneratedFile(filePath?: string | null) {
+    if (!filePath) return;
+    try {
+      await this.media.deleteStoredFile(filePath);
+    } catch (error) {
+      this.logger.warn(`Suppression fichier flyer IA impossible: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   async initializePaystack(userId: string, nativeReturn = false) {
@@ -258,9 +390,9 @@ export class AiFlyerService {
 
   private async callGeminiImage(prompt: string, referenceImages: ReferenceImage[], unrestricted = false) {
     const apiKey = this.geminiKey();
-    if (!apiKey) throw new BadRequestException('Clé Gemini Image absente sur le serveur.');
+    if (!apiKey) throw new BadRequestException('Clé IA image absente sur le serveur.');
     if (apiKey.startsWith('sk_')) {
-      throw new BadRequestException('Clé Gemini invalide : une clé Paystack est configurée à la place.');
+      throw new BadRequestException('Configuration IA image invalide : une clé Paystack est configurée à la place.');
     }
     const imagePrompt = unrestricted
       ? [
@@ -308,7 +440,7 @@ export class AiFlyerService {
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       this.logger.warn(`Gemini Image error ${res.status}: ${JSON.stringify(data)?.slice(0, 600)}`);
-      throw new BadRequestException(data?.error?.message || 'Gemini Image indisponible pour le moment.');
+      throw new BadRequestException(data?.error?.message || 'Moteur image IA indisponible pour le moment.');
     }
     const parts = data?.candidates?.[0]?.content?.parts ?? [];
     const imagePart = parts.find((part: any) => part?.inlineData?.data || part?.inline_data?.data);
@@ -321,8 +453,8 @@ export class AiFlyerService {
       this.logger.warn(`Gemini Image returned no image. finishReason=${finishReason}; text=${JSON.stringify(text)}; safety=${JSON.stringify(safetyRatings).slice(0, 500)}`);
       throw new BadRequestException(
         text
-          ? `Gemini a répondu sans générer d’image : ${text}`
-          : 'Gemini n’a pas produit d’image. La demande peut être refusée par le modèle ou incompatible avec la génération d’image.',
+          ? `Le moteur image IA a répondu sans générer d’image : ${text}`
+          : 'Le moteur image IA n’a pas produit d’image. La demande peut être refusée par le modèle ou incompatible avec la génération d’image.',
       );
     }
     return {

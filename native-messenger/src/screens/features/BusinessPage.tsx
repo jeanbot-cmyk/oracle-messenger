@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AppState, Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
@@ -7,6 +7,12 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { ArrowLeft, Plus } from 'lucide-react-native';
 import { api } from '@/services/api';
+import {
+  clearPendingPaystackPayment,
+  readPendingPaystackPayments,
+  rememberPendingPaystackPayment,
+  verifyPaystackScope,
+} from '@/services/pendingPaystack';
 import { colors } from '@/theme/colors';
 import { AlertText, Loading, PrimaryButton, SecondaryButton, Section } from './FeatureUi';
 
@@ -272,6 +278,34 @@ export function BusinessPage({ token, onBack, onOpenAiTools }: { token: string; 
 
   useEffect(() => { void load(); }, [load]);
 
+  const verifyPendingBusinessPayment = useCallback(async () => {
+    const pending = (await readPendingPaystackPayments())
+      .filter(payment => payment.scope === 'business' && Date.now() - payment.createdAt > 1500);
+    if (!pending.length) return;
+    let verified = false;
+    for (const payment of pending) {
+      try {
+        const data = await verifyPaystackScope(token, 'business', payment.reference);
+        await clearPendingPaystackPayment(payment.reference);
+        setOverview(data);
+        verified = true;
+      } catch {
+        // Paiement encore en attente chez Paystack: conserver la référence.
+      }
+    }
+    if (verified) {
+      setNotice('Paiement Business vérifié, service débloqué.');
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void verifyPendingBusinessPayment();
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') void verifyPendingBusinessPayment();
+    });
+    return () => subscription.remove();
+  }, [verifyPendingBusinessPayment]);
+
   const clients = useMemo(() => Array.isArray(overview?.clients) ? overview.clients : [], [overview?.clients]);
   const reminders = useMemo(() => Array.isArray(overview?.reminders) ? overview.reminders : [], [overview?.reminders]);
   const payments = useMemo(() => Array.isArray(overview?.payments) ? overview.payments : [], [overview?.payments]);
@@ -294,8 +328,8 @@ export function BusinessPage({ token, onBack, onOpenAiTools }: { token: string; 
   const requireBusinessAccess = useCallback((action = 'Action Business') => {
     if (canAct) return true;
     setNotice(!subscriptionActive
-      ? `${action} bloquée : abonnement Business requis (${monthlyPriceFcfa.toLocaleString('fr-FR')} FCFA/mois) et crédit Gemini nécessaire.`
-      : 'Action Business bloquée : crédit Gemini insuffisant. Rechargez l’IA pour utiliser l’agent commercial.');
+      ? `${action} bloquée : abonnement Business requis (${monthlyPriceFcfa.toLocaleString('fr-FR')} FCFA/mois) et crédit Agent virtuel Oracle nécessaire.`
+      : 'Action Business bloquée : crédit Agent virtuel Oracle insuffisant. Rechargez l’IA pour utiliser l’agent commercial.');
     return false;
   }, [canAct, monthlyPriceFcfa, subscriptionActive]);
 
@@ -303,6 +337,7 @@ export function BusinessPage({ token, onBack, onOpenAiTools }: { token: string; 
     setBusy(true);
     try {
       const data = await api.businessInitializePaystack(token);
+      await rememberPendingPaystackPayment('business', data.reference);
       if (data.authorizationUrl) await Linking.openURL(data.authorizationUrl);
       else await load();
     } catch (error) {
@@ -422,7 +457,7 @@ export function BusinessPage({ token, onBack, onOpenAiTools }: { token: string; 
         addedAt: new Date().toISOString(),
       };
       await saveInstructionAssets([asset, ...instructionAssets].slice(0, 20));
-      setNotice('Support ajouté aux consignes Gemini. Enregistrez Auto IA pour le synchroniser côté serveur.');
+      setNotice('Support ajouté aux consignes de l’Agent virtuel Oracle. Enregistrez Auto IA pour le synchroniser côté serveur.');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Ajout du support impossible.');
     } finally {
@@ -490,7 +525,7 @@ export function BusinessPage({ token, onBack, onOpenAiTools }: { token: string; 
         : `${client.name} est une priorité : intention d’achat forte, action recommandée maintenant avec lien de paiement et réponse rapide.`;
     setBusinessAiMessages([
       clientBubble,
-      { role: 'system', text: 'Gemini prépare une réponse commerciale de démonstration.' },
+      { role: 'system', text: 'L’Agent virtuel Oracle prépare une réponse commerciale de démonstration.' },
     ]);
     setBusy(true);
     try {
@@ -506,10 +541,10 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
       setBusinessAiMessages([
         clientBubble,
         { role: 'agent', text: data.response || fallbackAgentMessage },
-        { role: 'system', text: canAct ? 'Mode actif : avec abonnement Business et crédit Gemini, cet agent classe les clients, prépare les relances et suit les conversations.' : 'Mode aperçu : aucune action réelle n’est déclenchée sans abonnement Business actif et crédit Gemini.' },
+        { role: 'system', text: canAct ? 'Mode actif : avec abonnement Business et crédit Agent virtuel Oracle, cet agent classe les clients, prépare les relances et suit les conversations.' : 'Mode aperçu : aucune action réelle n’est déclenchée sans abonnement Business actif et crédit Agent virtuel Oracle.' },
       ]);
       if (typeof data.freeTestsRemainingToday === 'number' && data.freeTestsRemainingToday <= 0) {
-        setNotice(`Vous avez utilisé vos ${freeTestsPerDay} tests IA gratuits. Activez Business et rechargez Gemini pour continuer.`);
+        setNotice(`Vous avez utilisé vos ${freeTestsPerDay} tests IA gratuits. Activez Business et rechargez l’Agent virtuel Oracle pour continuer.`);
       }
     } catch {
       setBusinessAiMessages([
@@ -545,15 +580,15 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
       });
       setAiOverview((current: any) => ({ ...(current || {}), ...(data || {}) }));
       if (data?.blocked) {
-        setNotice(`Consignes Gemini enregistrées. Activation automatique bloquée : ${data.blocked}`);
+        setNotice(`Consignes Agent virtuel Oracle enregistrées. Activation automatique bloquée : ${data.blocked}`);
       } else {
         setNotice(nextSettings.autoReplyEnabled
-          ? 'Consignes Gemini enregistrées. L’agent répond, classe et relance selon vos réglages.'
-          : 'Consignes Gemini enregistrées. Activez Réponse auto pour laisser l’agent agir seul.');
+          ? 'Consignes Agent virtuel Oracle enregistrées. L’agent répond, classe et relance selon vos réglages.'
+          : 'Consignes Agent virtuel Oracle enregistrées. Activez Réponse auto pour laisser l’agent agir seul.');
       }
       await load();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Enregistrement des consignes Gemini impossible.');
+      setNotice(error instanceof Error ? error.message : 'Enregistrement des consignes Agent virtuel Oracle impossible.');
     } finally {
       setBusy(false);
     }
@@ -588,9 +623,9 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
       });
       setAiOverview((current: any) => ({ ...(current || {}), ...(data || {}) }));
       if (data?.blocked) {
-        setNotice(`Agent prêt mais non activé : ${data.blocked}. Payez Business et rechargez Gemini.`);
+        setNotice(`Agent prêt mais non activé : ${data.blocked}. Payez Business et rechargez l’Agent virtuel Oracle.`);
       } else {
-        setNotice('Agent Business activé : Gemini peut répondre, classer, relancer et analyser les documents selon vos consignes.');
+        setNotice('Agent Business activé : l’Agent virtuel Oracle peut répondre, classer, relancer et analyser les documents selon vos consignes.');
       }
       await load();
     } catch (error) {
@@ -629,7 +664,7 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
       setReminderNote('');
       await load();
       setNotice(reminderAutoSend
-        ? 'Relance automatique enregistrée. Gemini enverra le message à la date prévue si le client est relié à une conversation.'
+        ? 'Relance automatique enregistrée. L’Agent virtuel Oracle enverra le message à la date prévue si le client est relié à une conversation.'
         : 'Rappel manuel Business enregistré.');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Enregistrement rappel impossible.');
@@ -692,11 +727,11 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
             <View style={styles.aiHeroBadge}><Text style={styles.aiHeroBadgeText}>IA</Text></View>
             <View style={styles.aiHeroCopy}>
               <View style={styles.aiHeroPills}>
-                <Text style={styles.aiHeroPill}>Agent commercial Gemini</Text>
+                <Text style={styles.aiHeroPill}>Agent virtuel Oracle</Text>
                 <Text style={styles.aiHeroMuted}>{canAct ? 'Automatisation active' : 'Aperçu gratuit'}</Text>
               </View>
               <Text style={styles.aiHeroTitle}>Automatisation client d’entreprise</Text>
-              <Text style={styles.aiHeroText}>Gemini se comporte comme un agent commercial : il prépare les réponses, suit les prospects, classe les clients, détecte les priorités et propose les relances.</Text>
+              <Text style={styles.aiHeroText}>L’Agent virtuel Oracle se comporte comme un agent commercial : il prépare les réponses, suit les prospects, classe les clients, détecte les priorités et propose les relances.</Text>
             </View>
           </View>
           <View style={styles.aiFeatureGrid}>
@@ -749,7 +784,7 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
             </View>
             <View style={[styles.requirementRow, aiCreditsOk && styles.requirementRowOk]}>
               <Text style={styles.requirementMark}>{aiCreditsOk ? '✓' : '!'}</Text>
-              <Text style={styles.requirementText}>Crédit Gemini séparé pour l’écriture IA : {access?.isAdmin ? 'Illimité' : `${valueText(wordsRemaining)} mots`}</Text>
+              <Text style={styles.requirementText}>Crédit Agent virtuel Oracle séparé pour l’écriture IA : {access?.isAdmin ? 'Illimité' : `${valueText(wordsRemaining)} mots`}</Text>
             </View>
           </View>
           <View style={styles.subscriptionActions}>
@@ -757,19 +792,19 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
               <Text style={styles.payButtonText}>{subscriptionActive ? 'Renouveler Business Pro' : `Activer Business Pro - ${monthlyPriceFcfa.toLocaleString('fr-FR')} FCFA/mois`}</Text>
             </Pressable>
             <Pressable onPress={onOpenAiTools || (() => setMode('auto'))} disabled={busy} style={[styles.rechargeButton, busy && styles.disabledButton]}>
-              <Text style={styles.rechargeButtonText}>Recharger Gemini IA</Text>
+              <Text style={styles.rechargeButtonText}>Recharger Agent virtuel Oracle</Text>
             </Pressable>
           </View>
-          <Text style={styles.subscriptionFootnote}>Business Pro active l’espace entreprise à {monthlyPriceFcfa.toLocaleString('fr-FR')} FCFA/mois. L’écriture IA se recharge séparément avec le crédit Gemini.</Text>
+          <Text style={styles.subscriptionFootnote}>Business Pro active l’espace entreprise à {monthlyPriceFcfa.toLocaleString('fr-FR')} FCFA/mois. L’écriture IA se recharge séparément avec le crédit Agent virtuel Oracle.</Text>
         </View>
 
         <View style={styles.activationCard}>
           <Text style={styles.activationTitle}>Mettre l’agent au travail</Text>
-          <Text style={styles.activationText}>Le parcours est simple : activez Business, rechargez Gemini, donnez vos consignes et ajoutez vos supports. Ensuite l’agent peut répondre comme un commercial, classer les clients et programmer les relances.</Text>
+          <Text style={styles.activationText}>Le parcours est simple : activez Business, rechargez l’Agent virtuel Oracle, donnez vos consignes et ajoutez vos supports. Ensuite l’agent peut répondre comme un commercial, classer les clients et programmer les relances.</Text>
           <View style={styles.activationSteps}>
             {[
               { index: '1', title: 'Business', text: subscriptionActive ? 'Abonnement actif' : `Payer ${monthlyPriceFcfa.toLocaleString('fr-FR')} FCFA/mois`, action: pay },
-              { index: '2', title: 'Gemini', text: aiCreditsOk ? `${valueText(wordsRemaining)} mots disponibles` : 'Recharger le crédit Gemini', action: onOpenAiTools || (() => setMode('auto')) },
+              { index: '2', title: 'Agent Oracle', text: aiCreditsOk ? `${valueText(wordsRemaining)} mots disponibles` : 'Recharger le crédit Agent virtuel Oracle', action: onOpenAiTools || (() => setMode('auto')) },
               { index: '3', title: 'Consignes', text: `${instructionAssets.length} support${instructionAssets.length > 1 ? 's' : ''} chargé${instructionAssets.length > 1 ? 's' : ''}`, action: () => setMode('auto') },
             ].map(step => (
               <Pressable key={step.index} onPress={step.action} disabled={busy} style={styles.activationStep}>
@@ -791,7 +826,7 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
           <View style={styles.previewHead}>
             <View style={styles.previewCopy}>
               <Text style={styles.previewTitle}>Essayer l’IA avant validation</Text>
-              <Text style={styles.previewText}>{freeTestsPerDay} tests gratuits par jour. L’usage réel demande Business actif et crédit Gemini.</Text>
+              <Text style={styles.previewText}>{freeTestsPerDay} tests gratuits par jour. L’usage réel demande Business actif et crédit Agent virtuel Oracle.</Text>
             </View>
             <Text style={styles.freeBadge}>{canAct ? 'Actif' : `${freeTestsRemainingToday}/${freeTestsPerDay}`}</Text>
           </View>
@@ -821,7 +856,7 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
 
         <View style={styles.startCard}>
           <Text style={styles.startTitle}>Commencez votre business ici</Text>
-          <Text style={styles.startText}>Ajoutez un client, donnez-lui un statut, programmez la prochaine relance et laissez Gemini préparer le suivi.</Text>
+          <Text style={styles.startText}>Ajoutez un client, donnez-lui un statut, programmez la prochaine relance et laissez l’Agent virtuel Oracle préparer le suivi.</Text>
           <View style={styles.startActions}>
             <Pressable style={styles.goldButton} onPress={() => setMode('clients')}><Text style={styles.goldButtonText}>+ Client</Text></Pressable>
             <Pressable style={styles.darkGhostButton} onPress={() => setMode('reminders')}><Text style={styles.darkGhostButtonText}>Rappels</Text></Pressable>
@@ -834,7 +869,7 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
             { title: 'Pipeline', text: 'Suivez prospect, chaud, relancer, payé.' },
             { title: 'Relance', text: 'Programmez les rappels clients importants.' },
             { title: 'Paiement', text: 'Insérez votre lien dans les réponses.' },
-            { title: 'Priorité IA', text: 'Gemini repère les clients à traiter vite.' },
+            { title: 'Priorité IA', text: 'L’Agent virtuel Oracle repère les clients à traiter vite.' },
           ].map(tool => (
             <View key={tool.title} style={styles.toolCard}>
               <Text style={styles.toolTitle}>{tool.title}</Text>
@@ -918,7 +953,7 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
           <TextInput value={reminderNote} onChangeText={setReminderNote} placeholder="Note du rappel" placeholderTextColor={colors.muted} multiline style={[styles.input, styles.textarea]} />
           <View style={styles.reminderModeCard}>
             <Text style={styles.cardTitle}>Mode de relance</Text>
-            <Text style={styles.cardText}>{reminderAutoSend ? 'Gemini enverra automatiquement le message à la date prévue si le client est lié à une conversation Oracle Messenger.' : 'Le rappel restera dans votre liste. Aucun message ne partira automatiquement.'}</Text>
+            <Text style={styles.cardText}>{reminderAutoSend ? 'L’Agent virtuel Oracle enverra automatiquement le message à la date prévue si le client est lié à une conversation Oracle Messenger.' : 'Le rappel restera dans votre liste. Aucun message ne partira automatiquement.'}</Text>
             <View style={styles.segment}>
               <Pressable onPress={() => setReminderAutoSend(true)} style={[styles.segmentItem, reminderAutoSend && styles.segmentActive]}>
                 <Text style={[styles.segmentText, reminderAutoSend && styles.segmentTextActive]}>Auto IA</Text>
@@ -961,10 +996,10 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
       {mode === 'auto' ? (
         <Section title="Auto IA">
           <View style={styles.autoHero}>
-            <View style={styles.aiBadge}><Text style={styles.aiBadgeText}>G</Text></View>
+            <View style={styles.aiBadge}><Text style={styles.aiBadgeText}>O</Text></View>
             <View style={styles.autoHeroText}>
-              <Text style={styles.autoHeroTitle}>Agent commercial Gemini</Text>
-              <Text style={styles.autoHeroSub}>Branché aux conversations : il répond, classe, relance et nourrit le suivi client quand Business + crédit Gemini sont actifs.</Text>
+              <Text style={styles.autoHeroTitle}>Agent virtuel Oracle</Text>
+              <Text style={styles.autoHeroSub}>Branché aux conversations : il répond, classe, relance et nourrit le suivi client quand Business + crédit Agent virtuel Oracle sont actifs.</Text>
             </View>
           </View>
           <View style={styles.automationStatusCard}>
@@ -973,24 +1008,24 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
               <Text style={[styles.automationStatusValue, subscriptionActive && styles.automationStatusOk]}>{subscriptionActive ? 'Actif' : 'Requis'}</Text>
             </View>
             <View style={styles.automationStatusRow}>
-              <Text style={styles.automationStatusLabel}>Crédit Gemini</Text>
+              <Text style={styles.automationStatusLabel}>Crédit Agent virtuel Oracle</Text>
               <Text style={[styles.automationStatusValue, aiCreditsOk && styles.automationStatusOk]}>{access?.isAdmin ? 'Illimité' : aiCreditsOk ? `${valueText(wordsRemaining)} mots` : 'Insuffisant'}</Text>
             </View>
             <View style={styles.automationStatusRow}>
-              <Text style={styles.automationStatusLabel}>Auto-réponse Gemini</Text>
+              <Text style={styles.automationStatusLabel}>Auto-réponse Agent virtuel Oracle</Text>
               <Text style={[styles.automationStatusValue, aiAutoEnabled && styles.automationStatusOk]}>{aiAutoEnabled ? 'Activée' : aiPaidActive ? 'À activer' : 'Paiement IA requis'}</Text>
             </View>
-            <Text style={styles.automationStatusText}>Les outils modernes de suivi client ne s’exécutent réellement que si l’abonnement Business est actif et si Gemini dispose de crédit d’utilisation.</Text>
+            <Text style={styles.automationStatusText}>Les outils modernes de suivi client ne s’exécutent réellement que si l’abonnement Business est actif et si l’Agent virtuel Oracle dispose de crédit d’utilisation.</Text>
           </View>
           <View style={styles.actionRow}>
             <SecondaryButton label="Tester réponse" onPress={() => void previewAiMessage('reply')} />
             <SecondaryButton label="Tester relance" onPress={() => void previewAiMessage('followup')} />
             <SecondaryButton label="Voir priorité" onPress={() => void previewAiMessage('priority')} />
-            <SecondaryButton label="Recharger Gemini" onPress={onOpenAiTools || (() => setMode('auto'))} />
+            <SecondaryButton label="Recharger Agent Oracle" onPress={onOpenAiTools || (() => setMode('auto'))} />
             <PrimaryButton label={aiAutoEnabled ? 'Agent actif' : 'Activer agent'} onPress={activateBusinessAgent} disabled={busy || aiAutoEnabled} />
           </View>
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Consignes à Gemini</Text>
+            <Text style={styles.cardTitle}>Consignes à l’Agent virtuel Oracle</Text>
             <Text style={styles.cardText}>Définissez comment l’agent doit vendre, relancer, classer les clients et traiter les factures. Ces consignes sont envoyées au backend IA.</Text>
             <Text style={styles.fieldLabel}>Entreprise, offre et règles commerciales</Text>
             <TextInput
@@ -1005,7 +1040,7 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
             <TextInput
               value={autoSettings.geminiInstructions}
               onChangeText={text => patchAutoSettings({ geminiInstructions: text })}
-              placeholder="Expliquez à Gemini comment répondre, classer, relancer et quand demander validation."
+              placeholder="Expliquez à l’Agent virtuel Oracle comment répondre, classer, relancer et quand demander validation."
               placeholderTextColor={colors.muted}
               multiline
               style={[styles.input, styles.largeTextarea]}
@@ -1028,7 +1063,7 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
           </View>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Supports de l’agent</Text>
-            <Text style={styles.cardText}>Chargez vos catalogues, images, vidéos, fiches tarifs, factures modèles ou documents de vente. Si une conversation le demande, Gemini pourra utiliser le lien ou envoyer le média via le marqueur sécurisé ajouté au prompt.</Text>
+            <Text style={styles.cardText}>Chargez vos catalogues, images, vidéos, fiches tarifs, factures modèles ou documents de vente. Si une conversation le demande, l’Agent virtuel Oracle pourra utiliser le lien ou envoyer le média via le marqueur sécurisé ajouté au prompt.</Text>
             <View style={styles.actionRow}>
               <SecondaryButton label="Image / vidéo" onPress={pickInstructionMedia} disabled={busy} />
               <SecondaryButton label="Document" onPress={pickInstructionDocument} disabled={busy} />
@@ -1094,11 +1129,11 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
           </View>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Factures, paiements et relances</Text>
-            <Text style={styles.cardText}>Gemini utilise ces règles pour traiter les messages parlant de facture, reçu, devis, paiement ou commande. La variable {'{paiement}'} ajoute votre lien de paiement.</Text>
+            <Text style={styles.cardText}>L’Agent virtuel Oracle utilise ces règles pour traiter les messages parlant de facture, reçu, devis, paiement ou commande. La variable {'{paiement}'} ajoute votre lien de paiement.</Text>
             <TextInput
               value={autoSettings.invoiceInstructions}
               onChangeText={text => patchAutoSettings({ invoiceInstructions: text })}
-              placeholder="Comment Gemini doit analyser les factures et preuves de paiement..."
+              placeholder="Comment l’Agent virtuel Oracle doit analyser les factures et preuves de paiement..."
               placeholderTextColor={colors.muted}
               multiline
               style={[styles.input, styles.textarea]}
@@ -1129,7 +1164,7 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
               style={styles.input}
             />
             <View style={styles.actionRow}>
-              <PrimaryButton label={autoSettings.autoReplyEnabled ? 'Enregistrer et activer Gemini' : 'Enregistrer les consignes'} onPress={saveGeminiAutomation} disabled={busy} />
+              <PrimaryButton label={autoSettings.autoReplyEnabled ? 'Enregistrer et activer l’Agent virtuel Oracle' : 'Enregistrer les consignes'} onPress={saveGeminiAutomation} disabled={busy} />
               <SecondaryButton label="Copier {paiement}" onPress={() => void Clipboard.setStringAsync('{paiement}')} />
             </View>
           </View>
@@ -1179,8 +1214,8 @@ const styles = StyleSheet.create({
   businessHeader: { minHeight: 56, backgroundColor: colors.header, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 8 },
   businessBack: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', backgroundColor: 'rgba(255,255,255,0.10)', alignItems: 'center', justifyContent: 'center' },
   businessHeaderText: { flex: 1, minWidth: 0 },
-  businessHeaderTitle: { color: '#FFFFFF', fontSize: 16, lineHeight: 18, fontWeight: '900' },
-  businessHeaderSubtitle: { color: 'rgba(255,255,255,0.70)', fontSize: 12, lineHeight: 14, fontWeight: '800', marginTop: 3 },
+  businessHeaderTitle: { color: colors.onHeader, fontSize: 16, lineHeight: 18, fontWeight: '900' },
+  businessHeaderSubtitle: { color: colors.onHeaderMuted, fontSize: 12, lineHeight: 14, fontWeight: '800', marginTop: 3 },
   businessAdd: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   businessTabsWrap: { flexDirection: 'row', gap: 6, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
   businessTab: { flex: 1, minHeight: 38, borderRadius: 19, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },

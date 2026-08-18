@@ -174,6 +174,7 @@ function LoginContent() {
   const [phone, setPhone] = useState('');
   const [recovering, setRecovering] = useState(false);
   const [recovery, setRecovery] = useState<{ found: boolean; name?: string; emailHint?: string; message: string } | null>(null);
+  const [policiesAccepted, setPoliciesAccepted] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -206,6 +207,10 @@ function LoginContent() {
   }, [status, session, router]);
 
   async function handleGoogleLogin() {
+    if (!policiesAccepted) {
+      setError('Veuillez lire et approuver les conditions avant de continuer avec Google.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -315,6 +320,26 @@ function LoginContent() {
           </>
         )}
       </button>
+
+      <label style={{ width:'100%', maxWidth:360, marginTop:10, display:'flex', alignItems:'flex-start', gap:10, color:'var(--text-muted)', fontSize:11.5, lineHeight:1.45, fontWeight:650, cursor:'pointer', userSelect:'none' }}>
+        <input
+          type="checkbox"
+          checked={policiesAccepted}
+          onChange={event => {
+            setPoliciesAccepted(event.target.checked);
+            if (event.target.checked) setError('');
+          }}
+          style={{ width:18, height:18, margin:'1px 0 0', accentColor:DEEP, flex:'0 0 auto' }}
+        />
+        <span>
+          J’ai lu et j’approuve les{' '}
+          <a href="/terms" style={{ color:DEEP, fontWeight:850, textDecoration:'underline' }}>conditions</a>
+          {' '}et la{' '}
+          <a href="/privacy" style={{ color:DEEP, fontWeight:850, textDecoration:'underline' }}>politique de confidentialité</a>
+          {', '}
+          <a href="/data" style={{ color:DEEP, fontWeight:850, textDecoration:'underline' }}>politique des données</a>.
+        </span>
+      </label>
 
       <div style={{ width:'100%', maxWidth:360, marginTop:18, border:'1px solid var(--border)', borderRadius:18, padding:14, background:'#F8FAFC', boxSizing:'border-box' }}>
         <p style={{ margin:'0 0 5px', fontSize:14, fontWeight:900, color:'var(--text-primary)' }}>Retrouver mon compte</p>

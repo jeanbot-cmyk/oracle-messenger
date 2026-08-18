@@ -61,7 +61,10 @@ function log(step, data = {}) {
   });
   const page = await context.newPage();
   try {
-    await page.goto('https://messenger.oracle-plus.online/install', { waitUntil: 'domcontentloaded', timeout: 20000 });
+    const probeOrigin = /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(backendUrl)
+      ? `${backendUrl}/health`
+      : 'https://messenger.oracle-plus.online/install';
+    await page.goto(probeOrigin, { waitUntil: 'domcontentloaded', timeout: 20000 });
     const result = await page.evaluate(async ({ backendUrl, token }) => {
       const support = {
         mediaDevices: Boolean(navigator.mediaDevices?.getUserMedia),

@@ -19,10 +19,17 @@ export function useNativeCallAudioSession({
 }: UseNativeCallAudioSessionParams) {
   const routeRequestIdRef = useRef(0);
   const routeRetryTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const failureCueTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearRouteRetryTimers = useCallback(() => {
     routeRetryTimersRef.current.forEach(timer => clearTimeout(timer));
     routeRetryTimersRef.current = [];
+  }, []);
+
+  const clearFailureCueTimer = useCallback(() => {
+    if (!failureCueTimerRef.current) return;
+    clearTimeout(failureCueTimerRef.current);
+    failureCueTimerRef.current = null;
   }, []);
 
   const applyAudioRoute = useCallback((enabled: boolean) => {
@@ -89,6 +96,7 @@ export function useNativeCallAudioSession({
 
   const startOutgoingRingback = useCallback(() => {
     try {
+      clearFailureCueTimer();
       InCallManager.stopRingtone?.();
       InCallManager.stopRingback?.();
       if (Platform.OS === 'android' && OracleCallAlert?.start) {
@@ -96,7 +104,7 @@ export function useNativeCallAudioSession({
           trace('audio:ringback:oracle-error', { message: error instanceof Error ? error.message : String(error) });
           InCallManager.startRingback?.('_DTMF_');
         });
-        trace('audio:ringback:start', { tone: 'oracle_call.wav' });
+        trace('audio:ringback:start', { tone: 'oracle_outgoing_call.wav' });
         return;
       }
       InCallManager.startRingback?.('_DTMF_');
@@ -104,10 +112,38 @@ export function useNativeCallAudioSession({
     } catch (error) {
       trace('audio:ringback:error', { message: error instanceof Error ? error.message : String(error) });
     }
-  }, [trace]);
+  }, [clearFailureCueTimer, trace]);
+
+  const playCallFailureCue = useCallback((reason = 'failed') => {
+    try {
+      clearFailureCueTimer();
+      InCallManager.stopRingtone?.();
+      InCallManager.stopRingback?.();
+      const stopAlert = OracleCallAlert?.stop?.();
+      stopAlert?.catch?.(() => null);
+      if (Platform.OS === 'android' && OracleCallAlert?.start) {
+        OracleCallAlert.start('outgoing', 2).catch(error => {
+          trace('audio:failure-cue:oracle-error', { reason, message: error instanceof Error ? error.message : String(error) });
+          InCallManager.startRingback?.('_DTMF_');
+        });
+      } else {
+        InCallManager.startRingback?.('_DTMF_');
+      }
+      failureCueTimerRef.current = setTimeout(() => {
+        failureCueTimerRef.current = null;
+        InCallManager.stopRingback?.();
+        const stop = OracleCallAlert?.stop?.();
+        stop?.catch?.(() => null);
+      }, 2200);
+      trace('audio:failure-cue:start', { reason });
+    } catch (error) {
+      trace('audio:failure-cue:error', { reason, message: error instanceof Error ? error.message : String(error) });
+    }
+  }, [clearFailureCueTimer, trace]);
 
   const startIncomingRingtone = useCallback((type: 'audio' | 'video') => {
     try {
+      clearFailureCueTimer();
       InCallManager.stopRingback?.();
       InCallManager.stopRingtone?.();
       if (Platform.OS === 'android' && OracleCallAlert?.start) {
@@ -115,7 +151,7 @@ export function useNativeCallAudioSession({
           trace('audio:ringtone:oracle-error', { message: error instanceof Error ? error.message : String(error), type });
           InCallManager.startRingtone?.('_DEFAULT_', [0, 650, 250, 650, 250, 1100], 'default', CALL_RING_TIMEOUT_SECONDS);
         });
-        trace('audio:ringtone:start', { type, tone: 'oracle_call.wav' });
+        trace('audio:ringtone:start', { type, tone: 'oracle_incoming_call.wav' });
         return;
       }
       InCallManager.startRingtone?.('_DEFAULT_', [0, 650, 250, 650, 250, 1100], 'default', CALL_RING_TIMEOUT_SECONDS);
@@ -123,10 +159,11 @@ export function useNativeCallAudioSession({
     } catch (error) {
       trace('audio:ringtone:error', { message: error instanceof Error ? error.message : String(error), type });
     }
-  }, [trace]);
+  }, [clearFailureCueTimer, trace]);
 
   const stopIncomingRingtone = useCallback(() => {
     try {
+      clearFailureCueTimer();
       InCallManager.stopRingback?.();
       InCallManager.stopRingtone?.();
       const stopAlert = OracleCallAlert?.stop?.();
@@ -136,7 +173,7 @@ export function useNativeCallAudioSession({
     } catch (error) {
       trace('audio:call-alert:stop:error', { message: error instanceof Error ? error.message : String(error) });
     }
-  }, [trace]);
+  }, [clearFailureCueTimer, trace]);
 
   const startForegroundCallService = useCallback((type: 'audio' | 'video') => {
     if (Platform.OS !== 'android') return;
@@ -152,6 +189,7 @@ export function useNativeCallAudioSession({
       const stopAlert = OracleCallAlert?.stop?.();
       stopAlert?.catch?.(() => null);
       (InCallManager as any).stopVibrate?.();
+      clearFailureCueTimer();
       clearRouteRetryTimers();
       InCallManager.setMicrophoneMute(false);
       InCallManager.setKeepScreenOn(false);
@@ -168,12 +206,13 @@ export function useNativeCallAudioSession({
     } catch (error) {
       trace('audio:session:stop:error', { message: error instanceof Error ? error.message : String(error) });
     }
-  }, [clearRouteRetryTimers, setSpeakerOn, trace]);
+  }, [clearFailureCueTimer, clearRouteRetryTimers, setSpeakerOn, trace]);
 
   return {
     applyAudioRoute,
     startAudioSession,
     startOutgoingRingback,
+    playCallFailureCue,
     startIncomingRingtone,
     stopIncomingRingtone,
     startForegroundCallService,

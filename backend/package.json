@@ -7,7 +7,8 @@
     "start": "npx prisma migrate deploy --schema=prisma/schema.prisma && node dist/main",
     "start:dev": "nest start --watch",
     "lint": "eslint src --ext .ts",
-    "audit:ab-lab": "node scripts/oracle-ab-lab.js"
+    "audit:ab-lab": "node scripts/oracle-ab-lab.js",
+    "audit:conference-lab": "node scripts/conference-lab.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.28",
@@ -19,6 +20,7 @@
     "@nestjs/platform-socket.io": "^11.1.28",
     "@nestjs/websockets": "^11.1.28",
     "@prisma/client": "^5.17.0",
+    "@socket.io/redis-adapter": "^8.3.0",
     "bcryptjs": "^2.4.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
@@ -32,6 +34,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.7.5",
+    "tesseract.js": "^7.0.0",
     "web-push": "^3.6.7"
   },
   "devDependencies": {

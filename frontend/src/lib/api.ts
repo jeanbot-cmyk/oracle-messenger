@@ -70,11 +70,15 @@ export const api = {
       req<void>('/notifications/subscribe', { method: 'POST', body: JSON.stringify(sub) }, token),
   },
   business: {
-    overview: (token: string) => req<{ clients: any[]; reminders: any[]; payments?: any[]; access?: any }>('/business/overview', {}, token),
+    overview: (token: string) => req<{ clients: any[]; reminders: any[]; payments?: any[]; access?: any; westernUnion?: any }>('/business/overview', {}, token),
     initializePaystack: (token: string) =>
       req<{ reference: string; authorizationUrl: string }>('/business/paystack/initialize', { method: 'POST', body: JSON.stringify({}) }, token),
     verifyPaystack: (token: string, reference: string) =>
       req<any>('/business/paystack/verify', { method: 'POST', body: JSON.stringify({ reference }) }, token),
+    westernUnionConfig: (token: string) =>
+      req<any>('/business/western-union/config', {}, token),
+    submitWesternUnionReceipt: (token: string, data: any) =>
+      req<any>('/business/western-union/receipt', { method: 'POST', body: JSON.stringify(data) }, token),
   },
   aiAuto: {
     overview: (token: string) => req<any>('/ai-auto/overview', {}, token),
@@ -97,7 +101,7 @@ export const api = {
   aiFlyer: {
     overview: (token: string) => req<any>('/ai-flyer/overview', {}, token),
     generate: (token: string, prompt: string, referenceImages?: { dataUrl: string; mime: string; name?: string }[]) =>
-      req<{ imageUrl: string; mime: string; title: string; mode: 'free' | 'paid'; referenceCount?: number; overview: any }>(
+      req<{ generationId?: string; imageUrl: string; mime: string; title: string; mode: 'free' | 'paid'; referenceCount?: number; overview: any }>(
         '/ai-flyer/generate',
         { method: 'POST', body: JSON.stringify({ prompt, referenceImages: referenceImages ?? [] }) },
         token,
@@ -106,6 +110,8 @@ export const api = {
       req<{ reference: string; authorizationUrl: string }>('/ai-flyer/paystack/initialize', { method: 'POST', body: JSON.stringify({}) }, token),
     verifyPaystack: (token: string, reference: string) =>
       req<any>('/ai-flyer/paystack/verify', { method: 'POST', body: JSON.stringify({ reference }) }, token),
+    markDownloaded: (token: string, generationId: string) =>
+      req<any>(`/ai-flyer/generations/${generationId}/downloaded`, { method: 'POST', body: JSON.stringify({}) }, token),
   },
   aiVideo: {
     overview: (token: string) => req<any>('/ai-video/overview', {}, token),
@@ -124,6 +130,8 @@ export const api = {
       req<{ reference: string; authorizationUrl: string }>('/ai-video/paystack/initialize', { method: 'POST', body: JSON.stringify({}) }, token),
     verifyPaystack: (token: string, reference: string) =>
       req<any>('/ai-video/paystack/verify', { method: 'POST', body: JSON.stringify({ reference }) }, token),
+    markDownloaded: (token: string, generationId: string) =>
+      req<any>(`/ai-video/generations/${generationId}/downloaded`, { method: 'POST', body: JSON.stringify({}) }, token),
   },
   auth: {
     recoverByPhone: (phone: string) =>

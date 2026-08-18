@@ -1,26 +1,49 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Image, Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, AppState, Image, Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AudioSession } from '@livekit/react-native';
+import { mediaDevices, RTCView, type MediaStream } from '@livekit/react-native-webrtc';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
+import { Room, RoomEvent, Track, type RemoteParticipant } from 'livekit-client';
 import {
   Bot,
   BriefcaseBusiness,
+  BarChart3,
   CalendarDays,
+  Camera,
+  CameraOff,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
+  FileText,
+  Hand,
   Image as ImageIcon,
   Languages,
+  MessageCircle,
+  Mic,
+  MicOff,
   NotebookPen,
+  Pin,
   Search,
   Sparkles,
+  ThumbsUp,
   Video,
   Wand2,
+  XCircle,
 } from 'lucide-react-native';
 import type { NativeTabKey } from '@/screens/NativeFeaturePages';
-import { api } from '@/services/api';
+import { api, type ConferenceRoomPayload } from '@/services/api';
+import { ensureNativeSocket } from '@/services/nativeSocket';
 import { cancelLocalReminder, scheduleLocalReminder } from '@/services/notifications';
+import { consumePendingConference } from '@/services/pendingConference';
+import {
+  clearPendingPaystackPayment,
+  readPendingPaystackPayments,
+  rememberPendingPaystackPayment,
+  verifyPaystackScope,
+} from '@/services/pendingPaystack';
 import { colors } from '@/theme/colors';
 import { AlertText, Loading, PrimaryButton, SecondaryButton } from './FeatureUi';
 
@@ -30,7 +53,19 @@ type LocalNote = { id: string; title: string; body: string; updatedAt: number };
 type LocalEvent = { id: string; title: string; date: string; time: string; note: string; createdAt: number; notificationId?: string };
 type AiMessage = { id: string; from: 'client' | 'agent'; text: string };
 type DirectoryTool = { tab: NativeTabKey; icon: typeof BriefcaseBusiness; title: string; subtitle: string };
-type GeneratedCreation = { id: string; type: 'flyer' | 'video'; url: string; prompt: string; createdAt: number };
+type GeneratedCreation = {
+  id: string;
+  generationId?: string;
+  type: 'flyer' | 'video';
+  url: string;
+  downloadUrl?: string;
+  localUri?: string;
+  prompt: string;
+  createdAt: number;
+  expiresAt?: string;
+  downloadedAt?: number;
+  serverPurgedAt?: number;
+};
 type AiPlan = { code: string; label: string; priceFcfa: number; words: number; enabled?: boolean };
 type AiUsage = { id?: string; mode?: string; words?: number; createdAt?: string };
 type ReferenceImage = { dataUrl: string; mime: string; name?: string };
@@ -38,7 +73,7 @@ type ReferenceImage = { dataUrl: string; mime: string; name?: string };
 const DEFAULT_AI_PROMPT = 'Tu es l’assistant commercial de mon entreprise. Réponds de façon claire, utile, professionnelle, courte et polie.';
 const AI_VIDEO_FREE_DURATION_SECONDS = 8;
 const AI_VIDEO_PREMIUM_DURATION_SECONDS = 45;
-const AI_VIDEO_PREMIUM_PRICE_FCFA = 3000;
+const AI_VIDEO_PREMIUM_PRICE_FCFA = 3500;
 const DEFAULT_AI_PLANS: AiPlan[] = [
   { code: 'activation_1500', label: 'Activation IA Premium', priceFcfa: 1500, words: 750 },
   { code: 'recharge_2000', label: 'Recharge 3 000 mots', priceFcfa: 2000, words: 3000 },
@@ -69,6 +104,30 @@ const AI_SCOPE_OPTIONS = [
   { value: 'non_friends', label: 'Nouveaux contacts' },
   { value: 'groups_only', label: 'Groupes' },
 ];
+
+function toolsModeForPaystackScope(scope: 'ai' | 'flyer' | 'video' | 'business' | 'conference' | 'conference-book'): ToolsMode | null {
+  if (scope === 'ai') return 'ai';
+  if (scope === 'flyer') return 'flyer';
+  if (scope === 'video') return 'video';
+  if (scope === 'conference' || scope === 'conference-book') return 'meeting';
+  return null;
+}
+
+function creationExtension(creation: GeneratedCreation) {
+  const cleanUrl = creation.url.split('?')[0] || '';
+  const match = cleanUrl.match(/\.(png|jpe?g|webp|gif|mp4|mov|webm)$/i);
+  if (match?.[1]) return `.${match[1].toLowerCase().replace('jpeg', 'jpg')}`;
+  return creation.type === 'video' ? '.mp4' : '.png';
+}
+
+function safeLocalFileName(value: string, fallback: string) {
+  return (value || fallback)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 90) || fallback;
+}
 const TRANSLATE_LANGUAGES = [
   { value: 'af', label: 'Afrikaans' },
   { value: 'ak', label: 'Akan' },
@@ -216,13 +275,13 @@ const PRIMARY_DIRECTORY_TOOLS: DirectoryTool[] = [
 const SMART_DIRECTORY_TOOLS: DirectoryTool[] = [
   { tab: 'ai', icon: Bot, title: 'Réponses IA', subtitle: 'Préparer des réponses automatiques avec un prompt contrôlé.' },
   { tab: 'translate', icon: Languages, title: 'Traduction', subtitle: 'Rédiger, reformuler ou traduire un message avant envoi.' },
-  { tab: 'meeting', icon: Video, title: 'Réunion Vidéo', subtitle: 'Démarrez ou rejoignez une réunion instantanément.' },
+  { tab: 'meeting', icon: Video, title: 'Salle de conférence', subtitle: 'Préparez un direct 16:9, partagez le lien et diffusez via LiveKit/SFU.' },
   { tab: 'notes', icon: NotebookPen, title: 'Notes', subtitle: 'Notes locales conservées sur ce téléphone.' },
   { tab: 'events', icon: CalendarDays, title: 'Rappels', subtitle: 'Rappels locaux avec notification Android.' },
 ];
 
 const TOOL_TABS: { mode: ToolTab; label: string }[] = [
-  { mode: 'meeting', label: '🎥 Réunion' },
+  { mode: 'meeting', label: '🎥 Conférence' },
   { mode: 'flyer', label: '✨ Flyer IA' },
   { mode: 'video', label: '🎬 IA Vidéo' },
   { mode: 'ai', label: '🤖 Réponse IA' },
@@ -339,21 +398,281 @@ function parseReminderDate(date: string, time: string) {
   return parsed;
 }
 
-function meetingRoomSlug(value: string) {
-  const raw = value.trim() || 'oracle-votre-salle';
-  const withoutHost = raw.replace(/^https?:\/\/meet\.jit\.si\//i, '');
-  return withoutHost
+function conferenceSlugFrom(value: string) {
+  const raw = value.trim();
+  const withoutScheme = raw
+    .replace(/^oraclemessenger:\/\/conference\/?/i, '')
+    .replace(/^https?:\/\/[^/]+\/conference\/?/i, '');
+  const candidate = withoutScheme || raw || 'oracle-conference';
+  return candidate
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-zA-Z0-9_-]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .toLowerCase() || 'oracle-votre-salle';
+    .toLowerCase() || 'oracle-conference';
 }
 
-function meetingUrlFrom(value: string) {
-  const clean = value.trim();
-  if (/^https?:\/\//i.test(clean)) return clean;
-  return `https://meet.jit.si/${encodeURIComponent(meetingRoomSlug(clean))}`;
+function formatConferenceDuration(minutes: number) {
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return rest ? `${hours}h${String(rest).padStart(2, '0')}` : `${hours}h`;
+  }
+  return `${minutes} min`;
+}
+
+function conferenceJoinNotice(livekit: any) {
+  if (livekit?.enabled) {
+    return `Salle rejointe en mode ${livekit.canPublishCamera ? 'hôte' : livekit.canPublishMicrophone ? 'intervenant audio' : 'spectateur'}.`;
+  }
+  if (livekit?.waiting) {
+    return livekit.reason || 'Salle rejointe. Le participant reste en attente du direct.';
+  }
+  return livekit?.reason || 'Salle ouverte, attente du direct ou média indisponible.';
+}
+
+async function ensureToolMediaLibraryPermission() {
+  const current = await ImagePicker.getMediaLibraryPermissionsAsync();
+  if (current.granted) return true;
+  if (current.canAskAgain === false) return false;
+  const requested = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  return requested.granted;
+}
+
+function publicationStream(publication?: { track?: { mediaStream?: unknown } } | null) {
+  return (publication?.track?.mediaStream ?? null) as MediaStream | null;
+}
+
+function ConferenceLiveKitStage({
+  livekit,
+  sourceMode,
+  prerecordedLocalName,
+  raisedHandsCount = 0,
+  currentSpeakerName,
+  onNotice,
+}: {
+  livekit: any;
+  sourceMode: 'camera' | 'prerecorded';
+  prerecordedLocalName: string;
+  raisedHandsCount?: number;
+  currentSpeakerName?: string;
+  onNotice: (message: string) => void;
+}) {
+  const roomRef = useRef<Room | null>(null);
+  const [status, setStatus] = useState('Hors direct');
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
+  const [muted, setMuted] = useState(false);
+  const [cameraOff, setCameraOff] = useState(sourceMode !== 'camera');
+
+  const setRemoteParticipantStream = useCallback((participant: RemoteParticipant) => {
+    const stream = Array.from(participant.videoTrackPublications.values())
+      .map(publication => publicationStream(publication))
+      .find(Boolean) || null;
+    setRemoteStreams(current => {
+      const next = new Map(current);
+      if (stream) next.set(participant.identity, stream);
+      else next.delete(participant.identity);
+      return next;
+    });
+  }, []);
+
+  const disconnectRoom = useCallback(() => {
+    const room = roomRef.current;
+    roomRef.current = null;
+    if (room) {
+      room.removeAllListeners();
+      room.disconnect(true).catch(() => undefined);
+    }
+    AudioSession.stopAudioSession().catch(() => undefined);
+    setLocalStream(null);
+    setRemoteStreams(new Map());
+    setMuted(false);
+    setCameraOff(sourceMode !== 'camera');
+  }, [sourceMode]);
+
+  useEffect(() => () => disconnectRoom(), [disconnectRoom]);
+
+  useEffect(() => {
+    if (!livekit?.enabled || !livekit.url || !livekit.token) {
+      setStatus(livekit?.reason || 'LiveKit indisponible');
+      disconnectRoom();
+      return undefined;
+    }
+    let alive = true;
+    const room = new Room({ adaptiveStream: true, dynacast: true });
+    roomRef.current = room;
+    const updateLocalPreview = () => {
+      const stream = publicationStream(room.localParticipant.getTrackPublication(Track.Source.Camera));
+      if (stream) setLocalStream(stream);
+    };
+
+    room.on(RoomEvent.Connected, () => {
+      if (!alive) return;
+      setStatus(livekit.canPublishCamera ? 'Direct connecté' : livekit.canPublishMicrophone ? 'Micro intervenant connecté' : 'Salle connectée');
+    });
+    room.on(RoomEvent.Reconnecting, () => {
+      if (alive) setStatus('Reconnexion...');
+    });
+    room.on(RoomEvent.Reconnected, () => {
+      if (alive) setStatus(livekit.canPublishCamera ? 'Direct reconnecté' : livekit.canPublishMicrophone ? 'Micro intervenant reconnecté' : 'Salle reconnectée');
+    });
+    room.on(RoomEvent.Disconnected, () => {
+      if (alive) setStatus('Déconnecté');
+    });
+    room.on(RoomEvent.ParticipantConnected, participant => {
+      if (alive) setRemoteParticipantStream(participant);
+    });
+    room.on(RoomEvent.ParticipantDisconnected, participant => {
+      if (!alive) return;
+      setRemoteStreams(current => {
+        const next = new Map(current);
+        next.delete(participant.identity);
+        return next;
+      });
+    });
+    room.on(RoomEvent.TrackSubscribed, (_track, _publication, participant) => {
+      if (!alive) return;
+      setRemoteParticipantStream(participant);
+      room.startAudio().catch(() => undefined);
+    });
+    room.on(RoomEvent.LocalTrackPublished, publication => {
+      if (alive && publication.source === Track.Source.Camera) updateLocalPreview();
+    });
+
+    const connect = async () => {
+      try {
+        setStatus('Connexion du direct...');
+        await AudioSession.startAudioSession();
+        await room.connect(livekit.url, livekit.token, { autoSubscribe: true });
+        await room.startAudio().catch(() => undefined);
+        if (livekit.canPublishMicrophone || livekit.canPublishCamera) {
+          const preflight = await mediaDevices.getUserMedia({
+            audio: Boolean(livekit.canPublishMicrophone),
+            video: livekit.canPublishCamera && sourceMode === 'camera'
+              ? { facingMode: 'user', width: 1280, height: 720, frameRate: 24 }
+              : false,
+          } as any);
+          preflight.getTracks().forEach(track => track.stop());
+          if (livekit.canPublishMicrophone) {
+            await room.localParticipant.setMicrophoneEnabled(true);
+            setMuted(false);
+          }
+          if (livekit.canPublishCamera && sourceMode === 'camera') {
+            await room.localParticipant.setCameraEnabled(true, {
+              facingMode: 'user',
+              resolution: { width: 1280, height: 720, frameRate: 24 },
+              frameRate: 24,
+            } as any, { simulcast: true } as any);
+            updateLocalPreview();
+            setCameraOff(false);
+          } else {
+            setCameraOff(true);
+            onNotice('Vidéo locale sélectionnée. Elle reste sur ce téléphone; le serveur ne la stocke pas.');
+          }
+        }
+        room.remoteParticipants.forEach(setRemoteParticipantStream);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Connexion du direct impossible.';
+        setStatus('Connexion échouée');
+        onNotice(message);
+        disconnectRoom();
+      }
+    };
+    void connect();
+    return () => {
+      alive = false;
+      disconnectRoom();
+    };
+  }, [disconnectRoom, livekit?.canPublishCamera, livekit?.canPublishMicrophone, livekit?.enabled, livekit?.reason, livekit?.token, livekit?.url, onNotice, setRemoteParticipantStream, sourceMode]);
+
+  const toggleMute = useCallback(async () => {
+    const room = roomRef.current;
+    if (!room || !livekit?.canPublishMicrophone) return;
+    const nextMuted = room.localParticipant.isMicrophoneEnabled;
+    try {
+      await room.localParticipant.setMicrophoneEnabled(!nextMuted);
+      setMuted(nextMuted);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : 'Microphone indisponible.');
+    }
+  }, [livekit?.canPublishMicrophone, onNotice]);
+
+  const toggleCamera = useCallback(async () => {
+    const room = roomRef.current;
+    if (!room || !livekit?.canPublishCamera || sourceMode !== 'camera') return;
+    const nextOff = room.localParticipant.isCameraEnabled;
+    try {
+      await room.localParticipant.setCameraEnabled(!nextOff, {
+        facingMode: 'user',
+        resolution: { width: 1280, height: 720, frameRate: 24 },
+        frameRate: 24,
+      } as any, { simulcast: true } as any);
+      if (!nextOff) {
+        const stream = publicationStream(room.localParticipant.getTrackPublication(Track.Source.Camera));
+        if (stream) setLocalStream(stream);
+      }
+      setCameraOff(nextOff);
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : 'Caméra indisponible.');
+    }
+  }, [livekit?.canPublishCamera, onNotice, sourceMode]);
+
+  const remoteEntries = Array.from(remoteStreams.entries());
+  const featuredStream = localStream || remoteEntries[0]?.[1] || null;
+  const featuredIsLocal = Boolean(localStream && featuredStream === localStream);
+  const streamHint = livekit.canPublishCamera
+    ? 'Votre caméra va apparaître ici dès que la piste vidéo est publiée.'
+    : 'Vous êtes bien dans la salle. La vidéo apparaît dès que le conférencier publie sa caméra.';
+
+  if (!livekit?.enabled) return null;
+
+  return (
+    <View style={styles.conferenceLivePanel}>
+      <View style={styles.conferenceVideoFrame}>
+        {featuredStream ? (
+          <RTCView streamURL={featuredStream.toURL()} objectFit="cover" mirror={featuredIsLocal} style={styles.conferenceRtcView} />
+        ) : (
+          <View style={styles.conferenceVideoPlaceholder}>
+            <Text style={styles.conferenceVideoPlaceholderTitle}>{sourceMode === 'prerecorded' ? 'Vidéo locale prête' : 'Flux vidéo en attente'}</Text>
+            <Text style={styles.conferenceVideoPlaceholderText}>{sourceMode === 'prerecorded' ? (prerecordedLocalName || 'Aucune vidéo locale sélectionnée') : `${status} · ${streamHint}`}</Text>
+          </View>
+        )}
+        {raisedHandsCount > 0 || currentSpeakerName ? (
+          <View pointerEvents="none" style={styles.conferenceVideoBadgeLayer}>
+            {raisedHandsCount > 0 ? (
+              <View style={styles.conferenceVideoBadge}>
+                <Hand size={14} color="#FFFFFF" />
+                <Text style={styles.conferenceVideoBadgeText}>{raisedHandsCount} main{raisedHandsCount > 1 ? 's' : ''}</Text>
+              </View>
+            ) : null}
+            {currentSpeakerName ? (
+              <View style={styles.conferenceVideoBadge}>
+                <Mic size={14} color="#FFFFFF" />
+                <Text numberOfLines={1} style={styles.conferenceVideoBadgeText}>Micro : {currentSpeakerName}</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+      </View>
+      <View style={styles.conferenceLiveInfoRow}>
+        <Text style={styles.conferenceLiveStatus}>{status}</Text>
+        <Text style={styles.conferenceLiveRole}>{livekit.canPublishCamera ? 'Hôte' : livekit.canPublishMicrophone ? 'Intervenant' : 'Spectateur'}</Text>
+      </View>
+      {livekit.canPublishMicrophone || livekit.canPublishCamera ? (
+        <View style={styles.conferenceControlsRow}>
+          <Pressable accessibilityRole="button" onPress={toggleMute} style={styles.conferenceControlButton}>
+            {muted ? <MicOff size={19} color={colors.header} /> : <Mic size={19} color={colors.header} />}
+            <Text style={styles.conferenceControlText}>{muted ? 'Micro coupé' : 'Micro actif'}</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={toggleCamera} disabled={!livekit.canPublishCamera || sourceMode !== 'camera'} style={[styles.conferenceControlButton, (!livekit.canPublishCamera || sourceMode !== 'camera') && styles.aiDisabled]}>
+            {cameraOff ? <CameraOff size={19} color={colors.header} /> : <Camera size={19} color={colors.header} />}
+            <Text style={styles.conferenceControlText}>{livekit.canPublishCamera ? (cameraOff ? 'Caméra coupée' : 'Caméra active') : 'Caméra hôte'}</Text>
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 function FlyerStat({ label, value }: { label: string; value: unknown }) {
@@ -489,139 +808,1170 @@ function ToolsDirectory({ onOpenTab }: { onOpenTab: (tab: NativeTabKey) => void 
   );
 }
 
-function MeetingTool({ userName }: { userName: string }) {
-  const [room, setRoom] = useState('');
-  const [active, setActive] = useState(false);
-  const [roomName, setRoomName] = useState('');
-  const [joinRoom, setJoinRoom] = useState('');
+function ConferenceTool({ token, ownerId, userName }: { token: string; ownerId: string; userName: string }) {
+  const tokenRefreshRef = useRef(false);
+  const [overview, setOverview] = useState<any>(null);
+  const [room, setRoom] = useState<any>(null);
+  const [conferenceState, setConferenceState] = useState<any>(null);
+  const [conferenceBookAccess, setConferenceBookAccess] = useState<any>(null);
+  const [livekit, setLivekit] = useState<any>(null);
+  const [title, setTitle] = useState('Salle de conférence Oracle');
+  const [description, setDescription] = useState('');
+  const [phone, setPhone] = useState('');
+  const [contactInfo, setContactInfo] = useState('');
+  const [coverUrl, setCoverUrl] = useState('');
+  const [speakerName, setSpeakerName] = useState(userName || '');
+  const [scheduledDate, setScheduledDate] = useState('');
+  const [scheduledTime, setScheduledTime] = useState('');
+  const [logoUrl, setLogoUrl] = useState('');
+  const [visualIdentity, setVisualIdentity] = useState('');
+  const [sourceMode, setSourceMode] = useState<'camera' | 'prerecorded'>('camera');
+  const [prerecordedLocalName, setPrerecordedLocalName] = useState('');
+  const [joinSlug, setJoinSlug] = useState('');
+  const [questionDraft, setQuestionDraft] = useState('');
+  const [answerTargetId, setAnswerTargetId] = useState('');
+  const [answerDraft, setAnswerDraft] = useState('');
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptionsText, setPollOptionsText] = useState('Oui\nNon\nJe ne sais pas');
+  const [documentTitle, setDocumentTitle] = useState('');
+  const [documentUrl, setDocumentUrl] = useState('');
+  const [pendingAutoJoinSlug, setPendingAutoJoinSlug] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [bookBusy, setBookBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const autoJoinedLiveSlugRef = useRef('');
 
-  const previewLink = meetingUrlFrom(room || 'oracle-votre-salle');
-  const shareLink = roomName ? meetingUrlFrom(roomName) : '';
+  const access = overview?.access || {};
+  const plans = Array.isArray(overview?.plans) ? overview.plans : [];
+  const paidPlans = plans.filter((plan: any) => Number(plan?.priceFcfa || 0) > 0);
+  const primaryPlan = paidPlans[0];
+  const freeTestPlan = overview?.freeTestPlan || { code: 'conference_free_test_5p_3m', maxParticipants: 5, durationMinutes: 3 };
+  const paidPlanCode = primaryPlan?.code || 'conference_50_70m';
+  const hostLabel = speakerName || userName || 'Oracle Messenger';
+  const activeRoom = conferenceState?.room || room;
+  const roomLink = activeRoom?.link || '';
+  const roomDeepLink = activeRoom?.slug ? `oraclemessenger://conference/${encodeURIComponent(activeRoom.slug)}` : activeRoom?.deepLink || '';
+  const roomShareText = [
+    `${hostLabel} vous invite dans sa salle de conférence Oracle Messenger`,
+    roomLink ? `Lien web : ${roomLink}` : '',
+    roomDeepLink ? `Lien application : ${roomDeepLink}` : '',
+    activeRoom?.slug ? `Code salle : ${activeRoom.slug}` : '',
+  ].filter(Boolean).join('\n');
+  const live = activeRoom?.status === 'live';
+  const isHost = Boolean(conferenceState?.permissions?.isHost || livekit?.role === 'host' || (activeRoom?.hostId && activeRoom.hostId === ownerId));
+  const isJoined = Boolean(conferenceState?.me || isHost);
+  const participants = Array.isArray(conferenceState?.participants) ? conferenceState.participants : [];
+  const questions = Array.isArray(conferenceState?.questions) ? conferenceState.questions : [];
+  const raisedHands = Array.isArray(conferenceState?.raisedHands) ? conferenceState.raisedHands : [];
+  const polls = Array.isArray(conferenceState?.polls) ? conferenceState.polls : [];
+  const documents = Array.isArray(conferenceState?.documents) ? conferenceState.documents : [];
+  const aiSummaries = Array.isArray(conferenceState?.aiSummaries) ? conferenceState.aiSummaries : [];
+  const reactions = Array.isArray(conferenceState?.reactions) ? conferenceState.reactions : [];
+  const conferenceBook = conferenceBookAccess?.book;
+  const conferenceBookPolicy = conferenceBookAccess?.access || {};
+  const conferenceBookAvailable = Boolean(conferenceBookAccess?.available && conferenceBook);
+  const canGenerateConferenceBook = Boolean(isHost && activeRoom?.slug && activeRoom?.status !== 'live');
+  const me = conferenceState?.me;
+  const currentSpeaker = conferenceState?.currentSpeaker;
+  const waitingForLive = Boolean(activeRoom?.id && activeRoom?.status !== 'live' && !isHost);
+  const timeRemainingSeconds = activeRoom?.timeRemainingSeconds;
+  const displayedCapacity = Number(activeRoom?.maxParticipants || primaryPlan?.maxParticipants || 50);
+  const displayedDuration = Number(activeRoom?.durationMinutes || primaryPlan?.durationMinutes || 70);
+  const aiWordLimit = Number(activeRoom?.aiWordLimit || primaryPlan?.aiIncludedWords || 3500);
+  const aiWordsRemaining = Number(activeRoom?.aiWordsRemaining ?? aiWordLimit);
+  const timeRemaining = typeof timeRemainingSeconds === 'number'
+    ? `${Math.floor(timeRemainingSeconds / 60).toString().padStart(2, '0')}:${Math.max(0, timeRemainingSeconds % 60).toString().padStart(2, '0')}`
+    : formatConferenceDuration(displayedDuration);
+  const scheduled = scheduledDate.trim()
+    ? parseReminderDate(scheduledDate, scheduledTime || '09:00')
+    : null;
 
-  const openMeetingLink = useCallback(async (target: string) => {
-    try {
-      const separator = target.includes('#') ? '&' : '#';
-      await Linking.openURL(`${target}${separator}userInfo.displayName="${encodeURIComponent(userName)}"`);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Ouverture de la réunion impossible.');
+  const syncRoomForm = useCallback((nextRoom: any) => {
+    if (!nextRoom) return;
+    setRoom(nextRoom);
+    setTitle(nextRoom.title || 'Salle de conférence Oracle');
+    setDescription(nextRoom.description || '');
+    setPhone(nextRoom.phone || '');
+    setContactInfo(nextRoom.contactInfo || '');
+    setCoverUrl(nextRoom.coverUrl || '');
+    setSpeakerName(nextRoom.speakerName || userName || '');
+    setLogoUrl(nextRoom.logoUrl || '');
+    setVisualIdentity(nextRoom.visualIdentity || '');
+    setSourceMode(nextRoom.sourceMode === 'prerecorded' ? 'prerecorded' : 'camera');
+    setPrerecordedLocalName(nextRoom.prerecordedLocalName || '');
+    if (nextRoom.scheduledAt) {
+      const nextDate = new Date(nextRoom.scheduledAt);
+      if (!Number.isNaN(nextDate.getTime())) {
+        setScheduledDate(nextDate.toISOString().slice(0, 10));
+        setScheduledTime(nextDate.toISOString().slice(11, 16));
+      }
     }
   }, [userName]);
 
-  const createMeetingLink = useCallback(() => {
-    const nextRoom = meetingRoomSlug(room.trim() || `oracle-${Math.random().toString(36).slice(2, 8)}`);
-    setRoomName(nextRoom);
-    setActive(true);
-    setNotice('Réunion prête. Appuyez sur Ouvrir la réunion pour entrer, puis partagez le lien aux invités.');
-  }, [room]);
+  const applyConferenceData = useCallback((data: any) => {
+    const nextState = data?.state || (data?.permissions || data?.participants ? data : null);
+    if (data?.room) syncRoomForm(data.room);
+    if (nextState?.room) syncRoomForm(nextState.room);
+    if (nextState) setConferenceState(nextState);
+    return nextState;
+  }, [syncRoomForm]);
 
-  const shareMeeting = useCallback(async () => {
-    const link = shareLink || previewLink;
-    try {
-      await Share.share({ title: 'Rejoins ma réunion', message: link, url: link });
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Partage de la réunion impossible.');
+  const roomPayload = useCallback((planCode?: string): ConferenceRoomPayload => ({
+    title,
+    description,
+    phone,
+    contactInfo,
+    coverUrl,
+    speakerName,
+    scheduledAt: scheduled ? scheduled.toISOString() : undefined,
+    logoUrl,
+    visualIdentity,
+    sourceMode,
+    prerecordedLocalName,
+    planCode,
+  }), [contactInfo, coverUrl, description, logoUrl, phone, prerecordedLocalName, scheduled, sourceMode, speakerName, title, visualIdentity]);
+
+  const loadConferenceBook = useCallback(async (slugOverride?: string) => {
+    const slug = conferenceSlugFrom(slugOverride || activeRoom?.slug || '');
+    if (!slug) {
+      setConferenceBookAccess(null);
+      return null;
     }
-  }, [previewLink, shareLink]);
+    try {
+      const data = await api.conferenceBook(token, slug);
+      setConferenceBookAccess(data);
+      return data;
+    } catch {
+      setConferenceBookAccess(null);
+      return null;
+    }
+  }, [activeRoom?.slug, token]);
 
-  const copyMeetingLink = useCallback(async () => {
-    const link = shareLink || previewLink;
-    await Clipboard.setStringAsync(link);
-    setNotice('Lien copié.');
-  }, [previewLink, shareLink]);
+  const loadOverview = useCallback(async () => {
+    setBusy(true);
+    try {
+      const data = await api.conferenceOverview(token);
+      setOverview(data);
+      if (!room && Array.isArray(data?.rooms) && data.rooms[0]) {
+        syncRoomForm(data.rooms[0]);
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Salle de conférence indisponible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [room, syncRoomForm, token]);
 
-  const endMeeting = useCallback(() => {
-    setActive(false);
-    setRoom('');
-    setRoomName('');
-    setNotice('Réunion terminée.');
+  useEffect(() => { void loadOverview(); }, [loadOverview]);
+
+  useEffect(() => { void loadConferenceBook(); }, [loadConferenceBook]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') void loadConferenceBook();
+    });
+    return () => subscription.remove();
+  }, [loadConferenceBook]);
+
+  useEffect(() => {
+    let alive = true;
+    const consume = async () => {
+      const slug = await consumePendingConference().catch(() => null);
+      if (!alive || !slug) return;
+      setJoinSlug(slug);
+      setPendingAutoJoinSlug(slug);
+      setNotice('Lien reçu. Ouverture de la salle de conférence...');
+    };
+    void consume();
+    const interval = setInterval(() => { void consume(); }, 1200);
+    return () => {
+      alive = false;
+      clearInterval(interval);
+    };
   }, []);
 
-  const joinMeeting = useCallback(() => {
-    const target = joinRoom.trim();
-    if (!target) {
-      setNotice('Entrez un lien ou un nom de salle.');
+  useEffect(() => {
+    const slug = activeRoom?.slug;
+    if (!slug || activeRoom?.status === 'live' || isHost) return undefined;
+    let alive = true;
+    const refreshWaitingRoom = async () => {
+      try {
+        const data = await api.conferenceState(token, slug);
+        if (alive) applyConferenceData(data);
+      } catch {
+        // Le prochain passage réessaie, le participant reste sur l'écran d'attente.
+      }
+    };
+    const interval = setInterval(() => { void refreshWaitingRoom(); }, 5000);
+    return () => {
+      alive = false;
+      clearInterval(interval);
+    };
+  }, [activeRoom?.slug, activeRoom?.status, applyConferenceData, isHost, token]);
+
+  useEffect(() => {
+    const slug = activeRoom?.slug;
+    if (!slug || activeRoom?.status !== 'live' || isHost || livekit?.enabled || busy) return;
+    if (autoJoinedLiveSlugRef.current === slug) return;
+    autoJoinedLiveSlugRef.current = slug;
+    setJoinSlug(slug);
+    setPendingAutoJoinSlug(slug);
+  }, [activeRoom?.slug, activeRoom?.status, busy, isHost, livekit?.enabled]);
+
+  useEffect(() => {
+    const slug = activeRoom?.slug;
+    if (!livekit?.enabled || !slug) return undefined;
+    let alive = true;
+    const heartbeat = async () => {
+      try {
+        const data = await api.conferenceHeartbeat(token, slug);
+        if (alive) applyConferenceData(data);
+      } catch {
+        // La reconnexion LiveKit et le prochain heartbeat remettront l'état à jour.
+      }
+    };
+    void heartbeat();
+    const interval = setInterval(() => { void heartbeat(); }, 5000);
+    return () => {
+      alive = false;
+      clearInterval(interval);
+    };
+  }, [activeRoom?.slug, applyConferenceData, livekit?.enabled, token]);
+
+  useEffect(() => {
+    const slug = activeRoom?.slug;
+    if (!slug) return undefined;
+    const socket = ensureNativeSocket(token);
+    const onConferenceChanged = (payload: { slug?: string }) => {
+      if (payload?.slug !== slug) return;
+      api.conferenceState(token, slug)
+        .then(applyConferenceData)
+        .catch(() => undefined);
+    };
+    socket.on('conference:changed', onConferenceChanged);
+    return () => {
+      socket.off('conference:changed', onConferenceChanged);
+    };
+  }, [activeRoom?.slug, applyConferenceData, token]);
+
+  useEffect(() => {
+    const slug = conferenceState?.room?.slug;
+    const shouldSpeak = Boolean(conferenceState?.permissions?.canSpeak && !conferenceState?.permissions?.isHost);
+    if (!slug || !livekit?.enabled || tokenRefreshRef.current) return;
+    if ((shouldSpeak && !livekit.canPublishMicrophone) || (!shouldSpeak && livekit.role === 'speaker')) {
+      tokenRefreshRef.current = true;
+      api.conferenceJoinRoom(token, slug)
+        .then(joined => {
+          setLivekit(joined.livekit);
+          applyConferenceData(joined);
+          setNotice(shouldSpeak ? 'Micro autorisé par le conférencier.' : 'Autorisation micro retirée.');
+        })
+        .catch(error => setNotice(error instanceof Error ? error.message : 'Actualisation micro impossible.'))
+        .finally(() => { tokenRefreshRef.current = false; });
+    }
+  }, [applyConferenceData, conferenceState?.permissions?.canSpeak, conferenceState?.permissions?.isHost, conferenceState?.room?.slug, livekit?.canPublishMicrophone, livekit?.enabled, livekit?.role, token]);
+
+  const prepareRoom = useCallback(async () => {
+    setBusy(true);
+    setNotice('');
+    try {
+      const data = room?.id
+        ? await api.conferenceUpdateRoom(token, room.id, roomPayload(activeRoom?.planCode || paidPlanCode))
+        : await api.conferenceCreateRoom(token, roomPayload(paidPlanCode));
+      applyConferenceData(data);
+      setNotice('Salle de conférence préparée. Le lien unique peut être partagé.');
+      await loadOverview();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Préparation de la salle impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [activeRoom?.planCode, applyConferenceData, loadOverview, paidPlanCode, room?.id, roomPayload, token]);
+
+  const pickPrerecordedVideo = useCallback(async () => {
+    const granted = await ensureToolMediaLibraryPermission();
+    if (!granted) {
+      setNotice('Permission galerie requise. Activez-la dans les paramètres Android pour sélectionner une vidéo locale.');
       return;
     }
-    void openMeetingLink(meetingUrlFrom(target));
-  }, [joinRoom, openMeetingLink]);
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['videos'],
+      allowsEditing: false,
+      quality: 1,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    setSourceMode('prerecorded');
+    setPrerecordedLocalName(asset.fileName || asset.uri.split('/').pop() || 'Vidéo locale');
+    setNotice('Vidéo locale sélectionnée. Elle reste sur ce téléphone; seul son nom est enregistré dans la salle.');
+  }, []);
+
+  const startDirect = useCallback(async () => {
+    setBusy(true);
+    setNotice('');
+    try {
+      const shouldCreatePaidRoom = !room?.id || activeRoom?.freeTest;
+      const prepared = shouldCreatePaidRoom
+        ? await api.conferenceCreateRoom(token, roomPayload(paidPlanCode))
+        : await api.conferenceUpdateRoom(token, room.id, roomPayload(paidPlanCode));
+      const started = await api.conferenceStartRoom(token, prepared.room.id);
+      applyConferenceData(started);
+      const joined = await api.conferenceJoinRoom(token, started.room.slug);
+      setLivekit(joined.livekit);
+      applyConferenceData(joined);
+      setNotice(joined.livekit?.enabled
+        ? 'Direct démarré. Le conférencier parle; les participants entrent muets et demandent le micro.'
+        : joined.livekit?.reason || 'LiveKit indisponible.');
+      await loadOverview();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Démarrage du direct impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [activeRoom?.freeTest, applyConferenceData, loadOverview, paidPlanCode, room?.id, roomPayload, token]);
+
+  const startFreeTest = useCallback(async () => {
+    setBusy(true);
+    setNotice('');
+    try {
+      const prepared = await api.conferenceCreateRoom(token, roomPayload(freeTestPlan.code));
+      const started = await api.conferenceStartRoom(token, prepared.room.id);
+      applyConferenceData(started);
+      const joined = await api.conferenceJoinRoom(token, started.room.slug);
+      setLivekit(joined.livekit);
+      applyConferenceData(joined);
+      setNotice('Test gratuit démarré : 3 minutes, 5 participants maximum, sans assistance IA.');
+      await loadOverview();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Test gratuit impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [applyConferenceData, freeTestPlan.code, loadOverview, roomPayload, token]);
+
+  const stopDirect = useCallback(async () => {
+    if (!activeRoom?.id) return;
+    setBusy(true);
+    try {
+      const data = await api.conferenceStopRoom(token, activeRoom.id);
+      applyConferenceData(data);
+      setLivekit(null);
+      setNotice('Direct arrêté.');
+      await loadOverview();
+      await loadConferenceBook(data?.room?.slug || activeRoom.slug);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Arrêt du direct impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [activeRoom?.id, activeRoom?.slug, applyConferenceData, loadConferenceBook, loadOverview, token]);
+
+  const joinConference = useCallback(async (slugOverride?: string) => {
+    const slug = conferenceSlugFrom(slugOverride || joinSlug);
+    if (!slug) {
+      setNotice('Entrez un lien ou un identifiant de salle.');
+      return;
+    }
+    setBusy(true);
+    setNotice('');
+    try {
+      const joined = await api.conferenceJoinRoom(token, slug);
+      setLivekit(joined.livekit);
+      applyConferenceData(joined);
+      setNotice(conferenceJoinNotice(joined.livekit));
+    } catch (error) {
+      try {
+        const state = await api.conferenceState(token, slug);
+        applyConferenceData(state);
+        setLivekit(null);
+        setNotice('Salle trouvée. Le direct n’a pas encore commencé; vous restez en attente ici.');
+      } catch {
+        setNotice(error instanceof Error ? error.message : 'Impossible de rejoindre cette salle.');
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [applyConferenceData, joinSlug, token]);
+
+  useEffect(() => {
+    if (!pendingAutoJoinSlug || busy) return undefined;
+    const timer = setTimeout(() => {
+      void joinConference(pendingAutoJoinSlug).finally(() => setPendingAutoJoinSlug(''));
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [busy, joinConference, pendingAutoJoinSlug]);
+
+  useEffect(() => {
+    const slug = activeRoom?.slug;
+    if (!slug || isHost || activeRoom?.status !== 'live' || livekit?.enabled) return undefined;
+    let cancelled = false;
+    const retryJoin = () => {
+      if (cancelled || busy) return;
+      void joinConference(slug);
+    };
+    const timer = setTimeout(retryJoin, 2500);
+    const interval = setInterval(retryJoin, 9000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, [activeRoom?.slug, activeRoom?.status, busy, isHost, joinConference, livekit?.enabled]);
+
+  const shareConference = useCallback(async () => {
+    if (!roomLink) {
+      setNotice('Préparez d’abord la salle pour obtenir le lien.');
+      return;
+    }
+    await Share.share({ title: title || 'Salle de conférence Oracle', message: roomShareText, url: roomLink });
+  }, [roomLink, roomShareText, title]);
+
+  const copyConferenceLink = useCallback(async () => {
+    if (!roomLink) {
+      setNotice('Préparez d’abord la salle pour obtenir le lien.');
+      return;
+    }
+    await Clipboard.setStringAsync(roomShareText || roomLink);
+    setNotice('Invitation de conférence copiée.');
+  }, [roomLink, roomShareText]);
+
+  const payConferencePlan = useCallback(async (planCode: string) => {
+    setBusy(true);
+    setNotice('');
+    try {
+      const data = await api.conferenceInitializePaystack(token, planCode);
+      if (!data.authorizationUrl) {
+        await loadOverview();
+        setNotice('Compte administrateur principal : aucun paiement demandé, capacité maintenue à 50 pour cette version.');
+        return;
+      }
+      await rememberPendingPaystackPayment('conference', data.reference);
+      await Linking.openURL(data.authorizationUrl);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Paiement conférence indisponible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [loadOverview, token]);
+
+  const refreshState = useCallback(async () => {
+    const slug = activeRoom?.slug;
+    if (!slug) return;
+    try {
+      const data = await api.conferenceState(token, slug);
+      applyConferenceData(data);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'État de conférence indisponible.');
+    }
+  }, [activeRoom?.slug, applyConferenceData, token]);
+
+  const raiseHand = useCallback(async () => {
+    if (!activeRoom?.slug) return;
+    setBusy(true);
+    try {
+      const data = me?.handStatus === 'pending'
+        ? await api.conferenceCancelHand(token, activeRoom.slug)
+        : await api.conferenceRaiseHand(token, activeRoom.slug);
+      applyConferenceData(data);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Main levée impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [activeRoom?.slug, applyConferenceData, me?.handStatus, token]);
+
+  const manageHand = useCallback(async (participantId: string, action: 'allow' | 'refuse' | 'revoke') => {
+    if (!activeRoom?.slug) return;
+    setBusy(true);
+    try {
+      const data = action === 'allow'
+        ? await api.conferenceAllowHand(token, activeRoom.slug, participantId)
+        : action === 'refuse'
+          ? await api.conferenceRefuseHand(token, activeRoom.slug, participantId)
+          : await api.conferenceRevokeHand(token, activeRoom.slug, participantId);
+      applyConferenceData(data);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Action micro impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [activeRoom?.slug, applyConferenceData, token]);
+
+  const sendQuestion = useCallback(async () => {
+    if (!activeRoom?.slug || !questionDraft.trim()) return;
+    setBusy(true);
+    try {
+      const data = await api.conferenceAddQuestion(token, activeRoom.slug, questionDraft);
+      applyConferenceData(data);
+      setQuestionDraft('');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Question impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [activeRoom?.slug, applyConferenceData, questionDraft, token]);
+
+  const answerQuestion = useCallback(async () => {
+    if (!activeRoom?.slug || !answerTargetId) return;
+    setBusy(true);
+    try {
+      const data = await api.conferenceAnswerQuestion(token, activeRoom.slug, answerTargetId, answerDraft);
+      applyConferenceData(data);
+      setAnswerTargetId('');
+      setAnswerDraft('');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Réponse impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [activeRoom?.slug, answerDraft, answerTargetId, applyConferenceData, token]);
+
+  const updateQuestion = useCallback(async (questionId: string, data: { isPinned?: boolean; isAnswered?: boolean; isDeleted?: boolean; priority?: number }) => {
+    if (!activeRoom?.slug) return;
+    setBusy(true);
+    try {
+      const next = await api.conferenceUpdateQuestion(token, activeRoom.slug, questionId, data);
+      applyConferenceData(next);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Modification question impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [activeRoom?.slug, applyConferenceData, token]);
+
+  const sendReaction = useCallback(async (emoji: string) => {
+    if (!activeRoom?.slug) return;
+    try {
+      const data = await api.conferenceAddReaction(token, activeRoom.slug, emoji);
+      applyConferenceData(data);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Réaction impossible.');
+    }
+  }, [activeRoom?.slug, applyConferenceData, token]);
+
+  const createPoll = useCallback(async () => {
+    if (!activeRoom?.slug) return;
+    const options = pollOptionsText.split(/\n|,/).map(item => item.trim()).filter(Boolean);
+    setBusy(true);
+    try {
+      const data = await api.conferenceCreatePoll(token, activeRoom.slug, { question: pollQuestion, options, showResults: true });
+      applyConferenceData(data);
+      setPollQuestion('');
+      setPollOptionsText('Oui\nNon\nJe ne sais pas');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Sondage impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [activeRoom?.slug, applyConferenceData, pollOptionsText, pollQuestion, token]);
+
+  const votePoll = useCallback(async (pollId: string, optionIndex: number) => {
+    if (!activeRoom?.slug) return;
+    try {
+      const data = await api.conferenceVotePoll(token, activeRoom.slug, pollId, optionIndex);
+      applyConferenceData(data);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Vote impossible.');
+    }
+  }, [activeRoom?.slug, applyConferenceData, token]);
+
+  const closePoll = useCallback(async (pollId: string) => {
+    if (!activeRoom?.slug) return;
+    setBusy(true);
+    try {
+      const data = await api.conferenceClosePoll(token, activeRoom.slug, pollId);
+      applyConferenceData(data);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Fermeture du sondage impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [activeRoom?.slug, applyConferenceData, token]);
+
+  const shareDocument = useCallback(async () => {
+    if (!activeRoom?.slug) return;
+    setBusy(true);
+    try {
+      const data = await api.conferenceShareDocument(token, activeRoom.slug, { title: documentTitle, url: documentUrl, kind: documentUrl ? 'link' : 'note' });
+      applyConferenceData(data);
+      setDocumentTitle('');
+      setDocumentUrl('');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Partage de document impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [activeRoom?.slug, applyConferenceData, documentTitle, documentUrl, token]);
+
+  const generateAiSummary = useCallback(async (promptType: string) => {
+    if (!activeRoom?.slug) return;
+    setBusy(true);
+    try {
+      const data = await api.conferenceAiSummary(token, activeRoom.slug, promptType);
+      applyConferenceData(data);
+      setNotice('Compte rendu IA généré pour cette conférence.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Résumé IA impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [activeRoom?.slug, applyConferenceData, token]);
+
+  const generateConferenceBook = useCallback(async () => {
+    if (!activeRoom?.slug) return;
+    setBookBusy(true);
+    setNotice('');
+    try {
+      const data = await api.conferenceGenerateBook(token, activeRoom.slug);
+      setConferenceBookAccess(data);
+      setNotice('Cahier de conférence généré par Agent virtuel Oracle.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Génération du cahier impossible.');
+    } finally {
+      setBookBusy(false);
+    }
+  }, [activeRoom?.slug, token]);
+
+  const payConferenceBook = useCallback(async () => {
+    if (!activeRoom?.slug) return;
+    setBookBusy(true);
+    setNotice('');
+    try {
+      const data = await api.conferenceInitializeBookPaystack(token, activeRoom.slug);
+      if (!data.authorizationUrl) {
+        await loadConferenceBook(activeRoom.slug);
+        setNotice('Téléchargement du cahier autorisé.');
+        return;
+      }
+      await rememberPendingPaystackPayment('conference-book', data.reference);
+      await Linking.openURL(data.authorizationUrl);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Paiement du cahier indisponible.');
+    } finally {
+      setBookBusy(false);
+    }
+  }, [activeRoom?.slug, loadConferenceBook, token]);
+
+  const openConferenceBook = useCallback(async () => {
+    const url = conferenceBook?.downloadUrl;
+    if (!url) {
+      setNotice('Le téléchargement du cahier n’est pas encore autorisé.');
+      return;
+    }
+    if (isHost) {
+      await Linking.openURL(url);
+      return;
+    }
+    if (!activeRoom?.slug) return;
+    setBookBusy(true);
+    setNotice('');
+    try {
+      const baseFolder = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+      if (!baseFolder) throw new Error('Stockage local indisponible sur ce téléphone.');
+      const folder = `${baseFolder}oracle-conference-books/`;
+      await FileSystem.makeDirectoryAsync(folder, { intermediates: true }).catch(() => undefined);
+      const filename = `${safeLocalFileName(conferenceBook?.title || activeRoom.title || 'cahier-oracle', 'cahier-oracle')}.pdf`;
+      const downloaded = await FileSystem.downloadAsync(url, `${folder}${filename}`);
+      if (downloaded.status < 200 || downloaded.status >= 300) {
+        throw new Error(`Téléchargement refusé par le serveur (${downloaded.status}).`);
+      }
+      const data = await api.conferenceMarkBookDownloaded(token, activeRoom.slug);
+      setConferenceBookAccess(data);
+      setNotice(`Cahier téléchargé localement : ${filename}. La copie serveur de ce participant a été retirée.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Téléchargement du cahier impossible.');
+    } finally {
+      setBookBusy(false);
+    }
+  }, [activeRoom?.slug, activeRoom?.title, conferenceBook?.downloadUrl, conferenceBook?.title, isHost, token]);
+
+  const participantStatusText = useCallback((participant: any) => {
+    if (participant.role === 'host') return 'Conférencier';
+    if (participant.micAllowed) return 'Micro autorisé';
+    if (participant.handStatus === 'pending') return 'Main levée';
+    if (participant.handStatus === 'refused') return 'Demande refusée';
+    if (participant.handStatus === 'revoked') return 'Micro coupé par le conférencier';
+    return 'Spectateur';
+  }, []);
+
+  const commandTitle = !activeRoom?.id
+    ? 'Créer le lien de conférence'
+    : waitingForLive
+      ? 'Salle reçue, attente du direct'
+      : live
+        ? isHost
+          ? 'Direct en cours'
+          : 'Vous êtes dans le direct'
+        : 'Lien prêt avant le direct';
+  const commandBody = !activeRoom?.id
+    ? 'Créez d’abord le lien. Vous pourrez le partager avant de démarrer la caméra et le micro.'
+    : waitingForLive
+      ? 'Le lien est correct. Restez ici : la salle se connectera automatiquement quand le conférencier démarre.'
+      : live
+        ? isHost
+          ? 'Les participants arrivent muets. Quand une main est levée, autorisez ou refusez le micro ici.'
+          : me?.micAllowed
+            ? 'Votre micro est autorisé. Vous pouvez parler, puis le conférencier peut le couper.'
+            : me?.handStatus === 'pending'
+              ? 'Votre main est levée. Attendez que le conférencier vous donne le micro.'
+              : 'Vous écoutez en spectateur. Pour parler, demandez le micro avec Lever la main.'
+        : isHost
+          ? 'Partagez le lien maintenant. Quand vous êtes prêt, démarrez le direct.'
+          : 'Salle ouverte, mais le direct n’est pas encore démarré.';
 
   return (
     <View style={styles.meetingPage}>
-      <View style={styles.meetingInfoCard}>
-        <Text style={styles.meetingInfoTitle}>Réunion vidéo</Text>
-        <Text style={styles.meetingInfoLine}>1. Appuyez sur “Créer le lien”.</Text>
-        <Text style={styles.meetingInfoLine}>2. Appuyez sur “Ouvrir la réunion” pour entrer.</Text>
-        <Text style={styles.meetingInfoLine}>3. Partagez le lien aux invités.</Text>
-        <Text style={styles.meetingAdvice}>Conseil : sur Android, Chrome donne souvent une meilleure compatibilité micro/caméra que certains navigateurs intégrés.</Text>
+      <View style={styles.conferenceStage}>
+        <View style={styles.conferenceScreen}>
+          {coverUrl ? <Image source={{ uri: coverUrl }} style={styles.conferenceCoverImage} resizeMode="cover" /> : null}
+          <View style={styles.conferenceScreenOverlay} />
+          <View style={styles.conferenceTopBar}>
+            <Text style={styles.conferenceLiveBadge}>{live ? 'EN DIRECT' : 'PREPARATION'}</Text>
+            <Text style={styles.conferenceViewerBadge}>{Number(activeRoom?.viewerCount || 0).toLocaleString('fr-FR')} / {displayedCapacity}</Text>
+          </View>
+          <View style={styles.conferenceLogoSlot}>
+            {logoUrl ? <Image source={{ uri: logoUrl }} style={styles.conferenceLogoImage} resizeMode="cover" /> : <Text style={styles.conferenceLogoText}>OM</Text>}
+          </View>
+          <View style={styles.conferenceScreenCopy}>
+            <Text numberOfLines={2} style={styles.conferenceTitle}>{title || 'Salle de conférence Oracle'}</Text>
+            <Text numberOfLines={1} style={styles.conferenceHostLine}>{hostLabel}</Text>
+            <Text numberOfLines={3} style={styles.conferenceDescription}>{description || 'Préparez le texte du direct, le contact et l’identité visuelle.'}</Text>
+            <Text numberOfLines={1} style={styles.conferenceContact}>{phone || contactInfo ? `${phone}${phone && contactInfo ? ' · ' : ''}${contactInfo}` : 'Contact affiché ici'}</Text>
+          </View>
+        </View>
+        <View style={styles.conferenceMetricGrid}>
+          <View style={styles.conferenceMetric}>
+            <Text style={styles.conferenceMetricValue}>1 + {displayedCapacity}</Text>
+            <Text style={styles.conferenceMetricLabel}>Conférencier + participants</Text>
+          </View>
+          <View style={styles.conferenceMetric}>
+            <Text style={styles.conferenceMetricValue}>{timeRemaining}</Text>
+            <Text style={styles.conferenceMetricLabel}>Durée / restant</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.conferenceCommandCard}>
+        <View style={styles.conferencePanelTitleRow}>
+          <Video size={18} color={colors.header} />
+          <Text style={styles.conferenceCommandTitle}>{commandTitle}</Text>
+        </View>
+        <Text style={styles.conferenceCommandBody}>{commandBody}</Text>
+        {activeRoom?.slug ? (
+          <View style={styles.conferenceRoomCodeBox}>
+            <Text style={styles.conferenceRoomCodeLabel}>Code salle</Text>
+            <Text selectable numberOfLines={1} style={styles.conferenceRoomCodeValue}>{activeRoom.slug}</Text>
+          </View>
+        ) : null}
+        <View style={styles.conferenceCommandActions}>
+          {!activeRoom?.id ? (
+            <Pressable accessibilityRole="button" disabled={busy} onPress={prepareRoom} style={({ pressed }) => [styles.conferenceCommandPrimary, pressed && !busy && styles.aiPressed, busy && styles.aiDisabled]}>
+              <Text style={styles.conferenceCommandPrimaryText}>Créer le lien maintenant</Text>
+            </Pressable>
+          ) : (
+            <>
+              {roomLink ? (
+                <Pressable accessibilityRole="button" onPress={copyConferenceLink} style={({ pressed }) => [styles.conferenceCommandSecondary, pressed && styles.aiPressed]}>
+                  <Text style={styles.conferenceCommandSecondaryText}>Copier le lien</Text>
+                </Pressable>
+              ) : null}
+              {isHost ? (
+                <Pressable accessibilityRole="button" disabled={busy} onPress={live ? stopDirect : startDirect} style={({ pressed }) => [live ? styles.conferenceCommandDanger : styles.conferenceCommandPrimary, pressed && !busy && styles.aiPressed, busy && styles.aiDisabled]}>
+                  <Text style={live ? styles.conferenceCommandDangerText : styles.conferenceCommandPrimaryText}>{live ? 'Arrêter' : 'Démarrer'}</Text>
+                </Pressable>
+              ) : live && isJoined ? (
+                <Pressable accessibilityRole="button" disabled={!conferenceState?.permissions?.canRaiseHand || busy || Boolean(me?.micAllowed)} onPress={raiseHand} style={({ pressed }) => [styles.conferenceCommandPrimary, pressed && !busy && !me?.micAllowed && styles.aiPressed, (!conferenceState?.permissions?.canRaiseHand || busy || me?.micAllowed) && styles.aiDisabled]}>
+                  <Text style={styles.conferenceCommandPrimaryText}>{me?.handStatus === 'pending' ? 'Annuler la main' : me?.micAllowed ? 'Micro autorisé' : 'Lever la main'}</Text>
+                </Pressable>
+              ) : (
+                <Pressable accessibilityRole="button" disabled={busy} onPress={refreshState} style={({ pressed }) => [styles.conferenceCommandSecondary, pressed && !busy && styles.aiPressed, busy && styles.aiDisabled]}>
+                  <Text style={styles.conferenceCommandSecondaryText}>Actualiser</Text>
+                </Pressable>
+              )}
+            </>
+          )}
+        </View>
+        {live && participants.length ? (
+          <View style={styles.conferenceParticipantPreview}>
+            <Text style={styles.conferenceParticipantPreviewTitle}>Connectés maintenant</Text>
+            {participants.slice(0, 5).map((participant: any) => (
+              <View key={participant.id} style={styles.conferenceParticipantPill}>
+                <Text numberOfLines={1} style={styles.conferenceParticipantName}>{participant.name}</Text>
+                <Text numberOfLines={1} style={styles.conferenceParticipantMeta}>{participantStatusText(participant)}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        {isHost && raisedHands.length ? (
+          <View style={styles.conferenceUrgentPanel}>
+            <View style={styles.conferencePanelTitleRow}>
+              <Hand size={16} color={colors.header} />
+              <Text style={styles.conferencePanelTitle}>Demandes micro</Text>
+            </View>
+            {raisedHands.slice(0, 3).map((participant: any) => (
+              <View key={participant.id} style={styles.conferenceRow}>
+                <Text numberOfLines={1} style={styles.conferenceRowTitle}>{participant.name}</Text>
+                <View style={styles.conferenceRowActions}>
+                  <Pressable accessibilityRole="button" onPress={() => manageHand(participant.id, 'allow')} style={styles.conferenceIconButton}><Mic size={16} color="#FFFFFF" /></Pressable>
+                  <Pressable accessibilityRole="button" onPress={() => manageHand(participant.id, 'refuse')} style={[styles.conferenceIconButton, styles.conferenceDangerIconButton]}><XCircle size={16} color="#FFFFFF" /></Pressable>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.meetingCard}>
-        <Text style={styles.meetingSectionTitle}>NOUVELLE RÉUNION</Text>
-        <TextInput
-          value={room}
-          onChangeText={text => {
-            setRoom(text);
-            if (active) {
-              setActive(false);
-              setRoomName('');
-            }
-          }}
-          placeholder="Nom de la salle (optionnel)"
-          placeholderTextColor="#94A3B8"
-          autoCapitalize="none"
-          style={styles.meetingInput}
-        />
-        <View style={styles.meetingPreviewBox}>
-          <Text style={styles.meetingPreviewLabel}>Lien prévu</Text>
-          <Text numberOfLines={2} style={styles.meetingPreviewValue}>{previewLink}</Text>
+        <Text style={styles.meetingSectionTitle}>IDENTITÉ DE LA CONFÉRENCE</Text>
+        <TextInput value={title} onChangeText={setTitle} placeholder="Nom de la conférence" placeholderTextColor="#94A3B8" style={styles.meetingInput} />
+        <TextInput value={speakerName} onChangeText={setSpeakerName} placeholder="Nom du conférencier" placeholderTextColor="#94A3B8" style={styles.meetingInput} />
+        <TextInput value={description} onChangeText={setDescription} placeholder="Description ou texte affiché pendant le direct" placeholderTextColor="#94A3B8" multiline style={[styles.meetingInput, styles.conferenceTextArea]} />
+        <View style={styles.meetingJoinRow}>
+          <TextInput value={scheduledDate} onChangeText={setScheduledDate} placeholder="Date AAAA-MM-JJ" placeholderTextColor="#94A3B8" style={[styles.meetingInput, styles.meetingJoinInput]} />
+          <TextInput value={scheduledTime} onChangeText={setScheduledTime} placeholder="Heure" placeholderTextColor="#94A3B8" style={[styles.meetingInput, styles.conferenceSmallInput]} />
         </View>
-        <Pressable accessibilityRole="button" onPress={createMeetingLink} style={({ pressed }) => [styles.meetingPrimaryButton, pressed && styles.aiPressed]}>
-          <Text style={styles.meetingPrimaryText}>🎥 Créer le lien</Text>
+        <TextInput value={phone} onChangeText={setPhone} placeholder="Numéro de téléphone" placeholderTextColor="#94A3B8" keyboardType="phone-pad" style={styles.meetingInput} />
+        <TextInput value={contactInfo} onChangeText={setContactInfo} placeholder="Informations de contact" placeholderTextColor="#94A3B8" style={styles.meetingInput} />
+        <TextInput value={coverUrl} onChangeText={setCoverUrl} placeholder="URL de l’affiche de couverture" placeholderTextColor="#94A3B8" autoCapitalize="none" style={styles.meetingInput} />
+        <TextInput value={logoUrl} onChangeText={setLogoUrl} placeholder="URL du logo" placeholderTextColor="#94A3B8" autoCapitalize="none" style={styles.meetingInput} />
+        <TextInput value={visualIdentity} onChangeText={setVisualIdentity} placeholder="Identité visuelle / note de production" placeholderTextColor="#94A3B8" style={styles.meetingInput} />
+        <View style={styles.conferenceModeRow}>
+          <Pressable accessibilityRole="button" onPress={() => setSourceMode('camera')} style={[styles.conferenceModePill, sourceMode === 'camera' && styles.conferenceModePillActive]}>
+            <Camera size={17} color={sourceMode === 'camera' ? '#FFFFFF' : colors.header} />
+            <Text style={[styles.conferenceModeText, sourceMode === 'camera' && styles.conferenceModeTextActive]}>Caméra + micro</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={pickPrerecordedVideo} style={[styles.conferenceModePill, sourceMode === 'prerecorded' && styles.conferenceModePillActive]}>
+            <Video size={17} color={sourceMode === 'prerecorded' ? '#FFFFFF' : colors.header} />
+            <Text style={[styles.conferenceModeText, sourceMode === 'prerecorded' && styles.conferenceModeTextActive]}>Vidéo locale</Text>
+          </Pressable>
+        </View>
+        {sourceMode === 'prerecorded' ? (
+          <Text style={styles.meetingAdvice}>{prerecordedLocalName || 'Aucune vidéo locale sélectionnée.'}</Text>
+        ) : null}
+        <Pressable accessibilityRole="button" disabled={busy} onPress={prepareRoom} style={({ pressed }) => [styles.meetingPrimaryButton, pressed && !busy && styles.aiPressed, busy && styles.aiDisabled]}>
+          <Text style={styles.meetingPrimaryText}>{room?.id ? 'Mettre à jour la salle' : 'Créer la salle de conférence'}</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" disabled={busy} onPress={startFreeTest} style={({ pressed }) => [styles.meetingCopyButton, pressed && !busy && styles.aiPressed, busy && styles.aiDisabled]}>
+          <Text style={styles.meetingCopyText}>Tester gratuitement 3 min / 5 participants</Text>
         </Pressable>
       </View>
 
-      {active && roomName ? (
+      {activeRoom?.id ? (
         <View style={styles.meetingReadyCard}>
-          <Text style={styles.meetingReadyTitle}>✅ Réunion : <Text style={styles.meetingReadyRoom}>{roomName}</Text></Text>
-          <Text style={styles.meetingReadyNotice}>{notice || 'Réunion prête. Appuyez sur Ouvrir la réunion pour entrer, puis partagez le lien aux invités.'}</Text>
+          <Text style={styles.meetingReadyTitle}>Salle : <Text style={styles.meetingReadyRoom}>{activeRoom.slug}</Text></Text>
+          <Text style={styles.meetingReadyNotice}>{live ? 'Direct en cours.' : activeRoom?.freeTest ? 'Salle de test prête.' : 'Salle prête. Partagez le lien ou démarrez le direct après paiement.'}</Text>
           <View style={styles.meetingShareBox}>
-            <Text numberOfLines={2} style={styles.meetingShareLink}>{shareLink}</Text>
+            <Text numberOfLines={2} style={styles.meetingShareLink}>{roomLink}</Text>
+            {roomDeepLink ? <Text numberOfLines={1} style={styles.meetingShareHint}>{roomDeepLink}</Text> : null}
           </View>
-          <Pressable accessibilityRole="button" onPress={() => openMeetingLink(shareLink)} style={({ pressed }) => [styles.meetingPrimaryButton, styles.meetingCreatedButton, pressed && styles.aiPressed]}>
-            <Text style={styles.meetingPrimaryText}>🎥 Ouvrir la réunion</Text>
-          </Pressable>
           <View style={styles.meetingActionRow}>
-            <Pressable accessibilityRole="button" onPress={copyMeetingLink} style={({ pressed }) => [styles.meetingCopyButton, pressed && styles.aiPressed]}>
-              <Text style={styles.meetingCopyText}>📋 Copier</Text>
+            <Pressable accessibilityRole="button" onPress={copyConferenceLink} style={({ pressed }) => [styles.meetingCopyButton, pressed && styles.aiPressed]}>
+              <Text style={styles.meetingCopyText}>Copier</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" onPress={shareMeeting} style={({ pressed }) => [styles.meetingShareButton, pressed && styles.aiPressed]}>
-              <Text style={styles.meetingShareText}>📤 Partager</Text>
+            <Pressable accessibilityRole="button" onPress={shareConference} style={({ pressed }) => [styles.meetingShareButton, pressed && styles.aiPressed]}>
+              <Text style={styles.meetingShareText}>Partager</Text>
             </Pressable>
           </View>
-          <Pressable accessibilityRole="button" onPress={endMeeting} style={({ pressed }) => [styles.meetingEndButton, pressed && styles.aiPressed]}>
-            <Text style={styles.meetingEndText}>✖ Terminer</Text>
+          <Pressable accessibilityRole="button" disabled={busy} onPress={live ? stopDirect : startDirect} style={({ pressed }) => [live ? styles.meetingEndButton : styles.meetingPrimaryButton, pressed && !busy && styles.aiPressed, busy && styles.aiDisabled]}>
+            <Text style={live ? styles.meetingEndText : styles.meetingPrimaryText}>{live ? 'Arrêter le direct' : activeRoom?.freeTest ? 'Démarrer le test gratuit' : 'Démarrer le direct 1h10'}</Text>
           </Pressable>
+          {livekit?.enabled ? (
+            <Text style={styles.meetingAdvice}>Connexion média prête · micro {livekit.canPublishMicrophone ? 'autorisé' : 'coupé'} · caméra {livekit.canPublishCamera ? 'autorisée' : 'réservée au conférencier'}</Text>
+          ) : null}
+          {livekit?.enabled ? (
+            <ConferenceLiveKitStage
+              livekit={livekit}
+              sourceMode={sourceMode}
+              prerecordedLocalName={prerecordedLocalName}
+              raisedHandsCount={raisedHands.length}
+              currentSpeakerName={currentSpeaker?.name}
+              onNotice={setNotice}
+            />
+          ) : null}
         </View>
       ) : null}
 
       <View style={styles.meetingCard}>
-        <Text style={styles.meetingSectionTitle}>REJOINDRE UNE RÉUNION</Text>
+        <Text style={styles.meetingSectionTitle}>FORMULE ACTIVE</Text>
+        {access?.isPrimaryAdmin ? (
+          <Text style={styles.meetingAdvice}>Compte Administrateur principal confirmé par le serveur : aucun paiement demandé. La capacité de cette version reste fixée à 50 participants et 1h10.</Text>
+        ) : (
+          <View style={styles.conferencePlanGrid}>
+            {primaryPlan ? (
+              <Pressable accessibilityRole="button" onPress={() => payConferencePlan(primaryPlan.code)} style={({ pressed }) => [styles.conferencePlanCard, pressed && styles.aiPressed]}>
+                <Text style={styles.conferencePlanTitle}>Oracle Conférence - 1h10</Text>
+                <Text style={styles.conferencePlanPrice}>{formatFcfa(primaryPlan.priceFcfa)} · jusqu’à 50 participants</Text>
+                <Text style={styles.conferencePlanHint}>Assistance IA incluse : 3 500 mots. {access?.paymentRequired ? 'Paiement requis pour démarrer.' : 'Accès actif jusqu’à expiration.'}</Text>
+              </Pressable>
+            ) : null}
+            <View style={styles.conferencePlanCard}>
+              <Text style={styles.conferencePlanTitle}>Test gratuit</Text>
+              <Text style={styles.conferencePlanPrice}>3 minutes · 5 participants</Text>
+              <Text style={styles.conferencePlanHint}>Sans paiement, sans assistance IA.</Text>
+            </View>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.meetingCard}>
+        <Text style={styles.meetingSectionTitle}>REJOINDRE UNE SALLE</Text>
         <View style={styles.meetingJoinRow}>
-          <TextInput
-            value={joinRoom}
-            onChangeText={setJoinRoom}
-            placeholder="Lien ou nom de salle"
-            placeholderTextColor="#94A3B8"
-            autoCapitalize="none"
-            style={[styles.meetingInput, styles.meetingJoinInput]}
-          />
-          <Pressable accessibilityRole="button" onPress={joinMeeting} style={({ pressed }) => [styles.meetingJoinButton, pressed && styles.aiPressed]}>
+          <TextInput value={joinSlug} onChangeText={setJoinSlug} placeholder="Lien ou identifiant de salle" placeholderTextColor="#94A3B8" autoCapitalize="none" style={[styles.meetingInput, styles.meetingJoinInput]} />
+          <Pressable accessibilityRole="button" disabled={busy} onPress={() => joinConference()} style={({ pressed }) => [styles.meetingJoinButton, pressed && !busy && styles.aiPressed, busy && styles.aiDisabled]}>
             <Text style={styles.meetingJoinText}>Rejoindre</Text>
           </Pressable>
         </View>
+        <Text style={styles.meetingAdvice}>Les participants entrent caméra coupée et micro coupé. Seul le conférencier peut autoriser un micro.</Text>
       </View>
+
+      {conferenceState ? (
+        <View style={styles.meetingCard}>
+          <View style={styles.conferencePanelHeader}>
+            <Text style={styles.meetingSectionTitle}>TABLEAU DE BORD</Text>
+            <Pressable accessibilityRole="button" onPress={refreshState} style={({ pressed }) => [styles.conferenceTinyButton, pressed && styles.aiPressed]}>
+              <Text style={styles.conferenceTinyButtonText}>Actualiser</Text>
+            </Pressable>
+          </View>
+          <View style={styles.conferenceMetricGrid}>
+            <View style={styles.conferenceMetric}><Text style={styles.conferenceMetricValue}>{participants.length}</Text><Text style={styles.conferenceMetricLabel}>Connectés</Text></View>
+            <View style={styles.conferenceMetric}><Text style={styles.conferenceMetricValue}>{raisedHands.length}</Text><Text style={styles.conferenceMetricLabel}>Mains levées</Text></View>
+            <View style={styles.conferenceMetric}><Text style={styles.conferenceMetricValue}>{questions.length}</Text><Text style={styles.conferenceMetricLabel}>Questions</Text></View>
+          </View>
+          <Text style={styles.conferenceSpeakerLine}>Intervenant audio : {currentSpeaker?.name || 'aucun'}</Text>
+
+          <View style={styles.conferencePanel}>
+            <View style={styles.conferencePanelTitleRow}>
+              <Mic size={17} color={colors.header} />
+              <Text style={styles.conferencePanelTitle}>Participants connectés</Text>
+            </View>
+            {!participants.length ? <Text style={styles.meetingAdvice}>Aucun participant connecté pour le moment.</Text> : null}
+            {participants.map((participant: any) => (
+              <View key={participant.id} style={styles.conferenceRow}>
+                <View style={styles.conferenceParticipantRowText}>
+                  <Text numberOfLines={1} style={styles.conferenceRowTitle}>{participant.name}</Text>
+                  <Text numberOfLines={1} style={styles.conferenceParticipantMeta}>{participantStatusText(participant)}</Text>
+                </View>
+                {isHost && participant.role !== 'host' && participant.micAllowed ? (
+                  <Pressable accessibilityRole="button" onPress={() => manageHand(participant.id, 'revoke')} style={[styles.conferenceIconButton, styles.conferenceDangerIconButton]}>
+                    <MicOff size={16} color="#FFFFFF" />
+                  </Pressable>
+                ) : null}
+              </View>
+            ))}
+          </View>
+
+          {isHost ? (
+            <View style={styles.conferencePanel}>
+              <View style={styles.conferencePanelTitleRow}>
+                <Hand size={17} color={colors.header} />
+                <Text style={styles.conferencePanelTitle}>Demandes de parole</Text>
+              </View>
+              {!raisedHands.length ? <Text style={styles.meetingAdvice}>Aucune main levée.</Text> : null}
+              {raisedHands.map((participant: any) => (
+                <View key={participant.id} style={styles.conferenceRow}>
+                  <Text numberOfLines={1} style={styles.conferenceRowTitle}>{participant.name}</Text>
+                  <View style={styles.conferenceRowActions}>
+                    <Pressable accessibilityRole="button" onPress={() => manageHand(participant.id, 'allow')} style={styles.conferenceIconButton}><Mic size={16} color="#FFFFFF" /></Pressable>
+                    <Pressable accessibilityRole="button" onPress={() => manageHand(participant.id, 'refuse')} style={[styles.conferenceIconButton, styles.conferenceDangerIconButton]}><XCircle size={16} color="#FFFFFF" /></Pressable>
+                  </View>
+                </View>
+              ))}
+              {currentSpeaker ? (
+                <Pressable accessibilityRole="button" onPress={() => manageHand(currentSpeaker.id, 'revoke')} style={({ pressed }) => [styles.meetingEndButton, pressed && styles.aiPressed]}>
+                  <Text style={styles.meetingEndText}>Couper le micro de {currentSpeaker.name}</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : (
+            <View style={styles.conferencePanel}>
+              <Pressable accessibilityRole="button" disabled={!conferenceState.permissions?.canRaiseHand || busy} onPress={raiseHand} style={({ pressed }) => [styles.meetingPrimaryButton, pressed && !busy && styles.aiPressed, (!conferenceState.permissions?.canRaiseHand || busy) && styles.aiDisabled]}>
+                <Text style={styles.meetingPrimaryText}>{me?.handStatus === 'pending' ? 'Annuler la main levée' : me?.micAllowed ? 'Micro autorisé' : 'Lever la main'}</Text>
+              </Pressable>
+              <Text style={styles.meetingAdvice}>{me?.micAllowed ? 'Votre micro est autorisé. Votre caméra reste désactivée.' : 'Vous ne pouvez pas vous autoriser vous-même.'}</Text>
+            </View>
+          )}
+
+          <View style={styles.conferencePanel}>
+            <View style={styles.conferencePanelTitleRow}>
+              <MessageCircle size={17} color={colors.header} />
+              <Text style={styles.conferencePanelTitle}>Questions de l’audience</Text>
+            </View>
+            <TextInput value={questionDraft} onChangeText={setQuestionDraft} placeholder="Écrire une question..." placeholderTextColor="#94A3B8" multiline style={[styles.meetingInput, styles.conferenceQuestionInput]} />
+            <Pressable accessibilityRole="button" disabled={busy || !questionDraft.trim()} onPress={sendQuestion} style={({ pressed }) => [styles.meetingJoinButton, pressed && !busy && styles.aiPressed, (busy || !questionDraft.trim()) && styles.aiDisabled]}>
+              <Text style={styles.meetingJoinText}>Envoyer la question</Text>
+            </Pressable>
+            {questions.slice(0, 8).map((question: any) => (
+              <View key={question.id} style={styles.conferenceQuestionCard}>
+                <Text style={styles.conferenceQuestionAuthor}>{question.name}{question.isPinned ? ' · Épinglée' : ''}{question.isAnswered ? ' · Répondue' : ''}</Text>
+                <Text style={styles.conferenceQuestionText}>{question.content}</Text>
+                {question.answer ? <Text style={styles.conferenceAnswerText}>Réponse : {question.answer}</Text> : null}
+                {isHost ? (
+                  <View style={styles.conferenceRowActions}>
+                    <Pressable accessibilityRole="button" onPress={() => updateQuestion(question.id, { isPinned: !question.isPinned })} style={styles.conferenceMiniAction}><Pin size={14} color={colors.header} /></Pressable>
+                    <Pressable accessibilityRole="button" onPress={() => updateQuestion(question.id, { isAnswered: true })} style={styles.conferenceMiniAction}><CheckCircle2 size={14} color={colors.header} /></Pressable>
+                    <Pressable accessibilityRole="button" onPress={() => { setAnswerTargetId(question.id); setAnswerDraft(question.answer || ''); }} style={styles.conferenceMiniAction}><Text style={styles.conferenceMiniActionText}>Répondre</Text></Pressable>
+                    <Pressable accessibilityRole="button" onPress={() => updateQuestion(question.id, { isDeleted: true })} style={styles.conferenceMiniAction}><XCircle size={14} color="#991B1B" /></Pressable>
+                  </View>
+                ) : null}
+                {isHost && answerTargetId === question.id ? (
+                  <View style={styles.conferenceAnswerBox}>
+                    <TextInput value={answerDraft} onChangeText={setAnswerDraft} placeholder="Réponse du conférencier" placeholderTextColor="#94A3B8" style={styles.meetingInput} />
+                    <Pressable accessibilityRole="button" onPress={answerQuestion} style={({ pressed }) => [styles.meetingJoinButton, pressed && styles.aiPressed]}>
+                      <Text style={styles.meetingJoinText}>Publier</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.conferencePanel}>
+            <View style={styles.conferencePanelTitleRow}>
+              <ThumbsUp size={17} color={colors.header} />
+              <Text style={styles.conferencePanelTitle}>Réactions en direct</Text>
+            </View>
+            <View style={styles.conferenceReactionRow}>
+              {['👍', '❤️', '👏', '🔥', '🙏', '✅'].map(emoji => (
+                <Pressable key={emoji} accessibilityRole="button" onPress={() => sendReaction(emoji)} style={({ pressed }) => [styles.conferenceReactionButton, pressed && styles.aiPressed]}>
+                  <Text style={styles.conferenceReactionText}>{emoji}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.meetingAdvice}>{reactions.slice(0, 8).map((reaction: any) => reaction.emoji).join(' ') || 'Aucune réaction récente.'}</Text>
+          </View>
+
+          <View style={styles.conferencePanel}>
+            <View style={styles.conferencePanelTitleRow}>
+              <BarChart3 size={17} color={colors.header} />
+              <Text style={styles.conferencePanelTitle}>Sondages</Text>
+            </View>
+            {isHost ? (
+              <>
+                <TextInput value={pollQuestion} onChangeText={setPollQuestion} placeholder="Question du sondage" placeholderTextColor="#94A3B8" style={styles.meetingInput} />
+                <TextInput value={pollOptionsText} onChangeText={setPollOptionsText} placeholder="Options, une par ligne" placeholderTextColor="#94A3B8" multiline style={[styles.meetingInput, styles.conferenceQuestionInput]} />
+                <Pressable accessibilityRole="button" disabled={busy || !pollQuestion.trim()} onPress={createPoll} style={({ pressed }) => [styles.meetingJoinButton, pressed && !busy && styles.aiPressed, (busy || !pollQuestion.trim()) && styles.aiDisabled]}>
+                  <Text style={styles.meetingJoinText}>Créer le sondage</Text>
+                </Pressable>
+              </>
+            ) : null}
+            {polls.map((poll: any) => (
+              <View key={poll.id} style={styles.conferenceQuestionCard}>
+                <Text style={styles.conferenceQuestionText}>{poll.question}</Text>
+                {(poll.options || []).map((option: string, index: number) => (
+                  <Pressable key={`${poll.id}-${option}`} accessibilityRole="button" disabled={poll.status !== 'open'} onPress={() => votePoll(poll.id, index)} style={({ pressed }) => [styles.conferencePollOption, pressed && poll.status === 'open' && styles.aiPressed]}>
+                    <Text style={styles.conferencePollOptionText}>{option}</Text>
+                    <Text style={styles.conferencePollOptionCount}>{Number(poll.voteCounts?.[index] || 0)}</Text>
+                  </Pressable>
+                ))}
+                {isHost && poll.status === 'open' ? (
+                  <Pressable accessibilityRole="button" onPress={() => closePoll(poll.id)} style={({ pressed }) => [styles.conferenceTinyButton, pressed && styles.aiPressed]}>
+                    <Text style={styles.conferenceTinyButtonText}>Fermer</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.conferencePanel}>
+            <View style={styles.conferencePanelTitleRow}>
+              <FileText size={17} color={colors.header} />
+              <Text style={styles.conferencePanelTitle}>Documents</Text>
+            </View>
+            {isHost ? (
+              <>
+                <TextInput value={documentTitle} onChangeText={setDocumentTitle} placeholder="Titre du document ou lien" placeholderTextColor="#94A3B8" style={styles.meetingInput} />
+                <TextInput value={documentUrl} onChangeText={setDocumentUrl} placeholder="URL du document partagé" placeholderTextColor="#94A3B8" autoCapitalize="none" style={styles.meetingInput} />
+                <Pressable accessibilityRole="button" disabled={busy || (!documentTitle.trim() && !documentUrl.trim())} onPress={shareDocument} style={({ pressed }) => [styles.meetingJoinButton, pressed && !busy && styles.aiPressed, (busy || (!documentTitle.trim() && !documentUrl.trim())) && styles.aiDisabled]}>
+                  <Text style={styles.meetingJoinText}>Partager</Text>
+                </Pressable>
+              </>
+            ) : null}
+            {documents.map((document: any) => (
+              <Pressable key={document.id} accessibilityRole="link" disabled={!document.url} onPress={() => document.url && Linking.openURL(document.url)} style={({ pressed }) => [styles.conferenceDocumentRow, pressed && document.url && styles.aiPressed]}>
+                <Text numberOfLines={1} style={styles.conferenceRowTitle}>{document.title}</Text>
+                <Text numberOfLines={1} style={styles.meetingAdvice}>{document.url || 'Document interne'}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <View style={styles.conferencePanel}>
+            <View style={styles.conferencePanelTitleRow}>
+              <Sparkles size={17} color={colors.header} />
+              <Text style={styles.conferencePanelTitle}>Agent virtuel Oracle</Text>
+            </View>
+            <Text style={styles.meetingAdvice}>
+              {isHost
+                ? aiWordLimit > 0
+                  ? `${Math.max(0, aiWordsRemaining).toLocaleString('fr-FR')} / ${aiWordLimit.toLocaleString('fr-FR')} mots IA restants.`
+                  : 'Assistance IA non incluse dans le test gratuit.'
+                : 'Les synthèses publiées par le conférencier apparaissent ici pendant la conférence.'}
+            </Text>
+            {isHost ? (
+              <View style={styles.conferenceModeRow}>
+                <Pressable accessibilityRole="button" disabled={busy || aiWordsRemaining <= 0} onPress={() => generateAiSummary('summary')} style={({ pressed }) => [styles.conferenceModePill, pressed && !busy && aiWordsRemaining > 0 && styles.aiPressed, (busy || aiWordsRemaining <= 0) && styles.aiDisabled]}>
+                  <Text style={styles.conferenceModeText}>Résumer</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" disabled={busy || aiWordsRemaining <= 0} onPress={() => generateAiSummary('actions')} style={({ pressed }) => [styles.conferenceModePill, pressed && !busy && aiWordsRemaining > 0 && styles.aiPressed, (busy || aiWordsRemaining <= 0) && styles.aiDisabled]}>
+                  <Text style={styles.conferenceModeText}>Actions</Text>
+                </Pressable>
+              </View>
+            ) : null}
+            {isHost && aiWordsRemaining <= 0 ? <Text style={styles.conferenceAnswerText}>Crédits IA épuisés. Rechargez l’assistance IA pour générer un nouveau résumé; la conférence continue normalement.</Text> : null}
+            {aiSummaries[0] ? <Text style={styles.conferenceAnswerText}>{aiSummaries[0].content}</Text> : <Text style={styles.meetingAdvice}>Aucun compte rendu généré.</Text>}
+          </View>
+
+          <View style={styles.conferencePanel}>
+            <View style={styles.conferencePanelTitleRow}>
+              <FileText size={17} color={colors.header} />
+              <Text style={styles.conferencePanelTitle}>Cahier de conférence</Text>
+            </View>
+            <Text style={styles.meetingAdvice}>
+              {conferenceBookPolicy.reason || (conferenceBookAvailable ? 'Cahier disponible.' : 'Le cahier sera généré à la fin de la conférence.')}
+            </Text>
+            <Text style={styles.meetingAdvice}>Écriture IA : crédits système Oracle Plus, aucun crédit utilisateur consommé.</Text>
+            {conferenceBookAvailable ? (
+              <>
+                <Text style={styles.conferenceRowTitle}>{conferenceBook.title}</Text>
+                {conferenceBook.coverOnly ? (
+                  <View style={styles.conferenceBookCover}>
+                    <Text style={styles.conferenceBookCoverKicker}>ÉDITION PREMIUM</Text>
+                    <Text numberOfLines={3} style={styles.conferenceBookCoverTitle}>{conferenceBook.cover?.title || conferenceBook.title}</Text>
+                    <Text numberOfLines={3} style={styles.conferenceBookCoverMeta}>{conferenceBook.cover?.theme || activeRoom?.description || activeRoom?.title}</Text>
+                    <Text style={styles.conferenceBookCoverMeta}>{conferenceBook.cover?.speaker || 'Conférencier Oracle'} · {conferenceBook.cover?.date || ''}</Text>
+                    <Text style={styles.meetingAdvice}>Couverture rigide, finition mate/satinée, dorure, relief et rendu éditorial haut de gamme.</Text>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={styles.meetingAdvice}>{Number(conferenceBook.pageCount || 1).toLocaleString('fr-FR')} page(s) · prévisualisation disponible</Text>
+                    <Text numberOfLines={8} style={styles.conferenceAnswerText}>{conferenceBook.preview}</Text>
+                  </>
+                )}
+              </>
+            ) : null}
+            <View style={styles.conferenceModeRow}>
+              {canGenerateConferenceBook ? (
+                <Pressable accessibilityRole="button" disabled={bookBusy} onPress={generateConferenceBook} style={({ pressed }) => [styles.conferenceModePill, pressed && !bookBusy && styles.aiPressed, bookBusy && styles.aiDisabled]}>
+                  <Text style={styles.conferenceModeText}>{conferenceBookAvailable ? 'Régénérer' : 'Générer le cahier'}</Text>
+                </Pressable>
+              ) : null}
+              {conferenceBookPolicy.canDownload ? (
+                <Pressable accessibilityRole="button" disabled={bookBusy || !conferenceBook?.downloadUrl} onPress={openConferenceBook} style={({ pressed }) => [styles.meetingJoinButton, pressed && !bookBusy && styles.aiPressed, (bookBusy || !conferenceBook?.downloadUrl) && styles.aiDisabled]}>
+                  <Text style={styles.meetingJoinText}>Télécharger le PDF</Text>
+                </Pressable>
+              ) : conferenceBookAvailable && !isHost && !conferenceBookPolicy.purged ? (
+                <Pressable accessibilityRole="button" disabled={bookBusy} onPress={payConferenceBook} style={({ pressed }) => [styles.meetingJoinButton, pressed && !bookBusy && styles.aiPressed, bookBusy && styles.aiDisabled]}>
+                  <Text style={styles.meetingJoinText}>Télécharger - 2 000 FCFA</Text>
+                </Pressable>
+              ) : conferenceBookPolicy.purged ? (
+                <Text style={styles.meetingAdvice}>PDF déjà téléchargé sur ce téléphone. Accès serveur retiré pour ce participant.</Text>
+              ) : null}
+            </View>
+          </View>
+        </View>
+      ) : null}
+
       <AlertText text={notice} />
+      <Loading active={busy || bookBusy} />
     </View>
   );
 }
@@ -1049,6 +2399,45 @@ export function ToolsPage({
 
   useEffect(() => { void load(); }, [load]);
 
+  const verifyPendingPayments = useCallback(async (visible = false) => {
+    const pendingPayments = await readPendingPaystackPayments();
+    const duePayments = pendingPayments.filter(payment => Date.now() - payment.createdAt > 1500);
+    if (!duePayments.length) return;
+    if (visible) {
+      setBusy(true);
+      setNotice('Vérification du paiement en cours...');
+    }
+    let verifiedCount = 0;
+    let lastOverview: any = null;
+    let lastMode: ToolsMode | null = null;
+    for (const payment of duePayments) {
+      try {
+        const data = await verifyPaystackScope(token, payment.scope, payment.reference);
+        await clearPendingPaystackPayment(payment.reference);
+        verifiedCount += 1;
+        lastOverview = data;
+        lastMode = toolsModeForPaystackScope(payment.scope);
+      } catch {
+        // Le paiement peut encore être en attente chez Paystack. On garde la
+        // référence localement pour une nouvelle vérification au prochain retour.
+      }
+    }
+    if (verifiedCount > 0) {
+      if (lastMode) setMode(lastMode);
+      if (lastOverview) setOverview(lastOverview);
+      setNotice(verifiedCount === 1 ? 'Paiement vérifié, service débloqué.' : `${verifiedCount} paiements vérifiés, services débloqués.`);
+    }
+    if (visible) setBusy(false);
+  }, [token]);
+
+  useEffect(() => {
+    void verifyPendingPayments(false);
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') void verifyPendingPayments(false);
+    });
+    return () => subscription.remove();
+  }, [verifyPendingPayments]);
+
   useEffect(() => {
     let alive = true;
     AsyncStorage.getItem(creationsStorageKey)
@@ -1141,9 +2530,18 @@ export function ToolsPage({
     setBusy(true);
     try {
       const data = await api.aiFlyerGenerate(token, currentPrompt, flyerReferenceImages);
-      const url = data?.imageUrl || data?.url || data?.assetUrl || '';
+      const url = data?.downloadUrl || data?.imageUrl || data?.url || data?.assetUrl || '';
       if (url) {
-        await saveCreation({ id: `flyer-${Date.now()}`, type: 'flyer', url, prompt: currentPrompt, createdAt: Date.now() });
+        await saveCreation({
+          id: data?.generationId ? `flyer-${data.generationId}` : `flyer-${Date.now()}`,
+          generationId: data?.generationId,
+          type: 'flyer',
+          url,
+          downloadUrl: data?.downloadUrl || url,
+          prompt: currentPrompt,
+          createdAt: Date.now(),
+          expiresAt: data?.expiresAt,
+        });
       }
       setNotice(url ? 'Flyer généré et enregistré dans vos créations.' : 'Flyer généré.');
       setPrompt('');
@@ -1237,7 +2635,7 @@ export function ToolsPage({
       ? overview.payments.find((payment: any) => payment?.status === 'success' && !payment?.consumedAt && Number(payment?.amountFcfa || 0) >= AI_VIDEO_PREMIUM_PRICE_FCFA && Number(payment?.durationSeconds || 0) === AI_VIDEO_PREMIUM_DURATION_SECONDS)
       : null;
     if (videoDurationSeconds === AI_VIDEO_PREMIUM_DURATION_SECONDS && !overview?.isAdmin && !videoPayment?.reference) {
-      setNotice('Paiement vidéo requis : payez 3 000 FCFA, revenez sur cette page, puis lancez la génération 45s.');
+      setNotice('Paiement vidéo requis : payez 3 500 FCFA, revenez sur cette page, puis lancez la génération 45s.');
       return;
     }
     setBusy(true);
@@ -1253,9 +2651,18 @@ export function ToolsPage({
         paymentReference: videoDurationSeconds === AI_VIDEO_PREMIUM_DURATION_SECONDS && !overview?.isAdmin ? videoPayment.reference : undefined,
         referenceImages: videoReferenceImages,
       });
-      const url = data?.videoUrl || data?.url || data?.assetUrl || '';
+      const url = data?.downloadUrl || data?.videoUrl || data?.url || data?.assetUrl || '';
       if (url) {
-        await saveCreation({ id: `video-${Date.now()}`, type: 'video', url, prompt: currentPrompt, createdAt: Date.now() });
+        await saveCreation({
+          id: data?.generationId ? `video-${data.generationId}` : `video-${Date.now()}`,
+          generationId: data?.generationId,
+          type: 'video',
+          url,
+          downloadUrl: data?.downloadUrl || url,
+          prompt: currentPrompt,
+          createdAt: Date.now(),
+          expiresAt: data?.expiresAt,
+        });
       }
       setNotice(url ? 'Vidéo générée et enregistrée dans vos créations.' : 'Vidéo demandée.');
       setPrompt('');
@@ -1276,6 +2683,8 @@ export function ToolsPage({
         : mode === 'flyer'
           ? await api.aiFlyerInitializePaystack(token)
           : await api.aiVideoInitializePaystack(token);
+      const scope = mode === 'ai' ? 'ai' : mode === 'flyer' ? 'flyer' : 'video';
+      await rememberPendingPaystackPayment(scope, data.reference);
       await Linking.openURL(data.authorizationUrl);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Paiement indisponible.');
@@ -1290,6 +2699,7 @@ export function ToolsPage({
     setNotice('');
     try {
       const data = await api.aiAutoInitializePaystack(token, planCode);
+      await rememberPendingPaystackPayment('ai', data.reference);
       await Linking.openURL(data.authorizationUrl);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Paiement indisponible.');
@@ -1299,12 +2709,64 @@ export function ToolsPage({
   }, [token]);
 
   const openCreation = useCallback((creation: GeneratedCreation) => {
-    Linking.openURL(creation.url).catch(() => setNotice('Ouverture de la création impossible.'));
+    const uri = creation.localUri || creation.url;
+    if (!uri) {
+      setNotice('Fichier indisponible. Il a peut-être expiré sur le serveur.');
+      return;
+    }
+    Linking.openURL(uri).catch(() => setNotice('Ouverture de la création impossible.'));
   }, []);
 
   const shareCreation = useCallback(async (creation: GeneratedCreation) => {
-    await Share.share({ title: creation.type === 'flyer' ? 'Flyer Oracle IA' : 'Vidéo Oracle IA', message: creation.url, url: creation.url });
+    const uri = creation.localUri || creation.url;
+    if (!uri) {
+      setNotice('Fichier indisponible. Il a peut-être expiré sur le serveur.');
+      return;
+    }
+    await Share.share({ title: creation.type === 'flyer' ? 'Flyer Oracle IA' : 'Vidéo Oracle IA', message: uri, url: uri });
   }, []);
+
+  const downloadCreation = useCallback(async (creation: GeneratedCreation) => {
+    setBusy(true);
+    setNotice('');
+    try {
+      if (creation.localUri) {
+        const info = await FileSystem.getInfoAsync(creation.localUri);
+        if (info.exists) {
+          setNotice('Création déjà sauvegardée localement sur ce téléphone.');
+          return;
+        }
+      }
+      const sourceUrl = creation.downloadUrl || creation.url;
+      if (!sourceUrl) throw new Error('Lien de téléchargement indisponible ou expiré.');
+      const folder = `${FileSystem.documentDirectory || ''}oracle-ai-creations/`;
+      await FileSystem.makeDirectoryAsync(folder, { intermediates: true }).catch(() => undefined);
+      const filename = `${creation.type}-${creation.createdAt}${creationExtension(creation)}`;
+      const target = `${folder}${filename}`;
+      const downloaded = await FileSystem.downloadAsync(sourceUrl, target);
+      if (downloaded.status < 200 || downloaded.status >= 300) {
+        throw new Error(`Téléchargement refusé par le serveur (${downloaded.status}).`);
+      }
+      let serverPurgedAt: number | undefined;
+      if (creation.generationId) {
+        const ack = creation.type === 'flyer'
+          ? await api.aiFlyerMarkDownloaded(token, creation.generationId)
+          : await api.aiVideoMarkDownloaded(token, creation.generationId);
+        serverPurgedAt = ack?.purgedAt ? Date.parse(ack.purgedAt) : Date.now();
+      }
+      await persistCreations(creations.map(item => item.id === creation.id ? {
+        ...item,
+        localUri: downloaded.uri,
+        downloadedAt: Date.now(),
+        serverPurgedAt,
+      } : item));
+      setNotice(`Création téléchargée : ${filename}`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Téléchargement impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [creations, persistCreations, token]);
 
   const deleteCreation = useCallback(async (creationId: string) => {
     await persistCreations(creations.filter(item => item.id !== creationId));
@@ -1334,7 +2796,7 @@ export function ToolsPage({
 
   const showMaxWordsPicker = useCallback(() => {
     if (!aiPaidActive) {
-      Alert.alert('Limite gratuite', 'En gratuit, les réponses IA restent limitées à 30 mots. Activez ou rechargez Gemini pour choisir une limite plus grande.', [
+      Alert.alert('Limite gratuite', 'En gratuit, les réponses IA restent limitées à 30 mots. Activez ou rechargez l’Agent virtuel Oracle pour choisir une limite plus grande.', [
         { text: 'Compris' },
       ]);
       return;
@@ -1390,7 +2852,7 @@ export function ToolsPage({
         ))}
       </ScrollView>
       <View style={styles.moduleContent}>
-        {mode === 'meeting' ? <MeetingTool userName={userName} /> : null}
+        {mode === 'meeting' ? <ConferenceTool token={token} ownerId={ownerId} userName={userName} /> : null}
         {mode === 'translate' ? <TranslateTool token={token} /> : null}
         {mode === 'notes' ? <NotesTool ownerId={ownerId} /> : null}
         {mode === 'events' ? <EventsTool ownerId={ownerId} /> : null}
@@ -1485,7 +2947,7 @@ export function ToolsPage({
             {mode === 'ai' ? (
               <>
                 <View style={styles.aiHero}>
-                  <Text style={styles.aiHeroTitle}>Gemini Auto-Réponse Premium</Text>
+                  <Text style={styles.aiHeroTitle}>Agent virtuel Oracle Auto-Réponse Premium</Text>
                   <Text style={styles.aiHeroCopy}>Assistant automatique pour répondre aux messages entrants selon votre prompt. Désactivé tant que Paystack n’a pas validé le paiement.</Text>
                   <View style={styles.aiHeroStats}>
                     <View style={styles.aiHeroStat}>
@@ -1526,7 +2988,7 @@ export function ToolsPage({
                   <TextInput
                     value={aiConfigPrompt}
                     onChangeText={setAiConfigPrompt}
-                    placeholder="Décrivez comment Gemini doit répondre..."
+                    placeholder="Décrivez comment l’Agent virtuel Oracle doit répondre..."
                     placeholderTextColor="#94A3B8"
                     multiline
                     style={[styles.input, styles.aiPromptLargeInput]}
@@ -1560,7 +3022,7 @@ export function ToolsPage({
                   <AiPrimaryButton label="Tester mon IA" onPress={testAi} disabled={busy || !prompt.trim()} />
                   <View style={styles.aiResponseBox}>
                     <Text style={styles.aiResponseLabel}>RÉPONSE DU TEST</Text>
-                    <Text style={styles.aiResponseText}>{aiLastResponse || 'La réponse générée par Gemini apparaîtra ici après le test.'}</Text>
+                    <Text style={styles.aiResponseText}>{aiLastResponse || 'La réponse générée par l’Agent virtuel Oracle apparaîtra ici après le test.'}</Text>
                   </View>
                 </View>
 
@@ -1595,7 +3057,7 @@ export function ToolsPage({
                   multiline
                   style={[styles.input, styles.videoPromptInput]}
                 />
-                <Text style={styles.videoWarningBox}>Les vidéos longues sont générées en fragments de 8s puis assemblées automatiquement. Les noms ou ressemblances de personnes réelles sont remplacés par un rôle fictif pour éviter le filtre Gemini.</Text>
+                <Text style={styles.videoWarningBox}>Les vidéos longues sont générées en fragments de 8s puis assemblées automatiquement. Les noms ou ressemblances de personnes réelles sont remplacés par un rôle fictif pour éviter le filtre du moteur vidéo.</Text>
                 <View style={styles.videoOptionGrid}>
                   <VideoOptionPill label="Test 8s" active={videoDurationSeconds === 8} onPress={() => setVideoDurationSeconds(8)} />
                   <VideoOptionPill label="Premium 45s" active={videoDurationSeconds === 45} onPress={() => setVideoDurationSeconds(45)} />
@@ -1720,6 +3182,7 @@ export function ToolsPage({
                     </View>
                     <View style={styles.creationActions}>
                       <SecondaryButton label="Ouvrir" onPress={() => openCreation(creation)} />
+                      <SecondaryButton label="Téléch." onPress={() => downloadCreation(creation)} />
                       <SecondaryButton label="Partager" onPress={() => shareCreation(creation)} />
                       <SecondaryButton label="Suppr." onPress={() => deleteCreation(creation.id)} />
                     </View>
@@ -1753,6 +3216,7 @@ export function ToolsPage({
                     </View>
                     <View style={styles.creationActions}>
                       <SecondaryButton label="Ouvrir" onPress={() => openCreation(creation)} />
+                      <SecondaryButton label="Téléch." onPress={() => downloadCreation(creation)} />
                       <SecondaryButton label="Partager" onPress={() => shareCreation(creation)} />
                       <SecondaryButton label="Suppr." onPress={() => deleteCreation(creation.id)} />
                     </View>
@@ -1810,6 +3274,7 @@ const styles = StyleSheet.create({
   meetingReadyNotice: { color: '#2E7D32', fontSize: 12.5, lineHeight: 18, fontWeight: '800' },
   meetingShareBox: { minHeight: 42, borderRadius: 10, backgroundColor: '#FFFFFF', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8 },
   meetingShareLink: { color: colors.header, fontSize: 13, lineHeight: 18, fontWeight: '900' },
+  meetingShareHint: { color: colors.muted, fontSize: 11, lineHeight: 15, fontWeight: '800', marginTop: 2 },
   meetingActionRow: { flexDirection: 'row', gap: 8 },
   meetingCopyButton: { flex: 1, minHeight: 42, borderRadius: 10, backgroundColor: colors.input, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
   meetingCopyText: { color: colors.text, fontSize: 13, lineHeight: 17, fontWeight: '900' },
@@ -1825,6 +3290,106 @@ const styles = StyleSheet.create({
   meetingJoinInput: { flex: 1, minWidth: 0 },
   meetingJoinButton: { minHeight: 46, borderRadius: 23, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
   meetingJoinText: { color: '#FFFFFF', fontSize: 13.5, lineHeight: 18, fontWeight: '900' },
+  conferenceStage: { gap: 10 },
+  conferenceScreen: { width: '100%', aspectRatio: 16 / 9, borderRadius: 18, overflow: 'hidden', backgroundColor: '#071917', borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', padding: 14, justifyContent: 'space-between', shadowColor: '#102A2A', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: 7 }, elevation: 3 },
+  conferenceCoverImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
+  conferenceScreenOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(2,6,23,0.58)' },
+  conferenceTopBar: { position: 'relative', zIndex: 2, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  conferenceLiveBadge: { overflow: 'hidden', borderRadius: 999, backgroundColor: '#DC2626', color: '#FFFFFF', paddingHorizontal: 10, paddingVertical: 5, fontSize: 10.5, lineHeight: 13, fontWeight: '900' },
+  conferenceViewerBadge: { overflow: 'hidden', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)', color: '#FFFFFF', paddingHorizontal: 10, paddingVertical: 5, fontSize: 10.5, lineHeight: 13, fontWeight: '900' },
+  conferenceLogoSlot: { position: 'relative', zIndex: 2, alignSelf: 'flex-end', width: 46, height: 46, borderRadius: 13, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.12)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' },
+  conferenceLogoImage: { width: '100%', height: '100%' },
+  conferenceLogoText: { color: '#D9F99D', fontSize: 14, lineHeight: 18, fontWeight: '900' },
+  conferenceScreenCopy: { position: 'relative', zIndex: 2, gap: 5, maxWidth: '88%' },
+  conferenceTitle: { color: '#FFFFFF', fontSize: 21, lineHeight: 25, fontWeight: '900' },
+  conferenceHostLine: { color: '#D9F99D', fontSize: 12.5, lineHeight: 15, fontWeight: '900' },
+  conferenceDescription: { color: 'rgba(255,255,255,0.78)', fontSize: 12.5, lineHeight: 17, fontWeight: '800' },
+  conferenceContact: { color: '#D9F99D', fontSize: 12, lineHeight: 15, fontWeight: '900' },
+  conferenceAccessRow: { minHeight: 62, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 14, justifyContent: 'center', gap: 4 },
+  conferenceAccessValue: { color: colors.header, fontSize: 17, lineHeight: 21, fontWeight: '900' },
+  conferenceAccessLabel: { color: colors.muted, fontSize: 12.5, lineHeight: 16, fontWeight: '800' },
+  conferenceTextArea: { minHeight: 92, textAlignVertical: 'top' },
+  conferenceSmallInput: { width: 96, flexGrow: 0, flexShrink: 0 },
+  conferenceModeRow: { flexDirection: 'row', gap: 8 },
+  conferenceModePill: { flex: 1, minHeight: 44, borderRadius: 22, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 10 },
+  conferenceModePillActive: { backgroundColor: colors.header, borderColor: colors.header },
+  conferenceModeText: { color: colors.text, fontSize: 12.5, lineHeight: 16, fontWeight: '900', textAlign: 'center' },
+  conferenceModeTextActive: { color: '#FFFFFF' },
+  conferencePlanGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
+  conferencePlanCard: { width: '48%', minWidth: 142, flexGrow: 1, minHeight: 82, borderRadius: 14, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, justifyContent: 'center', gap: 6 },
+  conferencePlanTitle: { color: colors.text, fontSize: 14, lineHeight: 18, fontWeight: '900' },
+  conferencePlanPrice: { color: colors.header, fontSize: 12.5, lineHeight: 16, fontWeight: '900' },
+  conferencePlanHint: { color: colors.muted, fontSize: 11.5, lineHeight: 15, fontWeight: '800' },
+  conferenceCommandCard: { borderRadius: 18, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: 'rgba(16,42,42,0.10)', paddingHorizontal: 14, paddingVertical: 14, gap: 11, shadowColor: '#102A2A', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
+  conferenceCommandTitle: { flex: 1, color: colors.text, fontSize: 16, lineHeight: 20, fontWeight: '900' },
+  conferenceCommandBody: { color: colors.secondary, fontSize: 13, lineHeight: 19, fontWeight: '700' },
+  conferenceRoomCodeBox: { minHeight: 48, borderRadius: 14, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, justifyContent: 'center', paddingHorizontal: 11, gap: 2 },
+  conferenceRoomCodeLabel: { color: colors.muted, fontSize: 10.5, lineHeight: 13, fontWeight: '900', textTransform: 'uppercase' },
+  conferenceRoomCodeValue: { color: colors.header, fontSize: 13.5, lineHeight: 17, fontWeight: '900' },
+  conferenceCommandActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  conferenceCommandPrimary: { flex: 1, minWidth: 136, minHeight: 44, borderRadius: 22, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 13 },
+  conferenceCommandPrimaryText: { color: '#FFFFFF', fontSize: 13.5, lineHeight: 18, fontWeight: '900', textAlign: 'center' },
+  conferenceCommandSecondary: { flex: 1, minWidth: 116, minHeight: 44, borderRadius: 22, backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: 'rgba(16,42,42,0.12)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 13 },
+  conferenceCommandSecondaryText: { color: colors.header, fontSize: 13, lineHeight: 17, fontWeight: '900', textAlign: 'center' },
+  conferenceCommandDanger: { flex: 1, minWidth: 116, minHeight: 44, borderRadius: 22, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 13 },
+  conferenceCommandDangerText: { color: '#DC2626', fontSize: 13, lineHeight: 17, fontWeight: '900', textAlign: 'center' },
+  conferenceParticipantPreview: { borderRadius: 14, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, padding: 10, gap: 7 },
+  conferenceParticipantPreviewTitle: { color: colors.header, fontSize: 12, lineHeight: 15, fontWeight: '900' },
+  conferenceParticipantPill: { minHeight: 38, borderRadius: 19, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: 10 },
+  conferenceParticipantName: { flex: 1, minWidth: 0, color: colors.text, fontSize: 12.5, lineHeight: 16, fontWeight: '900' },
+  conferenceParticipantMeta: { color: colors.muted, fontSize: 11.3, lineHeight: 15, fontWeight: '800' },
+  conferenceParticipantRowText: { flex: 1, minWidth: 0, gap: 2 },
+  conferenceUrgentPanel: { borderRadius: 14, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA', padding: 10, gap: 8 },
+  conferenceLivePanel: { borderRadius: 12, backgroundColor: '#071917', borderWidth: 1, borderColor: 'rgba(16,42,42,0.18)', padding: 6, gap: 8 },
+  conferenceVideoFrame: { width: '100%', minHeight: 260, aspectRatio: 16 / 9, borderRadius: 8, overflow: 'hidden', backgroundColor: '#020617' },
+  conferenceRtcView: { width: '100%', height: '100%' },
+  conferenceVideoBadgeLayer: { position: 'absolute', left: 10, top: 10, right: 10, zIndex: 3, flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  conferenceVideoBadge: { maxWidth: '100%', minHeight: 30, borderRadius: 15, backgroundColor: 'rgba(2,6,23,0.72)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10 },
+  conferenceVideoBadgeText: { flexShrink: 1, color: '#FFFFFF', fontSize: 11.5, lineHeight: 14, fontWeight: '900' },
+  conferenceVideoPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, gap: 8 },
+  conferenceVideoPlaceholderTitle: { color: '#FFFFFF', fontSize: 16, lineHeight: 20, fontWeight: '900', textAlign: 'center' },
+  conferenceVideoPlaceholderText: { color: 'rgba(255,255,255,0.72)', fontSize: 12.5, lineHeight: 18, fontWeight: '800', textAlign: 'center' },
+  conferenceLiveInfoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  conferenceLiveStatus: { flex: 1, color: '#FFFFFF', fontSize: 13, lineHeight: 17, fontWeight: '900' },
+  conferenceLiveRole: { overflow: 'hidden', borderRadius: 999, backgroundColor: '#D9F99D', color: colors.header, paddingHorizontal: 10, paddingVertical: 5, fontSize: 11, lineHeight: 13, fontWeight: '900' },
+  conferenceControlsRow: { flexDirection: 'row', gap: 8 },
+  conferenceControlButton: { flex: 1, minHeight: 42, borderRadius: 21, backgroundColor: '#FFFFFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 10 },
+  conferenceControlText: { color: colors.header, fontSize: 12.3, lineHeight: 16, fontWeight: '900' },
+  conferenceMetricGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  conferenceMetric: { flex: 1, minWidth: 136, minHeight: 62, borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, justifyContent: 'center', gap: 3 },
+  conferenceMetricValue: { color: colors.header, fontSize: 17, lineHeight: 21, fontWeight: '900' },
+  conferenceMetricLabel: { color: colors.muted, fontSize: 11.5, lineHeight: 15, fontWeight: '800' },
+  conferencePanelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  conferencePanel: { borderRadius: 15, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, padding: 12, gap: 10 },
+  conferencePanelTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  conferencePanelTitle: { color: colors.header, fontSize: 14, lineHeight: 18, fontWeight: '900' },
+  conferenceBookCover: { borderRadius: 8, backgroundColor: '#10201E', borderWidth: 1, borderColor: '#C7A34F', padding: 14, gap: 8 },
+  conferenceBookCoverKicker: { color: '#E8D089', fontSize: 10, lineHeight: 13, fontWeight: '900', letterSpacing: 0 },
+  conferenceBookCoverTitle: { color: '#FFF8E1', fontSize: 17, lineHeight: 22, fontWeight: '900' },
+  conferenceBookCoverMeta: { color: '#D7E3DC', fontSize: 12, lineHeight: 17, fontWeight: '800' },
+  conferenceSpeakerLine: { color: colors.text, fontSize: 12.5, lineHeight: 17, fontWeight: '900' },
+  conferenceRow: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderRadius: 12, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10 },
+  conferenceRowTitle: { flex: 1, color: colors.text, fontSize: 13, lineHeight: 17, fontWeight: '900' },
+  conferenceRowActions: { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap' },
+  conferenceIconButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.header, alignItems: 'center', justifyContent: 'center' },
+  conferenceDangerIconButton: { backgroundColor: '#B91C1C' },
+  conferenceTinyButton: { minHeight: 34, borderRadius: 17, backgroundColor: '#E2E8F0', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  conferenceTinyButtonText: { color: colors.header, fontSize: 11.5, lineHeight: 14, fontWeight: '900' },
+  conferenceQuestionInput: { minHeight: 76, textAlignVertical: 'top' },
+  conferenceQuestionCard: { borderRadius: 13, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: colors.border, padding: 10, gap: 7 },
+  conferenceQuestionAuthor: { color: colors.muted, fontSize: 11.5, lineHeight: 15, fontWeight: '900' },
+  conferenceQuestionText: { color: colors.text, fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  conferenceAnswerText: { color: colors.header, fontSize: 12.5, lineHeight: 18, fontWeight: '800', backgroundColor: '#ECFDF5', borderRadius: 10, padding: 9 },
+  conferenceMiniAction: { minHeight: 30, borderRadius: 15, backgroundColor: '#EEF2F7', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 9 },
+  conferenceMiniActionText: { color: colors.header, fontSize: 11, lineHeight: 13, fontWeight: '900' },
+  conferenceAnswerBox: { gap: 8 },
+  conferenceReactionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  conferenceReactionButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  conferenceReactionText: { fontSize: 20, lineHeight: 24 },
+  conferencePollOption: { minHeight: 40, borderRadius: 12, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: 10 },
+  conferencePollOptionText: { flex: 1, color: colors.text, fontSize: 12.5, lineHeight: 16, fontWeight: '900' },
+  conferencePollOptionCount: { color: colors.header, fontSize: 12, lineHeight: 15, fontWeight: '900' },
+  conferenceDocumentRow: { minHeight: 48, borderRadius: 12, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: colors.border, justifyContent: 'center', paddingHorizontal: 10, gap: 2 },
   toolCard: { backgroundColor: colors.surface, borderRadius: 16, padding: 16, gap: 12, borderWidth: 1, borderColor: colors.border, shadowColor: '#102A2A', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
   toolCardTitle: { color: colors.text, fontSize: 17, lineHeight: 22, fontWeight: '900' },
   toolLead: { color: colors.muted, fontSize: 13, lineHeight: 19, fontWeight: '700' },

@@ -34,39 +34,74 @@ export function useNativeConversationActions({
   setMessages,
   setConversations,
 }: UseNativeConversationActionsParams) {
+  const removeConversationForCurrentUser = useCallback(async (conversation: Conversation) => {
+    if (!token) return;
+    if (conversation.type === 'group') await api.leaveGroup(token, conversation.id);
+    else await api.deleteConversation(conversation.id, token);
+    if (selectedId === conversation.id) {
+      setSelected(null);
+      setMessages([]);
+    }
+    setConversations(current => current.filter(item => item.id !== conversation.id));
+    const owner = ownerId || token;
+    const cachedMessages = await readCachedMessages(owner, conversation.id);
+    await Promise.all(cachedMessages.map(message => removeLocalGalleryItem(message.id).catch(() => null)));
+    await clearCachedConversation(owner, conversation.id);
+  }, [ownerId, selectedId, setConversations, setMessages, setSelected, token]);
+
   const deleteConversation = useCallback((conversation: Conversation) => {
     if (!token) return;
+    const isGroup = conversation.type === 'group';
     Alert.alert(
-      'Supprimer la conversation',
-      `La conversation "${conversationName(conversation)}" sera retirée de ce compte. Les autres participants ne seront pas supprimés.`,
+      isGroup ? 'Quitter le groupe' : 'Supprimer la conversation',
+      isGroup
+        ? `Quitter "${conversationName(conversation)}" ? Vous ne recevrez plus les nouveaux messages du groupe.`
+        : `La conversation "${conversationName(conversation)}" sera retirée de ce compte. Les autres participants ne seront pas supprimés.`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Supprimer',
+          text: isGroup ? 'Quitter' : 'Supprimer',
           style: 'destructive',
           onPress: () => {
             setBusy(true);
             setNotice('');
-            api.deleteConversation(conversation.id, token)
-              .then(async () => {
-                if (selectedId === conversation.id) {
-                  setSelected(null);
-                  setMessages([]);
-                }
-                setConversations(current => current.filter(item => item.id !== conversation.id));
-                const owner = ownerId || token;
-                const cachedMessages = await readCachedMessages(owner, conversation.id);
-                await Promise.all(cachedMessages.map(message => removeLocalGalleryItem(message.id).catch(() => null)));
-                await clearCachedConversation(owner, conversation.id);
-                await refreshConversations();
-              })
+            removeConversationForCurrentUser(conversation)
+              .then(refreshConversations)
               .catch(error => setNotice(error instanceof Error ? error.message : 'Suppression conversation impossible.'))
               .finally(() => setBusy(false));
           },
         },
       ],
     );
-  }, [ownerId, refreshConversations, selectedId, setBusy, setConversations, setMessages, setNotice, setSelected, token]);
+  }, [refreshConversations, removeConversationForCurrentUser, setBusy, setNotice, token]);
+
+  const deleteConversations = useCallback((conversations: Conversation[]) => {
+    if (!token) return;
+    const valid = conversations.filter(conversation => conversation.type !== 'official' && !conversation.isOfficial);
+    if (!valid.length) {
+      setNotice('Aucune conversation supprimable sélectionnée.');
+      return;
+    }
+    Alert.alert(
+      'Effacer les conversations',
+      `${valid.length} conversation(s) seront retirées de ce compte. Les autres participants ne seront pas supprimés.`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Effacer',
+          style: 'destructive',
+          onPress: () => {
+            setBusy(true);
+            setNotice('');
+            Promise.all(valid.map(conversation => removeConversationForCurrentUser(conversation)))
+              .then(refreshConversations)
+              .catch(error => setNotice(error instanceof Error ? error.message : 'Suppression des conversations impossible.'))
+              .finally(() => setBusy(false));
+          },
+        },
+      ],
+    );
+  }, [refreshConversations, removeConversationForCurrentUser, setBusy, setNotice, token]);
 
   const openConversationActions = useCallback((conversation: Conversation) => {
     Alert.alert('Conversation', conversationName(conversation), [
@@ -78,5 +113,6 @@ export function useNativeConversationActions({
 
   return {
     openConversationActions,
+    deleteConversations,
   };
 }

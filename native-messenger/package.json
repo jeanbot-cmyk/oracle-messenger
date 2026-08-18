@@ -1,6 +1,6 @@
 {
   "name": "oracle-messenger-native",
-  "version": "1.0.20260813.23",
+  "version": "1.0.20260818.13",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -15,6 +15,7 @@
     "android:assemble-release": "NODE_ENV=production ./android/gradlew -p android :app:assembleRelease",
     "android:bundle-release": "NODE_ENV=production ./android/gradlew -p android :app:bundleRelease",
     "android:production-release": "npm run typecheck && npm run lint && npm run verify:android-production-ready && npm run android:bundle-release && npm run verify:android-production-ready -- --require-aab",
+    "verify:media-selection": "node scripts/verify-native-media-selection.js",
     "verify:android-release-config": "node scripts/verify-android-release-config.js",
     "verify:android-release-signing": "node scripts/verify-android-release-config.js --require-signing",
     "verify:android-release-apk": "node scripts/verify-android-release-config.js --apk android/app/build/outputs/apk/release/app-release.apk --reject-debug-certs",
@@ -49,6 +50,7 @@
     "lucide-react-native": "^0.577.0",
     "react": "19.2.0",
     "react-native": "0.83.10",
+    "react-native-compressor": "^2.0.3",
     "react-native-gesture-handler": "~2.30.0",
     "react-native-incall-manager": "^4.2.1",
     "react-native-reanimated": "4.2.1",

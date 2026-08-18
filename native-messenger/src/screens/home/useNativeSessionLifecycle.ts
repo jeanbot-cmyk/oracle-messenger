@@ -1,5 +1,4 @@
-import { useCallback, useEffect, type Dispatch, type SetStateAction } from 'react';
-import * as Haptics from 'expo-haptics';
+import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { GOOGLE_WEB_CLIENT_ID } from '@/config/env';
 import { api } from '@/services/api';
@@ -10,7 +9,7 @@ import type { AuthSession, Conversation, Message } from '@/types/messenger';
 
 type UseNativeSessionLifecycleParams = {
   cancelVoiceRecording: (notify?: boolean) => Promise<void>;
-  refreshConversations: (activeToken?: string) => Promise<void>;
+  refreshConversations: (activeToken?: string, activeOwnerId?: string) => Promise<void>;
   refreshLocalMediaIndex: () => Promise<void>;
   resetMessageActions: () => void;
   runMediaSync: (activeToken: string, currentUserId?: string, knownMessages?: Message[]) => Promise<unknown>;
@@ -50,14 +49,15 @@ export function useNativeSessionLifecycle({
   setSelected,
   setSession,
 }: UseNativeSessionLifecycleParams) {
+  const restoreStartedRef = useRef(false);
+
   const completeOnboarding = useCallback(async (nextSession: AuthSession) => {
     await saveSession(nextSession);
     setSession(nextSession);
     setNotice('');
     setSelected(null);
     setActiveTab('chats');
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    await refreshConversations(nextSession.token);
+    await refreshConversations(nextSession.token, nextSession.user.id || nextSession.user.email);
     runMediaSync(nextSession.token, nextSession.user.id);
   }, [refreshConversations, runMediaSync, setActiveTab, setNotice, setSelected, setSession]);
 
@@ -67,6 +67,10 @@ export function useNativeSessionLifecycle({
       const saved = await loadSession();
       if (saved) {
         await refreshLocalMediaIndex();
+        setSession(saved);
+        setLoading(false);
+        void refreshConversations(saved.token, saved.user.id || saved.user.email);
+        void runMediaSync(saved.token, saved.user.id);
         try {
           const serverUser = await api.me(saved.token);
           const verifiedSession: AuthSession = {
@@ -75,8 +79,7 @@ export function useNativeSessionLifecycle({
           };
           await saveSession(verifiedSession);
           setSession(verifiedSession);
-          setLoading(false);
-          void refreshConversations(verifiedSession.token);
+          void refreshConversations(verifiedSession.token, verifiedSession.user.id || verifiedSession.user.email);
           void runMediaSync(verifiedSession.token, verifiedSession.user.id);
         } catch (error) {
           if (isInvalidSessionError(error)) {
@@ -86,11 +89,7 @@ export function useNativeSessionLifecycle({
             setNotice('Session expirée. Reconnectez-vous avec Google.');
             return;
           }
-          setSession(saved);
           setNotice('Mode hors connexion : session locale non vérifiée.');
-          setLoading(false);
-          void refreshConversations(saved.token);
-          void runMediaSync(saved.token, saved.user.id);
         }
       }
     } finally {
@@ -99,6 +98,8 @@ export function useNativeSessionLifecycle({
   }, [refreshConversations, refreshLocalMediaIndex, runMediaSync, setLoading, setNotice, setSession]);
 
   useEffect(() => {
+    if (restoreStartedRef.current) return;
+    restoreStartedRef.current = true;
     void restore();
   }, [restore]);
 
@@ -126,15 +127,13 @@ export function useNativeSessionLifecycle({
       const next = await api.authGoogle(idToken);
       await saveSession(next);
       setSession(next);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      await refreshConversations(next.token);
+      await refreshConversations(next.token, next.user.id || next.user.email);
     } catch (error: any) {
       if (error?.code === statusCodes.SIGN_IN_CANCELLED) return;
       const message = error instanceof Error ? error.message : 'Connexion Google impossible.';
       setNotice(message.includes('DEVELOPER_ERROR')
         ? 'Connexion Google bloquée par la configuration Google Cloud.'
         : message);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
     } finally {
       setBusy(false);
     }

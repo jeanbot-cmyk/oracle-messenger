@@ -81,7 +81,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {
-  height: 100%;
+  min-height: 100%;
   width: 100%;
   background: var(--bg-app);
   color: var(--text-primary);
@@ -91,7 +91,8 @@ html, body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: geometricPrecision;
-  overscroll-behavior: none;
+  overscroll-behavior-y: auto;
+  overscroll-behavior-x: none;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -105,7 +106,7 @@ html, body {
   height: var(--om-viewport-height, 100dvh);
   min-height: 0;
   overflow: hidden;
-  transform: translateZ(0);
+  overscroll-behavior: none;
 }
 
 ::-webkit-scrollbar { width: 4px; }
@@ -116,12 +117,6 @@ html, body {
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 
 @media (max-width: 768px) and (pointer: coarse) {
-  html,
-  body {
-    height: var(--om-viewport-height, 100dvh);
-    overflow: hidden;
-  }
-
   .chat-composer-safe {
     padding: 7px 7px calc(max(8px, env(safe-area-inset-bottom)) + 8px) !important;
   }
@@ -145,8 +140,6 @@ button, [role="button"] {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   user-select: none;
-  transform: translateZ(0);
-  will-change: transform;
   transition:
     background-color var(--duration-fast) ease,
     color var(--duration-fast) ease,

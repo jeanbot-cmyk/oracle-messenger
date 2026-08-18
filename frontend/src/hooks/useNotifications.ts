@@ -175,6 +175,7 @@ export function useNotifications() {
   async function subscribeToPush() {
     try {
       if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+      await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch(() => undefined);
       const reg = await navigator.serviceWorker.ready;
 
       // Récupérer la clé VAPID publique depuis le backend

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 156" role="img" aria-labelledby="title">
+  <title id="title">Western Union</title>
+  <rect width="360" height="156" rx="22" fill="#101010"/>
+  <rect x="11" y="11" width="338" height="134" rx="17" fill="none" stroke="#F6C800" stroke-width="8"/>
+  <path d="M52 40h22l13 46 16-46h18l16 46 13-46h22l-24 77h-21l-15-43-15 43H76L52 40Z" fill="#F6C800"/>
+  <path d="M184 40h22v43c0 12 7 19 18 19 12 0 19-7 19-19V40h22v44c0 24-17 36-41 36-23 0-40-12-40-36V40Z" fill="#F6C800"/>
+  <text x="52" y="136" fill="#F6C800" font-family="Arial, Helvetica, sans-serif" font-size="23" font-weight="800" letter-spacing="0">WESTERN UNION</text>
+</svg>

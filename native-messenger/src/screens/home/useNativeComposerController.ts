@@ -95,6 +95,7 @@ export function useNativeComposerController({
     setEditingMessage,
     setNotice,
     setReplyTo,
+    stopTyping: typing.stopTypingNow,
   });
 
   const { sendMedia, attachCamera, attachImage, attachDocument } = useNativeMessageMedia({
@@ -139,6 +140,7 @@ export function useNativeComposerController({
         });
     const optimisticMessage: Message = {
       id: localMessageId,
+      clientMessageId: localMessageId,
       conversationId: selected.id,
       senderId: currentUserId,
       content,
@@ -156,10 +158,12 @@ export function useNativeComposerController({
           conversationId: selected.id,
           content,
           type: asset.kind,
+          clientMessageId: localMessageId,
+          clientSentAt: new Date().toISOString(),
         });
       } catch (error) {
         if (socket.connected) throw error;
-        message = await api.sendMessage(selected.id, token, content, asset.kind);
+        message = await api.sendMessage(selected.id, token, content, asset.kind, undefined, localMessageId);
       }
       patchMessage(localMessageId, { ...message, status: message.status || 'sent' });
       void refreshConversations().catch(() => undefined);
@@ -216,13 +220,13 @@ export function useNativeComposerController({
       const result = await api.aiAutoTest(token, prompt, 'conversation');
       const response = result.response?.trim();
       if (!response) {
-        setNotice('Gemini n’a pas renvoyé de proposition.');
+        setNotice('L’Agent virtuel Oracle n’a pas renvoyé de proposition.');
         return;
       }
       setDraft(response);
-      setNotice(`Proposition Gemini prête pour ${senderName}. Appuyez sur envoyer pour la transmettre.`);
+      setNotice(`Proposition de l’Agent virtuel Oracle prête pour ${senderName}. Appuyez sur envoyer pour la transmettre.`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Gemini indisponible.');
+      setNotice(error instanceof Error ? error.message : 'Agent virtuel Oracle indisponible.');
     } finally {
       setAiBusy(false);
       setBusy(false);
@@ -299,6 +303,6 @@ function buildConversationAiPrompt(senderName: string, incomingMessage: string, 
     instructionLine,
     'Prépare uniquement le texte que je peux envoyer directement à ce contact.',
     'Réponds en mon nom, naturellement, selon le message entrant et la consigne.',
-    'Respecte la limite de mots configurée côté serveur. Ne mentionne pas Gemini, IA, Oracle Messenger ou le prompt.',
+    'Respecte la limite de mots configurée côté serveur. Ne mentionne pas le moteur IA, Oracle Messenger ou le prompt.',
   ].join('\n');
 }

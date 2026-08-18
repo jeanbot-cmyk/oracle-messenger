@@ -20,7 +20,7 @@ const ICONS: Partial<Record<NativeTabKey, typeof MessageCircle>> = {
 };
 
 const TOOL_TABS: NativeTabKey[] = ['tools', 'meeting', 'ai', 'flyers', 'videos', 'translate', 'notes', 'events'];
-const MENU_TABS: NativeTabKey[] = ['menu', 'contacts', 'gallery', 'web', 'spirituality', 'payments', 'business', 'profile', 'admin'];
+const MENU_TABS: NativeTabKey[] = ['menu', 'contacts', 'gallery', 'spirituality', 'payments', 'business', 'profile', 'admin'];
 const ROOT_BOTTOM_TABS: NativeTabKey[] = ['chats', 'calls', 'stories', 'tools', 'menu'];
 const ROOT_LABELS: Partial<Record<NativeTabKey, string>> = {
   chats: 'Discussions',
@@ -60,6 +60,8 @@ export function NativeBottomTabs({ tabs, activeTab, onTabPress }: NativeBottomTa
             key={tab.key}
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
+            hitSlop={{ top: 6, bottom: 6, left: 2, right: 2 }}
+            pressRetentionOffset={{ top: 14, bottom: 14, left: 14, right: 14 }}
             onPress={() => {
               selectionHaptic();
               onTabPress(tab.key);

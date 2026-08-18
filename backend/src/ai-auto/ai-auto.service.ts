@@ -169,7 +169,7 @@ export class AiAutoService {
     if (config.paidActive) {
       if (wallet.wordsRemaining <= 0) {
         await this.disableForNoCredit(userId);
-        throw new ForbiddenException('Quota IA épuisé. Rechargez votre portefeuille Gemini.');
+        throw new ForbiddenException('Quota IA épuisé. Rechargez votre portefeuille Agent virtuel Oracle.');
       }
       return this.generateAndConsume(userId, clean, config.prompt, {
         mode: 'test',
@@ -182,7 +182,7 @@ export class AiAutoService {
 
     const freeUsage = await this.countFreeMessages(userId);
     if (freeUsage >= FREE_MESSAGES_LIMIT) {
-      throw new ForbiddenException('Vous avez utilisé vos 4 réponses IA gratuites du jour. Activez ou rechargez Gemini via Paystack pour continuer.');
+      throw new ForbiddenException('Vous avez utilisé vos 4 réponses IA gratuites du jour. Activez ou rechargez l’Agent virtuel Oracle via Paystack pour continuer.');
     }
 
     const profileName = await this.getProfileName(userId);
@@ -385,7 +385,7 @@ export class AiAutoService {
     const { wallet, config } = await this.ensureUserState(userId);
     if (!config.paidActive || wallet.wordsRemaining <= 0) {
       await this.disableForNoCredit(userId);
-      throw new ForbiddenException('Quota IA insuffisant. Rechargez votre portefeuille Gemini.');
+      throw new ForbiddenException('Quota IA insuffisant. Rechargez votre portefeuille Agent virtuel Oracle.');
     }
     const profileName = await this.getProfileName(userId);
     const unrestricted = meta.unrestricted ?? await this.hasFreeAiAccess(userId);
@@ -447,7 +447,7 @@ export class AiAutoService {
       return this.localFallback(userPrompt, incomingMessage, maxWords, unrestricted);
     }
     if (apiKey.startsWith('sk_')) {
-      throw new BadRequestException('Clé Gemini invalide : une clé Paystack est configurée à la place. Ajoutez une clé Gemini qui commence par AIza.');
+      throw new BadRequestException('Configuration IA invalide : une clé de paiement est configurée à la place de la clé IA.');
     }
     const model = this.normalizeGeminiModel((await this.getSettings()).gemini_model);
     const mediaPart = await this.geminiMediaPart(options.media).catch(error => {
@@ -476,15 +476,15 @@ export class AiAutoService {
       this.logger.warn(`Gemini error ${res.status}: ${JSON.stringify(data)?.slice(0, 500)}`);
       const detail = String(data?.error?.message || '').toLowerCase();
       if (detail.includes('api key') || detail.includes('permission') || detail.includes('credential')) {
-        throw new BadRequestException('Clé Gemini invalide ou non autorisée. Vérifiez la clé API Gemini dans Google AI Studio.');
+        throw new BadRequestException('Configuration IA invalide ou non autorisée. Vérifiez la clé du moteur IA côté serveur.');
       }
       if (detail.includes('model') || detail.includes('not found') || detail.includes('not supported')) {
-        throw new BadRequestException(`Modèle Gemini indisponible (${model}). Le serveur utilise maintenant le modèle économique ${DEFAULT_GEMINI_MODEL}.`);
+        throw new BadRequestException('Modèle IA indisponible. Le serveur utilise un modèle économique compatible.');
       }
       if (detail.includes('quota') || detail.includes('billing')) {
-        throw new BadRequestException('Quota Gemini insuffisant ou facturation Google non active.');
+        throw new BadRequestException('Quota IA insuffisant ou facturation du moteur IA non active.');
       }
-      throw new BadRequestException(data?.error?.message || 'Gemini indisponible pour le moment.');
+      throw new BadRequestException(data?.error?.message || 'Agent virtuel Oracle indisponible pour le moment.');
     }
     const text = data?.candidates?.[0]?.content?.parts?.map((part: any) => part?.text).filter(Boolean).join('\n').trim();
     return this.sanitizeResponse(text || this.localFallback(userPrompt, incomingMessage, maxWords, unrestricted), maxWords);

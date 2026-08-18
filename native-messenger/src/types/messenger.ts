@@ -8,7 +8,11 @@ export type User = {
   phone?: string | null;
   status?: string;
   lastSeen?: string | null;
+  activeUntil?: string | null;
   isNew?: boolean;
+  role?: 'admin' | 'member' | string;
+  joinedAt?: string | null;
+  canSendMessages?: boolean;
 };
 
 export type Participant = User;
@@ -17,10 +21,11 @@ export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
 
 export type Message = {
   id: string;
+  clientMessageId?: string | null;
   conversationId: string;
   senderId: string;
   content: string;
-  type: 'text' | 'image' | 'video' | 'audio' | 'voice' | 'file' | 'document' | string;
+  type: 'text' | 'image' | 'video' | 'audio' | 'voice' | 'file' | 'document' | 'system' | string;
   status?: MessageStatus | string;
   createdAt: string;
   updatedAt?: string;
@@ -32,12 +37,38 @@ export type Message = {
   reactions?: { emoji: string; userId: string; updatedAt?: string }[];
 };
 
+export type GroupInvitation = {
+  id: string;
+  conversationId: string;
+  invitedUserId: string;
+  invitedById: string;
+  status: 'INVITED' | 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'REMOVED' | 'LEFT' | string;
+  respondedAt?: string | null;
+  cancelledAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  group?: {
+    id: string;
+    name?: string | null;
+    avatar?: string | null;
+    description?: string | null;
+  };
+  invitedUser?: User;
+  invitedBy?: User;
+};
+
 export type Conversation = {
   id: string;
   type: 'direct' | 'group' | 'official' | string;
   name?: string | null;
   avatar?: string | null;
+  description?: string | null;
+  messagePolicy?: 'ALL_PARTICIPANTS' | 'ADMINS_ONLY' | string;
   participants: Participant[];
+  participantCount?: number;
+  currentUserRole?: 'admin' | 'member' | string;
+  currentUserCanSendMessages?: boolean;
+  pendingInvitations?: GroupInvitation[];
   lastMessage?: Message | null;
   unreadCount?: number;
   updatedAt?: string;

@@ -58,12 +58,6 @@ export function MainLayout({ onStartCall, conversationsLoading = false }: Props)
   }, []);
 
   useEffect(() => {
-    ['/contacts', '/stories', '/tools', '/business', '/profile', '/gallery'].forEach(path => {
-      router.prefetch(path);
-    });
-  }, [router]);
-
-  useEffect(() => {
     const q = search.trim();
     if (!token || !q) {
       setRemoteSearchConversations(null);

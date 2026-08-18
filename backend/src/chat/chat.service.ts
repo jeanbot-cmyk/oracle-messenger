@@ -29,6 +29,28 @@ export class ChatService {
   private readonly officialConversationAvatar = '/icons/oracle-system-avatar.svg';
   private readonly officialSystemEmail = 'system-aura@oracle-messenger.local';
   private readonly officialMessageTtlMs = 24 * 60 * 60 * 1000;
+  private readonly groupAdminRole = 'admin';
+  private readonly groupMemberRole = 'member';
+  private readonly groupPolicyAll = 'ALL_PARTICIPANTS';
+  private readonly groupPolicyAdminsOnly = 'ADMINS_ONLY';
+  private readonly activeInvitationStatuses = ['PENDING', 'INVITED'];
+
+  private readonly userPublicSelect = {
+    id: true,
+    email: true,
+    name: true,
+    username: true,
+    avatar: true,
+    phone: true,
+    status: true,
+    lastSeen: true,
+  } as const;
+
+  private readonly messageInclude = {
+    sender: { select: { id: true, name: true, username: true, avatar: true } },
+    replyTo: true,
+    reactions: { select: { emoji: true, userId: true, updatedAt: true } },
+  } as const;
 
   private isMediaType(type?: string | null) {
     return ['image', 'video', 'audio', 'voice', 'file', 'document', 'gif', 'sticker'].includes(String(type ?? '').toLowerCase());
@@ -129,6 +151,78 @@ export class ChatService {
     return incomingRank >= currentRank ? incomingStatus : currentStatus;
   }
 
+  private normalizeGroupRole(role?: string | null) {
+    const normalized = String(role || this.groupMemberRole).toLowerCase().trim();
+    return normalized === this.groupAdminRole ? this.groupAdminRole : this.groupMemberRole;
+  }
+
+  private isGroupAdmin(participant?: { role?: string | null } | null) {
+    return this.normalizeGroupRole(participant?.role) === this.groupAdminRole;
+  }
+
+  private normalizeGroupDescription(description?: string | null) {
+    const value = String(description ?? '').trim().slice(0, 1200);
+    return value || null;
+  }
+
+  private normalizeGroupMessagePolicy(policy?: string | null) {
+    const value = String(policy ?? this.groupPolicyAll).trim().toUpperCase();
+    if (['ADMINS_ONLY', 'ADMIN_ONLY', 'ADMINS'].includes(value)) return this.groupPolicyAdminsOnly;
+    return this.groupPolicyAll;
+  }
+
+  private participantCanSend(participant: { role?: string | null; canSendMessages?: boolean | null } | null | undefined, policy?: string | null) {
+    if (!participant) return false;
+    if (participant.canSendMessages === false) return false;
+    const normalizedPolicy = this.normalizeGroupMessagePolicy(policy);
+    if (normalizedPolicy === this.groupPolicyAdminsOnly) return this.isGroupAdmin(participant);
+    return true;
+  }
+
+  private normalizeGroupInvitationStatus(status?: string | null) {
+    const value = String(status ?? '').trim().toUpperCase();
+    if (['INVITED', 'PENDING', 'ACCEPTED', 'DECLINED', 'REMOVED', 'LEFT'].includes(value)) return value;
+    return 'PENDING';
+  }
+
+  private toGroupInvitationSummary(invitation: any) {
+    const conversation = invitation.conversation ?? {};
+    return {
+      id: invitation.id,
+      conversationId: invitation.conversationId,
+      invitedUserId: invitation.invitedUserId,
+      invitedById: invitation.invitedById,
+      status: this.normalizeGroupInvitationStatus(invitation.status),
+      respondedAt: invitation.respondedAt,
+      cancelledAt: invitation.cancelledAt,
+      createdAt: invitation.createdAt,
+      updatedAt: invitation.updatedAt,
+      group: {
+        id: invitation.conversationId,
+        name: conversation.name,
+        avatar: conversation.avatar,
+        description: conversation.description,
+      },
+      invitedUser: invitation.invitedUser ? {
+        ...invitation.invitedUser,
+      } : undefined,
+      invitedBy: invitation.invitedBy ? {
+        ...invitation.invitedBy,
+      } : undefined,
+    };
+  }
+
+  private normalizeGroupName(name?: string | null) {
+    const value = String(name ?? '').trim().slice(0, 90);
+    if (!value) throw new BadRequestException('Donnez un nom au groupe.');
+    return value;
+  }
+
+  private normalizeGroupAvatar(avatar?: string | null) {
+    const value = String(avatar ?? '').trim().slice(0, 1000);
+    return value || null;
+  }
+
   private normalizeMessageContent(content?: string | null) {
     const value = String(content ?? '').trim();
     if (!value) throw new BadRequestException('Message vide');
@@ -138,12 +232,19 @@ export class ChatService {
     return value;
   }
 
+  private normalizeClientMessageId(clientMessageId?: string | null) {
+    const value = String(clientMessageId ?? '').trim();
+    if (!value) return undefined;
+    return value.slice(0, 160);
+  }
+
   private unreadWhere(conversationId: string, userId: string, lastReadAt?: Date | null) {
+    const safeLastReadAt = this.safeStoredReadAt(lastReadAt);
     return {
       conversationId,
       senderId: { not: userId },
       isDeleted: false,
-      ...(lastReadAt ? { createdAt: { gt: lastReadAt } } : {}),
+      ...(safeLastReadAt ? { createdAt: { gt: safeLastReadAt } } : {}),
     };
   }
 
@@ -190,7 +291,9 @@ export class ChatService {
     const systemParticipant = isOfficial
       ? conv.participants.find((pt: any) => pt.user?.email === this.officialSystemEmail)
       : null;
-    const others = isOfficial
+    const viewerParticipant = conv.participants.find((pt: any) => pt.userId === userId);
+    const viewerIsGroupAdmin = conv.type === 'group' && this.isGroupAdmin(viewerParticipant);
+    const participants = isOfficial
       ? [{
           id: systemParticipant?.userId ?? systemParticipant?.user?.id ?? 'oracle-messenger-official',
           name: this.officialConversationName,
@@ -198,17 +301,38 @@ export class ChatService {
           avatar: this.officialConversationAvatar,
           status: 'online',
           lastSeen: null,
+          role: this.groupAdminRole,
+          canSendMessages: false,
         }]
-      : conv.participants.filter((pt: any) => pt.userId !== userId).map((pt: any) => pt.user);
+      : conv.participants
+        .filter((pt: any) => conv.type === 'group' || pt.userId !== userId)
+        .map((pt: any) => ({
+          ...pt.user,
+          role: this.normalizeGroupRole(pt.role),
+          canSendMessages: pt.canSendMessages !== false,
+          joinedAt: pt.joinedAt,
+        }));
     const lastMessage = conv.messages?.[0] ?? null;
     const officialOpenedAt = this.getOfficialOpenedAt(conv)?.toISOString();
     const officialExpiresAt = this.getOfficialExpiresAt(conv)?.toISOString();
+    const messagePolicy = this.normalizeGroupMessagePolicy(conv.messagePolicy);
+    const pendingInvitations = viewerIsGroupAdmin && Array.isArray(conv.invitations)
+      ? conv.invitations.map((invitation: any) => this.toGroupInvitationSummary(invitation))
+      : undefined;
     return {
       id: conv.id,
       type: conv.type,
       name: isOfficial ? this.officialConversationName : conv.name,
       avatar: isOfficial ? this.officialConversationAvatar : conv.avatar,
-      participants: others,
+      description: conv.description ?? null,
+      messagePolicy,
+      participants,
+      participantCount: Array.isArray(conv.participants) ? conv.participants.length : participants.length,
+      currentUserRole: this.normalizeGroupRole(viewerParticipant?.role),
+      currentUserCanSendMessages: conv.type === 'group'
+        ? this.participantCanSend(viewerParticipant, messagePolicy)
+        : !isOfficial,
+      pendingInvitations,
       lastMessage,
       unreadCount,
       isPinned: isOfficial ? true : Boolean(conv.isPinned),
@@ -241,7 +365,7 @@ export class ChatService {
       WHERE m."conversationId" IN (${Prisma.join(ids)})
         AND m."senderId" <> ${userId}
         AND m."isDeleted" = false
-        AND (p."lastReadAt" IS NULL OR m."createdAt" > p."lastReadAt")
+        AND (p."lastReadAt" IS NULL OR p."lastReadAt" > NOW() OR m."createdAt" > p."lastReadAt")
       GROUP BY m."conversationId"
     `);
 
@@ -255,7 +379,7 @@ export class ChatService {
       include: {
         conversation: {
           include: {
-            participants: { include: { user: { select: { id: true, email: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
+            participants: { include: { user: { select: this.userPublicSelect } } },
             messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
           },
         },
@@ -316,7 +440,7 @@ export class ChatService {
         ],
       },
       include: {
-        participants: { include: { user: { select: { id: true, email: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
+        participants: { include: { user: { select: this.userPublicSelect } } },
         messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
       },
       orderBy: { updatedAt: 'desc' },
@@ -351,8 +475,16 @@ export class ChatService {
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: {
-        participants: { include: { user: { select: { id: true, email: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
-            messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
+        participants: { include: { user: { select: this.userPublicSelect } } },
+        invitations: {
+          orderBy: { updatedAt: 'desc' },
+          include: {
+            invitedUser: { select: this.userPublicSelect },
+            invitedBy: { select: this.userPublicSelect },
+            conversation: { select: { id: true, name: true, avatar: true, description: true } },
+          },
+        },
+        messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
       },
     });
     if (!conv) throw new NotFoundException();
@@ -413,7 +545,7 @@ export class ChatService {
         ],
       },
       include: {
-        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
+        participants: { include: { user: { select: this.userPublicSelect } } },
         messages: { take: 1, orderBy: { createdAt: 'desc' }, include: { reactions: true } },
       },
     });
@@ -425,7 +557,7 @@ export class ChatService {
           participants: { create: [{ userId }, { userId: participantId }] },
         },
         include: {
-          participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
+          participants: { include: { user: { select: this.userPublicSelect } } },
           messages: { take: 1, orderBy: { createdAt: 'desc' }, include: { reactions: true } },
         },
       });
@@ -437,81 +569,576 @@ export class ChatService {
     return this.toConversationSummary(conv, userId, 0);
   }
 
-  async createGroup(userId: string, dto: { name?: string; participantIds?: string[]; avatar?: string }) {
-    const name = String(dto?.name || '').trim().slice(0, 90) || 'Nouveau groupe';
+  private groupSummaryInclude() {
+    return {
+      participants: { include: { user: { select: this.userPublicSelect } } },
+      invitations: {
+        orderBy: { updatedAt: 'desc' as const },
+        include: {
+          invitedUser: { select: this.userPublicSelect },
+          invitedBy: { select: this.userPublicSelect },
+          conversation: { select: { id: true, name: true, avatar: true, description: true } },
+        },
+      },
+      messages: { take: 1, orderBy: { createdAt: 'desc' as const }, include: { reactions: true } },
+    };
+  }
+
+  private async loadConversationSummary(conversationId: string, userId: string) {
+    const participant = await this.prisma.participant.findUnique({
+      where: { userId_conversationId: { userId, conversationId } },
+    });
+    if (!participant) throw new ForbiddenException('Vous ne faites pas partie de ce groupe.');
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: this.groupSummaryInclude(),
+    });
+    if (!conversation) throw new NotFoundException('Conversation introuvable');
+    const unread = await this.prisma.message.count({
+      where: this.unreadWhere(conversationId, userId, participant.lastReadAt),
+    });
+    return this.toConversationSummary({ ...conversation, viewerLastReadAt: participant.lastReadAt }, userId, unread);
+  }
+
+  private async createGroupSystemMessage(conversationId: string, senderId: string, content: string, tx?: Prisma.TransactionClient) {
+    const client = tx ?? this.prisma;
+    const message = await client.message.create({
+      data: { conversationId, senderId, content, type: 'system' },
+      include: {
+        sender: { select: { id: true, name: true, username: true, avatar: true } },
+        replyTo: true,
+        reactions: { select: { emoji: true, userId: true, updatedAt: true } },
+      },
+    });
+    await client.conversation.update({ where: { id: conversationId }, data: { updatedAt: new Date() } });
+    return message;
+  }
+
+  private invitationInclude() {
+    return {
+      invitedUser: { select: this.userPublicSelect },
+      invitedBy: { select: this.userPublicSelect },
+      conversation: { select: { id: true, name: true, avatar: true, description: true } },
+    };
+  }
+
+  async createGroup(userId: string, dto: { name?: string; participantIds?: string[]; avatar?: string; description?: string }) {
+    const name = this.normalizeGroupName(dto?.name || 'Nouveau groupe');
     const candidateIds = Array.isArray(dto?.participantIds) ? dto.participantIds : [];
     const participantIds = [...new Set(candidateIds.map(id => String(id || '').trim()).filter(id => id && id !== userId))].slice(0, 99);
-    if (!participantIds.length) throw new BadRequestException('Ajoutez au moins un membre au groupe.');
+    if (!participantIds.length) throw new BadRequestException('Sélectionnez au moins une personne à inviter.');
 
     const users = await this.prisma.user.findMany({
       where: {
         id: { in: participantIds },
         email: { not: this.officialSystemEmail },
       },
-      select: { id: true },
+      select: this.userPublicSelect,
     });
-    if (!users.length) throw new BadRequestException('Aucun membre valide pour ce groupe.');
+    if (!users.length) throw new BadRequestException('Aucun utilisateur valide à inviter.');
 
-    const conv = await this.prisma.conversation.create({
-      data: {
-        type: 'group',
-        name,
-        avatar: String(dto?.avatar || '').trim().slice(0, 1000) || null,
-        participants: {
-          create: [{ userId }, ...users.map(user => ({ userId: user.id }))],
+    const result = await this.prisma.$transaction(async tx => {
+      const actor = await tx.user.findUnique({ where: { id: userId }, select: this.userPublicSelect });
+      const conversation = await tx.conversation.create({
+        data: {
+          type: 'group',
+          name,
+          avatar: this.normalizeGroupAvatar(dto?.avatar),
+          description: this.normalizeGroupDescription(dto?.description),
+          messagePolicy: this.groupPolicyAll,
+          participants: {
+            create: [{ userId, role: this.groupAdminRole, canSendMessages: true }] as any,
+          },
         },
-      },
-      include: {
-        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
-        messages: { take: 1, orderBy: { createdAt: 'desc' }, include: { reactions: true } },
-      },
+      });
+
+      const invitations = [];
+      for (const user of users) {
+        invitations.push(await tx.groupInvitation.upsert({
+          where: { conversationId_invitedUserId: { conversationId: conversation.id, invitedUserId: user.id } },
+          create: {
+            conversationId: conversation.id,
+            invitedUserId: user.id,
+            invitedById: userId,
+            status: 'PENDING',
+          },
+          update: {
+            invitedById: userId,
+            status: 'PENDING',
+            respondedAt: null,
+            cancelledAt: null,
+          },
+          include: this.invitationInclude(),
+        }));
+      }
+
+      const invitedNames = users.map(user => user.name || user.username).filter(Boolean).slice(0, 6).join(', ');
+      const suffix = users.length > 6 ? ` et ${users.length - 6} autre(s)` : '';
+      const systemMessage = await this.createGroupSystemMessage(
+        conversation.id,
+        userId,
+        `${actor?.name || 'Un administrateur'} a invité ${invitedNames}${suffix} à rejoindre le groupe.`,
+        tx,
+      );
+
+      const fullConversation = await tx.conversation.findUnique({
+        where: { id: conversation.id },
+        include: this.groupSummaryInclude(),
+      });
+      return { conversation: fullConversation, invitations, systemMessage };
     });
 
-    await Promise.all(users.map(user => this.rememberConversationContacts(userId, user.id).catch(() => null)));
-    return this.toConversationSummary(conv, userId, 0);
+    return {
+      conversation: this.toConversationSummary(result.conversation, userId, 0),
+      invitations: result.invitations.map(invitation => this.toGroupInvitationSummary(invitation)),
+      systemMessage: result.systemMessage,
+    };
   }
 
   async addGroupParticipants(conversationId: string, userId: string, participantIdsInput: string[]) {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: {
-        participants: { include: { user: { select: { id: true, email: true } } } },
+        participants: { include: { user: { select: { id: true, email: true, name: true } } } },
       },
     });
     if (!conversation || conversation.type !== 'group') throw new NotFoundException('Groupe introuvable');
-    if (!conversation.participants.some(participant => participant.userId === userId)) {
+    const actor = conversation.participants.find(participant => participant.userId === userId);
+    if (!actor) {
       throw new ForbiddenException('Vous ne faites pas partie de ce groupe.');
     }
+    if (!this.isGroupAdmin(actor)) throw new ForbiddenException('Seuls les administrateurs peuvent inviter des membres.');
 
     const existingIds = new Set(conversation.participants.map(participant => participant.userId));
     const candidateIds = Array.isArray(participantIdsInput) ? participantIdsInput : [];
     const participantIds = [...new Set(candidateIds.map(id => String(id || '').trim()).filter(id => id && !existingIds.has(id)))].slice(0, 99);
-    if (!participantIds.length) throw new BadRequestException('Aucun nouveau membre à ajouter.');
+    if (!participantIds.length) throw new BadRequestException('Aucun nouveau contact à inviter.');
 
     const users = await this.prisma.user.findMany({
       where: {
         id: { in: participantIds },
         email: { not: this.officialSystemEmail },
       },
-      select: { id: true },
+      select: this.userPublicSelect,
     });
-    if (!users.length) throw new BadRequestException('Aucun membre valide à ajouter.');
+    if (!users.length) throw new BadRequestException('Aucun utilisateur valide à inviter.');
 
-    const updated = await this.prisma.conversation.update({
+    const result = await this.prisma.$transaction(async tx => {
+      const actorUser = await tx.user.findUnique({ where: { id: userId }, select: this.userPublicSelect });
+      const invitations = [];
+      for (const user of users) {
+        invitations.push(await tx.groupInvitation.upsert({
+          where: { conversationId_invitedUserId: { conversationId, invitedUserId: user.id } },
+          create: {
+            conversationId,
+            invitedUserId: user.id,
+            invitedById: userId,
+            status: 'PENDING',
+          },
+          update: {
+            invitedById: userId,
+            status: 'PENDING',
+            respondedAt: null,
+            cancelledAt: null,
+          },
+          include: this.invitationInclude(),
+        }));
+      }
+
+      const invitedNames = users.map(user => user.name || user.username).filter(Boolean).slice(0, 6).join(', ');
+      const suffix = users.length > 6 ? ` et ${users.length - 6} autre(s)` : '';
+      const systemMessage = await this.createGroupSystemMessage(
+        conversationId,
+        userId,
+        `${actorUser?.name || 'Un administrateur'} a invité ${invitedNames}${suffix} à rejoindre le groupe.`,
+        tx,
+      );
+      const updated = await tx.conversation.findUnique({
+        where: { id: conversationId },
+        include: this.groupSummaryInclude(),
+      });
+      return { conversation: updated, invitations, systemMessage };
+    });
+    return {
+      conversation: this.toConversationSummary(result.conversation, userId, 0),
+      invitations: result.invitations.map(invitation => this.toGroupInvitationSummary(invitation)),
+      systemMessage: result.systemMessage,
+    };
+  }
+
+  async updateGroup(conversationId: string, userId: string, dto: { name?: string; avatar?: string | null; description?: string | null; messagePolicy?: string }) {
+    const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      data: {
-        participants: {
-          create: users.map(user => ({ userId: user.id })),
-        },
-        updatedAt: new Date(),
-      },
       include: {
-        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true, lastSeen: true } } } },
-        messages: { take: 1, orderBy: { createdAt: 'desc' }, include: { reactions: true } },
+        participants: { include: { user: { select: { id: true, email: true, name: true } } } },
       },
     });
-    await Promise.all(users.map(user => this.rememberConversationContacts(userId, user.id).catch(() => null)));
-    return this.toConversationSummary(updated, userId, 0);
+    if (!conversation || conversation.type !== 'group') throw new NotFoundException('Groupe introuvable');
+    const actor = conversation.participants.find(participant => participant.userId === userId);
+    if (!actor) throw new ForbiddenException('Vous ne faites pas partie de ce groupe.');
+    if (!this.isGroupAdmin(actor)) throw new ForbiddenException('Seuls les administrateurs peuvent modifier le groupe.');
+
+    const data: Record<string, unknown> = { updatedAt: new Date() };
+    if (Object.prototype.hasOwnProperty.call(dto || {}, 'name')) data.name = this.normalizeGroupName(dto.name);
+    if (Object.prototype.hasOwnProperty.call(dto || {}, 'avatar')) data.avatar = this.normalizeGroupAvatar(dto.avatar);
+    if (Object.prototype.hasOwnProperty.call(dto || {}, 'description')) data.description = this.normalizeGroupDescription(dto.description);
+    if (Object.prototype.hasOwnProperty.call(dto || {}, 'messagePolicy')) data.messagePolicy = this.normalizeGroupMessagePolicy(dto.messagePolicy);
+    if (Object.keys(data).length <= 1) throw new BadRequestException('Aucune modification à appliquer.');
+
+    const result = await this.prisma.$transaction(async tx => {
+      const updated = await tx.conversation.update({
+        where: { id: conversationId },
+        data: data as any,
+        include: this.groupSummaryInclude(),
+      });
+      let systemMessage: any = null;
+      if (Object.prototype.hasOwnProperty.call(data, 'messagePolicy')) {
+        const nextPolicy = this.normalizeGroupMessagePolicy(String(data.messagePolicy));
+        if (nextPolicy !== this.normalizeGroupMessagePolicy(conversation.messagePolicy)) {
+          systemMessage = await this.createGroupSystemMessage(
+            conversationId,
+            userId,
+            nextPolicy === this.groupPolicyAdminsOnly
+              ? 'Les administrateurs ont activé le mode de publication réservé aux administrateurs.'
+              : 'Tous les participants peuvent maintenant envoyer des messages.',
+            tx,
+          );
+        }
+      }
+      return { conversation: updated, systemMessage };
+    });
+    return {
+      conversation: this.toConversationSummary(result.conversation, userId, 0),
+      systemMessage: result.systemMessage,
+    };
+  }
+
+  async removeGroupParticipant(conversationId: string, userId: string, participantId: string) {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        participants: { include: { user: { select: { id: true, email: true, name: true } } } },
+      },
+    });
+    if (!conversation || conversation.type !== 'group') throw new NotFoundException('Groupe introuvable');
+    const actor = conversation.participants.find(participant => participant.userId === userId);
+    if (!actor) throw new ForbiddenException('Vous ne faites pas partie de ce groupe.');
+    if (!this.isGroupAdmin(actor)) throw new ForbiddenException('Seuls les administrateurs peuvent retirer un membre.');
+    if (participantId === userId) throw new BadRequestException('Utilisez “Supprimer de mon compte” pour quitter le groupe.');
+
+    const target = conversation.participants.find(participant => participant.userId === participantId);
+    if (!target) throw new NotFoundException('Membre introuvable dans ce groupe.');
+    const adminCount = conversation.participants.filter(participant => this.isGroupAdmin(participant)).length;
+    if (this.isGroupAdmin(target) && adminCount <= 1) {
+      throw new BadRequestException('Le groupe doit conserver au moins un administrateur.');
+    }
+
+    const result = await this.prisma.$transaction(async tx => {
+      await tx.participant.delete({ where: { id: target.id } });
+      await tx.groupInvitation.upsert({
+        where: { conversationId_invitedUserId: { conversationId, invitedUserId: participantId } },
+        create: {
+          conversationId,
+          invitedUserId: participantId,
+          invitedById: userId,
+          status: 'REMOVED',
+          respondedAt: new Date(),
+        },
+        update: { status: 'REMOVED', respondedAt: new Date(), cancelledAt: new Date() },
+      });
+      const targetName = target.user?.name || target.user?.email || 'Un membre';
+      const systemMessage = await this.createGroupSystemMessage(conversationId, userId, `${targetName} a été retiré du groupe.`, tx);
+      const updated = await tx.conversation.findUnique({
+        where: { id: conversationId },
+        include: this.groupSummaryInclude(),
+      });
+      return { updated, systemMessage };
+    });
+    if (!result.updated) throw new NotFoundException('Groupe introuvable');
+    return {
+      conversation: this.toConversationSummary(result.updated, userId, 0),
+      removedUserId: participantId,
+      systemMessage: result.systemMessage,
+    };
+  }
+
+  async setGroupParticipantRole(conversationId: string, userId: string, participantId: string, roleInput: string) {
+    const role = this.normalizeGroupRole(roleInput);
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        participants: { include: { user: { select: { id: true, email: true, name: true } } } },
+      },
+    });
+    if (!conversation || conversation.type !== 'group') throw new NotFoundException('Groupe introuvable');
+    const actor = conversation.participants.find(participant => participant.userId === userId);
+    if (!actor) throw new ForbiddenException('Vous ne faites pas partie de ce groupe.');
+    if (!this.isGroupAdmin(actor)) throw new ForbiddenException('Seuls les administrateurs peuvent gérer les rôles.');
+    if (participantId === userId) throw new BadRequestException('Votre propre rôle ne peut pas être modifié ici.');
+
+    const target = conversation.participants.find(participant => participant.userId === participantId);
+    if (!target) throw new NotFoundException('Membre introuvable dans ce groupe.');
+    const adminCount = conversation.participants.filter(participant => this.isGroupAdmin(participant)).length;
+    if (this.isGroupAdmin(target) && role !== this.groupAdminRole && adminCount <= 1) {
+      throw new BadRequestException('Le groupe doit conserver au moins un administrateur.');
+    }
+
+    const result = await this.prisma.$transaction(async tx => {
+      await tx.participant.update({
+        where: { id: target.id },
+        data: { role } as any,
+      });
+      const targetName = target.user?.name || target.user?.email || 'Un membre';
+      const systemMessage = await this.createGroupSystemMessage(
+        conversationId,
+        userId,
+        role === this.groupAdminRole
+          ? `${targetName} est maintenant administrateur du groupe.`
+          : `${targetName} n'est plus administrateur du groupe.`,
+        tx,
+      );
+      const updated = await tx.conversation.findUnique({
+        where: { id: conversationId },
+        include: this.groupSummaryInclude(),
+      });
+      return { updated, systemMessage };
+    });
+    if (!result.updated) throw new NotFoundException('Groupe introuvable');
+    return {
+      conversation: this.toConversationSummary(result.updated, userId, 0),
+      systemMessage: result.systemMessage,
+    };
+  }
+
+  async setGroupParticipantPermission(conversationId: string, userId: string, participantId: string, canSendMessagesInput: boolean) {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        participants: { include: { user: { select: { id: true, email: true, name: true } } } },
+      },
+    });
+    if (!conversation || conversation.type !== 'group') throw new NotFoundException('Groupe introuvable');
+    const actor = conversation.participants.find(participant => participant.userId === userId);
+    if (!actor) throw new ForbiddenException('Vous ne faites pas partie de ce groupe.');
+    if (!this.isGroupAdmin(actor)) throw new ForbiddenException('Seuls les administrateurs peuvent gérer les permissions.');
+    const target = conversation.participants.find(participant => participant.userId === participantId);
+    if (!target) throw new NotFoundException('Membre introuvable dans ce groupe.');
+    if (participantId === userId && canSendMessagesInput === false) throw new BadRequestException('Vous ne pouvez pas bloquer votre propre écriture.');
+
+    const result = await this.prisma.$transaction(async tx => {
+      await tx.participant.update({
+        where: { id: target.id },
+        data: { canSendMessages: Boolean(canSendMessagesInput) } as any,
+      });
+      const targetName = target.user?.name || target.user?.email || 'Un membre';
+      const systemMessage = await this.createGroupSystemMessage(
+        conversationId,
+        userId,
+        canSendMessagesInput
+          ? `${targetName} peut de nouveau envoyer des messages.`
+          : `${targetName} est temporairement en lecture seule.`,
+        tx,
+      );
+      const updated = await tx.conversation.findUnique({
+        where: { id: conversationId },
+        include: this.groupSummaryInclude(),
+      });
+      return { updated, systemMessage };
+    });
+    if (!result.updated) throw new NotFoundException('Groupe introuvable');
+    return {
+      conversation: this.toConversationSummary(result.updated, userId, 0),
+      systemMessage: result.systemMessage,
+    };
+  }
+
+  async getPendingGroupInvitations(userId: string) {
+    const invitations = await this.prisma.groupInvitation.findMany({
+      where: {
+        invitedUserId: userId,
+        status: { in: this.activeInvitationStatuses },
+        conversation: { type: 'group' },
+      },
+      include: this.invitationInclude(),
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+    });
+    return invitations.map(invitation => this.toGroupInvitationSummary(invitation));
+  }
+
+  async acceptGroupInvitation(invitationId: string, userId: string) {
+    const invitation = await this.prisma.groupInvitation.findUnique({
+      where: { id: invitationId },
+      include: {
+        ...this.invitationInclude(),
+        conversation: {
+          include: {
+            participants: { include: { user: { select: { id: true, email: true, name: true } } } },
+          },
+        },
+      },
+    });
+    if (!invitation || invitation.invitedUserId !== userId) throw new NotFoundException('Invitation introuvable');
+    if (invitation.conversation.type !== 'group') throw new NotFoundException('Groupe introuvable');
+    if (!this.activeInvitationStatuses.includes(this.normalizeGroupInvitationStatus(invitation.status))) {
+      throw new BadRequestException('Cette invitation n’est plus en attente.');
+    }
+    if (invitation.conversation.participants.some(participant => participant.userId === userId)) {
+      await this.prisma.groupInvitation.update({
+        where: { id: invitationId },
+        data: { status: 'ACCEPTED', respondedAt: new Date() },
+      });
+      return {
+        conversation: await this.loadConversationSummary(invitation.conversationId, userId),
+        invitation: this.toGroupInvitationSummary({ ...invitation, status: 'ACCEPTED', respondedAt: new Date() }),
+        systemMessage: null,
+      };
+    }
+
+    const result = await this.prisma.$transaction(async tx => {
+      const now = new Date();
+      await tx.groupInvitation.update({
+        where: { id: invitationId },
+        data: { status: 'ACCEPTED', respondedAt: now, cancelledAt: null },
+      });
+      await tx.participant.create({
+        data: { conversationId: invitation.conversationId, userId, role: this.groupMemberRole, canSendMessages: true } as any,
+      });
+      const systemMessage = await this.createGroupSystemMessage(
+        invitation.conversationId,
+        userId,
+        `${invitation.invitedUser?.name || 'Un utilisateur'} a rejoint le groupe.`,
+        tx,
+      );
+      const updatedInvitation = await tx.groupInvitation.findUnique({
+        where: { id: invitationId },
+        include: this.invitationInclude(),
+      });
+      const updatedConversation = await tx.conversation.findUnique({
+        where: { id: invitation.conversationId },
+        include: this.groupSummaryInclude(),
+      });
+      return { updatedInvitation, updatedConversation, systemMessage };
+    });
+
+    await this.rememberConversationContacts(invitation.invitedById, userId).catch(() => null);
+    return {
+      conversation: this.toConversationSummary(result.updatedConversation, userId, 0),
+      invitation: this.toGroupInvitationSummary(result.updatedInvitation),
+      systemMessage: result.systemMessage,
+    };
+  }
+
+  async declineGroupInvitation(invitationId: string, userId: string) {
+    const invitation = await this.prisma.groupInvitation.findUnique({
+      where: { id: invitationId },
+      include: this.invitationInclude(),
+    });
+    if (!invitation || invitation.invitedUserId !== userId) throw new NotFoundException('Invitation introuvable');
+    if (!this.activeInvitationStatuses.includes(this.normalizeGroupInvitationStatus(invitation.status))) {
+      throw new BadRequestException('Cette invitation n’est plus en attente.');
+    }
+    const updated = await this.prisma.groupInvitation.update({
+      where: { id: invitationId },
+      data: { status: 'DECLINED', respondedAt: new Date() },
+      include: this.invitationInclude(),
+    });
+    return { invitation: this.toGroupInvitationSummary(updated) };
+  }
+
+  async cancelGroupInvitation(conversationId: string, userId: string, invitationId: string) {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: { participants: true },
+    });
+    if (!conversation || conversation.type !== 'group') throw new NotFoundException('Groupe introuvable');
+    const actor = conversation.participants.find(participant => participant.userId === userId);
+    if (!actor) throw new ForbiddenException('Vous ne faites pas partie de ce groupe.');
+    if (!this.isGroupAdmin(actor)) throw new ForbiddenException('Seuls les administrateurs peuvent annuler une invitation.');
+    const invitation = await this.prisma.groupInvitation.findUnique({
+      where: { id: invitationId },
+      include: this.invitationInclude(),
+    });
+    if (!invitation || invitation.conversationId !== conversationId) throw new NotFoundException('Invitation introuvable');
+    if (!this.activeInvitationStatuses.includes(this.normalizeGroupInvitationStatus(invitation.status))) {
+      throw new BadRequestException('Cette invitation n’est plus en attente.');
+    }
+
+    const result = await this.prisma.$transaction(async tx => {
+      const updatedInvitation = await tx.groupInvitation.update({
+        where: { id: invitationId },
+        data: { status: 'REMOVED', cancelledAt: new Date(), respondedAt: new Date() },
+        include: this.invitationInclude(),
+      });
+      const systemMessage = await this.createGroupSystemMessage(
+        conversationId,
+        userId,
+        `L'invitation de ${invitation.invitedUser?.name || 'ce contact'} a été annulée.`,
+        tx,
+      );
+      const updatedConversation = await tx.conversation.findUnique({
+        where: { id: conversationId },
+        include: this.groupSummaryInclude(),
+      });
+      return { updatedInvitation, updatedConversation, systemMessage };
+    });
+    return {
+      conversation: this.toConversationSummary(result.updatedConversation, userId, 0),
+      invitation: this.toGroupInvitationSummary(result.updatedInvitation),
+      systemMessage: result.systemMessage,
+      invitedUserId: invitation.invitedUserId,
+    };
+  }
+
+  async leaveGroup(conversationId: string, userId: string) {
+    const conversation = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        participants: { include: { user: { select: { id: true, email: true, name: true } } } },
+      },
+    });
+    if (!conversation || conversation.type !== 'group') throw new NotFoundException('Groupe introuvable');
+    const actor = conversation.participants.find(participant => participant.userId === userId);
+    if (!actor) throw new ForbiddenException('Vous ne faites pas partie de ce groupe.');
+    const remainingParticipants = conversation.participants.filter(participant => participant.userId !== userId);
+    const adminCount = conversation.participants.filter(participant => this.isGroupAdmin(participant)).length;
+    if (this.isGroupAdmin(actor) && adminCount <= 1 && remainingParticipants.length > 0) {
+      throw new BadRequestException('Nommez un autre administrateur avant de quitter le groupe.');
+    }
+
+    const result = await this.prisma.$transaction(async tx => {
+      const systemMessage = remainingParticipants.length
+        ? await this.createGroupSystemMessage(
+            conversationId,
+            userId,
+            `${actor.user?.name || 'Un membre'} a quitté le groupe.`,
+            tx,
+          )
+        : null;
+      await tx.participant.delete({ where: { id: actor.id } });
+      await tx.groupInvitation.upsert({
+        where: { conversationId_invitedUserId: { conversationId, invitedUserId: userId } },
+        create: {
+          conversationId,
+          invitedUserId: userId,
+          invitedById: userId,
+          status: 'LEFT',
+          respondedAt: new Date(),
+        },
+        update: { status: 'LEFT', respondedAt: new Date(), cancelledAt: null },
+      });
+      if (!remainingParticipants.length) {
+        await tx.conversation.delete({ where: { id: conversationId } });
+        return { systemMessage, remainingParticipantIds: [] as string[] };
+      }
+      return { systemMessage, remainingParticipantIds: remainingParticipants.map(participant => participant.userId) };
+    });
+    return {
+      conversationId,
+      leftUserId: userId,
+      systemMessage: result.systemMessage,
+      remainingParticipantIds: result.remainingParticipantIds,
+    };
   }
 
   // ── Messages ───────────────────────────────────────────────────────────────
@@ -553,18 +1180,26 @@ export class ChatService {
     return messages.reverse();
   }
 
-  async createMessage(conversationId: string, senderId: string, content: string, type = 'text', replyToId?: string) {
+  async createMessage(conversationId: string, senderId: string, content: string, type = 'text', replyToId?: string, clientMessageId?: string) {
     const participant = await this.prisma.participant.findUnique({
       where: { userId_conversationId: { userId: senderId, conversationId } },
     });
     if (!participant) throw new ForbiddenException();
     const normalizedType = this.normalizeMessageType(type);
     const normalizedContent = this.normalizeMessageContent(content);
+    const normalizedClientMessageId = this.normalizeClientMessageId(clientMessageId);
 
     const convMeta = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { type: true },
+      select: { type: true, messagePolicy: true },
     });
+    if (convMeta?.type === 'group' && !this.participantCanSend(participant, convMeta.messagePolicy)) {
+      throw new ForbiddenException(
+        this.normalizeGroupMessagePolicy(convMeta.messagePolicy) === this.groupPolicyAdminsOnly
+          ? 'Seuls les administrateurs peuvent envoyer des messages dans ce groupe.'
+          : 'Vous ne pouvez pas envoyer de message dans ce groupe actuellement.',
+      );
+    }
     if (convMeta?.type === this.officialConversationType) {
       const sender = await this.prisma.user.findUnique({
         where: { id: senderId },
@@ -585,13 +1220,42 @@ export class ChatService {
       }
     }
 
+    if (normalizedClientMessageId) {
+      const existing = await this.prisma.message.findFirst({
+        where: { senderId, clientMessageId: normalizedClientMessageId },
+        include: this.messageInclude,
+      });
+      if (existing) {
+        if (existing.conversationId !== conversationId) {
+          throw new BadRequestException('Identifiant local déjà utilisé dans une autre conversation.');
+        }
+        return existing;
+      }
+    }
+
     const msg = await this.prisma.message.create({
-      data: { conversationId, senderId, content: normalizedContent, type: normalizedType, replyToId },
-      include: {
-        sender: { select: { id: true, name: true, username: true, avatar: true } },
-        replyTo: true,
-        reactions: { select: { emoji: true, userId: true, updatedAt: true } },
+      data: {
+        conversationId,
+        senderId,
+        clientMessageId: normalizedClientMessageId,
+        content: normalizedContent,
+        type: normalizedType,
+        replyToId,
       },
+      include: this.messageInclude,
+    }).catch(async error => {
+      if (
+        normalizedClientMessageId &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const existing = await this.prisma.message.findFirst({
+          where: { senderId, clientMessageId: normalizedClientMessageId, conversationId },
+          include: this.messageInclude,
+        });
+        if (existing) return existing;
+      }
+      throw error;
     });
 
     // Mettre à jour updatedAt de la conversation
@@ -680,14 +1344,15 @@ export class ChatService {
     });
     const requiredAckCount = recipientIds.length ? recipientIds.length : participantIds.length;
     const allRecipientsSaved = requiredAckCount > 0 && ackConfirmedCount >= requiredAckCount;
+    const deliveredMessage = await this.markMessageDelivered(messageId, userId);
     const serverFileCleaned = allRecipientsSaved
       ? await this.removeTemporaryUploadedFile(msg.content)
       : false;
 
     return {
-      cleared: false,
+      cleared: serverFileCleaned,
       ackConfirmed: true,
-      message: msg,
+      message: deliveredMessage,
       mediaDelivery: {
         state: 'ACK_CONFIRMED',
         ackConfirmedCount,
@@ -745,10 +1410,14 @@ export class ChatService {
       select: { deliveryState: true },
     });
     if (existing?.deliveryState === 'ACK_CONFIRMED') return;
+    const deliveredAt = new Date();
     if (existing) {
       await this.prisma.messageLocalSave.update({
         where: { messageId_userId: { messageId, userId } },
-        data: { deliveryState: 'DELIVERED' } as any,
+        data: {
+          deliveryState: 'DELIVERED',
+          downloadedAt: deliveredAt,
+        } as any,
       });
       return;
     }
@@ -757,6 +1426,25 @@ export class ChatService {
         messageId,
         userId,
         deliveryState: 'DELIVERED',
+        downloadedAt: deliveredAt,
+      } as any,
+    });
+  }
+
+  private async rememberMessageRead(messageId: string, userId: string, readAt = new Date()) {
+    await this.prisma.messageLocalSave.upsert({
+      where: { messageId_userId: { messageId, userId } },
+      create: {
+        messageId,
+        userId,
+        deliveryState: 'ACK_CONFIRMED',
+        downloadedAt: readAt,
+        ackConfirmedAt: readAt,
+      } as any,
+      update: {
+        deliveryState: 'ACK_CONFIRMED',
+        downloadedAt: readAt,
+        ackConfirmedAt: readAt,
       } as any,
     });
   }
@@ -788,6 +1476,40 @@ export class ChatService {
       where: { id: messageId },
       data: { status: deliveredStatus },
     });
+  }
+
+  async markPendingMessagesDeliveredForUser(userId: string, conversationId?: string, limit = 200) {
+    const messages = await this.prisma.message.findMany({
+      where: {
+        ...(conversationId ? { conversationId } : {}),
+        senderId: { not: userId },
+        isDeleted: false,
+        conversation: { participants: { some: { userId } } },
+        localSaves: {
+          none: {
+            userId,
+            ...({ deliveryState: { in: ['DELIVERED', 'ACK_CONFIRMED'] } } as any),
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: Math.max(1, Math.min(limit, 500)),
+      select: { id: true },
+    });
+
+    const updated: Array<{ id: string; conversationId: string; status?: string; updatedAt?: Date | string }> = [];
+    for (const item of messages.reverse()) {
+      const message = await this.markMessageDelivered(item.id, userId).catch(() => null);
+      if (message) {
+        updated.push({
+          id: message.id,
+          conversationId: message.conversationId,
+          status: message.status,
+          updatedAt: message.updatedAt,
+        });
+      }
+    }
+    return updated;
   }
 
   async reactToMessage(messageId: string, userId: string, emoji?: string | null) {
@@ -838,7 +1560,7 @@ export class ChatService {
       select: { id: true, senderId: true, createdAt: true },
     });
 
-    await Promise.all(messages.map(message => this.rememberMessageDelivered(message.id, readerId)));
+    await Promise.all(messages.map(message => this.rememberMessageRead(message.id, readerId, effectiveReadAt)));
 
     const participants = await this.prisma.participant.findMany({
       where: { conversationId },
@@ -848,9 +1570,10 @@ export class ChatService {
     const readMessageIds = messages
       .filter(message => {
         const recipients = participants.filter(participant => participant.userId !== message.senderId);
-        return recipients.length > 0 && recipients.every(participant =>
-          participant.lastReadAt && participant.lastReadAt.getTime() >= message.createdAt.getTime(),
-        );
+        return recipients.length > 0 && recipients.every(participant => {
+          const participantReadAt = this.safeStoredReadAt(participant.lastReadAt);
+          return participantReadAt && participantReadAt.getTime() >= message.createdAt.getTime();
+        });
       })
       .map(message => message.id);
 
@@ -892,6 +1615,37 @@ export class ChatService {
     return this.prisma.message.update({ where: { id: messageId }, data: { content: normalizedContent, isEdited: true } });
   }
 
+  async updateMediaMessageContent(messageId: string, userId: string, content: string) {
+    const msg = await this.prisma.message.findUnique({ where: { id: messageId } });
+    if (!msg) throw new NotFoundException();
+    if (msg.senderId !== userId) throw new ForbiddenException();
+    if (msg.isDeleted) throw new ForbiddenException('Message supprimé');
+    if (!this.isMediaType(msg.type)) throw new BadRequestException('Seuls les messages média peuvent être finalisés');
+    const normalizedContent = this.normalizeMessageContent(content);
+    const updated = await this.prisma.message.update({
+      where: { id: messageId },
+      data: { content: normalizedContent },
+      include: this.messageInclude,
+    });
+    await this.prisma.conversation.update({ where: { id: updated.conversationId }, data: { updatedAt: new Date() } });
+    return updated;
+  }
+
+  private clampReadBoundary(readAt?: Date | null) {
+    const now = new Date();
+    if (!readAt) return now;
+    const value = readAt instanceof Date ? readAt : new Date(readAt);
+    if (Number.isNaN(value.getTime())) return now;
+    return value.getTime() > now.getTime() ? now : value;
+  }
+
+  private safeStoredReadAt(readAt?: Date | null) {
+    if (!readAt) return null;
+    const value = readAt instanceof Date ? readAt : new Date(readAt);
+    if (Number.isNaN(value.getTime())) return null;
+    return value.getTime() > Date.now() ? null : value;
+  }
+
   private async resolveReadBoundary(conversationId: string, userId: string, readUpToMessageId?: string) {
     if (readUpToMessageId) {
       const target = await this.prisma.message.findUnique({
@@ -902,7 +1656,7 @@ export class ChatService {
         throw new BadRequestException('Message de lecture invalide');
       }
       if (target.senderId === userId) return null;
-      return target.createdAt;
+      return this.clampReadBoundary(target.createdAt);
     }
 
     const latestIncoming = await this.prisma.message.findFirst({
@@ -914,7 +1668,7 @@ export class ChatService {
       orderBy: { createdAt: 'desc' },
       select: { createdAt: true },
     });
-    return latestIncoming?.createdAt ?? new Date();
+    return latestIncoming?.createdAt ? this.clampReadBoundary(latestIncoming.createdAt) : new Date();
   }
 
   async markRead(conversationId: string, userId: string, readAt?: Date) {
@@ -933,15 +1687,16 @@ export class ChatService {
     });
     if (!participant) throw new ForbiddenException();
 
-    const nextReadAt = readAt ?? participant.conversation.messages?.[0]?.createdAt ?? new Date();
-    if (participant.lastReadAt && participant.lastReadAt.getTime() >= nextReadAt.getTime()) {
+    const nextReadAt = this.clampReadBoundary(readAt ?? participant.conversation.messages?.[0]?.createdAt ?? new Date());
+    const currentReadAt = this.safeStoredReadAt(participant.lastReadAt);
+    if (currentReadAt && currentReadAt.getTime() >= nextReadAt.getTime()) {
       return participant;
     }
 
     if (participant.conversation.type === this.officialConversationType) {
       const latest = participant.conversation.messages?.[0];
       if (!latest) return participant;
-      if (participant.lastReadAt && participant.lastReadAt.getTime() >= latest.createdAt.getTime()) {
+      if (currentReadAt && currentReadAt.getTime() >= latest.createdAt.getTime()) {
         return participant;
       }
     }
@@ -963,6 +1718,27 @@ export class ChatService {
   async getParticipantIds(conversationId: string): Promise<string[]> {
     const parts = await this.prisma.participant.findMany({ where: { conversationId } });
     return parts.map(p => p.userId);
+  }
+
+  async getParticipantPresence(conversationId: string) {
+    const parts = await this.prisma.participant.findMany({
+      where: { conversationId },
+      select: {
+        userId: true,
+        user: {
+          select: {
+            id: true,
+            status: true,
+            lastSeen: true,
+          },
+        },
+      },
+    });
+    return parts.map(part => ({
+      userId: part.userId,
+      status: part.user?.status ?? 'offline',
+      lastSeen: part.user?.lastSeen ?? null,
+    }));
   }
 
   async getKnownCallableUserIds(userId: string): Promise<string[]> {
@@ -1000,6 +1776,19 @@ export class ChatService {
           .map(participant => participant.userId);
       }),
     ].filter(id => id && id !== userId))];
+  }
+
+  async getExistingCallableUserIds(userIds: string[], requesterId: string): Promise<string[]> {
+    const ids = [...new Set((userIds ?? []).filter(id => id && id !== requesterId))];
+    if (!ids.length) return [];
+    const users = await this.prisma.user.findMany({
+      where: {
+        id: { in: ids },
+        email: { not: this.officialSystemEmail },
+      },
+      select: { id: true },
+    });
+    return users.map(user => user.id);
   }
 
   private async rememberConversationContacts(userId: string, participantId: string) {

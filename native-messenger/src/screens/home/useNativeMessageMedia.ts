@@ -1,30 +1,36 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
+import { Video as VideoCompressor } from 'react-native-compressor';
 import { socketAck } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
-import { storeMediaFromLocalSource } from '@/services/localMedia';
+import { commitPreservedOutgoingMedia, preserveOutgoingMediaSource } from '@/services/localMedia';
+import { nativeDebugLog } from '@/services/nativeLogger';
 import { checkNativeStorageForWrite } from '@/services/nativeStorageHealth';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import type { Conversation, Message } from '@/types/messenger';
+import {
+  fallbackMediaName,
+  NATIVE_MEDIA_SELECTION_LIMIT,
+  NATIVE_MEDIA_UPLOAD_CONCURRENCY,
+  normalizePickedNativeDocuments,
+  normalizePickedNativeMediaAssets,
+  runLimitedNativeMediaQueue,
+  type NativeMessageMediaInput,
+  type NativeMessageMediaKind,
+} from './nativeMessageMediaPipeline';
 
-export type NativeMessageMediaKind = 'image' | 'file' | 'video' | 'audio' | 'voice' | 'gif' | 'sticker';
-const MAX_NATIVE_UPLOAD_BYTES = 18 * 1024 * 1024;
-const MAX_DATA_URL_FALLBACK_BYTES = 12 * 1024 * 1024;
+export type { NativeMessageMediaInput, NativeMessageMediaKind } from './nativeMessageMediaPipeline';
 
-export type NativeMessageMediaInput = {
-  uri: string;
-  name?: string;
-  mime?: string;
-  kind: NativeMessageMediaKind;
-  size?: number;
-  width?: number;
-  height?: number;
-  duration?: number;
-  thumbnail?: string;
-  waveform?: number[];
-};
+const VIDEO_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+const MAX_DATA_URL_FALLBACK_BYTES = 24 * 1024 * 1024;
+const MEDIA_UPLOAD_RETRY_DELAYS_MS = [0, 900, 2200];
+const VIDEO_COMPRESSION_PROFILES = [
+  { compressionMethod: 'auto' as const, maxSize: 1280, minimumFileSizeForCompress: 80 },
+  { compressionMethod: 'manual' as const, maxSize: 960, bitrate: 1_800_000, minimumFileSizeForCompress: 0 },
+  { compressionMethod: 'manual' as const, maxSize: 720, bitrate: 1_100_000, minimumFileSizeForCompress: 0 },
+];
 
 type UseNativeMessageMediaParams = {
   selected: Conversation | null;
@@ -43,8 +49,17 @@ async function fileToDataUrl(uri: string, mime = 'application/octet-stream') {
 
 async function localFileSize(uri: string, fallback?: number) {
   if (fallback && Number.isFinite(fallback)) return fallback;
-  const info = await FileSystem.getInfoAsync(uri);
-  if (!info.exists) throw new Error('Fichier introuvable sur le téléphone.');
+  let info: FileSystem.FileInfo;
+  try {
+    info = await FileSystem.getInfoAsync(uri);
+  } catch (error) {
+    if (/^content:\/\//i.test(uri)) return undefined;
+    throw error;
+  }
+  if (!info.exists) {
+    if (/^content:\/\//i.test(uri)) return undefined;
+    throw new Error('Fichier introuvable sur le téléphone.');
+  }
   return (info as { size?: number }).size;
 }
 
@@ -57,33 +72,78 @@ function mediaLabel(kind: NativeMessageMediaKind) {
   return 'fichier';
 }
 
-function extensionFromMime(mime?: string | null) {
-  const normalized = String(mime || '').toLowerCase();
-  if (normalized.includes('jpeg')) return 'jpg';
-  if (normalized.includes('png')) return 'png';
-  if (normalized.includes('webp')) return 'webp';
-  if (normalized.includes('gif')) return 'gif';
-  if (normalized.includes('quicktime')) return 'mov';
-  if (normalized.includes('mp4')) return 'mp4';
-  if (normalized.includes('pdf')) return 'pdf';
-  if (normalized.includes('mpeg') || normalized.includes('mp3')) return 'mp3';
-  return 'bin';
+function isVideoMedia(input: Pick<NativeMessageMediaInput, 'kind' | 'mime' | 'name'>) {
+  const mime = String(input.mime || '').toLowerCase();
+  const name = String(input.name || '').toLowerCase();
+  return input.kind === 'video' || mime.startsWith('video/') || /\.(mp4|mov|m4v|webm|3gp|mkv)$/i.test(name);
 }
 
-function fallbackMediaName(prefix: string, mime?: string | null, index = 0) {
-  return `${prefix}-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}.${extensionFromMime(mime)}`;
+function formatMegabytes(bytes: number) {
+  return `${Math.max(1, Math.round(bytes / (1024 * 1024)))} Mo`;
+}
+
+function normalizeLocalUploadUri(uri: string) {
+  if (/^(file|content|https?):\/\//i.test(uri)) return uri;
+  if (uri.startsWith('/')) return `file://${uri}`;
+  return uri;
 }
 
 function shouldTryLegacyUpload(error: unknown) {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error || '').toLowerCase();
-  return message.includes('404') || message.includes('cannot post') || message.includes('not found');
+  return (
+    message.includes('404') ||
+    message.includes('cannot post') ||
+    message.includes('not found') ||
+    message.includes('network request failed') ||
+    message.includes('failed to fetch') ||
+    message.includes('connexion trop lente') ||
+    message.includes('timeout') ||
+    message.includes('abort')
+  );
+}
+
+function shouldRetryUpload(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error || '').toLowerCase();
+  return (
+    message.includes('network request failed') ||
+    message.includes('failed to fetch') ||
+    message.includes('connexion trop lente') ||
+    message.includes('timeout') ||
+    message.includes('abort') ||
+    message.includes('502') ||
+    message.includes('503') ||
+    message.includes('504')
+  );
+}
+
+function wait(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function ensureMediaLibraryPermission() {
+  const current = await ImagePicker.getMediaLibraryPermissionsAsync();
+  if (current.granted) return true;
+  if (current.canAskAgain === false) return false;
+  const requested = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  return requested.granted;
+}
+
+async function ensureCameraPermission() {
+  const current = await ImagePicker.getCameraPermissionsAsync();
+  if (current.granted) return true;
+  if (current.canAskAgain === false) return false;
+  const requested = await ImagePicker.requestCameraPermissionsAsync();
+  return requested.granted;
 }
 
 function friendlyUploadError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error || '');
   const lower = message.toLowerCase();
+  if (lower.includes('vidéo trop lourde') || lower.includes('video too large')) {
+    return message;
+  }
   if (lower.includes('trop lourd') || lower.includes('payload too large') || lower.includes('request entity too large')) {
-    return 'Fichier trop lourd. Limite actuelle : 18 Mo par envoi.';
+    return 'Fichier trop lourd côté serveur. Réessayez ou envoyez un fichier plus léger.';
   }
   if (lower.includes('type de fichier') || lower.includes('unsupported media type')) {
     return 'Type de fichier non autorisé pour cet envoi.';
@@ -95,13 +155,25 @@ function friendlyUploadError(error: unknown) {
 }
 
 async function uploadMedia(token: string, input: NativeMessageMediaInput, mime: string, size?: number) {
+  let lastError: unknown;
+  for (const [attempt, delayMs] of MEDIA_UPLOAD_RETRY_DELAYS_MS.entries()) {
+    if (delayMs > 0) await wait(delayMs);
+    try {
+      return await api.mediaUploadFile(token, {
+        uri: input.uri,
+        name: input.name,
+        mime,
+        kind: input.kind,
+      });
+    } catch (error) {
+      lastError = error;
+      if (!shouldRetryUpload(error) || attempt === MEDIA_UPLOAD_RETRY_DELAYS_MS.length - 1) break;
+    }
+  }
+
+  const uploadError = lastError || new Error('Envoi média impossible.');
   try {
-    return await api.mediaUploadFile(token, {
-      uri: input.uri,
-      name: input.name,
-      mime,
-      kind: input.kind,
-    });
+    throw uploadError;
   } catch (error) {
     if (!shouldTryLegacyUpload(error)) throw error;
     if (size && size > MAX_DATA_URL_FALLBACK_BYTES) {
@@ -116,41 +188,132 @@ async function uploadMedia(token: string, input: NativeMessageMediaInput, mime: 
   }
 }
 
+async function compressVideoBelowLimit(
+  input: NativeMessageMediaInput,
+  initialSize: number,
+  onProgress?: (progress: number) => void,
+) {
+  if (!isVideoMedia(input) || initialSize <= VIDEO_UPLOAD_MAX_BYTES) {
+    return { input, size: initialSize, compressed: false };
+  }
+
+  let lastError: unknown;
+  for (const [index, profile] of VIDEO_COMPRESSION_PROFILES.entries()) {
+    try {
+      const compressedUri = await VideoCompressor.compress(
+        normalizeLocalUploadUri(input.uri),
+        profile,
+        progress => {
+          const normalized = Math.max(0, Math.min(1, Number(progress) || 0));
+          onProgress?.((index + normalized) / VIDEO_COMPRESSION_PROFILES.length);
+        },
+      );
+      const normalizedUri = normalizeLocalUploadUri(compressedUri);
+      const compressedSize = await localFileSize(normalizedUri);
+      if (!compressedSize || compressedSize <= 0) {
+        throw new Error('Compression vidéo terminée, mais taille finale illisible.');
+      }
+      if (compressedSize <= VIDEO_UPLOAD_MAX_BYTES) {
+        return {
+          input: {
+            ...input,
+            uri: normalizedUri,
+            name: input.name?.replace(/\.(mov|m4v|webm|3gp|mkv)$/i, '.mp4') || fallbackMediaName('video', 'video/mp4'),
+            mime: 'video/mp4',
+            size: compressedSize,
+          },
+          size: compressedSize,
+          compressed: true,
+        };
+      }
+      lastError = new Error(`Vidéo encore trop lourde après compression : ${formatMegabytes(compressedSize)}.`);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  const reason = lastError instanceof Error ? lastError.message : 'Compression vidéo impossible.';
+  throw new Error(`Vidéo trop lourde. Limite vidéo : 100 Mo. Recompression impossible : ${reason}`);
+}
+
 async function sendMediaMessage(
   token: string,
   conversationId: string,
   content: string,
   type: NativeMessageMediaKind,
+  clientMessageId?: string,
 ) {
   const socket = ensureNativeSocket(token);
+  const startedAt = Date.now();
   try {
-    return await socketAck<Message>(socket, 'message:send', {
+    const message = await socketAck<Message>(socket, 'message:send', {
       conversationId,
       content,
       type,
+      clientMessageId,
+      clientSentAt: new Date().toISOString(),
     });
+    nativeDebugLog('[NativeMediaAnnounceLatency]', {
+      conversationId,
+      messageId: message.id,
+      clientMessageId,
+      type,
+      transport: 'socket',
+      ackMs: Date.now() - startedAt,
+      socketConnected: socket.connected,
+    });
+    return message;
   } catch (error) {
     if (socket.connected) throw error;
-    return api.sendMessage(conversationId, token, content, type);
+    const message = await api.sendMessage(conversationId, token, content, type, undefined, clientMessageId);
+    nativeDebugLog('[NativeMediaAnnounceLatency]', {
+      conversationId,
+      messageId: message.id,
+      clientMessageId,
+      type,
+      transport: 'http-fallback',
+      ackMs: Date.now() - startedAt,
+      socketConnected: socket.connected,
+    });
+    return message;
   }
 }
 
-function normalizeDurationSeconds(value?: number | null) {
-  if (!value || !Number.isFinite(value)) return undefined;
-  const seconds = value > 1000 ? value / 1000 : value;
-  return Math.max(1, Math.round(seconds));
+async function finalizeMediaMessage(token: string, messageId: string, content: string) {
+  const socket = ensureNativeSocket(token);
+  try {
+    const response = await socketAck<{ ok?: boolean; message?: Message | string }>(socket, 'message:media-ready', {
+      messageId,
+      content,
+    });
+    if (response?.ok === false) {
+      throw new Error(typeof response.message === 'string' ? response.message : 'Finalisation média impossible.');
+    }
+    if (!response?.message || typeof response.message === 'string') {
+      throw new Error('Réponse média invalide.');
+    }
+    return response.message;
+  } catch (error) {
+    const message = await api.finalizeMediaMessage(messageId, token, content);
+    nativeDebugLog('[NativeMediaFinalizeFallback]', {
+      messageId,
+      transport: 'http-fallback',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return message;
+  }
 }
 
-function simpleWaveform(seedSource: string, bars = 36) {
-  let hash = 0;
-  for (let index = 0; index < seedSource.length; index += 1) {
-    hash = (hash * 31 + seedSource.charCodeAt(index)) >>> 0;
-  }
-  return Array.from({ length: bars }, (_, index) => {
-    hash = (hash * 1664525 + 1013904223 + index) >>> 0;
-    return 18 + (hash % 78);
-  });
-}
+type NativeUploadedMediaJob = {
+  input: NativeMessageMediaInput;
+  mime: string;
+  size?: number;
+  optimisticMessage: Message;
+  serverMessageId: string;
+  optimisticPayload: Record<string, unknown>;
+  localSourceUri: string;
+  uploaded: Awaited<ReturnType<typeof uploadMedia>>;
+};
 
 export function useNativeMessageMedia({
   selected,
@@ -161,62 +324,155 @@ export function useNativeMessageMedia({
   upsertMessage,
   setNotice,
 }: UseNativeMessageMediaParams) {
-  const sendMedia = useCallback(async (input: NativeMessageMediaInput) => {
+  const storageNoticeRef = useRef('');
+
+  const prepareAndUploadMedia = useCallback(async (input: NativeMessageMediaInput, options: { quiet?: boolean } = {}) => {
     if (!selected || !token) {
-      setNotice('Ouvrez une conversation avant d’envoyer un média.');
-      return false;
+      throw new Error('Ouvrez une conversation avant d’envoyer un média.');
     }
-    setNotice('');
+
+    if (!options.quiet) setNotice('');
     let optimisticMessage: Message | null = null;
     try {
-      const mime = input.mime || 'application/octet-stream';
-      const size = await localFileSize(input.uri, input.size);
-      if (size && size > MAX_NATIVE_UPLOAD_BYTES) {
-        setNotice('Fichier trop lourd. Limite actuelle : 18 Mo par envoi.');
-        return false;
+      let mediaInput = input;
+      let mime = mediaInput.mime || 'application/octet-stream';
+      let size = await localFileSize(mediaInput.uri, mediaInput.size);
+      if (isVideoMedia(mediaInput)) {
+        if (size && size > VIDEO_UPLOAD_MAX_BYTES) {
+          if (!options.quiet) setNotice(`Compression vidéo en cours (${formatMegabytes(size)} → moins de 100 Mo)...`);
+          const compressed = await compressVideoBelowLimit(mediaInput, size, progress => {
+            if (!options.quiet) setNotice(`Compression vidéo ${Math.round(progress * 100)}%...`);
+          });
+          mediaInput = compressed.input;
+          mime = mediaInput.mime || 'video/mp4';
+          size = compressed.size;
+          if (!options.quiet && compressed.compressed) setNotice('Vidéo compressée, envoi en cours...');
+        }
+        if (size && size > VIDEO_UPLOAD_MAX_BYTES) {
+          throw new Error(`Vidéo trop lourde. Limite vidéo : 100 Mo. Taille actuelle : ${formatMegabytes(size)}.`);
+        }
       }
       const storageHealth = await checkNativeStorageForWrite(size || 0);
       if (storageHealth.level === 'insufficient') {
-        setNotice(storageHealth.message || 'Espace insuffisant pour préparer ce fichier.');
-        return false;
+        throw new Error(storageHealth.message || 'Espace insuffisant pour préparer ce fichier.');
       }
-      if (storageHealth.level === 'low' || storageHealth.level === 'critical') {
-        setNotice(storageHealth.message || 'Message système - stockage faible.');
+      if (!options.quiet && (storageHealth.level === 'low' || storageHealth.level === 'critical')) {
+        const message = storageHealth.message || 'Message système - stockage faible.';
+        storageNoticeRef.current = message;
+        setNotice(message);
       }
       const optimisticId = `local-media-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const optimisticPayload = {
-        url: input.uri,
-        size,
+      const preserved = await preserveOutgoingMediaSource(optimisticId, {
+        uri: mediaInput.uri,
+        type: mediaInput.kind,
+        name: mediaInput.name,
         mime,
-        name: input.name || `${mediaLabel(input.kind)}-${Date.now()}`,
-        width: input.width,
-        height: input.height,
-        duration: input.duration,
-        thumbnail: input.thumbnail && input.thumbnail.length < 12_000 ? input.thumbnail : undefined,
-        waveform: input.waveform,
+        size,
+      });
+      const localSourceUri = preserved.fileUri;
+      const optimisticPayload = {
+        url: localSourceUri,
+        localUri: localSourceUri,
+        size: preserved.size || size,
+        mime,
+        name: mediaInput.name || `${mediaLabel(mediaInput.kind)}-${Date.now()}`,
+        width: mediaInput.width,
+        height: mediaInput.height,
+        duration: mediaInput.duration,
+        albumId: mediaInput.albumId,
+        albumIndex: mediaInput.albumIndex,
+        albumCount: mediaInput.albumCount,
+        thumbnail: mediaInput.thumbnail && mediaInput.thumbnail.length < 12_000 ? mediaInput.thumbnail : undefined,
+        waveform: mediaInput.waveform,
         uploadState: 'uploading',
         uploadProgress: 12,
       };
+      const remotePendingPayload = {
+        size,
+        mime,
+        name: mediaInput.name || `${mediaLabel(mediaInput.kind)}-${Date.now()}`,
+        width: mediaInput.width,
+        height: mediaInput.height,
+        duration: mediaInput.duration,
+        albumId: mediaInput.albumId,
+        albumIndex: mediaInput.albumIndex,
+        albumCount: mediaInput.albumCount,
+        thumbnail: mediaInput.thumbnail && mediaInput.thumbnail.length < 12_000 ? mediaInput.thumbnail : undefined,
+        waveform: mediaInput.waveform,
+        uploadState: 'uploading',
+        uploadProgress: 1,
+      };
       optimisticMessage = {
         id: optimisticId,
+        clientMessageId: optimisticId,
         conversationId: selected.id,
         senderId: currentUserId || 'local-user',
         content: JSON.stringify(optimisticPayload),
-        type: input.kind,
+        type: mediaInput.kind,
         status: 'uploading',
         createdAt: new Date().toISOString(),
       };
       upsertMessage(optimisticMessage);
-      setNotice(`Envoi ${mediaLabel(input.kind)} en cours...`);
-      upsertMessage({
-        ...optimisticMessage,
+      if (!options.quiet) setNotice(`Envoi ${mediaLabel(mediaInput.kind)} en cours...`);
+      const announcePromise = sendMediaMessage(
+        token,
+        selected.id,
+        JSON.stringify(remotePendingPayload),
+        mediaInput.kind,
+        optimisticId,
+      );
+      const uploadStartedAt = Date.now();
+      const uploadInput = { ...mediaInput, uri: localSourceUri, size: preserved.size || size };
+      const uploadPromise = uploadMedia(token, uploadInput, mime, preserved.size || size);
+      const announcedMessage = await announcePromise;
+      const patchKnownMessage = (patch: Partial<Message>) => {
+        patchMessage(optimisticId, patch);
+        if (announcedMessage.id !== optimisticId) patchMessage(announcedMessage.id, patch);
+      };
+      patchKnownMessage({
+        ...announcedMessage,
         content: JSON.stringify({ ...optimisticPayload, uploadProgress: 38 }),
+        status: announcedMessage.status || 'sent',
       });
-      const uploaded = await uploadMedia(token, input, mime, size);
-      upsertMessage({
-        ...optimisticMessage,
+      const uploaded = await uploadPromise;
+      nativeDebugLog('[NativeMediaUploadLatency]', {
+        conversationId: selected.id,
+        messageId: announcedMessage.id,
+        clientMessageId: optimisticId,
+        type: mediaInput.kind,
+        bytes: preserved.size || size,
+        uploadMs: Date.now() - uploadStartedAt,
+      });
+      patchKnownMessage({
         content: JSON.stringify({ ...optimisticPayload, uploadProgress: 82 }),
       });
+      return { input: mediaInput, mime, size: preserved.size || size, optimisticMessage, serverMessageId: announcedMessage.id, optimisticPayload, localSourceUri, uploaded };
+    } catch (error) {
+      const friendly = friendlyUploadError(error);
+      if (optimisticMessage) {
+        const payload = parseOptimisticPayload(optimisticMessage.content);
+        upsertMessage({
+          ...optimisticMessage,
+          content: JSON.stringify({
+            ...payload,
+            uploadState: 'failed',
+            uploadProgress: 0,
+            uploadError: friendly,
+          }),
+          status: 'failed',
+        });
+      }
+      throw new Error(friendly);
+    }
+  }, [currentUserId, patchMessage, selected, setNotice, token, upsertMessage]);
+
+  const finalizeUploadedMedia = useCallback(async (job: NativeUploadedMediaJob) => {
+    if (!selected || !token) {
+      throw new Error('Conversation indisponible pour finaliser ce média.');
+    }
+
+    const { input, size, optimisticMessage, serverMessageId, optimisticPayload, localSourceUri, uploaded } = job;
+    try {
       const payload = JSON.stringify({
         url: uploaded.url,
         size: size ?? uploaded.size,
@@ -226,12 +482,15 @@ export function useNativeMessageMedia({
         width: input.width,
         height: input.height,
         duration: input.duration,
+        albumId: input.albumId,
+        albumIndex: input.albumIndex,
+        albumCount: input.albumCount,
         thumbnail: input.thumbnail && input.thumbnail.length < 12_000 ? input.thumbnail : undefined,
         waveform: input.waveform,
       });
       const localPayload = JSON.stringify({
         url: uploaded.url,
-        localUri: input.uri,
+        localUri: localSourceUri,
         size: size ?? uploaded.size,
         checksum: uploaded.checksum,
         mime: input.mime || uploaded.mime,
@@ -239,95 +498,159 @@ export function useNativeMessageMedia({
         width: input.width,
         height: input.height,
         duration: input.duration,
+        albumId: input.albumId,
+        albumIndex: input.albumIndex,
+        albumCount: input.albumCount,
         thumbnail: input.thumbnail && input.thumbnail.length < 12_000 ? input.thumbnail : undefined,
         waveform: input.waveform,
       });
-      const message = await sendMediaMessage(token, selected.id, payload, input.kind);
-      patchMessage(optimisticMessage.id, { ...message, content: localPayload, status: message.status || 'sent' });
-      storeMediaFromLocalSource(message, input.uri)
-        .then(saved => {
-          if (!saved) return null;
-          patchMessage(message.id, {
-            content: JSON.stringify({ ...JSON.parse(localPayload), localUri: saved.fileUri }),
-          });
-          return api.ackMediaSaved(message.id, token, saved.checksum, saved.size).catch(() => null);
-        })
-        .catch(() => null);
-      setNotice('');
+      const message = await finalizeMediaMessage(token, serverMessageId, payload);
+      const saved = await commitPreservedOutgoingMedia({ ...message, content: payload }, localSourceUri)
+        .catch(error => {
+          const warning = error instanceof Error ? error.message : 'Message système - média envoyé, mais conservation locale à vérifier.';
+          storageNoticeRef.current = warning;
+          setNotice(warning);
+          return null;
+        });
+      const finalLocalPayload = saved?.fileUri
+        ? JSON.stringify({ ...JSON.parse(localPayload), localUri: saved.fileUri })
+        : localPayload;
+      patchMessage(optimisticMessage.id, { ...message, content: finalLocalPayload, status: message.status || 'sent' });
+      if (serverMessageId !== optimisticMessage.id) {
+        patchMessage(serverMessageId, { ...message, content: finalLocalPayload, status: message.status || 'sent' });
+      }
+      if (saved) void api.ackMediaSaved(message.id, token, saved.checksum, saved.size).catch(() => null);
+      return message;
+    } catch (error) {
+      const friendly = friendlyUploadError(error);
+      upsertMessage({
+        ...optimisticMessage,
+        content: JSON.stringify({
+          ...optimisticPayload,
+          uploadState: 'failed',
+          uploadProgress: 0,
+          uploadError: friendly,
+        }),
+        status: 'failed',
+      });
+      throw new Error(friendly);
+    }
+  }, [patchMessage, selected, setNotice, token, upsertMessage]);
+
+  const sendMedia = useCallback(async (input: NativeMessageMediaInput) => {
+    try {
+      const job = await prepareAndUploadMedia(input);
+      await finalizeUploadedMedia(job);
+      if (storageNoticeRef.current) {
+        setNotice(storageNoticeRef.current);
+        storageNoticeRef.current = '';
+      } else {
+        setNotice('');
+      }
       void refreshConversations().catch(() => undefined);
       return true;
     } catch (error) {
-      if (optimisticMessage) {
-        const payload = parseOptimisticPayload(optimisticMessage.content);
-        upsertMessage({
-          ...optimisticMessage,
-          content: JSON.stringify({
-            ...payload,
-            uploadState: 'failed',
-            uploadProgress: 0,
-            uploadError: friendlyUploadError(error),
-          }),
-          status: 'failed',
-        });
-      }
       setNotice(friendlyUploadError(error));
       return false;
     }
-  }, [currentUserId, patchMessage, refreshConversations, selected, setNotice, token, upsertMessage]);
+  }, [finalizeUploadedMedia, prepareAndUploadMedia, refreshConversations, setNotice]);
+
+  const sendMediaBatch = useCallback(async (
+    inputs: NativeMessageMediaInput[],
+    rejected: { reason: string; name?: string }[] = [],
+  ) => {
+    if (!selected || !token) {
+      setNotice('Ouvrez une conversation avant d’envoyer un média.');
+      return { sent: 0, failed: inputs.length + rejected.length, elapsedMs: 0 };
+    }
+
+    if (!inputs.length) {
+      const firstReason = rejected[0]?.reason || 'Aucun média compatible dans la sélection.';
+      setNotice(firstReason);
+      return { sent: 0, failed: rejected.length, elapsedMs: 0 };
+    }
+
+    const startedAt = Date.now();
+    const errors = rejected.map(item => item.name ? `${item.name}: ${item.reason}` : item.reason);
+    const albumId = inputs.length > 1 ? `album-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` : undefined;
+    setNotice(`Préparation de ${inputs.length} média${inputs.length > 1 ? 's' : ''}...`);
+
+    const sendResults = await runLimitedNativeMediaQueue(
+      inputs,
+      NATIVE_MEDIA_UPLOAD_CONCURRENCY,
+      async (input, index) => {
+        const mediaInput = albumId ? { ...input, albumId, albumIndex: index, albumCount: inputs.length } : input;
+        const job = await prepareAndUploadMedia(mediaInput, { quiet: true });
+        return finalizeUploadedMedia(job);
+      },
+    );
+
+    let sent = 0;
+    for (const result of sendResults) {
+      if (!result.ok) {
+        errors.push(friendlyUploadError(result.error));
+        continue;
+      }
+      sent += 1;
+    }
+
+    const elapsedMs = Date.now() - startedAt;
+    if (sent > 0) void refreshConversations().catch(() => undefined);
+    const storageNotice = storageNoticeRef.current;
+    storageNoticeRef.current = '';
+    setNotice(storageNotice && !errors.length ? storageNotice : formatBatchNotice(sent, errors.length, elapsedMs, errors[0]));
+    return { sent, failed: errors.length, elapsedMs };
+  }, [finalizeUploadedMedia, prepareAndUploadMedia, refreshConversations, selected, setNotice, token]);
 
   const attachImage = useCallback(async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setNotice('Permission galerie requise pour envoyer une image.');
+    const granted = await ensureMediaLibraryPermission();
+    if (!granted) {
+      setNotice('Permission galerie requise. Activez-la dans les paramètres Android pour envoyer une image ou vidéo.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images', 'videos'],
-      quality: 0.86,
+      quality: 1,
       allowsEditing: false,
       allowsMultipleSelection: true,
-      selectionLimit: 10,
+      selectionLimit: NATIVE_MEDIA_SELECTION_LIMIT,
+      orderedSelection: true,
     });
     if (result.canceled || !result.assets?.[0]) return;
-    for (const [index, asset] of result.assets.slice(0, 10).entries()) {
-      const mime = asset.mimeType || (asset.type === 'video' ? 'video/mp4' : 'image/jpeg');
-      await sendMedia({
-        uri: asset.uri,
-        name: asset.fileName || fallbackMediaName(asset.type === 'video' ? 'video' : 'image', mime, index),
-        mime,
-        kind: asset.type === 'video' ? 'video' : 'image',
-        size: (asset as any).fileSize,
-        width: asset.width,
-        height: asset.height,
-        duration: normalizeDurationSeconds((asset as any).duration),
-      });
-    }
-  }, [sendMedia, setNotice]);
+    const { accepted, rejected } = normalizePickedNativeMediaAssets(result.assets, {
+      maxSelection: NATIVE_MEDIA_SELECTION_LIMIT,
+    });
+    await sendMediaBatch(accepted, rejected);
+  }, [sendMediaBatch, setNotice]);
 
   const attachCamera = useCallback(async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      setNotice('Permission caméra requise pour prendre une photo.');
+    const granted = await ensureCameraPermission();
+    if (!granted) {
+      setNotice('Permission caméra requise. Activez-la dans les paramètres Android pour prendre une photo ou vidéo.');
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ['images', 'videos'],
-      quality: 0.86,
+      quality: 1,
       allowsEditing: false,
     });
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
-    const mime = asset.mimeType || (asset.type === 'video' ? 'video/mp4' : 'image/jpeg');
-    await sendMedia({
+    const { accepted, rejected } = normalizePickedNativeMediaAssets([{
       uri: asset.uri,
-      name: asset.fileName || fallbackMediaName('camera', mime),
-      mime,
-      kind: asset.type === 'video' ? 'video' : 'image',
-      size: (asset as any).fileSize,
+      type: asset.type,
+      mimeType: asset.mimeType,
+      fileName: asset.fileName || fallbackMediaName('camera', asset.mimeType),
+      fileSize: (asset as any).fileSize,
       width: asset.width,
       height: asset.height,
-      duration: normalizeDurationSeconds((asset as any).duration),
-    });
+      duration: (asset as any).duration,
+    }], { maxSelection: 1 });
+    if (!accepted[0]) {
+      setNotice(rejected[0]?.reason || 'Photo ou vidéo caméra invalide.');
+      return;
+    }
+    await sendMedia(accepted[0]);
   }, [sendMedia, setNotice]);
 
   const attachDocument = useCallback(async () => {
@@ -337,19 +660,11 @@ export function useNativeMessageMedia({
       type: '*/*',
     });
     if (result.canceled || !result.assets?.[0]) return;
-    for (const [index, asset] of result.assets.slice(0, 10).entries()) {
-      const mime = asset.mimeType || 'application/octet-stream';
-      const name = asset.name || fallbackMediaName('fichier', mime, index);
-      await sendMedia({
-        uri: asset.uri,
-        name,
-        mime,
-        kind: mime.startsWith('audio/') ? 'audio' : 'file',
-        size: asset.size,
-        waveform: mime.startsWith('audio/') ? simpleWaveform(`${name}:${asset.size || 0}`) : undefined,
-      });
-    }
-  }, [sendMedia]);
+    const { accepted, rejected } = normalizePickedNativeDocuments(result.assets, {
+      maxSelection: NATIVE_MEDIA_SELECTION_LIMIT,
+    });
+    await sendMediaBatch(accepted, rejected);
+  }, [sendMediaBatch]);
 
   return {
     sendMedia,
@@ -366,4 +681,15 @@ function parseOptimisticPayload(content: string) {
   } catch {
     return {};
   }
+}
+
+function formatBatchNotice(sent: number, failed: number, elapsedMs: number, firstError?: string) {
+  const elapsedSeconds = Math.max(0.1, elapsedMs / 1000).toFixed(1);
+  const sentLabel = `${sent} média${sent > 1 ? 's' : ''} envoyé${sent > 1 ? 's' : ''}`;
+  if (failed > 0) {
+    const failureLabel = `${failed} échec${failed > 1 ? 's' : ''}`;
+    const suffix = firstError ? ` Premier problème : ${firstError}` : '';
+    return `${sentLabel} - ${failureLabel} en ${elapsedSeconds}s.${suffix}`;
+  }
+  return `${sentLabel} en ${elapsedSeconds}s.`;
 }

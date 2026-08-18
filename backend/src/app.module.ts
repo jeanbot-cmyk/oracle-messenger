@@ -14,11 +14,42 @@ import { AiAutoModule } from './ai-auto/ai-auto.module';
 import { AiFlyerModule } from './ai-flyer/ai-flyer.module';
 import { AiVideoModule } from './ai-video/ai-video.module';
 import { BusinessModule } from './business/business.module';
+import { ConferenceModule } from './conference/conference.module';
+import { hasFirebasePushConfig, hasLiveKitConfig, hasPrivateTurnConfig, isUsableEnvValue } from './realtime/realtime-config';
 
 @Controller()
 class HealthController {
   @Get() root() { return { status: 'ok', app: 'Oracle Messenger API' }; }
   @Get('health') health() { return { status: 'ok', timestamp: new Date().toISOString() }; }
+  @Get('health/realtime')
+  realtimeHealth() {
+    const redisReady = isUsableEnvValue(process.env.REDIS_URL);
+    const turnReady = hasPrivateTurnConfig();
+    const livekitReady = hasLiveKitConfig();
+    const fcmReady = hasFirebasePushConfig();
+    const strictRealtime = process.env.ORACLE_STRICT_REALTIME === 'true';
+    const industrialReady = strictRealtime && redisReady && turnReady && livekitReady && fcmReady;
+    return {
+      status: industrialReady ? 'industrial-ready' : 'degraded',
+      industrialReady,
+      strictRealtime,
+      checks: {
+        strictMode: strictRealtime,
+        redis: redisReady,
+        privateTurn: turnReady,
+        livekitSfu: livekitReady,
+        firebasePush: fcmReady,
+      },
+      requiredForWhatsappLikeBehavior: [
+        'Redis Socket.IO adapter actif',
+        'TURN prive configure',
+        'LiveKit/SFU configure',
+        'Firebase Cloud Messaging configure',
+        'Tests reels sur deux telephones',
+      ],
+      timestamp: new Date().toISOString(),
+    };
+  }
 
   @Get('downloads/playstore-testers.csv')
   playStoreTestersCsv(@Res() res: any) {
@@ -72,6 +103,7 @@ class HealthController {
     AiFlyerModule,
     AiVideoModule,
     BusinessModule,
+    ConferenceModule,
   ],
   controllers: [HealthController],
 })

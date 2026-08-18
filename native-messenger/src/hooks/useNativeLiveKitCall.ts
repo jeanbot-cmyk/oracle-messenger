@@ -9,7 +9,9 @@ import {
   Room,
   RoomEvent,
   Track,
+  VideoPresets,
   type AudioCaptureOptions,
+  type TrackPublishOptions,
   type VideoCaptureOptions,
 } from 'livekit-client';
 import InCallManager from 'react-native-incall-manager';
@@ -49,8 +51,19 @@ const AUDIO_OPTIONS: AudioCaptureOptions = {
 function videoOptions(facing: CameraFacing): VideoCaptureOptions {
   return {
     facingMode: facing,
-    resolution: { width: 1280, height: 720, frameRate: 24 },
-    frameRate: 24,
+    resolution: VideoPresets.h720.resolution,
+    frameRate: 30,
+  };
+}
+
+function cameraPublishOptions(callId?: string | null): TrackPublishOptions {
+  return {
+    source: Track.Source.Camera,
+    stream: callId || undefined,
+    simulcast: true,
+    videoEncoding: { maxBitrate: 3_200_000, maxFramerate: 30, priority: 'high' },
+    videoSimulcastLayers: [VideoPresets.h360, VideoPresets.h720],
+    degradationPreference: 'maintain-resolution',
   };
 }
 
@@ -77,6 +90,8 @@ export function useNativeLiveKitCall({
 }: UseNativeLiveKitCallParams) {
   const roomRef = useRef<Room | null>(null);
   const liveKitActiveRef = useRef(false);
+  const liveKitRemotePeerCountRef = useRef(0);
+  const liveKitRemoteMediaIdentitiesRef = useRef<Set<string>>(new Set());
   const disconnectingRef = useRef(false);
   const disconnectSequenceRef = useRef(0);
   const disconnectResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -125,6 +140,8 @@ export function useNativeLiveKitCall({
     }
     disconnectingRef.current = true;
     liveKitActiveRef.current = false;
+    liveKitRemotePeerCountRef.current = 0;
+    liveKitRemoteMediaIdentitiesRef.current = new Set();
     roomRef.current = null;
     if (room) {
       room.removeAllListeners();
@@ -154,6 +171,7 @@ export function useNativeLiveKitCall({
     if (!session?.token || !session.user?.id) return false;
     let tokenResponse: Awaited<ReturnType<typeof api.sfuToken>>;
     try {
+      trace('livekit:token:request', { callId: info.callId, userId: session.user.id, type });
       tokenResponse = await api.sfuToken(session.token, info.callId, session.user.name);
     } catch (error) {
       trace('livekit:token:error', { message: error instanceof Error ? error.message : String(error) });
@@ -163,11 +181,28 @@ export function useNativeLiveKitCall({
       trace('livekit:disabled', { reason: tokenResponse.reason || 'missing-token-or-url' });
       return false;
     }
+    trace('LIVEKIT_TOKEN_RECEIVED', {
+      callId: info.callId,
+      room: tokenResponse.room || info.callId,
+      urlPresent: Boolean(tokenResponse.url),
+      tokenPresent: Boolean(tokenResponse.token),
+    });
+
+    try {
+      trace('livekit:capture-preflight:skipped', { type, facing, reason: 'permissions-already-checked' });
+    } catch {}
 
     disconnectLiveKit(true);
     const room = new Room({
       adaptiveStream: true,
       dynacast: true,
+      videoCaptureDefaults: videoOptions(facing),
+      publishDefaults: {
+        videoEncoding: { maxBitrate: 3_200_000, maxFramerate: 30, priority: 'high' },
+        videoSimulcastLayers: [VideoPresets.h360, VideoPresets.h720],
+        simulcast: true,
+        degradationPreference: 'maintain-resolution',
+      },
     });
     roomRef.current = room;
     const shouldIgnoreRoomEvent = () => (
@@ -178,8 +213,16 @@ export function useNativeLiveKitCall({
 
     room.on(RoomEvent.Connected, () => {
       if (shouldIgnoreRoomEvent()) return;
-      trace('livekit:connected', { room: tokenResponse.room || info.callId });
-      if (callStateRef.current === 'connecting') setStateSafe('connected');
+      trace('livekit:connected', {
+        room: tokenResponse.room || info.callId,
+        connectionState: room.state,
+        remoteParticipants: room.remoteParticipants.size,
+      });
+      trace('LIVEKIT_ROOM_CONNECTED', {
+        callId: info.callId,
+        room: tokenResponse.room || info.callId,
+        remoteParticipants: room.remoteParticipants.size,
+      });
     });
     room.on(RoomEvent.Reconnecting, () => {
       if (shouldIgnoreRoomEvent()) return;
@@ -208,12 +251,17 @@ export function useNativeLiveKitCall({
     });
     room.on(RoomEvent.ParticipantConnected, participant => {
       if (shouldIgnoreRoomEvent()) return;
-      setStateSafe('connected');
       setRemoteParticipantStream(participant);
-      trace('livekit:participant-connected', { identity: participant.identity });
+      trace('livekit:participant-connected', {
+        identity: participant.identity,
+        remoteParticipants: room.remoteParticipants.size,
+        mediaReady: liveKitRemoteMediaIdentitiesRef.current.has(participant.identity),
+      });
     });
     room.on(RoomEvent.ParticipantDisconnected, participant => {
       if (shouldIgnoreRoomEvent()) return;
+      liveKitRemoteMediaIdentitiesRef.current.delete(participant.identity);
+      liveKitRemotePeerCountRef.current = liveKitRemoteMediaIdentitiesRef.current.size;
       removeRemoteParticipantStream(participant.identity);
       trace('livekit:participant-disconnected', { identity: participant.identity });
     });
@@ -221,11 +269,21 @@ export function useNativeLiveKitCall({
       if (shouldIgnoreRoomEvent()) return;
       if (track.kind === Track.Kind.Video) setRemoteParticipantStream(participant);
       if (track.kind === Track.Kind.Audio) room.startAudio().catch(() => null);
+      liveKitRemoteMediaIdentitiesRef.current.add(participant.identity);
+      liveKitRemotePeerCountRef.current = liveKitRemoteMediaIdentitiesRef.current.size;
       setStateSafe('connected');
       trace('livekit:track-subscribed', {
         identity: participant.identity,
         kind: track.kind,
         source: publication.source,
+        mediaParticipants: liveKitRemoteMediaIdentitiesRef.current.size,
+      });
+      trace('MEDIA_CONNECTED', {
+        callId: info.callId,
+        remoteIdentity: participant.identity,
+        kind: track.kind,
+        source: publication.source,
+        mediaParticipants: liveKitRemoteMediaIdentitiesRef.current.size,
       });
     });
     room.on(RoomEvent.TrackUnsubscribed, (_track, _publication, participant) => {
@@ -249,32 +307,51 @@ export function useNativeLiveKitCall({
     try {
       await AudioSession.startAudioSession();
       applyAudioRoute(getSpeakerOn());
+      trace('livekit:connect:begin', { callId: info.callId, room: tokenResponse.room || info.callId, type });
       await room.connect(tokenResponse.url, tokenResponse.token, { autoSubscribe: true });
       liveKitActiveRef.current = true;
       await room.startAudio().catch(() => null);
-      await room.localParticipant.setMicrophoneEnabled(true, AUDIO_OPTIONS, {
-        source: Track.Source.Microphone,
-        stream: info.callId,
-        stopMicTrackOnMute: false,
-      });
-      setMuted(false);
-      if (type === 'video') {
-        await room.localParticipant.setCameraEnabled(true, videoOptions(facing), {
-          source: Track.Source.Camera,
+      try {
+        await room.localParticipant.setMicrophoneEnabled(true, AUDIO_OPTIONS, {
+          source: Track.Source.Microphone,
           stream: info.callId,
-          simulcast: true,
+          stopMicTrackOnMute: false,
         });
+      } catch (error) {
+        trace('livekit:microphone:error', { message: error instanceof Error ? error.message : String(error) });
+        throw error;
+      }
+      setMuted(false);
+      trace('livekit:microphone:published', { callId: info.callId });
+      if (type === 'video') {
+        try {
+          await room.localParticipant.setCameraEnabled(true, videoOptions(facing), cameraPublishOptions(info.callId));
+        } catch (error) {
+          trace('livekit:camera:error', { message: error instanceof Error ? error.message : String(error), facing });
+          throw error;
+        }
         setLocalPreviewFromRoom(room);
         setCameraOff(false);
+        trace('livekit:camera:published', { callId: info.callId, facing });
       } else {
         setCameraOff(true);
       }
+      liveKitRemotePeerCountRef.current = liveKitRemoteMediaIdentitiesRef.current.size;
       room.remoteParticipants.forEach(setRemoteParticipantStream);
       applyAudioRoute(getSpeakerOn());
       trace('livekit:media-ready', {
         type,
         room: tokenResponse.room || info.callId,
         participants: room.remoteParticipants.size,
+        mediaParticipants: liveKitRemoteMediaIdentitiesRef.current.size,
+      });
+      trace('MEDIA_CONNECTED', {
+        callId: info.callId,
+        type,
+        room: tokenResponse.room || info.callId,
+        localAudio: true,
+        localVideo: type === 'video',
+        remoteParticipants: room.remoteParticipants.size,
       });
       return true;
     } catch (error) {
@@ -327,9 +404,7 @@ export function useNativeLiveKitCall({
     const nextOff = room.localParticipant.isCameraEnabled;
     try {
       await room.localParticipant.setCameraEnabled(!nextOff, videoOptions(cameraFacing), {
-        source: Track.Source.Camera,
-        stream: callInfoRef.current?.callId,
-        simulcast: true,
+        ...cameraPublishOptions(callInfoRef.current?.callId),
       });
       if (!nextOff) setLocalPreviewFromRoom(room);
       setCameraOff(nextOff);
@@ -351,11 +426,7 @@ export function useNativeLiveKitCall({
       if (publication?.videoTrack) {
         await publication.videoTrack.restartTrack(videoOptions(next));
       } else {
-        await room.localParticipant.setCameraEnabled(true, videoOptions(next), {
-          source: Track.Source.Camera,
-          stream: callInfoRef.current?.callId,
-          simulcast: true,
-        });
+        await room.localParticipant.setCameraEnabled(true, videoOptions(next), cameraPublishOptions(callInfoRef.current?.callId));
       }
       setCameraFacing(next);
       setCameraOff(false);
@@ -370,10 +441,12 @@ export function useNativeLiveKitCall({
   }, [callInfoRef, cameraFacing, setCallNotice, setCameraFacing, setCameraOff, setLocalPreviewFromRoom, trace]);
 
   const isLiveKitActive = useCallback(() => liveKitActiveRef.current, []);
+  const hasLiveKitRemotePeer = useCallback(() => liveKitRemotePeerCountRef.current > 0, []);
 
   return {
     liveKitActiveRef,
     isLiveKitActive,
+    hasLiveKitRemotePeer,
     connectLiveKit,
     disconnectLiveKit,
     toggleLiveKitMute,

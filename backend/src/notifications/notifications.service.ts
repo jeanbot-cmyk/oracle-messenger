@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as webpush from 'web-push';
-import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
+import * as fs from 'fs';
+import { cert, getApps, initializeApp, type AppOptions } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 
 type StoredPushTarget =
@@ -17,23 +18,22 @@ type PushPayload = {
   type?: string;
   callId?: string;
   conversationId?: string;
+  callerName?: string;
+  callerPhone?: string | null;
+  callType?: string;
   status?: string;
   requireInteraction?: boolean;
   vibrate?: number[];
 };
 
 type PushSendResult = { targets: number; delivered: number; failed: number };
-
-function firebaseAppConfigured() {
-  return Boolean(
-    process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
-    process.env.GOOGLE_APPLICATION_CREDENTIALS ||
-    process.env.FIREBASE_CONFIG,
-  );
-}
+const ANDROID_CALL_CHANNEL_ID = 'oracle_messenger_incoming_calls_v8';
+const ANDROID_MESSAGE_CHANNEL_ID = 'oracle_messenger_messages_v3';
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(private prisma: PrismaService) {
     if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
       webpush.setVapidDetails(
@@ -43,17 +43,37 @@ export class NotificationsService {
       );
     }
 
-    if (!getApps().length && firebaseAppConfigured()) {
-      if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    if (!getApps().length) {
+      const firebaseOptions = this.resolveFirebaseOptions();
+      if (firebaseOptions) initializeApp(firebaseOptions.options);
+    }
+  }
+
+  private resolveFirebaseOptions(): { source: string; options: AppOptions } | null {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+      try {
         const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-        initializeApp({
-          credential: cert(serviceAccount),
-        });
-      } else {
-        initializeApp({
-          credential: applicationDefault(),
-        });
+        this.logger.log(`Firebase Admin configured from ${process.env.FIREBASE_SERVICE_ACCOUNT_JSON ? 'FIREBASE_SERVICE_ACCOUNT_JSON' : 'env'}`);
+        return { source: 'FIREBASE_SERVICE_ACCOUNT_JSON', options: { credential: cert(serviceAccount) } };
+      } catch (error) {
+        this.logger.error(`Invalid FIREBASE_SERVICE_ACCOUNT_JSON: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
       }
+    }
+
+    const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
+    if (!credentialsPath) return null;
+    if (!fs.existsSync(credentialsPath)) {
+      this.logger.error(`Firebase Admin credentials file not found at GOOGLE_APPLICATION_CREDENTIALS=${credentialsPath}`);
+      return null;
+    }
+    try {
+      const serviceAccount = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
+      this.logger.log(`Firebase Admin configured from GOOGLE_APPLICATION_CREDENTIALS=${credentialsPath}`);
+      return { source: 'GOOGLE_APPLICATION_CREDENTIALS', options: { credential: cert(serviceAccount) } };
+    } catch (error) {
+      this.logger.error(`Invalid Firebase Admin credentials file ${credentialsPath}: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
     }
   }
 
@@ -69,13 +89,49 @@ export class NotificationsService {
       where: { id: userId },
       data: { pushToken: JSON.stringify(next) },
     });
+    const normalized = this.normalizeSubscription(subscription);
+    console.info('[push:subscribe]', {
+      userId,
+      type: normalized?.type ?? 'invalid',
+      platform: normalized?.platform,
+      totalTargets: next.length,
+      registered: Boolean(normalized),
+    });
   }
 
   async sendPush(userId: string, payload: PushPayload): Promise<PushSendResult> {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user?.pushToken) return { targets: 0, delivered: 0, failed: 0 };
+    if (!user?.pushToken) {
+      if (payload.type === 'call') {
+        console.info('[push:send]', {
+          userId,
+          type: payload.type,
+          callId: payload.callId,
+          tag: payload.tag,
+          targets: 0,
+          delivered: 0,
+          failed: 0,
+          reason: 'no-push-token',
+        });
+      }
+      return { targets: 0, delivered: 0, failed: 0 };
+    }
     const subscriptions = this.parseSubscriptions(user.pushToken);
-    if (!subscriptions.length) return { targets: 0, delivered: 0, failed: 0 };
+    if (!subscriptions.length) {
+      if (payload.type === 'call') {
+        console.info('[push:send]', {
+          userId,
+          type: payload.type,
+          callId: payload.callId,
+          tag: payload.tag,
+          targets: 0,
+          delivered: 0,
+          failed: 0,
+          reason: 'empty-subscriptions',
+        });
+      }
+      return { targets: 0, delivered: 0, failed: 0 };
+    }
 
     const results = await Promise.allSettled(
       subscriptions.map(subscription => this.sendOne(subscription, payload)),
@@ -143,40 +199,28 @@ export class NotificationsService {
         return;
       }
       if (payload.type === 'call') {
-        await getMessaging().send({
-          token: subscription.token,
-          notification: {
+        const data = Object.fromEntries(
+          Object.entries({
+            url: payload.url,
+            tag: payload.tag,
+            type: payload.type,
+            callId: payload.callId,
+            conversationId: payload.conversationId,
+            callerName: payload.callerName,
+            callerPhone: payload.callerPhone ?? undefined,
+            callType: payload.callType,
+            status: payload.status,
             title: payload.title ?? 'Appel Oracle Messenger',
             body: payload.body ?? 'Appuyez pour répondre.',
-          },
-          data: Object.fromEntries(
-            Object.entries({
-              url: payload.url,
-              tag: payload.tag,
-              type: payload.type,
-              callId: payload.callId,
-              conversationId: payload.conversationId,
-              status: payload.status,
-              title: payload.title ?? 'Appel Oracle Messenger',
-              body: payload.body ?? 'Appuyez pour répondre.',
-              requireInteraction: payload.requireInteraction ? 'true' : undefined,
-            }).filter(([, value]) => value !== undefined && value !== null),
-          ) as Record<string, string>,
+            requireInteraction: payload.requireInteraction ? 'true' : undefined,
+          }).filter(([, value]) => value !== undefined && value !== null),
+        ) as Record<string, string>;
+        await getMessaging().send({
+          token: subscription.token,
+          data,
           android: {
             priority: 'high',
             ttl: 360_000,
-            notification: {
-              channelId: 'oracle_messenger_incoming_calls_v5',
-              icon: 'notification_icon',
-              color: '#102A2A',
-              sound: 'oracle_call',
-              priority: 'max',
-              visibility: 'public',
-              tag: payload.tag,
-              eventTimestamp: new Date(),
-              defaultVibrateTimings: false,
-              vibrateTimingsMillis: payload.vibrate ?? [0, 650, 250, 650, 250, 1100],
-            },
           },
         });
         return;
@@ -204,7 +248,7 @@ export class NotificationsService {
           android: {
             priority: 'high',
             notification: {
-              channelId: payload.type === 'call' ? 'oracle_messenger_incoming_calls_v5' : 'oracle_messenger_messages_v3',
+              channelId: payload.type === 'call' ? ANDROID_CALL_CHANNEL_ID : ANDROID_MESSAGE_CHANNEL_ID,
               icon: 'notification_icon',
               color: '#102A2A',
               sound: payload.type === 'call' ? 'oracle_call' : 'oracle_message',

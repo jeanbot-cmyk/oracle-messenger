@@ -65,7 +65,7 @@ class OracleCallAlertModule(
   }
 
   private fun buildPlayer(mode: String): MediaPlayer {
-    val descriptor = reactContext.resources.openRawResourceFd(R.raw.oracle_call)
+    val descriptor = reactContext.resources.openRawResourceFd(if (mode == "incoming") R.raw.oracle_incoming_call else R.raw.oracle_outgoing_call)
     return MediaPlayer().apply {
       try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {

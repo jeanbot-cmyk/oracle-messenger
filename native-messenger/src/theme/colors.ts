@@ -1,7 +1,11 @@
 export const colors = {
   header: '#071C1A',
   brand: '#0B5D56',
+  title: '#043F39',
   accent: '#00A884',
+  onHeader: '#F7FFFC',
+  onHeaderMuted: 'rgba(247,255,252,0.76)',
+  onBrand: '#FFFFFF',
   brandSoft: 'rgba(0,168,132,0.12)',
   accentSoft: 'rgba(0,168,132,0.10)',
   background: '#FFFFFF',

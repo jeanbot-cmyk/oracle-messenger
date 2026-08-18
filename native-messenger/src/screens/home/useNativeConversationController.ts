@@ -71,6 +71,7 @@ export function useNativeConversationController({
   const messageLoader = useNativeMessageLoader({
     token,
     currentUserId,
+    ownerId,
     selected,
     messages,
     sessionRef,

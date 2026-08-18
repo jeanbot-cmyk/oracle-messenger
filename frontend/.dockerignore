@@ -8,4 +8,8 @@ npm-debug.log*
 android/.gradle
 android/app/build
 android/build
-
+android
+ios
+native
+*.apk
+*.aab

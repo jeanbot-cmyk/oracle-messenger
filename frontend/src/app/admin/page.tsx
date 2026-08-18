@@ -1,6 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { getSocket } from '../../lib/socket';
@@ -12,11 +13,24 @@ const ADMIN_PHONES = ['+2250504673829', '+2250700508618'];
 const MAX_BROADCAST_FILE_BYTES = 18 * 1024 * 1024;
 const isAdminUser  = (s: any) => ADMIN_EMAILS.includes(s?.user?.email) || ADMIN_PHONES.includes(s?.user?.phone);
 
-interface Stats { totalUsers:number; onlineUsers:number; pwaInstalls:number; totalMessages:number; totalConversations:number; premiumUsers?:number; }
+interface Stats { totalUsers:number; googleRegisteredUsers?:number; onlineUsers:number; pwaInstalls:number; totalMessages:number; totalConversations:number; premiumUsers?:number; }
 interface Metrics { cpu:number; ramPct:number; ramUsed:number; ramTotal:number; uptime:number; loadAvg1m?:number; platform?:string; }
 interface CountryStat { country:string; count:number; online:number; }
 interface AiAdminPlan { code:string; label:string; type:string; priceFcfa:number; words:number; enabled:boolean; sortOrder:number; }
 interface AiAdminState { plans:AiAdminPlan[]; settings:Array<{ key:string; value:string }>; stats:{ usageCount:number; wordsConsumed:number; activeUsers:number } }
+interface BusinessWesternUnionConfig {
+  enabled:boolean;
+  beneficiaryFullName:string;
+  beneficiaryPhone:string;
+  beneficiaryCountry:string;
+  minimumAmountFcfa:number;
+  dailyAiWords:number;
+  conferenceSessionsPerWeek:number;
+  aiVideos45sPerWeek:number;
+  flyersPerWeek:number;
+  blueVerifiedBadge:boolean;
+  directAdminAssistance:boolean;
+}
 interface BroadcastMedia {
   dataUrl: string;
   type: string;
@@ -46,6 +60,8 @@ export default function AdminPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [countries, setCountries] = useState<CountryStat[]>([]);
   const [aiAdmin, setAiAdmin] = useState<AiAdminState | null>(null);
+  const [businessWu, setBusinessWu] = useState<{ config: BusinessWesternUnionConfig; receipts: any[] } | null>(null);
+  const [businessWuSaving, setBusinessWuSaving] = useState(false);
   const [notif, setNotif] = useState({ title:'', body:'' });
   const [broadcast, setBroadcast] = useState('');
   const [broadcastMedia, setBroadcastMedia] = useState<BroadcastMedia | null>(null);
@@ -133,12 +149,13 @@ export default function AdminPage() {
           window.clearTimeout(timeout);
         }
       };
-      const [s, m, u, c, ai] = await Promise.allSettled([
+      const [s, m, u, c, ai, wu] = await Promise.allSettled([
         fetchJson('/admin/stats'),
         fetchJson('/admin/metrics'),
         fetchJson('/admin/users'),
         fetchJson('/admin/countries'),
         fetchJson('/admin/ai-auto'),
+        fetchJson('/admin/business-western-union'),
       ]);
       const errors: string[] = [];
       if (s.status === 'fulfilled') setStats(s.value as Stats); else errors.push('stats');
@@ -146,6 +163,7 @@ export default function AdminPage() {
       if (u.status === 'fulfilled') setUsers(Array.isArray(u.value) ? u.value : []); else errors.push('utilisateurs');
       if (c.status === 'fulfilled') setCountries(Array.isArray(c.value) ? c.value : []); else setCountries([]);
       if (ai.status === 'fulfilled') setAiAdmin(ai.value as AiAdminState);
+      if (wu.status === 'fulfilled') setBusinessWu(wu.value as { config: BusinessWesternUnionConfig; receipts: any[] });
       if (s.status === 'fulfilled' || m.status === 'fulfilled' || u.status === 'fulfilled') setLastRefresh(new Date());
       if (errors.length) setLoadError(`Données partielles : ${errors.join(', ')} indisponible${errors.length > 1 ? 's' : ''}.`);
     } catch (e: any) {
@@ -308,6 +326,29 @@ export default function AdminPage() {
     setAiAdmin(prev => prev ? { ...prev, settings: prev.settings.map(item => item.key === key ? { ...item, value } : item) } : prev);
   }
 
+  function updateBusinessWuConfig(patch: Partial<BusinessWesternUnionConfig>) {
+    setBusinessWu(prev => prev ? { ...prev, config: { ...prev.config, ...patch } } : prev);
+  }
+
+  async function saveBusinessWuConfig() {
+    if (!api || !token || !businessWu?.config) return;
+    setBusinessWuSaving(true);
+    try {
+      const res = await fetch(`${api}/admin/business-western-union`, {
+        method:'POST',
+        headers:{ Authorization:`Bearer ${token}`, 'Content-Type':'application/json' },
+        body: JSON.stringify(businessWu.config),
+      });
+      if (!res.ok) throw new Error('Sauvegarde Western Union impossible');
+      const saved = await res.json();
+      setBusinessWu(prev => prev ? { ...prev, config: saved.config } : { config: saved.config, receipts: [] });
+    } catch {
+      setLoadError('Sauvegarde Western Union Business impossible.');
+    } finally {
+      setBusinessWuSaving(false);
+    }
+  }
+
   if (!mounted || status === 'loading' || status === 'unauthenticated' || (status === 'authenticated' && !isAdminUser(session))) return (
     <div style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg-app)' }}>
       <div style={{ width:32, height:32, border:'3px solid var(--accent)', borderTopColor:'transparent', borderRadius:'50%', animation:'spin .8s linear infinite' }} />
@@ -362,6 +403,7 @@ export default function AdminPage() {
         {/* Stats */}
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(210px,1fr))', gap:12, marginBottom:18 }}>
           {card('Utilisateurs', formatNumber(stats?.totalUsers), '👥', 'var(--brand)', `${formatNumber(stats?.premiumUsers ?? 0)} premium`)}
+          {card('Inscrits via Google', formatNumber(stats?.googleRegisteredUsers ?? 0), 'G', '#ea4335', 'donnée réelle API admin')}
           {card('En ligne maintenant', formatNumber(liveOnline ?? stats?.onlineUsers), '●', '#22c55e', 'WebSocket + API')}
           {card('Installations web/PWA suivies', formatNumber(stats?.pwaInstalls), '📲', '#8b5cf6', 'installations internes enregistrées')}
           {card('Installations Android Play', 'Play Console', '▶', '#0ea5e9', 'source officielle hors API interne')}
@@ -413,6 +455,99 @@ export default function AdminPage() {
             <button onClick={saveAiPlans} disabled={aiSaving} style={{ width:'100%', marginTop:12, background:'var(--accent)', color:'var(--accent-text)', border:'none', borderRadius:12, padding:12, fontSize:14, fontWeight:900, cursor:'pointer', opacity:aiSaving ? .6 : 1 }}>
               Enregistrer les plans IA
             </button>
+          </div>
+        )}
+
+        {businessWu && (
+          <div style={{ background:'var(--bg-surface)', borderRadius:16, padding:24, marginBottom:24, boxShadow:'0 1px 4px rgba(0,0,0,.08)', border:'2px solid rgba(246,200,0,.42)' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', gap:12, alignItems:'flex-start', marginBottom:16 }}>
+              <div style={{display:'flex',gap:12,alignItems:'center'}}>
+                <img src="/icons/western-union-logo.svg" alt="Western Union" style={{width:76,height:'auto',display:'block',flexShrink:0}} />
+                <div>
+                  <h2 style={{ fontSize:20, fontWeight:900, color:'var(--text-primary)', margin:'0 0 6px' }}>Western Union Business</h2>
+                  <p style={{ fontSize:13, color:'var(--text-muted)', margin:0 }}>
+                    Forfait entreprise Messenger · 50 000 FCFA · {formatNumber(businessWu.config.dailyAiWords)} mots IA/jour · bibliothèque exclue
+                  </p>
+                </div>
+              </div>
+              <button onClick={saveBusinessWuConfig} disabled={businessWuSaving} style={{ background:'var(--brand)', color:'var(--accent-text)', border:'none', borderRadius:12, padding:'10px 14px', fontSize:13, fontWeight:900, cursor:'pointer', opacity:businessWuSaving ? .6 : 1 }}>
+                Sauvegarder
+              </button>
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(210px,1fr))', gap:10, marginBottom:14 }}>
+              <label style={adminFieldLabelStyle}>
+                Nom complet bénéficiaire
+                <input value={businessWu.config.beneficiaryFullName} onChange={e=>updateBusinessWuConfig({ beneficiaryFullName:e.target.value })} style={adminFieldInputStyle}/>
+              </label>
+              <label style={adminFieldLabelStyle}>
+                Téléphone bénéficiaire
+                <input value={businessWu.config.beneficiaryPhone} onChange={e=>updateBusinessWuConfig({ beneficiaryPhone:e.target.value })} style={adminFieldInputStyle}/>
+              </label>
+              <label style={adminFieldLabelStyle}>
+                Pays bénéficiaire
+                <input value={businessWu.config.beneficiaryCountry} onChange={e=>updateBusinessWuConfig({ beneficiaryCountry:e.target.value })} style={adminFieldInputStyle}/>
+              </label>
+              <label style={{...adminFieldLabelStyle,alignSelf:'end'}}>
+                Statut
+                <button onClick={()=>updateBusinessWuConfig({ enabled:!businessWu.config.enabled })} style={{...adminFieldInputStyle,cursor:'pointer',textAlign:'left',background:businessWu.config.enabled?'#DCFCE7':'#FEE2E2',color:businessWu.config.enabled?'#166534':'#991B1B'}}>
+                  {businessWu.config.enabled ? 'Actif hors Côte d’Ivoire' : 'Désactivé'}
+                </button>
+              </label>
+            </div>
+
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:8, marginBottom:16 }}>
+              {[
+                ['Montant minimum', `${formatNumber(businessWu.config.minimumAmountFcfa)} FCFA`],
+                ['Conférence', `${businessWu.config.conferenceSessionsPerWeek}/semaine`],
+                ['Vidéos 45s', `${businessWu.config.aiVideos45sPerWeek}/semaine`],
+                ['Flyers', `${businessWu.config.flyersPerWeek}/semaine`],
+                ['Badge', businessWu.config.blueVerifiedBadge ? 'Bleu vérifié' : 'Non'],
+                ['Assistance', businessWu.config.directAdminAssistance ? 'Directe' : 'Standard'],
+              ].map(([label,value])=>(
+                <div key={label} style={{border:'1px solid var(--border)',borderRadius:12,padding:10,background:'var(--bg-input)'}}>
+                  <p style={{margin:'0 0 3px',fontSize:11.5,fontWeight:900,color:'var(--text-muted)',textTransform:'uppercase'}}>{label}</p>
+                  <p style={{margin:0,fontSize:13.5,fontWeight:950,color:'var(--text-primary)'}}>{value}</p>
+                </div>
+              ))}
+            </div>
+
+            <p style={{fontSize:12,fontWeight:900,color:'var(--brand)',margin:'0 0 8px',textTransform:'uppercase'}}>Boîte de réception des reçus, factures et justificatifs</p>
+            <div style={{display:'grid',gap:8}}>
+              {(businessWu.receipts || []).slice(0,12).map(receipt=>{
+                const riskScore = Number(receipt.audit?.riskScore ?? receipt.riskScore ?? 0);
+                const riskColor = riskScore >= 80 ? '#DC2626' : riskScore >= 50 ? '#F97316' : riskScore >= 20 ? '#F59E0B' : '#10B981';
+                const reasons = Array.isArray(receipt.audit?.riskReasons)
+                  ? receipt.audit.riskReasons
+                  : Array.isArray(receipt.audit?.findings)
+                    ? receipt.audit.findings.map((finding:any)=>finding.label).filter(Boolean)
+                    : [];
+                return (
+                <div key={receipt.id} style={{border:'1px solid var(--border)',borderRadius:12,padding:10,background:'var(--bg-input)',display:'grid',gridTemplateColumns:'76px 1fr',gap:10}}>
+                  {receipt.receiptDataUrl ? (
+                    <img src={receipt.receiptDataUrl} alt="Reçu Western Union" style={{width:76,height:98,objectFit:'cover',borderRadius:10,background:'#111'}} />
+                  ) : (
+                    <div style={{width:76,height:98,borderRadius:10,background:'#111',color:'#F6C800',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:950}}>REÇU</div>
+                  )}
+                  <div style={{display:'grid',gap:3,minWidth:0}}>
+                    <div style={{display:'flex',justifyContent:'space-between',gap:8,alignItems:'center'}}>
+                      <strong style={{fontSize:13,color:'var(--text-primary)',minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{receipt.name || receipt.email || receipt.userId}</strong>
+                      <span style={{fontSize:11.5,fontWeight:900,borderRadius:999,padding:'4px 8px',background:receipt.status==='approved'?'#DCFCE7':receipt.status==='rejected'?'#FEE2E2':'#FEF3C7',color:receipt.status==='approved'?'#166534':receipt.status==='rejected'?'#991B1B':'#92400E'}}>{receipt.status}</span>
+                    </div>
+                    <span style={{fontSize:12,color:'var(--text-muted)',fontWeight:750}}>
+                      {receipt.transactionNumber} · {formatNumber(receipt.amountFcfa)} FCFA · {new Date(receipt.submittedAt).toLocaleString('fr-FR')}
+                    </span>
+                    <span style={{fontSize:12,fontWeight:900,color:riskColor}}>
+                      Risque {riskScore}/100 · {receipt.audit?.riskLevel || 'analyse'}
+                    </span>
+                    {reasons.slice(0,3).map((reason:string)=>(
+                      <span key={reason} style={{fontSize:11.5,lineHeight:1.35,color:'var(--text-muted)',fontWeight:700}}>• {reason}</span>
+                    ))}
+                  </div>
+                </div>
+              )})}
+              {!businessWu.receipts?.length && <p style={{margin:0,fontSize:13,color:'var(--text-muted)'}}>Aucun reçu Western Union Business pour le moment.</p>}
+            </div>
           </div>
         )}
 
@@ -536,3 +671,24 @@ export default function AdminPage() {
     </div>
   );
 }
+
+const adminFieldLabelStyle: CSSProperties = {
+  display:'grid',
+  gap:6,
+  fontSize:11.5,
+  fontWeight:900,
+  color:'var(--brand)',
+  textTransform:'uppercase',
+};
+
+const adminFieldInputStyle: CSSProperties = {
+  border:'1px solid var(--border)',
+  borderRadius:10,
+  padding:'10px 11px',
+  fontSize:13,
+  color:'var(--text-primary)',
+  background:'var(--bg-input)',
+  outline:'none',
+  textTransform:'none',
+  fontWeight:800,
+};

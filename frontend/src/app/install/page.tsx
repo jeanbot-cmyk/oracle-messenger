@@ -31,6 +31,27 @@ function normalizeInviteUsername(value: string) {
   }
 }
 
+function normalizeConferenceSlug(value: string) {
+  try {
+    return decodeURIComponent(value || '').trim().replace(/[^a-z0-9-_.]/gi, '');
+  } catch {
+    return (value || '').trim().replace(/[^a-z0-9-_.]/gi, '');
+  }
+}
+
+function rememberConferenceFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const slug = normalizeConferenceSlug(params.get('conference') || '');
+  const nextParam = params.get('next') || '';
+  const safeNext = nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : '';
+  const next = slug ? `/tools?conference=${encodeURIComponent(slug)}` : safeNext;
+  if (!next) return '';
+  sessionStorage.setItem('oracle-after-login', next);
+  localStorage.setItem('oracle-after-login', next);
+  if (slug) localStorage.setItem('oracle-pending-conference-slug', slug);
+  return slug || next;
+}
+
 function rememberInviteFromUrl() {
   const from = normalizeInviteUsername(new URLSearchParams(window.location.search).get('from') || '');
   if (!from) return '';
@@ -124,7 +145,7 @@ export default function InstallPage() {
       sessionStorage.setItem(INSTALL_RESET_KEY, '1');
       resetInstallCacheState().catch(() => {});
     }
-    rememberInviteFromUrl();
+    if (!rememberConferenceFromUrl()) rememberInviteFromUrl();
 
     if (
       isInstalledAppMode()

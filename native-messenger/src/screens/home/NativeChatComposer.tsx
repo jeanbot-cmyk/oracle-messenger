@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Keyboard as RNKeyboard, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Camera, Image as ImageIcon, Keyboard, Mic, Paperclip, Search, Send, Smile, Sparkles, Sticker, X } from 'lucide-react-native';
+import { Camera, Image as ImageIcon, Keyboard as KeyboardIcon, Mic, Paperclip, Search, Send, Smile, Sparkles, Sticker, X } from 'lucide-react-native';
 import { OracleAudioPlayer } from '@/screens/features/NativeMediaPlayers';
 import { lightImpactHaptic, selectionHaptic } from '@/services/haptics';
 import { colors } from '@/theme/colors';
@@ -50,7 +50,7 @@ const STICKER_LIBRARY: NativeVisualMessageAsset[] = [
   { kind: 'sticker', label: 'Surpris', name: 'Sticker surpris', emoji: '😮' },
 ];
 
-const MIC_RECORD_START_DELAY_MS = 0;
+const MIC_RECORD_START_DELAY_MS = 180;
 
 type NativeChatComposerProps = {
   draft: string;
@@ -119,6 +119,8 @@ export function NativeChatComposer({
   const micGestureActiveRef = useRef(false);
   const gestureRecordingStartedRef = useRef(false);
   const gestureLockedRef = useRef(false);
+  const gestureLockPendingRef = useRef(false);
+  const gestureCancelledRef = useRef(false);
   const gestureReleasePendingRef = useRef(false);
   const gestureStartPromiseRef = useRef<Promise<void> | null>(null);
   const voiceLockedRef = useRef(false);
@@ -141,6 +143,8 @@ export function NativeChatComposer({
     micGestureActiveRef.current = false;
     gestureRecordingStartedRef.current = false;
     gestureLockedRef.current = false;
+    gestureLockPendingRef.current = false;
+    gestureCancelledRef.current = false;
     gestureReleasePendingRef.current = false;
   }, [voiceRecording]);
 
@@ -165,35 +169,57 @@ export function NativeChatComposer({
     void action();
   }
 
+  const startMicRecordingGesture = useCallback(() => {
+    if (!micGestureActiveRef.current || gestureRecordingStartedRef.current || gestureStartPromiseRef.current) return;
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    gestureRecordingStartedRef.current = true;
+    lightImpactHaptic();
+    const startPromise = Promise.resolve(onStartVoiceRecording())
+      .then(() => {
+        if (gestureCancelledRef.current) {
+          gestureRecordingStartedRef.current = false;
+          gestureLockPendingRef.current = false;
+          void onCancelVoiceRecording();
+          return;
+        }
+        if (gestureLockPendingRef.current && !gestureLockedRef.current && !voiceLockedRef.current) {
+          gestureLockPendingRef.current = false;
+          gestureLockedRef.current = true;
+          lightImpactHaptic();
+          onLockVoiceRecording();
+          return;
+        }
+        if (gestureReleasePendingRef.current && !gestureLockedRef.current && !voiceLockedRef.current) {
+          gestureReleasePendingRef.current = false;
+          gestureRecordingStartedRef.current = false;
+          void onStopVoiceRecording();
+        }
+      })
+      .finally(() => {
+        gestureStartPromiseRef.current = null;
+      });
+    gestureStartPromiseRef.current = startPromise;
+  }, [onCancelVoiceRecording, onLockVoiceRecording, onStartVoiceRecording, onStopVoiceRecording]);
+
   const beginMicGesture = useCallback(() => {
     if (busy || draft.trim() || voicePreview) return;
     if (micGestureActiveRef.current || holdTimerRef.current || gestureRecordingStartedRef.current || gestureStartPromiseRef.current) return;
     micGestureActiveRef.current = true;
     gestureRecordingStartedRef.current = false;
     gestureLockedRef.current = false;
+    gestureLockPendingRef.current = false;
+    gestureCancelledRef.current = false;
     gestureReleasePendingRef.current = false;
     gestureStartPromiseRef.current = null;
-    holdTimerRef.current = setTimeout(() => {
-      holdTimerRef.current = null;
-      gestureRecordingStartedRef.current = true;
-      lightImpactHaptic();
-      const startPromise = Promise.resolve(onStartVoiceRecording())
-        .then(() => {
-          if (gestureReleasePendingRef.current && !gestureLockedRef.current && !voiceLockedRef.current) {
-            gestureReleasePendingRef.current = false;
-            gestureRecordingStartedRef.current = false;
-            void onStopVoiceRecording();
-          }
-        })
-        .finally(() => {
-          gestureStartPromiseRef.current = null;
-        });
-      gestureStartPromiseRef.current = startPromise;
-    }, MIC_RECORD_START_DELAY_MS);
-  }, [busy, draft, onStartVoiceRecording, onStopVoiceRecording, voicePreview]);
+    holdTimerRef.current = setTimeout(startMicRecordingGesture, MIC_RECORD_START_DELAY_MS);
+  }, [busy, draft, startMicRecordingGesture, voicePreview]);
 
   const releaseMicGesture = useCallback(() => {
     micGestureActiveRef.current = false;
+    if (gestureCancelledRef.current) return;
     if (holdTimerRef.current) {
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
@@ -210,6 +236,7 @@ export function NativeChatComposer({
 
   const terminateMicGesture = useCallback(() => {
     micGestureActiveRef.current = false;
+    if (gestureCancelledRef.current) return;
     if (holdTimerRef.current) {
       clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
@@ -229,7 +256,22 @@ export function NativeChatComposer({
     onMoveShouldSetPanResponder: () => !busy && !draft.trim() && !voicePreview,
     onPanResponderGrant: beginMicGesture,
     onPanResponderMove: (_, gesture) => {
-      if (!gestureRecordingStartedRef.current || gestureLockedRef.current || voiceLockedRef.current) return;
+      if (gestureLockedRef.current || voiceLockedRef.current || gestureCancelledRef.current) return;
+      if (!gestureRecordingStartedRef.current) {
+        if (gesture.dy < -34 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 0.9) {
+          gestureLockPendingRef.current = true;
+          startMicRecordingGesture();
+        }
+        return;
+      }
+      if (gesture.dx < -56 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1) {
+        gestureCancelledRef.current = true;
+        gestureRecordingStartedRef.current = false;
+        gestureLockPendingRef.current = false;
+        selectionHaptic();
+        void onCancelVoiceRecording();
+        return;
+      }
       if (gesture.dy < -46) {
         gestureLockedRef.current = true;
         lightImpactHaptic();
@@ -238,7 +280,7 @@ export function NativeChatComposer({
     },
     onPanResponderRelease: releaseMicGesture,
     onPanResponderTerminate: terminateMicGesture,
-  }), [beginMicGesture, busy, draft, onLockVoiceRecording, releaseMicGesture, terminateMicGesture, voicePreview]);
+  }), [beginMicGesture, busy, draft, onCancelVoiceRecording, onLockVoiceRecording, releaseMicGesture, startMicRecordingGesture, terminateMicGesture, voicePreview]);
 
   return (
     <View style={[styles.composerShell, { paddingBottom: bottomPadding }]}>
@@ -262,7 +304,7 @@ export function NativeChatComposer({
           <Text style={styles.voiceRecordingText}>
             {voiceLocked ? 'Vocal verrouillé' : 'Maintenez pour parler'}
             {` - ${formatDuration(recordingSeconds)}`}
-            {voiceLocked ? ' - Stop pour écouter' : ' - glissez vers le haut pour verrouiller'}
+            {voiceLocked ? ' - Stop pour écouter' : ' - haut pour verrouiller, gauche pour annuler'}
           </Text>
           {voiceLocked ? (
             <Pressable onPress={() => {
@@ -362,7 +404,7 @@ export function NativeChatComposer({
               </ScrollView>
               <View style={styles.emojiCategoryBar}>
                 <Pressable style={[styles.emojiCategoryButton, styles.emojiCategoryButtonActive]}>
-                  <Keyboard size={20} color={colors.header} strokeWidth={2.2} />
+                  <KeyboardIcon size={20} color={colors.header} strokeWidth={2.2} />
                 </Pressable>
                 {EMOJI_CATEGORIES.map((category, index) => (
                   <Pressable key={category.label} onPress={() => {
@@ -417,7 +459,7 @@ export function NativeChatComposer({
               <Sparkles size={18} color="#FFFFFF" fill="#FFFFFF" />
             </View>
             <View style={styles.aiPanelText}>
-              <Text style={styles.aiPanelTitle}>Gemini IA</Text>
+              <Text style={styles.aiPanelTitle}>Agent virtuel Oracle</Text>
               <Text style={styles.aiPanelSub}>Lit le dernier message reçu et prépare un brouillon selon votre limite IA.</Text>
             </View>
           </View>
@@ -449,9 +491,12 @@ export function NativeChatComposer({
           selectionHaptic();
           setAiMenuOpen(false);
           setAttachmentOpen(false);
-          setEmojiOpen(current => !current);
+          setEmojiOpen(current => {
+            if (!current) RNKeyboard.dismiss();
+            return !current;
+          });
         }} disabled={busy || voiceRecording}>
-          {emojiOpen ? <Keyboard size={21} color={colors.brand} /> : <Smile size={21} color={colors.secondary} />}
+          {emojiOpen ? <KeyboardIcon size={21} color={colors.brand} /> : <Smile size={21} color={colors.secondary} />}
         </Pressable>
         <View style={styles.inputShell}>
           <TextInput value={draft} onChangeText={onDraftChange} placeholder="Message" placeholderTextColor={colors.muted} multiline style={styles.input} />
@@ -459,6 +504,7 @@ export function NativeChatComposer({
             selectionHaptic();
             setAiMenuOpen(false);
             setEmojiOpen(false);
+            RNKeyboard.dismiss();
             setAttachmentOpen(current => !current);
           }} disabled={busy}>
             <Paperclip size={20} color={attachmentOpen ? colors.brand : colors.muted} />
@@ -466,7 +512,7 @@ export function NativeChatComposer({
           <Pressable accessibilityLabel="Caméra" style={styles.composerIconButton} onPress={() => runAttachment(onAttachCamera)} disabled={busy}>
             <Camera size={20} color={colors.muted} />
           </Pressable>
-          <Pressable accessibilityLabel="Gemini IA" style={[styles.aiButton, aiMenuOpen && styles.aiButtonActive]} onPress={() => {
+          <Pressable accessibilityLabel="Agent virtuel Oracle" style={[styles.aiButton, aiMenuOpen && styles.aiButtonActive]} onPress={() => {
             selectionHaptic();
             setAttachmentOpen(false);
             setEmojiOpen(false);
@@ -519,7 +565,7 @@ function formatDuration(totalSeconds?: number) {
 }
 
 const styles = StyleSheet.create({
-  composerShell: { paddingHorizontal: 7, paddingTop: 5, backgroundColor: colors.input, borderTopWidth: 1, borderTopColor: '#D7DBDF' },
+  composerShell: { paddingHorizontal: 8, paddingTop: 7, backgroundColor: '#F0F2F5', borderTopWidth: 1, borderTopColor: 'rgba(16,42,42,0.16)', shadowColor: '#102A2A', shadowOpacity: 0.10, shadowRadius: 14, shadowOffset: { width: 0, height: -4 }, elevation: 12 },
   emojiPanel: { height: 312, borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginBottom: 6, overflow: 'hidden', shadowColor: '#071C1A', shadowOpacity: 0.12, shadowRadius: 18, shadowOffset: { width: 0, height: -5 }, elevation: 10 },
   emojiGrip: { alignSelf: 'center', width: 48, height: 5, borderRadius: 3, backgroundColor: 'rgba(7,28,26,0.20)', marginTop: 8, marginBottom: 8 },
   emojiToolRow: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, gap: 10 },
@@ -560,7 +606,7 @@ const styles = StyleSheet.create({
   aiPanelSecondary: { width: '100%', minHeight: 40, borderRadius: 12, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   aiPanelSecondaryText: { color: colors.text, fontSize: 13, lineHeight: 17, fontWeight: '800' },
   aiPanelDisabled: { opacity: 0.62 },
-  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 5 },
+  inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
   composerContext: { width: '100%', minHeight: 48, borderRadius: 16, backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
   composerContextText: { flex: 1, minWidth: 0 },
   composerContextTitle: { color: colors.header, fontSize: 12, fontWeight: '900' },
@@ -582,9 +628,9 @@ const styles = StyleSheet.create({
   voicePreviewSecondaryText: { color: colors.text, fontSize: 13, lineHeight: 17, fontWeight: '900' },
   voicePreviewSend: { flex: 1, minHeight: 40, borderRadius: 20, backgroundColor: colors.brand, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 12 },
   voicePreviewSendText: { color: '#FFFFFF', fontSize: 13, lineHeight: 17, fontWeight: '900' },
-  roundButton: { width: 39, height: 44, borderRadius: 20, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  roundButton: { width: 40, height: 44, borderRadius: 20, backgroundColor: colors.surface, borderWidth: 1, borderColor: 'rgba(16,42,42,0.10)', alignItems: 'center', justifyContent: 'center' },
   roundButtonActive: { backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: colors.borderStrong },
-  inputShell: { flex: 1, minHeight: 44, borderRadius: 23, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, paddingLeft: 12, paddingRight: 4, flexDirection: 'row', alignItems: 'center', gap: 3 },
+  inputShell: { flex: 1, minHeight: 46, borderRadius: 23, backgroundColor: '#FFFFFF', borderWidth: 1.2, borderColor: 'rgba(0,168,132,0.34)', paddingLeft: 13, paddingRight: 4, flexDirection: 'row', alignItems: 'center', gap: 3, shadowColor: '#102A2A', shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
   composerIconButton: { width: 32, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   composerIconButtonActive: { backgroundColor: colors.accentSoft },
   aiButton: { width: 36, height: 42, borderRadius: 14, backgroundColor: 'rgba(29,155,240,0.08)', alignItems: 'center', justifyContent: 'center' },
@@ -593,5 +639,5 @@ const styles = StyleSheet.create({
   recordingButton: { backgroundColor: colors.danger },
   stopVoiceCompactText: { color: '#FFFFFF', fontSize: 10.5, lineHeight: 13, fontWeight: '900' },
   input: { flex: 1, minWidth: 128, minHeight: 40, maxHeight: 124, color: colors.text, fontSize: 16, lineHeight: 21, fontWeight: '500', paddingHorizontal: 0, paddingVertical: 8, textAlignVertical: 'center' },
-  sendButton: { width: 42, height: 44, borderRadius: 21, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center' },
+  sendButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', shadowColor: colors.brand, shadowOpacity: 0.20, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
 });

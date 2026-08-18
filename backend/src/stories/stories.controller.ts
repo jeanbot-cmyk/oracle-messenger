@@ -22,6 +22,15 @@ export class StoriesController {
     return this.stories.markViewed(id, req.user.id);
   }
 
+  @Post(':id/interactions')
+  interact(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() body: { type?: string; content?: string; emoji?: string },
+  ) {
+    return this.stories.interact(id, req.user.id, body);
+  }
+
   @Delete(':id')
   delete(@Param('id') id: string, @Req() req: any) {
     return this.stories.delete(id, req.user.id);

@@ -18,6 +18,7 @@ interface Client {
 interface Reminder { id:string; clientId:string; clientName:string; date:string; note:string; done:boolean; notifiedAt?:number; }
 interface AutoSettings { welcomeMessage:string; paymentProvider:string; paymentLink:string; }
 type BusinessAiMessage = { role:'client'|'agent'|'system'; text:string };
+type WesternUnionReceiptStatus = 'idle'|'submitting'|'approved'|'pending_manual_review'|'rejected'|'error';
 
 const TAG_META:Record<Tag,{bg:string;color:string;label:string}> = {
   chaud:   {bg:'#fff3e0',color:'#e65100',label:'🔥 Chaud'},
@@ -63,6 +64,15 @@ function downloadTextFile(name:string, content:string, type:string){
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error('Lecture du reçu impossible.'));
+    reader.readAsDataURL(file);
+  });
+}
+
 function reminderTimestamp(date:string) {
   if (!date) return 0;
   const parsed = date.includes('T') ? new Date(date) : new Date(`${date}T09:00`);
@@ -106,11 +116,29 @@ export default function BusinessPage() {
   const [autoSettings,setAutoSettings]=useState<AutoSettings>({welcomeMessage:'Bonjour {nom}, merci pour votre intérêt. Je reviens vers vous rapidement.',paymentProvider:'Flutterwave',paymentLink:''});
   const [businessAccess,setBusinessAccess]=useState<any>(null);
   const [payingBusiness,setPayingBusiness]=useState(false);
+  const [westernUnion,setWesternUnion]=useState<any>(null);
+  const [wuOpen,setWuOpen]=useState(false);
+  const [wuReceiptStatus,setWuReceiptStatus]=useState<WesternUnionReceiptStatus>('idle');
+  const [wuMessage,setWuMessage]=useState('');
+  const [wuForm,setWuForm]=useState({
+    transactionNumber:'',
+    senderFullName:'',
+    senderCountry:'',
+    amountFcfa:'50000',
+    paymentDate:new Date().toISOString().slice(0,10),
+    receiptDataUrl:'',
+    fileName:'',
+    mimeType:'',
+    fileSize:0,
+    width:0,
+    height:0,
+  });
   const [aiPanelOpen,setAiPanelOpen]=useState(false);
   const [aiPanelNotice,setAiPanelNotice]=useState('');
   const [aiConversation,setAiConversation]=useState<BusinessAiMessage[]>([]);
   const [aiTestCount,setAiTestCount]=useState(0);
   const aiCloseTimerRef=useRef<number|null>(null);
+  const wuCameraRef=useRef<HTMLInputElement|null>(null);
   const token=(session?.user as any)?.backendToken ?? '';
   const ownerId=(session?.user as any)?.id || (session?.user as any)?.email || token || '';
   const username=(session?.user as any)?.username ?? '';
@@ -143,6 +171,7 @@ export default function BusinessPage() {
         : api.business.overview(token);
       request.then(data => {
         setBusinessAccess(data.access ?? null);
+        setWesternUnion(data.westernUnion ?? null);
         if (searchParams?.get('businessPaystack') === 'verify') {
           notify('Abonnement Business activé.', 'success');
           router.replace('/business');
@@ -221,6 +250,89 @@ export default function BusinessPage() {
     } catch (err:any) {
       notify(err?.message || 'Paiement Business indisponible.', 'error');
       setPayingBusiness(false);
+    }
+  }
+
+  async function openWesternUnionPanel() {
+    if (!token) {
+      notify('Session expirée. Reconnectez-vous avant le paiement Western Union.', 'error');
+      return;
+    }
+    try {
+      const data = await api.business.westernUnionConfig(token);
+      setWesternUnion(data);
+      setWuOpen(true);
+      setWuMessage('');
+    } catch (err:any) {
+      notify(err?.message || 'Western Union indisponible.', 'error');
+    }
+  }
+
+  async function pickWesternUnionReceipt(file?: File | null) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setWuMessage('Le reçu doit être photographié avec la caméra.');
+      return;
+    }
+    const dataUrl = await readFileAsDataUrl(file);
+    const img = new Image();
+    img.onload = () => {
+      setWuForm(current => ({
+        ...current,
+        receiptDataUrl: dataUrl,
+        fileName: file.name,
+        mimeType: file.type,
+        fileSize: file.size,
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+      }));
+      setWuMessage('Reçu photographié. Vérifiez les informations puis envoyez pour validation.');
+    };
+    img.onerror = () => {
+      setWuForm(current => ({
+        ...current,
+        receiptDataUrl: dataUrl,
+        fileName: file.name,
+        mimeType: file.type,
+        fileSize: file.size,
+      }));
+      setWuMessage('Reçu chargé. Envoyez pour validation.');
+    };
+    img.src = dataUrl;
+  }
+
+  async function submitWesternUnionReceipt() {
+    if (!token) {
+      notify('Session expirée. Reconnectez-vous avant d’envoyer le reçu.', 'error');
+      return;
+    }
+    if (!wuForm.transactionNumber.trim() || !wuForm.senderFullName.trim() || !wuForm.senderCountry.trim()) {
+      setWuMessage('Renseignez le numéro de transaction, votre nom et votre pays.');
+      return;
+    }
+    if (!wuForm.receiptDataUrl) {
+      setWuMessage('Ouvrez la caméra et photographiez le reçu original.');
+      return;
+    }
+    setWuReceiptStatus('submitting');
+    setWuMessage('Contrôle 1 en cours, puis lancement du contrôle OCR anti-fraude...');
+    try {
+      const result = await api.business.submitWesternUnionReceipt(token, {
+        ...wuForm,
+        amountFcfa: Number(wuForm.amountFcfa.replace(/\D/g,'')) || 0,
+      });
+      setBusinessAccess(result.access ?? null);
+      setWuReceiptStatus(result.receipt?.status ?? 'pending_manual_review');
+      setWuMessage(result.message || 'Reçu enregistré.');
+      if (result.receipt?.status === 'approved') {
+        notify('Paiement Western Union validé. Forfait entreprise activé.', 'success');
+        const fresh = await api.business.overview(token);
+        setBusinessAccess(fresh.access ?? null);
+        setWesternUnion(fresh.westernUnion ?? westernUnion);
+      }
+    } catch (err:any) {
+      setWuReceiptStatus('error');
+      setWuMessage(err?.message || 'Envoi du reçu impossible.');
     }
   }
 
@@ -499,11 +611,86 @@ export default function BusinessPage() {
               </div>
             </div>
             {!canUseBusinessActions && !businessAccess?.isAdmin && (
-              <button onClick={payBusinessSubscription} disabled={payingBusiness || !token} style={{width:'100%',marginTop:12,border:'none',borderRadius:13,background:'var(--header-bg)',color:'#fff',padding:'12px 14px',fontSize:14,fontWeight:950,cursor:token?'pointer':'default',opacity:token?1:.5}}>
-                {payingBusiness ? 'Ouverture du paiement...' : 'Activer après mon essai - 10 000 FCFA/mois'}
-              </button>
+              <div style={{marginTop:12,display:'grid',gap:9}}>
+                <button onClick={payBusinessSubscription} disabled={payingBusiness || !token} style={{width:'100%',border:'none',borderRadius:13,background:'var(--header-bg)',color:'#fff',padding:'12px 14px',fontSize:14,fontWeight:950,cursor:token?'pointer':'default',opacity:token?1:.5}}>
+                  {payingBusiness ? 'Ouverture du paiement...' : 'Activer par Paystack'}
+                </button>
+                {westernUnion?.available !== false && (
+                  <button onClick={openWesternUnionPanel} disabled={!token} style={{width:'100%',border:'2px solid #F6C800',borderRadius:13,background:'#111',color:'#F6C800',padding:'11px 14px',fontSize:14,fontWeight:950,cursor:token?'pointer':'default',opacity:token?1:.5,display:'flex',alignItems:'center',justifyContent:'center',gap:10}}>
+                    <img src="/icons/western-union-logo.svg" alt="Western Union" style={{height:26,width:'auto',display:'block'}} />
+                    <span>Payer par Western Union - 50 000 FCFA</span>
+                  </button>
+                )}
+              </div>
+            )}
+            {canUseBusinessActions && businessAccess?.premiumBadge && (
+              <div style={{marginTop:12,display:'inline-flex',alignItems:'center',gap:8,border:'1px solid rgba(37,99,235,.28)',background:'#DBEAFE',color:'#1D4ED8',borderRadius:999,padding:'7px 11px',fontSize:12.5,fontWeight:950}}>
+                ✓ Compte premium vérifié
+              </div>
             )}
           </div>
+          {wuOpen && (
+            <div style={{background:'#fff',border:'2px solid #F6C800',borderRadius:18,padding:14,boxShadow:'0 18px 46px rgba(0,0,0,.16)',marginBottom:10}}>
+              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:12}}>
+                <img src="/icons/western-union-logo.svg" alt="Western Union" style={{width:78,height:'auto',display:'block',flexShrink:0}} />
+                <div style={{flex:1,minWidth:0}}>
+                  <p style={{margin:'0 0 3px',fontSize:17,fontWeight:950,color:'var(--text-primary)'}}>Payer par Western Union</p>
+                  <p style={{margin:0,fontSize:12.5,lineHeight:1.35,color:'var(--text-muted)',fontWeight:750}}>Forfait entreprise Messenger · réservé hors Côte d’Ivoire</p>
+                </div>
+                <button onClick={()=>setWuOpen(false)} style={{border:'none',background:'var(--bg-input)',borderRadius:999,width:32,height:32,cursor:'pointer',fontSize:18,fontWeight:900,color:'var(--text-primary)'}}>×</button>
+              </div>
+
+              <div style={{background:'#FFFBEB',border:'1px solid #FDE68A',borderRadius:14,padding:12,marginBottom:12}}>
+                <p style={{margin:'0 0 8px',fontSize:13.5,fontWeight:950,color:'#92400E'}}>Instructions de paiement</p>
+                {(westernUnion?.instructions || []).map((line:string)=>(
+                  <p key={line} style={{margin:'0 0 5px',fontSize:12.5,lineHeight:1.4,color:'#92400E',fontWeight:750}}>• {line}</p>
+                ))}
+                <div style={{display:'grid',gridTemplateColumns:'1fr',gap:6,marginTop:10}}>
+                  <p style={{margin:0,fontSize:13,fontWeight:900,color:'var(--text-primary)'}}>Bénéficiaire : {westernUnion?.config?.beneficiaryFullName || '—'}</p>
+                  <p style={{margin:0,fontSize:13,fontWeight:900,color:'var(--text-primary)'}}>Téléphone : {westernUnion?.config?.beneficiaryPhone || '—'}</p>
+                  <p style={{margin:0,fontSize:13,fontWeight:900,color:'var(--text-primary)'}}>Pays : {westernUnion?.config?.beneficiaryCountry || '—'}</p>
+                </div>
+              </div>
+
+              <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8,marginBottom:12}}>
+                {[
+                  `IA ${Number(westernUnion?.config?.dailyAiWords || 8000).toLocaleString('fr-FR')} mots/jour`,
+                  '1 session conférence/semaine',
+                  '3 vidéos 45s/semaine',
+                  '6 flyers/semaine',
+                  'Badge bleu vérifié',
+                  'Assistance administrateur directe',
+                ].map(item=>(
+                  <div key={item} style={{border:'1px solid var(--border)',borderRadius:12,padding:'9px 10px',fontSize:12.2,lineHeight:1.3,fontWeight:850,color:'var(--text-secondary)',background:'var(--bg-input)'}}>{item}</div>
+                ))}
+              </div>
+
+              <div style={{display:'grid',gap:9}}>
+                <input value={wuForm.transactionNumber} onChange={e=>setWuForm(v=>({...v,transactionNumber:e.target.value.toUpperCase()}))} placeholder="Numéro de transaction Western Union" style={wuInputStyle}/>
+                <input value={wuForm.senderFullName} onChange={e=>setWuForm(v=>({...v,senderFullName:e.target.value}))} placeholder="Votre nom complet sur le reçu" style={wuInputStyle}/>
+                <input value={wuForm.senderCountry} onChange={e=>setWuForm(v=>({...v,senderCountry:e.target.value}))} placeholder="Votre pays d’envoi" style={wuInputStyle}/>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                  <input value={wuForm.amountFcfa} onChange={e=>setWuForm(v=>({...v,amountFcfa:e.target.value.replace(/\D/g,'')}))} placeholder="50000" inputMode="numeric" style={wuInputStyle}/>
+                  <input value={wuForm.paymentDate} onChange={e=>setWuForm(v=>({...v,paymentDate:e.target.value}))} placeholder="YYYY-MM-DD" style={wuInputStyle}/>
+                </div>
+                <input ref={wuCameraRef} type="file" accept="image/*" capture="environment" onChange={e=>pickWesternUnionReceipt(e.target.files?.[0])} style={{display:'none'}}/>
+                <button onClick={()=>wuCameraRef.current?.click()} style={{border:'none',borderRadius:13,background:'#F6C800',color:'#111',padding:'12px 14px',fontSize:14,fontWeight:950,cursor:'pointer'}}>
+                  {wuForm.receiptDataUrl ? 'Reprendre la photo du reçu' : 'Ouvrir la caméra pour photographier le reçu'}
+                </button>
+                {wuForm.receiptDataUrl && (
+                  <p style={{margin:0,fontSize:12.5,color:'#047857',fontWeight:850}}>Photo prête : {wuForm.width || '—'} x {wuForm.height || '—'}</p>
+                )}
+                <button onClick={submitWesternUnionReceipt} disabled={wuReceiptStatus==='submitting'} style={{border:'none',borderRadius:13,background:'#102A2A',color:'#fff',padding:'13px 14px',fontSize:14,fontWeight:950,cursor:wuReceiptStatus==='submitting'?'wait':'pointer',opacity:wuReceiptStatus==='submitting'?0.65:1}}>
+                  {wuReceiptStatus==='submitting' ? 'Vérification en deux contrôles...' : 'Envoyer mon reçu Western Union'}
+                </button>
+                {wuMessage && (
+                  <p style={{margin:0,borderRadius:12,padding:'10px 11px',fontSize:12.5,lineHeight:1.4,fontWeight:800,background:wuReceiptStatus==='approved'?'#DCFCE7':wuReceiptStatus==='rejected'||wuReceiptStatus==='error'?'#FEE2E2':'#EFF6FF',color:wuReceiptStatus==='approved'?'#166534':wuReceiptStatus==='rejected'||wuReceiptStatus==='error'?'#991B1B':'#1D4ED8'}}>
+                    {wuMessage}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
           <div style={{background:'linear-gradient(135deg, #102A2A, #17413C)',borderRadius:18,padding:16,boxShadow:'0 12px 28px rgba(16,42,42,0.18)',color:'#fff',marginBottom:10}}>
             <p style={{margin:'0 0 5px',fontSize:18,fontWeight:950,lineHeight:1.15}}>Commencez votre business ici</p>
             <p style={{margin:'0 0 13px',fontSize:13,lineHeight:1.4,color:'rgba(255,255,255,.78)',fontWeight:650}}>
@@ -806,6 +993,19 @@ const previewButtonStyle: CSSProperties = {
   fontWeight:900,
   cursor:'pointer',
   minHeight:42,
+};
+
+const wuInputStyle: CSSProperties = {
+  width:'100%',
+  boxSizing:'border-box',
+  border:'1px solid var(--border)',
+  borderRadius:12,
+  background:'var(--bg-input)',
+  color:'var(--text-primary)',
+  padding:'11px 12px',
+  fontSize:13.5,
+  fontWeight:800,
+  outline:'none',
 };
 
 function BusinessAiPanel({open, notice, messages, onClose}:{open:boolean;notice:string;messages:BusinessAiMessage[];onClose:()=>void}) {

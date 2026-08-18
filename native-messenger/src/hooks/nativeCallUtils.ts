@@ -1,7 +1,7 @@
 import { NativeModules } from 'react-native';
 import type { Socket } from 'socket.io-client';
 
-export type NativeCallState = 'idle' | 'calling' | 'incoming' | 'connecting' | 'connected' | 'reconnecting' | 'ended';
+export type NativeCallState = 'idle' | 'searching' | 'calling' | 'ringing' | 'incoming' | 'connecting' | 'connected' | 'reconnecting' | 'ended';
 export type NativeCallMediaProvider = 'livekit' | 'webrtc';
 
 export type NativeCallInfo = {
@@ -9,10 +9,13 @@ export type NativeCallInfo = {
   conversationId: string;
   callerId: string;
   callerName?: string;
+  callerPhone?: string | null;
   calleeName?: string;
+  calleePhone?: string | null;
   calleeAvatar?: string | null;
   type: 'audio' | 'video';
   participants: string[];
+  requestedPeerId?: string;
   mediaProvider?: NativeCallMediaProvider;
 };
 
@@ -37,16 +40,19 @@ export const DEFAULT_ICE: RTCIceServer[] = [
   },
 ];
 
-export const CALL_OPERATION_TIMEOUT_MS = 300_000;
+export const CALL_OPERATION_TIMEOUT_MS = 20_000;
 export const CALL_RING_TIMEOUT_SECONDS = 300;
 
 export function createNativeCallId() {
-  return `native-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10).replace(/-/g, '');
+  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `CALL-${date}-${suffix}`;
 }
 
 function waitForSocketConnection(socket: Socket, timeoutMs: number) {
   if (socket.connected) return Promise.resolve();
-  if (!socket.active) socket.connect();
+  socket.connect();
 
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {

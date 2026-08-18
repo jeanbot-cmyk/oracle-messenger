@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, PanResponder, Platform, StyleSheet, Text } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, PanResponder, Platform, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeChatComposer, type NativeVisualMessageAsset } from '@/screens/home/NativeChatComposer';
 import { NativeChatHeader } from '@/screens/home/NativeChatHeader';
+import { NativeGroupInfoModal } from '@/screens/home/NativeGroupInfoModal';
 import { NativeMessageActionPanels } from '@/screens/home/NativeMessageActionPanels';
 import { NativeMessageList } from '@/screens/home/NativeMessageList';
 import type { LocalGalleryItem } from '@/services/localMedia';
@@ -18,10 +20,13 @@ type NativeChatPanelProps = {
   callNotice?: string;
   notice?: string;
   messageSearch: string;
+  storyAuthors?: Record<string, { hasUnread?: boolean } | undefined>;
   messages: Message[];
   selectedMessageIds: string[];
   selectedMessages: Message[];
   forwardMessages: Message[];
+  actionMessage: Message | null;
+  quickReactions: readonly string[];
   localMediaByMessageId: Record<string, LocalGalleryItem>;
   draft: string;
   replyTo: Message | null;
@@ -36,13 +41,23 @@ type NativeChatPanelProps = {
   onBack: () => void;
   onStartAudioCall: () => void;
   onStartVideoCall: () => void;
+  onConversationActions: () => void;
+  onOpenStoryAuthor?: (authorId: string) => void;
   onCallMessagePress: (type: 'audio' | 'video', message: Message) => void | Promise<void>;
+  onAddImageToStory?: (message: Message, sourceUrl: string) => void | Promise<void>;
   onMessageSearchChange: (value: string) => void;
   onShare: (messages: Message[]) => void | Promise<void>;
   onBeginForward: (messages: Message[]) => void;
   onDeleteSelected: () => void;
   onClearSelection: () => void;
   onClearForward: () => void;
+  onCloseMessageActions: () => void;
+  onReactMessage: (message: Message, emoji: string | null) => void | Promise<void>;
+  onReplyMessage: (message: Message) => void;
+  onCopyMessage: (message: Message) => void | Promise<void>;
+  onEditMessage: (message: Message) => void;
+  onDeleteMessageForMe: (message: Message) => void;
+  onDeleteMessageForAll: (message: Message) => void;
   onForwardToConversation: (conversation: Conversation) => void | Promise<void>;
   onToggleSelection: (messageId: string) => void;
   onOpenMessageActions: (message: Message) => void;
@@ -61,6 +76,8 @@ type NativeChatPanelProps = {
   onAskAiDraft: () => void | Promise<void>;
   onOpenAiTools: () => void;
   onSend: () => void | Promise<void>;
+  onGroupChanged: (conversation: Conversation) => void | Promise<void>;
+  onGroupLeft: () => void | Promise<void>;
 };
 
 export function NativeChatPanel({
@@ -71,10 +88,13 @@ export function NativeChatPanel({
   callNotice,
   notice,
   messageSearch,
+  storyAuthors,
   messages,
   selectedMessageIds,
   selectedMessages,
   forwardMessages,
+  actionMessage,
+  quickReactions,
   localMediaByMessageId,
   draft,
   replyTo,
@@ -89,13 +109,23 @@ export function NativeChatPanel({
   onBack,
   onStartAudioCall,
   onStartVideoCall,
+  onConversationActions,
+  onOpenStoryAuthor,
   onCallMessagePress,
+  onAddImageToStory,
   onMessageSearchChange,
   onShare,
   onBeginForward,
   onDeleteSelected,
   onClearSelection,
   onClearForward,
+  onCloseMessageActions,
+  onReactMessage,
+  onReplyMessage,
+  onCopyMessage,
+  onEditMessage,
+  onDeleteMessageForMe,
+  onDeleteMessageForAll,
   onForwardToConversation,
   onToggleSelection,
   onOpenMessageActions,
@@ -114,9 +144,17 @@ export function NativeChatPanel({
   onAskAiDraft,
   onOpenAiTools,
   onSend,
+  onGroupChanged,
+  onGroupLeft,
 }: NativeChatPanelProps) {
+  const insets = useSafeAreaInsets();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [groupInfoOpen, setGroupInfoOpen] = useState(false);
   const official = isOfficialConversation(conversation);
+  const groupReadOnly = conversation.type === 'group' && conversation.currentUserCanSendMessages === false;
+  const groupReadOnlyText = conversation.messagePolicy === 'ADMINS_ONLY'
+    ? 'Seuls les administrateurs peuvent envoyer des messages dans ce groupe.'
+    : 'Vous êtes actuellement en lecture seule dans ce groupe.';
 
   useEffect(() => {
     const showSubscription = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
@@ -129,42 +167,58 @@ export function NativeChatPanel({
 
   const panResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gesture) => (
-      Math.abs(gesture.dx) > 86 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5
+      gesture.x0 <= 34 && gesture.dx > 112 && gesture.dx > Math.abs(gesture.dy) * 1.75
     ),
     onPanResponderRelease: (_, gesture) => {
-      if (Math.abs(gesture.dx) > 110 && Math.abs(gesture.dy) < 58) onBack();
+      if (gesture.x0 <= 34 && gesture.dx > 142 && Math.abs(gesture.dy) < 52) onBack();
     },
   }), [onBack]);
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
       keyboardVerticalOffset={0}
       style={styles.chatPanel}
       {...panResponder.panHandlers}
     >
       <NativeChatHeader
         conversation={conversation}
+        currentUserId={session.user.id}
         presenceText={presenceText}
         callNotice={callNotice}
         messageSearch={messageSearch}
+        storyAuthors={storyAuthors}
         onBack={onBack}
         onStartAudioCall={onStartAudioCall}
         onStartVideoCall={onStartVideoCall}
+        onConversationActions={onConversationActions}
         onMessageSearchChange={onMessageSearchChange}
+        onOpenStoryAuthor={onOpenStoryAuthor}
+        onOpenGroupInfo={conversation.type === 'group' ? () => setGroupInfoOpen(true) : undefined}
       />
       {notice ? <Text style={styles.noticeBanner}>{notice}</Text> : null}
       <NativeMessageActionPanels
         selectedCount={selectedMessageIds.length}
         selectedMessages={selectedMessages}
         forwardMessages={forwardMessages}
+        actionMessage={actionMessage}
+        quickReactions={quickReactions}
         conversations={conversations}
         activeConversationId={conversation.id}
+        currentUserId={session.user.id}
         onShare={onShare}
         onBeginForward={onBeginForward}
         onDeleteSelected={onDeleteSelected}
         onClearSelection={onClearSelection}
         onClearForward={onClearForward}
+        onCloseMessageActions={onCloseMessageActions}
+        onReactMessage={onReactMessage}
+        onReplyMessage={onReplyMessage}
+        onCopyMessage={onCopyMessage}
+        onEditMessage={onEditMessage}
+        onDeleteMessageForMe={onDeleteMessageForMe}
+        onDeleteMessageForAll={onDeleteMessageForAll}
+        onToggleSelection={onToggleSelection}
         onForwardToConversation={onForwardToConversation}
       />
       <NativeMessageList
@@ -178,13 +232,21 @@ export function NativeChatPanel({
         messageSearch={messageSearch}
         onToggleSelection={onToggleSelection}
         onOpenMessageActions={onOpenMessageActions}
+        onReplyMessage={onReplyMessage}
         onLoadOlderMessages={onLoadOlderMessages}
         onCallMessagePress={onCallMessagePress}
+        onAddImageToStory={onAddImageToStory}
       />
       {official ? (
-        <Text style={styles.officialNotice}>
-          Conversation officielle O.Messenger. Les réponses sont désactivées pour ce canal.
-        </Text>
+        <View style={[styles.officialNoticeWrap, { paddingBottom: Math.max(insets.bottom + 16, 42) }]}>
+          <Text style={styles.officialNotice}>
+            Conversation officielle O.Messenger. Les réponses sont désactivées pour ce canal.
+          </Text>
+        </View>
+      ) : groupReadOnly ? (
+        <View style={[styles.officialNoticeWrap, { paddingBottom: Math.max(insets.bottom + 16, 42) }]}>
+          <Text style={styles.officialNotice}>{groupReadOnlyText}</Text>
+        </View>
       ) : <NativeChatComposer
         draft={draft}
         replyTo={replyTo}
@@ -212,6 +274,18 @@ export function NativeChatPanel({
         onOpenAiTools={onOpenAiTools}
         onSend={onSend}
       />}
+      {conversation.type === 'group' ? (
+        <NativeGroupInfoModal
+          visible={groupInfoOpen}
+          token={session.token}
+          currentUserId={session.user.id}
+          conversation={conversation}
+          conversations={conversations}
+          onClose={() => setGroupInfoOpen(false)}
+          onGroupChanged={onGroupChanged}
+          onGroupLeft={onGroupLeft}
+        />
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -219,5 +293,6 @@ export function NativeChatPanel({
 const styles = StyleSheet.create({
   chatPanel: { flex: 1 },
   noticeBanner: { marginHorizontal: 10, marginTop: 8, marginBottom: 2, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12, backgroundColor: '#FFF7ED', color: '#9A3412', fontSize: 12.5, lineHeight: 17, fontWeight: '800' },
-  officialNotice: { paddingHorizontal: 14, paddingVertical: 12, backgroundColor: '#EAF4F1', borderTopWidth: 1, borderTopColor: 'rgba(16,42,42,0.14)', color: colors.header, fontSize: 13.5, lineHeight: 19, fontWeight: '900', textAlign: 'center' },
+  officialNoticeWrap: { backgroundColor: '#EAF4F1', borderTopWidth: 1, borderTopColor: 'rgba(16,42,42,0.14)', paddingTop: 12, paddingHorizontal: 14 },
+  officialNotice: { color: colors.header, fontSize: 13.5, lineHeight: 19, fontWeight: '900', textAlign: 'center' },
 });

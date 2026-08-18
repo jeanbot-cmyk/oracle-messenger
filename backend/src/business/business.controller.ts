@@ -23,6 +23,16 @@ export class BusinessController {
     return this.business.verifyPaystack(user.id, body?.reference ?? '');
   }
 
+  @Get('western-union/config')
+  westernUnionConfig(@CurrentUser() user: any) {
+    return this.business.getWesternUnionPaymentConfigForUser(user.id);
+  }
+
+  @Post('western-union/receipt')
+  submitWesternUnionReceipt(@CurrentUser() user: any, @Body() body: any) {
+    return this.business.submitWesternUnionReceipt(user.id, body ?? {});
+  }
+
   @Post('clients')
   saveClient(@CurrentUser() user: any, @Body() body: {
     id?: string;

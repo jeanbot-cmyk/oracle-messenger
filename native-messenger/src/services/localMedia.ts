@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import { BACKEND_URL } from '@/config/env';
 import type { Message } from '@/types/messenger';
 import { checkNativeStorageForWrite } from './nativeStorageHealth';
 
@@ -12,6 +13,14 @@ type MediaPayload = {
   checksum?: string;
   mime?: string;
   name?: string;
+};
+
+type OutgoingMediaSource = {
+  uri: string;
+  type: string;
+  name?: string;
+  mime?: string;
+  size?: number;
 };
 
 export type LocalGalleryItem = {
@@ -31,6 +40,13 @@ export function isMediaMessage(message: Message) {
   return ['image', 'video', 'audio', 'voice', 'file', 'document', 'gif', 'sticker'].includes(String(message.type || '').toLowerCase());
 }
 
+function normalizeMediaUrl(value?: string | null) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^\/uploads\//i.test(raw)) return `${BACKEND_URL}${raw}`;
+  return raw;
+}
+
 export function extractPayload(content: string): MediaPayload | null {
   const raw = String(content || '').trim();
   if (!raw) return null;
@@ -47,7 +63,7 @@ export function extractPayload(content: string): MediaPayload | null {
     ].find(value => typeof value === 'string' && value.trim()) as string | undefined;
     if (url) {
       return {
-        url,
+        url: normalizeMediaUrl(url),
         size: Number.isFinite(Number(parsed.size)) && Number(parsed.size) > 0 ? Math.floor(Number(parsed.size)) : undefined,
         checksum: typeof parsed.checksum === 'string' && /^[a-f0-9]{64}$/i.test(parsed.checksum)
           ? parsed.checksum.toLowerCase()
@@ -57,7 +73,7 @@ export function extractPayload(content: string): MediaPayload | null {
       };
     }
   } catch {}
-  return /^(https?:\/\/|file:\/\/|content:\/\/|\/uploads\/)/i.test(raw) ? { url: raw } : null;
+  return /^(https?:\/\/|file:\/\/|content:\/\/|\/uploads\/)/i.test(raw) ? { url: normalizeMediaUrl(raw) } : null;
 }
 
 function extensionFromPayload(payload: MediaPayload, type: string) {
@@ -131,6 +147,15 @@ async function addToGalleryIndex(message: Message, fileUri: string, payload: Med
     },
     ...current,
   ]);
+}
+
+function mediaFileUri(id: string, payload: MediaPayload, type: string) {
+  return `${MEDIA_ROOT}${id}${extensionFromPayload(payload, type)}`;
+}
+
+function outgoingFileUri(localId: string, payload: MediaPayload, type: string) {
+  const safeId = localId.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 180);
+  return `${MEDIA_ROOT}outgoing-${safeId}${extensionFromPayload(payload, type)}`;
 }
 
 export async function readLocalGalleryItems() {
@@ -270,7 +295,7 @@ export async function ensureMediaStoredLocally(message: Message) {
   if (!payload?.url) return null;
 
   await FileSystem.makeDirectoryAsync(MEDIA_ROOT, { intermediates: true }).catch(() => {});
-  const fileUri = `${MEDIA_ROOT}${message.id}${extensionFromPayload(payload, message.type)}`;
+  const fileUri = mediaFileUri(message.id, payload, message.type);
   const existing = await validateLocalFile(fileUri, payload);
   if (existing) {
     await addToGalleryIndex(message, fileUri, payload, existing).catch(() => {});
@@ -308,7 +333,7 @@ export async function storeMediaFromLocalSource(message: Message, sourceUri: str
   if (!payload?.url || !sourceUri) return null;
 
   await FileSystem.makeDirectoryAsync(MEDIA_ROOT, { intermediates: true }).catch(() => {});
-  const fileUri = `${MEDIA_ROOT}${message.id}${extensionFromPayload(payload, message.type)}`;
+  const fileUri = mediaFileUri(message.id, payload, message.type);
   const existing = await validateLocalFile(fileUri, payload);
   if (existing) {
     await addToGalleryIndex(message, fileUri, payload, existing).catch(() => {});
@@ -334,4 +359,70 @@ export async function storeMediaFromLocalSource(message: Message, sourceUri: str
 
   await addToGalleryIndex(message, fileUri, payload, verified).catch(() => {});
   return verified;
+}
+
+export async function preserveOutgoingMediaSource(localId: string, source: OutgoingMediaSource) {
+  if (!source?.uri) throw new Error('Média local introuvable.');
+  const payload: MediaPayload = {
+    url: source.uri,
+    size: source.size,
+    mime: source.mime,
+    name: source.name,
+  };
+
+  await FileSystem.makeDirectoryAsync(MEDIA_ROOT, { intermediates: true }).catch(() => {});
+  const fileUri = outgoingFileUri(localId, payload, source.type);
+  const existing = await validateLocalFile(fileUri, payload).catch(() => null);
+  if (existing) return { ...existing, fileUri };
+
+  const storageHealth = await checkNativeStorageForWrite(source.size || 0);
+  if (storageHealth.level === 'insufficient') {
+    throw new Error(storageHealth.message || 'Message système - espace insuffisant : libérez de l’espace pour enregistrer ce fichier.');
+  }
+
+  await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
+  try {
+    await FileSystem.copyAsync({ from: source.uri, to: fileUri });
+  } catch {
+    throw new Error('Envoi annulé : impossible de conserver ce fichier dans le téléphone.');
+  }
+
+  const verified = await validateLocalFile(fileUri, payload);
+  if (!verified) {
+    await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
+    throw new Error('Envoi annulé : le fichier local n’a pas pu être vérifié.');
+  }
+
+  return { ...verified, fileUri };
+}
+
+export async function commitPreservedOutgoingMedia(message: Message, preservedUri: string) {
+  if (!isMediaMessage(message)) return null;
+  const payload = extractPayload(message.content);
+  if (!payload?.url || !preservedUri) return null;
+
+  await FileSystem.makeDirectoryAsync(MEDIA_ROOT, { intermediates: true }).catch(() => {});
+  const fileUri = mediaFileUri(message.id, payload, message.type);
+  const existing = await validateLocalFile(fileUri, payload);
+  if (existing) {
+    await addToGalleryIndex(message, fileUri, payload, existing).catch(() => {});
+    return { ...existing, fileUri };
+  }
+
+  const preserved = await validateLocalFile(preservedUri, payload);
+  if (!preserved) return storeMediaFromLocalSource(message, preservedUri);
+
+  await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
+  if (preservedUri !== fileUri) {
+    try {
+      await FileSystem.moveAsync({ from: preservedUri, to: fileUri });
+    } catch {
+      await FileSystem.copyAsync({ from: preservedUri, to: fileUri });
+    }
+  }
+
+  const verified = await validateLocalFile(fileUri, payload);
+  if (!verified) return null;
+  await addToGalleryIndex(message, fileUri, payload, verified).catch(() => {});
+  return { ...verified, fileUri };
 }

@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { FlatList, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import { AlertCircle, Check, CheckCheck, Clock3, Mail, Phone, PhoneMissed, PhoneOff, UserRound, Video } from 'lucide-react-native';
-import { NativeChatMediaMessage } from './NativeChatMediaMessage';
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { Animated, FlatList, Image, Linking, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
+import { AlertCircle, Check, CheckCheck, Clock3, Mail, Phone, PhoneMissed, PhoneOff, Reply, UserRound, Video } from 'lucide-react-native';
+import { NativeChatMediaAlbumMessage, NativeChatMediaMessage } from './NativeChatMediaMessage';
 import type { LocalGalleryItem } from '@/services/localMedia';
 import { colors } from '@/theme/colors';
 import type { Message } from '@/types/messenger';
-import { highQualityImageUri, initials, messagePreview, parseCallTraceMessage, parseContactPayload, parseMediaPayload, type CallTraceMessage } from './homeUtils';
+import { highQualityImageUri, initials, messagePreview, normalizeTextLinkUrl, parseCallTraceMessage, parseContactPayload, parseMediaPayload, splitTextLinks, type CallTraceMessage } from './homeUtils';
 
 type NativeMessageListProps = {
   conversationId: string;
@@ -18,9 +18,15 @@ type NativeMessageListProps = {
   messageSearch: string;
   onToggleSelection: (messageId: string) => void;
   onOpenMessageActions: (message: Message) => void;
+  onReplyMessage: (message: Message) => void;
   onLoadOlderMessages: () => void | Promise<void>;
   onCallMessagePress?: (type: 'audio' | 'video', message: Message) => void | Promise<void>;
+  onAddImageToStory?: (message: Message, sourceUrl: string) => void | Promise<void>;
 };
+
+type MessageListRow =
+  | { kind: 'message'; id: string; message: Message }
+  | { kind: 'album'; id: string; messages: Message[] };
 
 function formatMessageClock(value?: string | null) {
   if (!value) return '';
@@ -60,27 +66,12 @@ function MessageStatusIcon({ status }: { status?: string }) {
   return <Check size={13} color={colors.muted} strokeWidth={2.8} />;
 }
 
-const URL_PATTERN = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
-
 function openMessageUrl(rawUrl: string) {
-  const cleanUrl = rawUrl.replace(/[.,!?;:)]+$/u, '');
-  const normalized = cleanUrl.startsWith('www.') ? `https://${cleanUrl}` : cleanUrl;
-  Linking.openURL(normalized).catch(() => undefined);
+  Linking.openURL(normalizeTextLinkUrl(rawUrl)).catch(() => undefined);
 }
 
 function renderLinkedMessageText(content: string) {
-  const parts: { text: string; link: boolean }[] = [];
-  let cursor = 0;
-  for (const match of content.matchAll(URL_PATTERN)) {
-    const value = match[0];
-    const index = match.index || 0;
-    if (index > cursor) parts.push({ text: content.slice(cursor, index), link: false });
-    parts.push({ text: value, link: true });
-    cursor = index + value.length;
-  }
-  if (cursor < content.length) parts.push({ text: content.slice(cursor), link: false });
-  if (!parts.length) parts.push({ text: content, link: false });
-
+  const parts = splitTextLinks(content);
   return (
     <Text style={styles.bubbleText}>
       {parts.map((part, index) => part.link ? (
@@ -109,6 +100,60 @@ function inferMediaTypeFromContent(message: Message) {
   if (mime.startsWith('video/') || /\.(mp4|webm|mov|3gp|mkv)$/i.test(url)) return 'video';
   if (mime.startsWith('audio/') || /\.(mp3|m4a|aac|ogg|wav|amr)$/i.test(url)) return 'audio';
   return 'file';
+}
+
+function rowCreatedAt(row: MessageListRow) {
+  return row.kind === 'album' ? row.messages[0]?.createdAt : row.message.createdAt;
+}
+
+function rowPrimaryMessage(row: MessageListRow) {
+  return row.kind === 'album' ? row.messages[0] : row.message;
+}
+
+function rowStatusMessage(row: MessageListRow) {
+  return row.kind === 'album' ? row.messages[row.messages.length - 1] || row.messages[0] : row.message;
+}
+
+function albumPayloadForMessage(message: Message) {
+  if (message.isDeleted) return null;
+  const inferredType = inferMediaTypeFromContent(message);
+  if (!['image', 'gif', 'video'].includes(inferredType)) return null;
+  const payload = parseMediaPayload(message.content);
+  if (!payload?.albumId || (payload.albumCount ?? 0) < 2) return null;
+  return payload;
+}
+
+function buildMessageRows(items: Message[]): MessageListRow[] {
+  const rows: MessageListRow[] = [];
+  let index = 0;
+  while (index < items.length) {
+    const message = items[index];
+    const payload = albumPayloadForMessage(message);
+    if (!payload) {
+      rows.push({ kind: 'message', id: message.id, message });
+      index += 1;
+      continue;
+    }
+
+    const albumMessages = [message];
+    let cursor = index + 1;
+    while (cursor < items.length) {
+      const next = items[cursor];
+      const nextPayload = albumPayloadForMessage(next);
+      if (!nextPayload || nextPayload.albumId !== payload.albumId || next.senderId !== message.senderId) break;
+      albumMessages.push(next);
+      cursor += 1;
+    }
+
+    if (albumMessages.length > 1) {
+      const ordered = albumMessages.sort((left, right) => (albumPayloadForMessage(left)?.albumIndex ?? 0) - (albumPayloadForMessage(right)?.albumIndex ?? 0));
+      rows.push({ kind: 'album', id: `album:${payload.albumId}:${ordered[0]?.id || message.id}`, messages: ordered });
+    } else {
+      rows.push({ kind: 'message', id: message.id, message });
+    }
+    index = cursor;
+  }
+  return rows;
 }
 
 function NativeCallTraceMessage({
@@ -185,7 +230,7 @@ function NativeContactMessage({ content }: { content: string }) {
   return (
     <View style={styles.contactCard}>
       <View style={styles.contactAvatar}>
-        {contact.avatar ? <Image source={{ uri: highQualityImageUri(contact.avatar) || contact.avatar, cache: 'force-cache' }} style={styles.contactAvatarImage} /> : <Text style={styles.contactAvatarText}>{initials(name)}</Text>}
+        {contact.avatar ? <Image source={{ uri: highQualityImageUri(contact.avatar) || contact.avatar, cache: 'force-cache' }} style={styles.contactAvatarImage} resizeMode="cover" /> : <Text style={styles.contactAvatarText}>{initials(name)}</Text>}
       </View>
       <View style={styles.contactBody}>
         <Text numberOfLines={1} style={styles.contactName}>{name}</Text>
@@ -224,6 +269,75 @@ function ReactionBadges({ reactions }: { reactions?: Message['reactions'] }) {
   );
 }
 
+function MessageSwipeWrap({
+  message,
+  disabled,
+  onReplyMessage,
+  children,
+}: {
+  message: Message;
+  disabled: boolean;
+  onReplyMessage: (message: Message) => void;
+  children: ReactNode;
+}) {
+  const translateX = useRef(new Animated.Value(0)).current;
+  const replyProgress = translateX.interpolate({
+    inputRange: [0, 62],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+  const resetPosition = useCallback(() => {
+    Animated.spring(translateX, {
+      toValue: 0,
+      useNativeDriver: true,
+      speed: 24,
+      bounciness: 6,
+    }).start();
+  }, [translateX]);
+  const panResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gesture) => (
+      !disabled &&
+      gesture.dx > 6 &&
+      Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.05
+    ),
+    onMoveShouldSetPanResponderCapture: (_, gesture) => (
+      !disabled &&
+      gesture.dx > 8 &&
+      Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.05
+    ),
+    onPanResponderMove: (_, gesture) => {
+      if (disabled) return;
+      translateX.setValue(Math.max(0, Math.min(86, gesture.dx * 0.56)));
+    },
+    onPanResponderRelease: (_, gesture) => {
+      const shouldReply = !disabled && gesture.dx > 34 && Math.abs(gesture.dy) < 62;
+      resetPosition();
+      if (shouldReply) onReplyMessage(message);
+    },
+    onPanResponderTerminate: resetPosition,
+  }), [disabled, message, onReplyMessage, resetPosition, translateX]);
+
+  return (
+    <View style={styles.swipeReplyWrap} {...panResponder.panHandlers}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.swipeReplyCue,
+          {
+            opacity: replyProgress,
+            transform: [{ scale: replyProgress }],
+          },
+        ]}
+      >
+        <Reply size={18} color="#FFFFFF" strokeWidth={2.8} />
+      </Animated.View>
+      <Animated.View style={{ transform: [{ translateX }] }}>
+        {children}
+      </Animated.View>
+    </View>
+  );
+}
+
 export function NativeMessageList({
   conversationId,
   messages,
@@ -235,17 +349,20 @@ export function NativeMessageList({
   messageSearch,
   onToggleSelection,
   onOpenMessageActions,
+  onReplyMessage,
   onLoadOlderMessages,
   onCallMessagePress,
+  onAddImageToStory,
 }: NativeMessageListProps) {
-  const listRef = useRef<FlatList<Message>>(null);
+  const listRef = useRef<FlatList<MessageListRow>>(null);
   const nearBottomRef = useRef(true);
   const lastAutoScrolledMessageIdRef = useRef<string | null>(null);
   const initialPositioningRef = useRef(true);
   const inverted = !messageSearch;
-  const displayMessages = useMemo(() => (
-    inverted ? [...messages].reverse() : messages
-  ), [inverted, messages]);
+  const displayRows = useMemo(() => {
+    const rows = buildMessageRows(messages);
+    return inverted ? [...rows].reverse() : rows;
+  }, [inverted, messages]);
   const lastMessageId = messages[messages.length - 1]?.id;
   const lastMessageSenderId = messages[messages.length - 1]?.senderId;
 
@@ -271,7 +388,7 @@ export function NativeMessageList({
   return (
     <FlatList
       ref={listRef}
-      data={displayMessages}
+      data={displayRows}
       keyExtractor={item => item.id}
       style={styles.list}
       contentContainerStyle={styles.messagesList}
@@ -299,83 +416,132 @@ export function NativeMessageList({
       scrollEventThrottle={120}
       ListEmptyComponent={messageSearch ? <Text style={styles.emptySearch}>Aucun message trouvé.</Text> : null}
       renderItem={({ item, index }) => {
-        const mine = item.senderId === currentUserId;
-        const isVoice = item.type === 'audio' || item.type === 'voice';
-        const callTrace = item.type === 'text' ? parseCallTraceMessage(item.content) : null;
-        const avatar = mine ? currentUserAvatar : item.sender?.avatar;
-        const avatarLabel = initials(mine ? currentUserName : item.sender?.name);
-        const selectedForAction = selectedMessageIds.includes(item.id);
-        const adjacent = inverted ? displayMessages[index + 1] : displayMessages[index - 1];
-        const showDay = !adjacent || formatMessageDay(adjacent.createdAt) !== formatMessageDay(item.createdAt);
+        const row = item;
+        const message = rowPrimaryMessage(row);
+        const statusMessage = rowStatusMessage(row);
+        const mine = message.senderId === currentUserId;
+        const isAlbum = row.kind === 'album';
+        const isVoice = message.type === 'audio' || message.type === 'voice';
+        const isSystem = message.type === 'system';
+        const callTrace = message.type === 'text' ? parseCallTraceMessage(message.content) : null;
+        const avatar = mine ? currentUserAvatar : message.sender?.avatar;
+        const avatarLabel = initials(mine ? currentUserName : message.sender?.name);
+        const rowSelectableMessages = row.kind === 'album'
+          ? row.messages.filter(albumMessage => !albumMessage.isDeleted)
+          : [message].filter(candidate => !candidate.isDeleted && candidate.type !== 'system');
+        const selectedRowMessages = rowSelectableMessages.filter(candidate => selectedMessageIds.includes(candidate.id));
+        const selectedForAction = selectedRowMessages.length > 0;
+        const toggleRowSelection = () => {
+          if (!rowSelectableMessages.length) return;
+          const shouldUnselect = selectedRowMessages.length === rowSelectableMessages.length;
+          rowSelectableMessages.forEach(candidate => {
+            const alreadySelected = selectedMessageIds.includes(candidate.id);
+            if (shouldUnselect ? alreadySelected : !alreadySelected) onToggleSelection(candidate.id);
+          });
+        };
+        const adjacent = inverted ? displayRows[index + 1] : displayRows[index - 1];
+        const showDay = !adjacent || formatMessageDay(rowCreatedAt(adjacent)) !== formatMessageDay(rowCreatedAt(row));
+        const daySeparator = showDay ? <Text style={styles.daySeparator}>{formatMessageDay(rowCreatedAt(row))}</Text> : null;
         const callClickable = Boolean(callTrace && onCallMessagePress && !selectedMessageIds.length);
+        const firstTextLink = message.type === 'text' && inferMediaTypeFromContent(message) === 'text'
+          ? splitTextLinks(message.content).find(part => part.link)?.text
+          : null;
+        const linkClickable = Boolean(firstTextLink && !selectedMessageIds.length);
+        const swipeReplyDisabled = Boolean(selectedMessageIds.length || isSystem || message.isDeleted);
         const handleBubblePress = () => {
           if (selectedMessageIds.length) {
-            onToggleSelection(item.id);
+            toggleRowSelection();
             return;
           }
-          if (callTrace && onCallMessagePress) void onCallMessagePress(callTrace.type, item);
+          if (callTrace && onCallMessagePress) void onCallMessagePress(callTrace.type, message);
+          else if (firstTextLink) openMessageUrl(firstTextLink);
+        };
+        const handleBubbleLongPress = () => {
+          if (isSystem || message.isDeleted) return;
+          if (!selectedForAction) toggleRowSelection();
+          onOpenMessageActions(message);
         };
         return (
           <>
-            {showDay ? <Text style={styles.daySeparator}>{formatMessageDay(item.createdAt)}</Text> : null}
-            <Pressable
-              accessibilityRole={callClickable ? 'button' : undefined}
-              accessibilityLabel={callClickable ? callTrace?.actionLabel : undefined}
-              android_ripple={callClickable ? { color: 'rgba(16,42,42,0.08)' } : undefined}
-              onPress={selectedMessageIds.length || callClickable ? handleBubblePress : undefined}
-              onLongPress={() => onOpenMessageActions(item)}
-              style={({ pressed }) => [
-                styles.bubble,
-                callTrace ? styles.systemBubble : mine ? styles.bubbleMine : styles.bubbleOther,
-                isVoice ? styles.audioBubble : null,
-                callTrace ? styles.callBubble : null,
-                pressed && callClickable ? styles.callTracePressed : null,
-                selectedForAction && styles.bubbleSelected,
-              ]}
-            >
-              {item.replyTo ? (
-                <View style={styles.replyPreview}>
-                  <Text style={styles.replyPreviewTitle}>{item.replyTo.sender?.name || 'Réponse'}</Text>
-                  <Text numberOfLines={1} style={styles.replyPreviewText}>{messagePreview(item.replyTo)}</Text>
-                </View>
-              ) : null}
-              {isVoice ? (
-                <NativeChatMediaMessage
-                  message={item}
-                  localItem={localMediaByMessageId[item.id]}
-                  mine={mine}
-                  avatar={avatar}
-                  avatarLabel={avatarLabel}
-                />
-              ) : callTrace ? (
-                <NativeCallTraceMessage
-                  trace={callTrace}
-                  mine={mine}
-                  clickable={callClickable}
-                  clock={formatMessageClock(item.createdAt)}
-                />
-              ) : (
-                item.type === 'contact'
-                  ? <NativeContactMessage content={item.content} />
-                  : item.type === 'text' && inferMediaTypeFromContent(item) === 'text'
-                  ? renderLinkedMessageText(item.content)
-                  : <NativeChatMediaMessage message={{ ...item, type: inferMediaTypeFromContent(item) }} localItem={localMediaByMessageId[item.id]} mine={mine} />
-              )}
-              <ReactionBadges reactions={item.reactions} />
-              {callTrace ? null : (
-                <View style={styles.metaRow}>
-                  <Text numberOfLines={1} style={styles.metaAuthor}>{mine ? 'Moi' : item.sender?.name || 'Contact'}</Text>
-                  <Text style={styles.metaText}>{formatMessageClock(item.createdAt)}</Text>
-                  {item.isEdited ? <Text style={styles.metaText}>modifié</Text> : null}
-                  {mine ? (
-                    <>
-                      <MessageStatusIcon status={item.status} />
-                      <Text style={[styles.metaText, ['read', 'seen'].includes(String(item.status || '').toLowerCase()) && styles.metaTextRead]}>{messageStatusLabel(item.status)}</Text>
-                    </>
-                  ) : null}
-                </View>
-              )}
-            </Pressable>
+            {inverted ? null : daySeparator}
+            <MessageSwipeWrap message={message} disabled={swipeReplyDisabled} onReplyMessage={onReplyMessage}>
+              <Pressable
+                accessibilityRole={callClickable || linkClickable ? 'button' : undefined}
+                accessibilityLabel={callClickable ? callTrace?.actionLabel : linkClickable ? 'Ouvrir le lien du message' : undefined}
+                android_ripple={callClickable || linkClickable ? { color: 'rgba(16,42,42,0.08)' } : undefined}
+                onPress={selectedMessageIds.length || callClickable || linkClickable ? handleBubblePress : undefined}
+                onLongPress={handleBubbleLongPress}
+                delayLongPress={260}
+                style={({ pressed }) => [
+                  styles.bubble,
+                  callTrace || isSystem ? styles.systemBubble : mine ? styles.bubbleMine : styles.bubbleOther,
+                  isVoice ? styles.audioBubble : null,
+                  callTrace ? styles.callBubble : null,
+                  pressed && callClickable ? styles.callTracePressed : null,
+                  selectedForAction && styles.bubbleSelected,
+                ]}
+              >
+                {selectedForAction ? (
+                  <View pointerEvents="none" style={[styles.selectedCheck, mine ? styles.selectedCheckMine : styles.selectedCheckOther]}>
+                    <Check size={13} color="#FFFFFF" strokeWidth={3} />
+                  </View>
+                ) : null}
+                {message.replyTo && !isSystem ? (
+                  <View style={styles.replyPreview}>
+                    <Text style={styles.replyPreviewTitle}>{message.replyTo.sender?.name || 'Réponse'}</Text>
+                    <Text numberOfLines={1} style={styles.replyPreviewText}>{messagePreview(message.replyTo)}</Text>
+                  </View>
+                ) : null}
+                {isSystem ? (
+                  <Text style={styles.groupSystemText}>{message.content}</Text>
+                ) : isAlbum ? (
+                  <NativeChatMediaAlbumMessage
+                    items={row.messages.map(albumMessage => ({
+                      message: { ...albumMessage, type: inferMediaTypeFromContent(albumMessage) },
+                      localItem: localMediaByMessageId[albumMessage.id],
+                    }))}
+                    mine={mine}
+                  />
+                ) : isVoice ? (
+                  <NativeChatMediaMessage
+                    message={message}
+                    localItem={localMediaByMessageId[message.id]}
+                    mine={mine}
+                    avatar={avatar}
+                    avatarLabel={avatarLabel}
+                    onAddImageToStory={onAddImageToStory}
+                  />
+                ) : callTrace ? (
+                  <NativeCallTraceMessage
+                    trace={callTrace}
+                    mine={mine}
+                    clickable={callClickable}
+                    clock={formatMessageClock(message.createdAt)}
+                  />
+                ) : (
+                  message.type === 'contact'
+                    ? <NativeContactMessage content={message.content} />
+                    : message.type === 'text' && inferMediaTypeFromContent(message) === 'text'
+                    ? renderLinkedMessageText(message.content)
+                    : <NativeChatMediaMessage message={{ ...message, type: inferMediaTypeFromContent(message) }} localItem={localMediaByMessageId[message.id]} mine={mine} onAddImageToStory={onAddImageToStory} />
+                )}
+                {isSystem ? null : <ReactionBadges reactions={message.reactions} />}
+                {callTrace || isSystem ? null : (
+                  <View style={styles.metaRow}>
+                    <Text numberOfLines={1} style={styles.metaAuthor}>{mine ? 'Moi' : message.sender?.name || 'Contact'}</Text>
+                    <Text style={styles.metaText}>{formatMessageClock(statusMessage.createdAt)}</Text>
+                    {statusMessage.isEdited ? <Text style={styles.metaText}>modifié</Text> : null}
+                    {mine ? (
+                      <>
+                        <MessageStatusIcon status={statusMessage.status} />
+                        <Text style={[styles.metaText, ['read', 'seen'].includes(String(statusMessage.status || '').toLowerCase()) && styles.metaTextRead]}>{messageStatusLabel(statusMessage.status)}</Text>
+                      </>
+                    ) : null}
+                  </View>
+                )}
+              </Pressable>
+            </MessageSwipeWrap>
+            {inverted ? daySeparator : null}
           </>
         );
       }}
@@ -387,11 +553,15 @@ const styles = StyleSheet.create({
   list: { flex: 1, backgroundColor: colors.background },
   messagesList: { paddingHorizontal: 10, paddingTop: 7, paddingBottom: 9, gap: 2 },
   daySeparator: { alignSelf: 'center', overflow: 'hidden', marginVertical: 8, paddingHorizontal: 11, paddingVertical: 5, borderRadius: 999, backgroundColor: 'rgba(16,42,42,0.08)', color: colors.header, fontSize: 11.5, fontWeight: '900' },
-  bubble: { maxWidth: '82%', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 6 },
+  bubble: { position: 'relative', maxWidth: '82%', borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 6 },
   audioBubble: { maxWidth: '88%', paddingHorizontal: 6, paddingVertical: 6 },
   callBubble: { minWidth: 226, paddingHorizontal: 7, paddingVertical: 7 },
   systemBubble: { alignSelf: 'center', width: '92%', maxWidth: 342, backgroundColor: 'transparent' },
+  groupSystemText: { alignSelf: 'center', overflow: 'hidden', borderRadius: 999, backgroundColor: 'rgba(16,42,42,0.08)', color: colors.header, paddingHorizontal: 12, paddingVertical: 7, fontSize: 12.2, lineHeight: 16, fontWeight: '900', textAlign: 'center' },
   bubbleSelected: { borderWidth: 2, borderColor: colors.accent },
+  selectedCheck: { position: 'absolute', top: -7, width: 23, height: 23, borderRadius: 12, backgroundColor: colors.brand, borderWidth: 2, borderColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', zIndex: 10, elevation: 3 },
+  selectedCheckMine: { left: -7 },
+  selectedCheckOther: { right: -7 },
   bubbleMine: { alignSelf: 'flex-end', backgroundColor: colors.bubbleOut },
   bubbleOther: { alignSelf: 'flex-start', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   emptySearch: { color: colors.muted, fontSize: 13, fontWeight: '800', textAlign: 'center', marginTop: 30 },
@@ -405,6 +575,8 @@ const styles = StyleSheet.create({
   replyPreviewTitle: { color: colors.header, fontSize: 11, fontWeight: '900' },
   replyPreviewText: { color: colors.muted, fontSize: 11.5, fontWeight: '700', marginTop: 1 },
   reactionBadges: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, alignSelf: 'flex-start', marginTop: 7 },
+  swipeReplyWrap: { width: '100%', position: 'relative' },
+  swipeReplyCue: { position: 'absolute', left: 16, top: 14, width: 34, height: 34, borderRadius: 17, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', zIndex: 0 },
   reactionBadge: { minHeight: 24, borderRadius: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 7, shadowColor: '#102A2A', shadowOpacity: 0.06, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
   reactionEmoji: { fontSize: 15, lineHeight: 19 },
   reactionCount: { color: colors.secondary, fontSize: 11, lineHeight: 14, fontWeight: '900' },
@@ -423,7 +595,7 @@ const styles = StyleSheet.create({
   callTraceSubtitleAlert: { color: colors.danger },
   callTraceAction: { width: 31, height: 31, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(16,42,42,0.08)' },
   contactCard: { minWidth: 236, maxWidth: 286, minHeight: 66, borderRadius: 16, backgroundColor: 'rgba(16,42,42,0.055)', borderWidth: 1, borderColor: 'rgba(16,42,42,0.08)', paddingHorizontal: 10, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  contactAvatar: { width: 42, height: 42, borderRadius: 21, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.header },
+  contactAvatar: { width: 42, height: 42, borderRadius: 12, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.header },
   contactAvatarImage: { width: '100%', height: '100%' },
   contactAvatarText: { color: '#FFFFFF', fontSize: 13, fontWeight: '900' },
   contactBody: { flex: 1, minWidth: 0 },

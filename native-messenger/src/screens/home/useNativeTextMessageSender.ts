@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
-import { AppState } from 'react-native';
+import { AppState, InteractionManager } from 'react-native';
 import { socketAck } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
 import { deleteNativeDraft } from '@/services/nativeDrafts';
+import { recordNativeDiagnostic } from '@/services/nativeDiagnostics';
+import { nativeDebugLog } from '@/services/nativeLogger';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import {
   enqueueNativeTextMessage,
@@ -26,6 +28,7 @@ type UseNativeTextMessageSenderParams = {
   setEditingMessage: Dispatch<SetStateAction<Message | null>>;
   setNotice: (message: string) => void;
   setReplyTo: Dispatch<SetStateAction<Message | null>>;
+  stopTyping?: () => void;
 };
 
 function errorMessage(error: unknown) {
@@ -40,25 +43,95 @@ function isRetryableSendError(error: unknown) {
 
 async function sendTextMessage(
   token: string,
-  payload: { conversationId: string; content: string; replyToId?: string | null },
+  payload: { conversationId: string; content: string; replyToId?: string | null; clientMessageId?: string | null },
 ) {
   const socket = ensureNativeSocket(token);
+  const clientMessageId = payload.clientMessageId || undefined;
+  const startedAt = Date.now();
+  recordNativeDiagnostic(socket, {
+    feature: 'message',
+    event: 'MESSAGE_SEND_SOCKET_ATTEMPT',
+    conversationId: payload.conversationId,
+    messageId: clientMessageId,
+    details: {
+      clientMessageId,
+      contentLength: payload.content.length,
+      hasReply: Boolean(payload.replyToId),
+    },
+  });
   try {
-    return await socketAck<Message>(socket, 'message:send', {
+    const message = await socketAck<Message>(socket, 'message:send', {
       conversationId: payload.conversationId,
       content: payload.content,
       type: 'text',
       replyToId: payload.replyToId || undefined,
+      clientMessageId,
+      clientSentAt: new Date().toISOString(),
     });
+    nativeDebugLog('[NativeMessageSendLatency]', {
+      conversationId: payload.conversationId,
+      messageId: message.id,
+      clientMessageId,
+      transport: 'socket',
+      ackMs: Date.now() - startedAt,
+      socketConnected: socket.connected,
+    });
+    recordNativeDiagnostic(socket, {
+      feature: 'message',
+      event: 'MESSAGE_ACCEPTED_BY_SERVER',
+      conversationId: payload.conversationId,
+      messageId: message.id,
+      details: {
+        clientMessageId,
+        ackMs: Date.now() - startedAt,
+        transport: 'socket',
+        status: message.status,
+      },
+    });
+    return message;
   } catch (error) {
+    recordNativeDiagnostic(socket, {
+      feature: 'message',
+      event: 'MESSAGE_SOCKET_SEND_FAILED',
+      conversationId: payload.conversationId,
+      messageId: clientMessageId,
+      details: {
+        clientMessageId,
+        ackMs: Date.now() - startedAt,
+        socketConnected: socket.connected,
+        error: errorMessage(error),
+      },
+    });
     if (socket.connected) throw error;
-    return api.sendMessage(
+    const message = await api.sendMessage(
       payload.conversationId,
       token,
       payload.content,
       'text',
       payload.replyToId || undefined,
+      clientMessageId,
     );
+    nativeDebugLog('[NativeMessageSendLatency]', {
+      conversationId: payload.conversationId,
+      messageId: message.id,
+      clientMessageId,
+      transport: 'http-fallback',
+      ackMs: Date.now() - startedAt,
+      socketConnected: socket.connected,
+    });
+    recordNativeDiagnostic(socket, {
+      feature: 'message',
+      event: 'MESSAGE_ACCEPTED_BY_SERVER',
+      conversationId: payload.conversationId,
+      messageId: message.id,
+      details: {
+        clientMessageId,
+        ackMs: Date.now() - startedAt,
+        transport: 'http-fallback',
+        status: message.status,
+      },
+    });
+    return message;
   }
 }
 
@@ -76,8 +149,20 @@ export function useNativeTextMessageSender({
   setEditingMessage,
   setNotice,
   setReplyTo,
+  stopTyping,
 }: UseNativeTextMessageSenderParams) {
   const flushingOutboxRef = useRef(false);
+  const refreshAfterSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleConversationRefreshAfterSend = useCallback(() => {
+    if (refreshAfterSendTimerRef.current) clearTimeout(refreshAfterSendTimerRef.current);
+    refreshAfterSendTimerRef.current = setTimeout(() => {
+      refreshAfterSendTimerRef.current = null;
+      InteractionManager.runAfterInteractions(() => {
+        void refreshConversations().catch(() => undefined);
+      });
+    }, 900);
+  }, [refreshConversations]);
 
   const flushTextOutbox = useCallback(async () => {
     if (!token || flushingOutboxRef.current) return;
@@ -93,6 +178,7 @@ export function useNativeTextMessageSender({
             conversationId: item.conversationId,
             content: item.content,
             replyToId: item.replyToId,
+            clientMessageId: item.localMessageId || item.id,
           });
           await removeNativeTextMessageFromOutbox(item.id);
           sentCount += 1;
@@ -126,23 +212,31 @@ export function useNativeTextMessageSender({
 
   useEffect(() => {
     if (!token) return;
+    const socket = ensureNativeSocket(token);
     void flushTextOutbox();
+    socket.on('connect', flushTextOutbox);
     const subscription = AppState.addEventListener('change', state => {
       if (state === 'active') void flushTextOutbox();
     });
-    return () => subscription.remove();
+    return () => {
+      socket.off('connect', flushTextOutbox);
+      subscription.remove();
+    };
   }, [flushTextOutbox, token]);
+
+  useEffect(() => () => {
+    if (refreshAfterSendTimerRef.current) clearTimeout(refreshAfterSendTimerRef.current);
+  }, []);
 
   return useCallback(async () => {
     const clean = draft.trim();
     if (!clean || !selected || !token) return;
     let localMessageId = '';
     const pendingReplyTo = replyTo;
+    stopTyping?.();
     setDraft('');
     try {
       if (editingMessage) {
-        const socket = ensureNativeSocket(token);
-        socket.emit('message:edit', { messageId: editingMessage.id, content: clean });
         const message = await api.editMessage(editingMessage.id, token, clean);
         patchMessage(editingMessage.id, { content: message.content, isEdited: true, updatedAt: message.updatedAt });
         setEditingMessage(null);
@@ -150,6 +244,7 @@ export function useNativeTextMessageSender({
         localMessageId = `local-text-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const optimisticMessage: Message = {
           id: localMessageId,
+          clientMessageId: localMessageId,
           conversationId: selected.id,
           senderId: currentUserId || 'local-user',
           content: clean,
@@ -159,17 +254,49 @@ export function useNativeTextMessageSender({
           replyTo: pendingReplyTo || undefined,
           replyToId: pendingReplyTo?.id,
         };
+        const socket = ensureNativeSocket(token);
+        recordNativeDiagnostic(socket, {
+          feature: 'message',
+          event: 'MESSAGE_SEND_TAP',
+          conversationId: selected.id,
+          messageId: localMessageId,
+          details: {
+            contentLength: clean.length,
+            hasReply: Boolean(pendingReplyTo?.id),
+            keyboardWasOpen: true,
+          },
+        });
         upsertMessage(optimisticMessage);
+        recordNativeDiagnostic(socket, {
+          feature: 'ui',
+          event: 'MESSAGE_OPTIMISTIC_INSERTED',
+          conversationId: selected.id,
+          messageId: localMessageId,
+          details: {
+            status: optimisticMessage.status,
+          },
+        });
         setReplyTo(null);
         const message = await sendTextMessage(token, {
           conversationId: selected.id,
           content: clean,
           replyToId: pendingReplyTo?.id,
+          clientMessageId: localMessageId,
         });
         patchMessage(localMessageId, { ...message, status: message.status || 'sent', replyTo: pendingReplyTo || message.replyTo });
+        recordNativeDiagnostic(socket, {
+          feature: 'ui',
+          event: 'MESSAGE_LOCAL_STATUS_PATCHED',
+          conversationId: selected.id,
+          messageId: message.id,
+          details: {
+            localMessageId,
+            status: message.status || 'sent',
+          },
+        });
       }
       void deleteNativeDraft(currentUserId || 'local', selected.id);
-      void refreshConversations().catch(() => undefined);
+      scheduleConversationRefreshAfterSend();
     } catch (error) {
       if (!editingMessage && localMessageId) {
         patchMessage(localMessageId, { status: 'failed', updatedAt: new Date().toISOString() });
@@ -184,6 +311,16 @@ export function useNativeTextMessageSender({
           replyToId: pendingReplyTo?.id,
           lastError: errorMessage(error),
         });
+        recordNativeDiagnostic(ensureNativeSocket(token), {
+          feature: 'message',
+          event: 'MESSAGE_QUEUED_OFFLINE',
+          conversationId: selected.id,
+          messageId: localMessageId,
+          details: {
+            retryable: true,
+            error: errorMessage(error),
+          },
+        });
         setReplyTo(null);
         setNotice('Message gardé hors connexion. Il sera envoyé automatiquement à la reprise.');
         return;
@@ -196,13 +333,14 @@ export function useNativeTextMessageSender({
     draft,
     editingMessage,
     patchMessage,
-    refreshConversations,
     replyTo,
     selected,
     setDraft,
     setEditingMessage,
     setNotice,
     setReplyTo,
+    stopTyping,
+    scheduleConversationRefreshAfterSend,
     token,
     upsertMessage,
   ]);

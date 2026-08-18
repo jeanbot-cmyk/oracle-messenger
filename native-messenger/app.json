@@ -2,7 +2,7 @@
   "expo": {
     "name": "Oracle Messenger",
     "slug": "oracle-messenger-native",
-    "version": "1.0.20260813.23",
+    "version": "1.0.20260818.13",
     "orientation": "portrait",
     "scheme": "oraclemessenger",
     "userInterfaceStyle": "automatic",
@@ -10,7 +10,7 @@
     "icon": "./assets/icon.png",
     "android": {
       "package": "online.oracle_plus.messenger",
-      "versionCode": 2026081323,
+      "versionCode": 2026081813,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
@@ -52,6 +52,11 @@
               "scheme": "https",
               "host": "messenger.oracle-plus.online",
               "pathPrefix": "/chat"
+            },
+            {
+              "scheme": "https",
+              "host": "messenger.oracle-plus.online",
+              "pathPrefix": "/conference"
             }
           ],
           "category": [
@@ -67,6 +72,7 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      "react-native-compressor",
       [
         "expo-splash-screen",
         {

@@ -1,10 +1,65 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { createHash, randomUUID } from 'crypto';
+import { createWorker } from 'tesseract.js';
 import { PrismaService } from '../prisma/prisma.service';
 
 type BusinessStatus = 'prospect' | 'chaud' | 'froid' | 'paye' | 'relancer' | 'vip' | 'perdu';
 const ADMIN_PHONE = '+2250700508618';
 const BUSINESS_MONTHLY_PRICE_FCFA = 10000;
+const BUSINESS_WESTERN_UNION_PRICE_FCFA = 50000;
+const BUSINESS_WESTERN_UNION_DAILY_AI_WORDS = 8000;
+const BUSINESS_WESTERN_UNION_CONFIG_KEY = 'business_western_union_config';
 const BUSINESS_STATUSES = new Set(['prospect', 'chaud', 'froid', 'paye', 'relancer', 'vip', 'perdu']);
+
+type WesternUnionFinding = {
+  code: string;
+  label: string;
+  severity: 'info' | 'warning' | 'critical';
+};
+
+type BusinessWesternUnionConfig = {
+  enabled: boolean;
+  beneficiaryFullName: string;
+  beneficiaryPhone: string;
+  beneficiaryCountry: string;
+  minimumAmountFcfa: number;
+  feesPaidByUser: boolean;
+  dailyAiWords: number;
+  conferenceSessionsPerWeek: number;
+  aiVideos45sPerWeek: number;
+  flyersPerWeek: number;
+  blueVerifiedBadge: boolean;
+  directAdminAssistance: boolean;
+};
+
+const DEFAULT_BUSINESS_WESTERN_UNION_CONFIG: BusinessWesternUnionConfig = {
+  enabled: true,
+  beneficiaryFullName: 'Tchingankong Georges Bonas',
+  beneficiaryPhone: '+2250504673829',
+  beneficiaryCountry: "Côte d'Ivoire",
+  minimumAmountFcfa: BUSINESS_WESTERN_UNION_PRICE_FCFA,
+  feesPaidByUser: true,
+  dailyAiWords: BUSINESS_WESTERN_UNION_DAILY_AI_WORDS,
+  conferenceSessionsPerWeek: 1,
+  aiVideos45sPerWeek: 3,
+  flyersPerWeek: 6,
+  blueVerifiedBadge: true,
+  directAdminAssistance: true,
+};
+
+function westernUnionRiskScore(findings: WesternUnionFinding[]) {
+  const score = findings.reduce((total, finding) => (
+    total + (finding.severity === 'critical' ? 45 : finding.severity === 'warning' ? 15 : 4)
+  ), 0);
+  return Math.max(0, Math.min(100, score));
+}
+
+function westernUnionRiskLevel(score: number) {
+  if (score >= 80) return 'critical';
+  if (score >= 50) return 'high';
+  if (score >= 20) return 'moderate';
+  return 'low';
+}
 
 @Injectable()
 export class BusinessService {
@@ -12,6 +67,7 @@ export class BusinessService {
 
   async overview(ownerId: string) {
     const access = await this.getAccess(ownerId);
+    const westernUnion = await this.getWesternUnionPaymentConfigForUser(ownerId);
     const [clients, reminders, payments] = await Promise.all([
       this.prisma.businessClient.findMany({
         where: { ownerId },
@@ -29,14 +85,15 @@ export class BusinessService {
         take: 8,
       }),
     ]);
-    return { clients, reminders, payments, access };
+    return { clients, reminders, payments, access, westernUnion };
   }
 
   async getAccess(userId: string) {
-    const [user, subscription, wallet] = await Promise.all([
-      this.prisma.user.findUnique({ where: { id: userId }, select: { phone: true, email: true } }),
+    const [user, subscription, wallet, config] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId }, select: { phone: true, email: true, isPremium: true, premiumUntil: true } }),
       this.prisma.businessSubscription.findUnique({ where: { userId } }),
       this.prisma.aiWallet.findUnique({ where: { userId } }),
+      this.getWesternUnionPaymentConfig(),
     ]);
     const isAdmin = this.isAdmin(user?.phone);
     const activeUntil = subscription?.activeUntil ?? null;
@@ -47,9 +104,20 @@ export class BusinessService {
       subscriptionActive,
       aiCreditsOk,
       canAct: subscriptionActive && aiCreditsOk,
-      monthlyPriceFcfa: BUSINESS_MONTHLY_PRICE_FCFA,
+      monthlyPriceFcfa: config.minimumAmountFcfa,
       activeUntil: isAdmin ? null : activeUntil?.toISOString() ?? null,
       wordsRemaining: isAdmin ? null : wallet?.wordsRemaining ?? 0,
+      premium: isAdmin || Boolean(user?.isPremium && user?.premiumUntil && user.premiumUntil.getTime() > Date.now()),
+      premiumBadge: isAdmin || Boolean(config.blueVerifiedBadge && subscriptionActive),
+      premiumBadgeColor: 'blue',
+      planCode: subscriptionActive ? 'business_enterprise_western_union' : null,
+      planLabel: 'Forfait entreprise',
+      dailyAiWords: isAdmin ? null : config.dailyAiWords,
+      conferenceSessionsPerWeek: config.conferenceSessionsPerWeek,
+      aiVideos45sPerWeek: config.aiVideos45sPerWeek,
+      flyersPerWeek: config.flyersPerWeek,
+      directAdminAssistance: config.directAdminAssistance,
+      libraryIncluded: false,
     };
   }
 
@@ -125,6 +193,267 @@ export class BusinessService {
       });
     });
     return this.overview(userId);
+  }
+
+  normalizeWesternUnionConfig(input?: Partial<BusinessWesternUnionConfig> | null): BusinessWesternUnionConfig {
+    return {
+      ...DEFAULT_BUSINESS_WESTERN_UNION_CONFIG,
+      ...(input ?? {}),
+      beneficiaryFullName: String(input?.beneficiaryFullName ?? DEFAULT_BUSINESS_WESTERN_UNION_CONFIG.beneficiaryFullName).trim() || DEFAULT_BUSINESS_WESTERN_UNION_CONFIG.beneficiaryFullName,
+      beneficiaryPhone: String(input?.beneficiaryPhone ?? DEFAULT_BUSINESS_WESTERN_UNION_CONFIG.beneficiaryPhone).trim() || DEFAULT_BUSINESS_WESTERN_UNION_CONFIG.beneficiaryPhone,
+      beneficiaryCountry: String(input?.beneficiaryCountry ?? DEFAULT_BUSINESS_WESTERN_UNION_CONFIG.beneficiaryCountry).trim() || DEFAULT_BUSINESS_WESTERN_UNION_CONFIG.beneficiaryCountry,
+      minimumAmountFcfa: BUSINESS_WESTERN_UNION_PRICE_FCFA,
+      feesPaidByUser: input?.feesPaidByUser ?? true,
+      dailyAiWords: BUSINESS_WESTERN_UNION_DAILY_AI_WORDS,
+      conferenceSessionsPerWeek: 1,
+      aiVideos45sPerWeek: 3,
+      flyersPerWeek: 6,
+      blueVerifiedBadge: input?.blueVerifiedBadge ?? true,
+      directAdminAssistance: input?.directAdminAssistance ?? true,
+      enabled: input?.enabled ?? true,
+    };
+  }
+
+  async getWesternUnionPaymentConfig(): Promise<BusinessWesternUnionConfig> {
+    const row = await this.prisma.aiSetting.findUnique({ where: { key: BUSINESS_WESTERN_UNION_CONFIG_KEY } }).catch(() => null);
+    if (!row?.value) return DEFAULT_BUSINESS_WESTERN_UNION_CONFIG;
+    try {
+      return this.normalizeWesternUnionConfig(JSON.parse(row.value));
+    } catch {
+      return DEFAULT_BUSINESS_WESTERN_UNION_CONFIG;
+    }
+  }
+
+  async updateWesternUnionPaymentConfig(input: Partial<BusinessWesternUnionConfig>) {
+    const config = this.normalizeWesternUnionConfig(input);
+    await this.prisma.aiSetting.upsert({
+      where: { key: BUSINESS_WESTERN_UNION_CONFIG_KEY },
+      create: { key: BUSINESS_WESTERN_UNION_CONFIG_KEY, value: JSON.stringify(config) },
+      update: { value: JSON.stringify(config) },
+    });
+    return { config };
+  }
+
+  async getWesternUnionPaymentConfigForUser(userId: string) {
+    const [config, user] = await Promise.all([
+      this.getWesternUnionPaymentConfig(),
+      this.prisma.user.findUnique({ where: { id: userId }, select: { phone: true } }),
+    ]);
+    return {
+      config,
+      available: config.enabled && !this.isCoteDIvoireUser(user?.phone),
+      unavailableReason: this.isCoteDIvoireUser(user?.phone)
+        ? "Western Union est réservé aux utilisateurs hors de Côte d'Ivoire."
+        : null,
+      instructions: [
+        `Envoyez au minimum ${config.minimumAmountFcfa.toLocaleString('fr-FR')} FCFA par Western Union.`,
+        `Les frais Western Union sont à votre charge afin que ${config.beneficiaryFullName} reçoive le montant requis.`,
+        'Après l’envoi, photographiez le reçu original le jour même avec l’appareil photo.',
+        'Envoyez le reçu dans l’espace sécurisé pour validation automatique en deux contrôles.',
+      ],
+      enterpriseBenefits: this.enterpriseBenefits(config),
+    };
+  }
+
+  async submitWesternUnionReceipt(userId: string, body: any) {
+    const config = await this.getWesternUnionPaymentConfig();
+    if (!config.enabled) throw new BadRequestException('Paiement Western Union indisponible.');
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true, name: true, phone: true } });
+    if (!user) throw new ForbiddenException('Utilisateur introuvable.');
+    if (this.isCoteDIvoireUser(user.phone) || this.isCoteDIvoireCountry(body?.senderCountry)) {
+      throw new ForbiddenException("Western Union est réservé aux utilisateurs hors de Côte d'Ivoire.");
+    }
+
+    const transactionNumber = String(body?.transactionNumber ?? '').trim().toUpperCase();
+    const senderFullName = String(body?.senderFullName ?? '').trim();
+    const senderCountry = String(body?.senderCountry ?? '').trim();
+    const fileName = String(body?.fileName ?? 'western-union-recu.jpg').trim().slice(0, 180);
+    const mimeType = String(body?.mimeType ?? '').trim().toLowerCase();
+    const amountFcfa = Math.round(Number(body?.amountFcfa) || 0);
+    const paymentDate = new Date(String(body?.paymentDate ?? ''));
+    const receiptDataUrl = String(body?.receiptDataUrl ?? '');
+    const width = Math.round(Number(body?.width) || 0);
+    const height = Math.round(Number(body?.height) || 0);
+    const fileSize = Math.round(Number(body?.fileSize) || 0);
+    if (!transactionNumber || !senderFullName || !senderCountry) {
+      throw new BadRequestException('Numéro de transaction, envoyeur et pays requis.');
+    }
+    if (!Number.isFinite(paymentDate.getTime())) throw new BadRequestException('Date de paiement invalide.');
+    if (!receiptDataUrl.startsWith('data:image/')) throw new BadRequestException('Photo originale du reçu requise.');
+    if (receiptDataUrl.length > 14_000_000) throw new BadRequestException('Photo trop lourde. Reprenez une photo plus légère.');
+
+    await this.ensureWesternUnionReceiptTable();
+    const imageBuffer = this.dataUrlToBuffer(receiptDataUrl);
+    const documentHash = createHash('sha256')
+      .update(imageBuffer)
+      .update('|')
+      .update(transactionNumber)
+      .digest('hex');
+
+    const existing = await this.prisma.$queryRawUnsafe<Array<{ id: string; transactionNumber: string; documentHash: string }>>(
+      `SELECT "id", "transactionNumber", "documentHash" FROM "BusinessWesternUnionReceipt" WHERE "transactionNumber" = $1 OR "documentHash" = $2 LIMIT 1`,
+      transactionNumber,
+      documentHash,
+    );
+
+    const firstFindings = this.runWesternUnionFirstControl({
+      transactionNumber,
+      amountFcfa,
+      paymentDate,
+      submittedAt: new Date(),
+      senderCountry,
+      fileName,
+      mimeType,
+      fileSize,
+      width,
+      height,
+      existingDuplicate: existing[0] ?? null,
+      config,
+    });
+
+    const second = await this.runWesternUnionSecondControl({
+      imageBuffer,
+      transactionNumber,
+      amountFcfa,
+      paymentDate,
+      beneficiaryFullName: config.beneficiaryFullName,
+    });
+    const findings = this.uniqueFindings([...firstFindings, ...second.findings]);
+    const riskScore = westernUnionRiskScore(findings);
+    const status = findings.some(item => item.severity === 'critical')
+      ? 'rejected'
+      : findings.some(item => item.severity === 'warning')
+        ? 'pending_manual_review'
+        : 'approved';
+
+    const id = randomUUID();
+    const submittedAt = new Date();
+    const audit = {
+      firstControlAt: submittedAt.toISOString(),
+      secondControlAt: new Date().toISOString(),
+      controls: ['technical_integrity', 'ocr_field_coherence'],
+      note: 'Les contrôles automatiques ne constituent pas une preuve absolue. Les cas suspects restent vérifiés manuellement.',
+      findings,
+      riskScore,
+      riskLevel: westernUnionRiskLevel(riskScore),
+      riskReasons: findings.filter(item => item.severity !== 'info').map(item => item.label).slice(0, 8),
+      enterpriseBenefits: this.enterpriseBenefits(config),
+    };
+    await this.prisma.$executeRawUnsafe(
+      `INSERT INTO "BusinessWesternUnionReceipt"
+       ("id", "userId", "transactionNumber", "documentHash", "amountFcfa", "senderFullName", "senderCountry", "paymentDate", "submittedAt", "status", "beneficiarySnapshot", "documentMeta", "audit", "ocrText", "receiptDataUrl")
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb,$14,$15)`,
+      id,
+      userId,
+      transactionNumber,
+      documentHash,
+      amountFcfa,
+      senderFullName,
+      senderCountry,
+      paymentDate,
+      submittedAt,
+      status,
+      JSON.stringify(config),
+      JSON.stringify({ fileName, mimeType, fileSize, width, height }),
+      JSON.stringify(audit),
+      second.ocrText,
+      receiptDataUrl,
+    );
+
+    if (status === 'approved') {
+      await this.activateWesternUnionEnterprisePlan(userId, config, id);
+      await this.sendWesternUnionConfirmation(userId, config).catch(() => null);
+    }
+
+    return {
+      receipt: {
+        id,
+        transactionNumber,
+        amountFcfa,
+        submittedAt: submittedAt.toISOString(),
+        status,
+        findings,
+      },
+      access: await this.getAccess(userId),
+      message: status === 'approved'
+        ? 'Paiement reçu et forfait entreprise activé pour un mois.'
+        : status === 'pending_manual_review'
+          ? 'Reçu enregistré. Une vérification manuelle est nécessaire avant activation.'
+          : 'Reçu refusé automatiquement à cause d’une incohérence critique.',
+    };
+  }
+
+  async getWesternUnionReceiptsForAdmin() {
+    await this.ensureWesternUnionReceiptTable();
+    return this.prisma.$queryRawUnsafe<any[]>(
+      `SELECT r."id", r."userId", u."name", u."email", u."phone", r."transactionNumber", r."amountFcfa",
+              r."senderFullName", r."senderCountry", r."paymentDate", r."submittedAt", r."status",
+              r."documentMeta", r."audit", r."ocrText", r."receiptDataUrl"
+       FROM "BusinessWesternUnionReceipt" r
+       LEFT JOIN "User" u ON u."id" = r."userId"
+       ORDER BY r."submittedAt" DESC
+       LIMIT 100`,
+    );
+  }
+
+  private async activateWesternUnionEnterprisePlan(userId: string, config: BusinessWesternUnionConfig, receiptId: string) {
+    const current = await this.prisma.businessSubscription.findUnique({ where: { userId } });
+    const base = current?.activeUntil && current.activeUntil.getTime() > Date.now() ? current.activeUntil : new Date();
+    const activeUntil = new Date(base);
+    activeUntil.setMonth(activeUntil.getMonth() + 1);
+    await this.prisma.$transaction(async tx => {
+      await tx.businessSubscription.upsert({
+        where: { userId },
+        create: { userId, active: true, activeUntil },
+        update: { active: true, activeUntil },
+      });
+      await tx.aiWallet.upsert({
+        where: { userId },
+        create: {
+          userId,
+          wordsRemaining: config.dailyAiWords,
+          valueRemainingFcfa: 0,
+          wordsConsumed: 0,
+          totalResponses: 0,
+        },
+        update: {
+          wordsRemaining: { increment: config.dailyAiWords },
+          valueRemainingFcfa: 0,
+        },
+      });
+      await tx.user.update({
+        where: { id: userId },
+        data: { isPremium: true, premiumUntil: activeUntil },
+      });
+      await tx.businessSubscriptionPayment.create({
+        data: {
+          userId,
+          reference: `wu-business-${receiptId}`,
+          amountFcfa: config.minimumAmountFcfa,
+          months: 1,
+          status: 'success',
+          paidAt: new Date(),
+        },
+      });
+    });
+  }
+
+  private async sendWesternUnionConfirmation(userId: string, config: BusinessWesternUnionConfig) {
+    const official = await this.ensureOfficialSystemUser();
+    const conv = await this.ensureDirectConversation(official.id, userId);
+    await this.prisma.message.create({
+      data: {
+        conversationId: conv.id,
+        senderId: official.id,
+        type: 'text',
+        content: [
+          'Paiement Western Union reçu et validé.',
+          `Votre forfait entreprise Oracle Messenger est actif pour un mois.`,
+          `Accès : ${config.conferenceSessionsPerWeek} session conférence/semaine, ${config.aiVideos45sPerWeek} vidéos 45s/semaine, ${config.flyersPerWeek} flyers/semaine, IA ${config.dailyAiWords.toLocaleString('fr-FR')} mots/jour, badge bleu vérifié et assistance directe administrateur.`,
+          'La bibliothèque reste exclue du forfait.',
+        ].join('\n'),
+      },
+    });
   }
 
   async saveClient(ownerId: string, dto: {
@@ -239,7 +568,7 @@ export class BusinessService {
           `Rappel: ${reminder.title}`,
           reminder.note ? `Message ou note source: ${reminder.note}` : '',
           reminder.client?.notes ? `Mémoire CRM courte: ${reminder.client.notes.slice(-900)}` : '',
-          'Écris une relance commerciale polie, directe et naturelle. Respecte le nombre maximum de mots configuré dans Gemini.',
+          'Écris une relance commerciale polie, directe et naturelle. Respecte le nombre maximum de mots configuré pour l’agent virtuel.',
         ].filter(Boolean).join('\n'),
       });
     }
@@ -356,6 +685,214 @@ export class BusinessService {
         ? 'Abonnement Business requis.'
         : 'Crédit IA insuffisant pour les actions Business.');
     }
+  }
+
+  private enterpriseBenefits(config: BusinessWesternUnionConfig) {
+    return {
+      plan: 'Forfait entreprise',
+      amountFcfa: config.minimumAmountFcfa,
+      duration: '1 mois',
+      dailyAiWords: config.dailyAiWords,
+      conferenceSessionsPerWeek: config.conferenceSessionsPerWeek,
+      aiVideos45sPerWeek: config.aiVideos45sPerWeek,
+      flyersPerWeek: config.flyersPerWeek,
+      blueVerifiedBadge: config.blueVerifiedBadge,
+      directAdminAssistance: config.directAdminAssistance,
+      libraryIncluded: false,
+    };
+  }
+
+  private async ensureWesternUnionReceiptTable() {
+    await this.prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "BusinessWesternUnionReceipt" (
+        "id" TEXT PRIMARY KEY,
+        "userId" TEXT NOT NULL,
+        "transactionNumber" TEXT NOT NULL,
+        "documentHash" TEXT NOT NULL,
+        "amountFcfa" INTEGER NOT NULL,
+        "senderFullName" TEXT NOT NULL,
+        "senderCountry" TEXT,
+        "paymentDate" TIMESTAMP(3) NOT NULL,
+        "submittedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "status" TEXT NOT NULL DEFAULT 'pending_manual_review',
+        "beneficiarySnapshot" JSONB NOT NULL,
+        "documentMeta" JSONB NOT NULL,
+        "audit" JSONB NOT NULL,
+        "ocrText" TEXT,
+        "receiptDataUrl" TEXT NOT NULL
+      )
+    `);
+    await this.prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "BusinessWesternUnionReceipt_transaction_uq" ON "BusinessWesternUnionReceipt" ("transactionNumber")`);
+    await this.prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "BusinessWesternUnionReceipt_hash_uq" ON "BusinessWesternUnionReceipt" ("documentHash")`);
+    await this.prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BusinessWesternUnionReceipt_user_idx" ON "BusinessWesternUnionReceipt" ("userId", "submittedAt" DESC)`);
+  }
+
+  private dataUrlToBuffer(dataUrl: string) {
+    const match = dataUrl.match(/^data:image\/[a-z0-9.+-]+;base64,(.+)$/i);
+    if (!match) throw new BadRequestException('Photo de reçu invalide.');
+    return Buffer.from(match[1], 'base64');
+  }
+
+  private runWesternUnionFirstControl(input: {
+    transactionNumber: string;
+    amountFcfa: number;
+    paymentDate: Date;
+    submittedAt: Date;
+    senderCountry: string;
+    fileName: string;
+    mimeType: string;
+    fileSize: number;
+    width: number;
+    height: number;
+    existingDuplicate: { id: string; transactionNumber: string; documentHash: string } | null;
+    config: BusinessWesternUnionConfig;
+  }): WesternUnionFinding[] {
+    const findings: WesternUnionFinding[] = [];
+    const fileName = input.fileName.toLowerCase();
+    const sameDay = input.paymentDate.toISOString().slice(0, 10) === input.submittedAt.toISOString().slice(0, 10);
+    const ratio = input.width && input.height ? Math.max(input.width, input.height) / Math.max(1, Math.min(input.width, input.height)) : 0;
+    if (!/^[A-Z0-9-]{6,30}$/.test(input.transactionNumber)) {
+      findings.push({ code: 'transaction_format', label: 'Numéro de transaction invalide ou incomplet.', severity: 'critical' });
+    }
+    if (input.amountFcfa < input.config.minimumAmountFcfa) {
+      findings.push({ code: 'amount_too_low', label: 'Montant inférieur au forfait entreprise requis.', severity: 'critical' });
+    }
+    if (!sameDay) {
+      findings.push({ code: 'not_same_day', label: 'Le reçu doit être envoyé le jour même du paiement.', severity: 'critical' });
+    }
+    if (this.isCoteDIvoireCountry(input.senderCountry)) {
+      findings.push({ code: 'country_not_allowed', label: "Western Union est réservé aux utilisateurs hors de Côte d'Ivoire.", severity: 'critical' });
+    }
+    if (fileName.includes('screenshot') || fileName.includes('capture') || fileName.includes('screen')) {
+      findings.push({ code: 'screenshot_file_name', label: 'Le fichier ressemble à une capture d’écran.', severity: 'critical' });
+    }
+    if (input.mimeType && !input.mimeType.startsWith('image/')) {
+      findings.push({ code: 'mime_not_image', label: 'Le reçu doit être une photo originale.', severity: 'critical' });
+    }
+    if (input.fileSize > 0 && input.fileSize < 35_000) {
+      findings.push({ code: 'abnormal_compression', label: 'Compression anormalement faible pour une photo de reçu.', severity: 'warning' });
+    }
+    if (ratio > 3.2) {
+      findings.push({ code: 'suspicious_crop', label: 'Recadrage inhabituel détecté.', severity: 'warning' });
+    }
+    if (input.existingDuplicate) {
+      findings.push({ code: 'duplicate_receipt', label: 'Numéro de transaction ou document déjà utilisé.', severity: 'critical' });
+    }
+    return findings;
+  }
+
+  private async runWesternUnionSecondControl(input: {
+    imageBuffer: Buffer;
+    transactionNumber: string;
+    amountFcfa: number;
+    paymentDate: Date;
+    beneficiaryFullName: string;
+  }): Promise<{ ocrText: string; findings: WesternUnionFinding[] }> {
+    const findings: WesternUnionFinding[] = [];
+    let ocrText = '';
+    try {
+      const worker = await createWorker('fra+eng');
+      const result = await worker.recognize(input.imageBuffer);
+      await worker.terminate();
+      ocrText = String(result?.data?.text ?? '').trim();
+    } catch {
+      findings.push({ code: 'ocr_failed', label: 'OCR non concluant : vérification manuelle requise.', severity: 'warning' });
+      return { ocrText, findings };
+    }
+    const normalized = this.normalizeForReceiptMatch(ocrText);
+    if (ocrText.length < 40) {
+      findings.push({ code: 'ocr_text_too_short', label: 'Le texte OCR extrait est insuffisant.', severity: 'warning' });
+    }
+    const transactionNeedle = this.normalizeForReceiptMatch(input.transactionNumber);
+    if (transactionNeedle && !normalized.includes(transactionNeedle)) {
+      findings.push({ code: 'transaction_not_found_ocr', label: 'Le numéro de transaction n’est pas confirmé par OCR.', severity: 'warning' });
+    }
+    const amountNeedle = String(input.amountFcfa);
+    const compactText = normalized.replace(/\D/g, '');
+    if (!compactText.includes(amountNeedle)) {
+      findings.push({ code: 'amount_not_found_ocr', label: 'Le montant n’est pas confirmé par OCR.', severity: 'warning' });
+    }
+    const beneficiaryTokens = this.normalizeForReceiptMatch(input.beneficiaryFullName).split(/\s+/).filter(token => token.length >= 4);
+    const matchedTokens = beneficiaryTokens.filter(token => normalized.includes(token));
+    if (beneficiaryTokens.length && matchedTokens.length < Math.min(2, beneficiaryTokens.length)) {
+      findings.push({ code: 'beneficiary_not_confirmed_ocr', label: 'Le bénéficiaire n’est pas clairement confirmé par OCR.', severity: 'warning' });
+    }
+    return { ocrText, findings };
+  }
+
+  private uniqueFindings(findings: WesternUnionFinding[]) {
+    const seen = new Set<string>();
+    return findings.filter(finding => {
+      if (seen.has(finding.code)) return false;
+      seen.add(finding.code);
+      return true;
+    });
+  }
+
+  private normalizeForReceiptMatch(value: string) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[’']/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  }
+
+  private isCoteDIvoireCountry(value?: string | null) {
+    const normalized = this.normalizeForReceiptMatch(String(value ?? '')).replace(/\s+/g, '');
+    return normalized === 'ci' || normalized === 'cotedivoire' || normalized === 'coteivoire';
+  }
+
+  private isCoteDIvoireUser(phone?: string | null) {
+    return this.normalizePhone(phone).startsWith('+225');
+  }
+
+  private async ensureOfficialSystemUser() {
+    const googleId = 'system-oracle-business';
+    return this.prisma.user.upsert({
+      where: { googleId },
+      create: {
+        googleId,
+        email: 'business@oracle-messenger.local',
+        name: 'Oracle Messenger',
+        username: `oracle_business_${Date.now()}`,
+        avatar: '/icons/oracle-system-avatar.svg',
+        status: 'online',
+      },
+      update: {
+        name: 'Oracle Messenger',
+        avatar: '/icons/oracle-system-avatar.svg',
+        status: 'online',
+      },
+    });
+  }
+
+  private async ensureDirectConversation(systemUserId: string, userId: string) {
+    const existing = await this.prisma.conversation.findFirst({
+      where: {
+        type: 'direct',
+        participants: {
+          every: { userId: { in: [systemUserId, userId] } },
+        },
+      },
+      include: { participants: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (existing && existing.participants.some(p => p.userId === systemUserId) && existing.participants.some(p => p.userId === userId)) {
+      return existing;
+    }
+    return this.prisma.conversation.create({
+      data: {
+        type: 'direct',
+        participants: {
+          create: [
+            { userId: systemUserId, role: 'admin' },
+            { userId },
+          ],
+        },
+      },
+    });
   }
 
   private cleanOptional(value: unknown, max: number) {

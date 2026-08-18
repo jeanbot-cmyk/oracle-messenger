@@ -192,7 +192,7 @@ export function ProfilePage({ session, onLogout, onBack }: { session: AuthSessio
               disabled={busy}
               style={styles.profileAvatar}
             >
-              {displayAvatar ? <Image source={{ uri: displayAvatar }} style={styles.avatarImage} /> : <Text style={styles.profileAvatarText}>{initials(name || user.name)}</Text>}
+              {displayAvatar ? <Image source={{ uri: displayAvatar }} style={styles.avatarImage} resizeMode="cover" /> : <Text style={styles.profileAvatarText}>{initials(name || user.name)}</Text>}
             </Pressable>
             <Pressable
               accessibilityRole="button"
@@ -312,14 +312,14 @@ const styles = StyleSheet.create({
   headerBar: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8 },
   backCircle: { width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' },
   pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
-  headerTitle: { flex: 1, color: '#FFFFFF', fontSize: 17, lineHeight: 21, fontWeight: '900' },
+  headerTitle: { flex: 1, color: colors.onHeader, fontSize: 17, lineHeight: 21, fontWeight: '900' },
   headerSave: { minHeight: 38, borderRadius: 0, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 0 },
   headerSaveText: { color: '#FFFFFF', fontSize: 13.5, lineHeight: 17, fontWeight: '900' },
   disabled: { opacity: 0.58 },
   avatarImage: { width: '100%', height: '100%' },
   profileHero: { alignItems: 'center', gap: 8, paddingTop: 8 },
   profileAvatarWrap: { width: 76, height: 76, position: 'relative' },
-  profileAvatar: { width: 76, height: 76, borderRadius: 38, backgroundColor: 'rgba(255,255,255,0.30)', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(255,255,255,0.48)', overflow: 'hidden' },
+  profileAvatar: { width: 76, height: 76, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.30)', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(255,255,255,0.48)', overflow: 'hidden' },
   profileAvatarText: { color: '#FFFFFF', fontWeight: '800', fontSize: 26 },
   cameraBubble: { position: 'absolute', right: -2, bottom: 2, width: 32, height: 32, borderRadius: 16, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
   photoHint: { color: 'rgba(255,255,255,0.86)', fontSize: 13, lineHeight: 18, fontWeight: '600', textAlign: 'center' },

@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Image, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Image, InteractionManager, Linking, Modal, Pressable, ScrollView, SectionList, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as Contacts from 'expo-contacts';
 import * as Crypto from 'expo-crypto';
-import { RefreshCw, Search, Trash2, UserPlus, X } from 'lucide-react-native';
+import { MessageCircle, Phone, RefreshCw, Search, Trash2, UserPlus, Video, X } from 'lucide-react-native';
 import { FRONTEND_URL } from '@/config/env';
 import { NativePhotoViewer } from '@/screens/home/NativePhotoViewer';
-import { highQualityImageUri } from '@/screens/home/homeUtils';
+import { fastAvatarUri, highQualityImageUri } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
 import { colors } from '@/theme/colors';
 import type { Conversation, User } from '@/types/messenger';
@@ -37,6 +37,8 @@ type InvitePhoneStatus = {
 const CONTACT_CACHE_KEY = 'oracle-native-contacts';
 const MANUAL_CONTACT_KEY = 'oracle-native-manual-contacts';
 const HIDDEN_CONTACT_KEY = 'oracle-native-hidden-contacts';
+const CONTACT_SYNC_META_KEY = 'oracle-native-contacts-sync-meta';
+const CONTACT_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const ORACLE_MESSENGER_ICON = require('../../../assets/icon.png');
 const INTERNATIONAL_DIAL_CODES = [
   '225', '237', '221', '223', '226', '224', '228', '229', '227',
@@ -238,8 +240,6 @@ function matchesContact(contact: EnrichedContact, query: string) {
     contact.local.name,
     ...contact.local.phones,
     ...contact.local.emails,
-    contact.appUser?.name,
-    contact.appUser?.username,
     contact.appUser?.phone,
     contact.appUser?.email,
   ].filter(Boolean).some(value => String(value).toLowerCase().includes(needle));
@@ -286,6 +286,27 @@ async function writeHiddenContactKeys(key: string, values: string[]) {
   await AsyncStorage.setItem(key, JSON.stringify([...new Set(values.filter(Boolean))]));
 }
 
+async function readContactSyncMeta(userId: string) {
+  try {
+    const parsed = JSON.parse(await AsyncStorage.getItem(`${CONTACT_SYNC_META_KEY}:${userId}`) || '{}');
+    return typeof parsed === 'object' && parsed ? parsed as { refreshedAt?: number; importedCount?: number } : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeContactSyncMeta(userId: string, importedCount: number) {
+  await AsyncStorage.setItem(`${CONTACT_SYNC_META_KEY}:${userId}`, JSON.stringify({
+    refreshedAt: Date.now(),
+    importedCount,
+  }));
+}
+
+function shouldRefreshDeviceContacts(meta: { refreshedAt?: number }) {
+  const refreshedAt = Number(meta.refreshedAt || 0);
+  return !refreshedAt || Date.now() - refreshedAt > CONTACT_REFRESH_INTERVAL_MS;
+}
+
 function filterHiddenContacts(contacts: LocalContact[], hiddenKeys: string[]) {
   const hidden = new Set(hiddenKeys);
   return contacts.filter(contact => !hidden.has(contactIdentityKey(contact)));
@@ -299,25 +320,33 @@ function buildInviteMessage(contact: LocalContact, user: User) {
   return { link, msg, text: `${msg}\n${link}` };
 }
 
+function isRealtimeOnlineUser(user?: User | null) {
+  return String(user?.status || '').toLowerCase() === 'online';
+}
+
 function LocalContactRow({
   contact,
   creating,
   onPress,
+  onStartCall,
   onDelete,
   onAvatarPress,
 }: {
   contact: EnrichedContact;
   creating: boolean;
   onPress: () => void;
+  onStartCall?: (type: 'audio' | 'video') => void;
   onDelete: (contact: EnrichedContact) => void;
-  onAvatarPress: (preview: { uri?: string | null; name: string }) => void;
+  onAvatarPress: (preview: { uri?: string | null; name: string; contact: EnrichedContact }) => void;
 }) {
   const { local, appUser } = contact;
-  const avatar = highQualityImageUri(appUser?.avatar || local.avatar) || appUser?.avatar || local.avatar;
+  const avatarSource = appUser?.avatar || local.avatar;
+  const avatar = fastAvatarUri(avatarSource) || avatarSource;
+  const previewAvatar = highQualityImageUri(avatarSource) || avatarSource;
   const displayName = (local.name.trim() || appUser?.name || 'Contact').replace(/^@+/, '');
-  const appUserOnline = String(appUser?.status || '').toLowerCase() === 'online';
+  const appUserOnline = isRealtimeOnlineUser(appUser);
   const displaySub = appUser
-    ? normalizeUsername(appUser.username) || appUser.phone || appUser.email || 'Envoyez-lui un message'
+    ? local.phones.join(', ') || local.emails[0] || 'Contact Oracle Messenger'
     : local.phones.join(', ') || local.emails[0] || 'Pas encore inscrit';
   return (
     <Pressable
@@ -331,13 +360,13 @@ function LocalContactRow({
         accessibilityLabel={`Photo de ${displayName}`}
         onPress={event => {
           event.stopPropagation();
-          onAvatarPress({ uri: avatar, name: displayName });
+          onAvatarPress({ uri: previewAvatar, name: displayName, contact });
         }}
         hitSlop={8}
         style={styles.localAvatarWrap}
       >
         <View style={styles.localAvatar}>
-          {avatar ? <Image source={{ uri: avatar }} style={styles.localAvatarImage} /> : <Text style={styles.localAvatarText}>{initials(displayName)}</Text>}
+          {avatar ? <Image source={{ uri: avatar, cache: 'force-cache' }} style={styles.localAvatarImage} resizeMode="cover" /> : <Text style={styles.localAvatarText}>{initials(displayName)}</Text>}
         </View>
         {appUserOnline ? <View style={styles.onlineDot} /> : null}
       </Pressable>
@@ -345,7 +374,38 @@ function LocalContactRow({
         <Text numberOfLines={1} style={styles.localRowTitle}>{displayName}</Text>
         <Text numberOfLines={1} style={styles.localRowSub}>{displaySub}</Text>
       </View>
-      <Text style={[styles.localRowAction, appUser ? styles.writeAction : styles.inviteAction]}>{appUser ? 'Écrire' : 'Inviter'}</Text>
+      {appUser && onStartCall ? (
+        <View style={styles.localCallActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Appel audio avec ${displayName}`}
+            disabled={creating}
+            onPress={event => {
+              event.stopPropagation();
+              onStartCall('audio');
+            }}
+            hitSlop={8}
+            style={[styles.localCallButton, creating && styles.disabledButton]}
+          >
+            <Phone size={17} color={colors.header} strokeWidth={2.4} />
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Appel vidéo avec ${displayName}`}
+            disabled={creating}
+            onPress={event => {
+              event.stopPropagation();
+              onStartCall('video');
+            }}
+            hitSlop={8}
+            style={[styles.localCallButton, creating && styles.disabledButton]}
+          >
+            <Video size={17} color={colors.header} strokeWidth={2.4} />
+          </Pressable>
+        </View>
+      ) : (
+        <Text style={[styles.localRowAction, appUser ? styles.writeAction : styles.inviteAction]}>{appUser ? 'Écrire' : 'Inviter'}</Text>
+      )}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Supprimer ${displayName}`}
@@ -366,13 +426,17 @@ function LocalContactRow({
 export function ContactsPage({
   token,
   user,
+  initialAutoImportKey,
   onOpenConversation,
+  onStartCallFromPeer,
   onRefreshConversations,
   onBack,
 }: {
   token: string;
   user: User;
+  initialAutoImportKey?: number;
   onOpenConversation: (conversation: Conversation) => void;
+  onStartCallFromPeer?: (peerId: string, type: 'audio' | 'video') => Promise<void>;
   onRefreshConversations: () => Promise<void>;
   onBack?: () => void;
 }) {
@@ -389,15 +453,29 @@ export function ContactsPage({
   const [newPhone, setNewPhone] = useState('');
   const [inviteContact, setInviteContact] = useState<LocalContact | null>(null);
   const [invitePhone, setInvitePhone] = useState('');
-  const [avatarPreview, setAvatarPreview] = useState<{ uri?: string | null; name: string } | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<{ uri?: string | null; name: string; contact: EnrichedContact } | null>(null);
+  const [contactsRestored, setContactsRestored] = useState(false);
+  const lastAutoImportKeyRef = useRef(0);
 
   const cacheKey = `${CONTACT_CACHE_KEY}:${user.id}`;
   const manualKey = `${MANUAL_CONTACT_KEY}:${user.id}`;
   const hiddenKey = `${HIDDEN_CONTACT_KEY}:${user.id}`;
   const visibleContacts = useMemo(() => enrichedContacts.filter(contact => matchesContact(contact, query)), [enrichedContacts, query]);
-  const oracleContacts = visibleContacts.filter(contact => contact.appUser);
-  const inviteContacts = visibleContacts.filter(contact => !contact.appUser);
+  const oracleContactCount = useMemo(() => enrichedContacts.filter(contact => contact.appUser).length, [enrichedContacts]);
+  const inviteContactCount = useMemo(() => enrichedContacts.filter(contact => !contact.appUser).length, [enrichedContacts]);
+  const contactSections = useMemo(() => {
+    const oracleContacts = visibleContacts.filter(contact => contact.appUser);
+    const inviteContacts = visibleContacts.filter(contact => !contact.appUser);
+    return [
+      ...(oracleContacts.length ? [{ title: 'Contacts sur Oracle', data: oracleContacts }] : []),
+      ...(inviteContacts.length ? [{ title: 'Contacts à inviter', data: inviteContacts }] : []),
+    ];
+  }, [visibleContacts]);
   const selectedInvitePhone = inviteContact ? invitePhoneStatus(invitePhone) : null;
+  const firstVisitGreeting = useMemo(() => {
+    const name = (user.name || user.username || '').replace(/^@+/, '').trim();
+    return name ? `Bonjour ${name}` : 'Bienvenue';
+  }, [user.name, user.username]);
 
   const matchLocalContacts = useCallback(async (locals: LocalContact[], background = false) => {
     if (!token || !locals.length) return;
@@ -421,36 +499,53 @@ export function ContactsPage({
   useEffect(() => {
     let active = true;
     async function restoreContacts() {
-      const cached = await readStoredContacts(cacheKey);
-      const manual = await readStoredContacts(manualKey);
-      const hidden = await readHiddenContactKeys(hiddenKey);
-      let restored = mergeContacts(filterHiddenContacts(cached, hidden), filterHiddenContacts(manual, hidden));
-      if (!restored.length) {
-        const permission = await Contacts.getPermissionsAsync().catch(() => null);
-        if (permission?.granted) {
-          const deviceContacts = await readDeviceContacts().catch(() => []);
-          const visibleDeviceContacts = filterHiddenContacts(deviceContacts, hidden);
-          restored = mergeContacts(visibleDeviceContacts, filterHiddenContacts(manual, hidden));
-          if (deviceContacts.length) await writeStoredContacts(cacheKey, visibleDeviceContacts);
+      setContactsRestored(false);
+      try {
+        const [cached, manual, hidden, meta] = await Promise.all([
+          readStoredContacts(cacheKey),
+          readStoredContacts(manualKey),
+          readHiddenContactKeys(hiddenKey),
+          readContactSyncMeta(user.id),
+        ]);
+        let restored = mergeContacts(filterHiddenContacts(cached, hidden), filterHiddenContacts(manual, hidden));
+        if (!restored.length && shouldRefreshDeviceContacts(meta)) {
+          const permission = await Contacts.getPermissionsAsync().catch(() => null);
+          if (permission?.granted) {
+            const deviceContacts = await readDeviceContacts().catch(() => []);
+            const visibleDeviceContacts = filterHiddenContacts(deviceContacts, hidden);
+            restored = mergeContacts(visibleDeviceContacts, filterHiddenContacts(manual, hidden));
+            if (deviceContacts.length) {
+              await writeStoredContacts(cacheKey, visibleDeviceContacts);
+              await writeContactSyncMeta(user.id, visibleDeviceContacts.flatMap(contact => contact.phones).length);
+            }
+          }
         }
+        if (!active) return;
+        if (!restored.length && meta.refreshedAt) {
+          setImported(true);
+          setImportedCount(Number(meta.importedCount || 0));
+          return;
+        }
+        if (!restored.length) return;
+        setLocalContacts(restored);
+        setEnrichedContacts(localOnlyContacts(restored));
+        setImported(true);
+        setImportedCount(restored.flatMap(contact => contact.phones).length);
+        void matchLocalContacts(restored, true);
+      } finally {
+        if (active) setContactsRestored(true);
       }
-      if (!active || !restored.length) return;
-      setLocalContacts(restored);
-      setEnrichedContacts(localOnlyContacts(restored));
-      setImported(true);
-      setImportedCount(restored.flatMap(contact => contact.phones).length);
-      void matchLocalContacts(restored, true);
     }
     void restoreContacts();
     return () => {
       active = false;
     };
-  }, [cacheKey, hiddenKey, manualKey, matchLocalContacts]);
+  }, [cacheKey, hiddenKey, manualKey, matchLocalContacts, user.id]);
 
   const createConversation = useCallback(async (contact: User) => {
     setBusy(true);
     setNotice('');
-    setActionNotice(`Ouverture de la conversation avec ${contact.name || 'ce contact'}...`);
+    setActionNotice('Ouverture de la conversation...');
     try {
       const conversation = await api.createConversation(contact.id, token);
       await onRefreshConversations();
@@ -463,13 +558,27 @@ export function ContactsPage({
     }
   }, [onOpenConversation, onRefreshConversations, token]);
 
-  const importContacts = useCallback(async () => {
+  const importContacts = useCallback(async (options?: { requestPermission?: boolean } | unknown) => {
+    const requestPermission = Boolean(
+      !options ||
+      typeof options !== 'object' ||
+      !('requestPermission' in options) ||
+      (options as { requestPermission?: boolean }).requestPermission !== false,
+    );
     setBusy(true);
     setNotice('');
     setActionNotice('Recherche de vos amis sur Oracle Messenger...');
     try {
-      const permission = await Contacts.requestPermissionsAsync();
-      if (!permission.granted) {
+      const currentPermission = await Contacts.getPermissionsAsync().catch(() => null);
+      const permission = currentPermission?.granted
+        ? currentPermission
+        : requestPermission && currentPermission?.canAskAgain !== false
+          ? await Contacts.requestPermissionsAsync()
+          : currentPermission;
+      if (!permission?.granted) {
+        setImported(true);
+        setImportedCount(0);
+        await writeContactSyncMeta(user.id, 0);
         setNotice('Autorisez les contacts dans Android pour retrouver automatiquement vos proches inscrits sur Oracle Messenger.');
         return;
       }
@@ -480,9 +589,10 @@ export function ContactsPage({
       const all = mergeContacts(visibleDeviceContacts, manual);
       setLocalContacts(all);
       setEnrichedContacts(localOnlyContacts(all));
-      setImported(Boolean(all.length));
+      setImported(true);
       setImportedCount(visibleDeviceContacts.flatMap(contact => contact.phones).length);
       await writeStoredContacts(cacheKey, visibleDeviceContacts);
+      await writeContactSyncMeta(user.id, visibleDeviceContacts.flatMap(contact => contact.phones).length);
       if (!all.length) {
         setActionNotice('');
         setNotice('Aucun contact avec numéro ou email n’a été trouvé dans ce téléphone.');
@@ -495,7 +605,33 @@ export function ContactsPage({
       setActionNotice('');
       setBusy(false);
     }
-  }, [cacheKey, hiddenKey, manualKey, matchLocalContacts]);
+  }, [cacheKey, hiddenKey, manualKey, matchLocalContacts, user.id]);
+
+  useEffect(() => {
+    if (!contactsRestored) return;
+    if (!initialAutoImportKey || lastAutoImportKeyRef.current === initialAutoImportKey) return;
+    lastAutoImportKeyRef.current = initialAutoImportKey;
+    if (imported) {
+      setActionNotice(localContacts.length ? 'Contacts déjà importés. Synchronisation discrète en arrière-plan.' : '');
+      if (localContacts.length) void matchLocalContacts(localContacts, true);
+      return;
+    }
+    void importContacts();
+  }, [contactsRestored, importContacts, imported, initialAutoImportKey, localContacts, matchLocalContacts]);
+
+  useEffect(() => {
+    if (!visibleContacts.length) return undefined;
+    const task = InteractionManager.runAfterInteractions(() => {
+      visibleContacts
+        .slice(0, 48)
+        .map(contact => fastAvatarUri(contact.appUser?.avatar || contact.local.avatar))
+        .filter((uri): uri is string => Boolean(uri))
+        .forEach(uri => {
+          Image.prefetch(uri).catch(() => undefined);
+        });
+    });
+    return () => task.cancel();
+  }, [visibleContacts]);
 
   const startInvite = useCallback((contact: LocalContact) => {
     setInviteContact(contact);
@@ -513,6 +649,48 @@ export function ContactsPage({
       setActionNotice('Numéro incomplet. Ajoutez le code pays au numéro de votre contact avant de continuer.');
     }
   }, [createConversation, startInvite]);
+
+  const handleLocalContactCall = useCallback(async (contact: EnrichedContact, type: 'audio' | 'video') => {
+    if (!contact.appUser?.id || !onStartCallFromPeer) return;
+    setBusy(true);
+    setNotice('');
+    setActionNotice(`Appel ${type === 'video' ? 'vidéo' : 'audio'} vers ${contact.local.name || 'ce contact'}...`);
+    try {
+      await onStartCallFromPeer(contact.appUser.id, type);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Appel impossible.');
+    } finally {
+      setActionNotice('');
+      setBusy(false);
+    }
+  }, [onStartCallFromPeer]);
+
+  const handlePhoneCallFromPreview = useCallback((contact: EnrichedContact) => {
+    const phone = contact.local.phones[0]?.replace(/[^\d+]/g, '');
+    if (!phone) {
+      setNotice('Aucun numéro disponible pour ce contact.');
+      return;
+    }
+    Linking.openURL(`tel:${phone}`).catch(() => setNotice('Appel téléphone impossible.'));
+  }, []);
+
+  const closeAvatarAndMessage = useCallback((contact: EnrichedContact) => {
+    setAvatarPreview(null);
+    requestAnimationFrame(() => {
+      void handleLocalContactPress(contact);
+    });
+  }, [handleLocalContactPress]);
+
+  const closeAvatarAndCall = useCallback((contact: EnrichedContact, type: 'audio' | 'video') => {
+    setAvatarPreview(null);
+    requestAnimationFrame(() => {
+      if (contact.appUser) {
+        void handleLocalContactCall(contact, type);
+        return;
+      }
+      handlePhoneCallFromPreview(contact);
+    });
+  }, [handleLocalContactCall, handlePhoneCallFromPreview]);
 
   const addManualContact = useCallback(async () => {
     const typed = newPhone.trim();
@@ -595,12 +773,13 @@ export function ContactsPage({
                   writeHiddenContactKeys(hiddenKey, nextHidden),
                   writeStoredContacts(cacheKey, nextCached),
                   writeStoredContacts(manualKey, nextManual),
+                  writeContactSyncMeta(user.id, nextCached.flatMap(item => item.phones).length),
                   contact.appUser?.id ? api.deleteContact(contact.appUser.id, token).catch(() => null) : Promise.resolve(null),
                 ]);
                 const nextContacts = mergeContacts(nextCached, nextManual);
                 setLocalContacts(nextContacts);
                 setEnrichedContacts(localOnlyContacts(nextContacts));
-                setImported(Boolean(nextContacts.length));
+                setImported(true);
                 setImportedCount(nextContacts.flatMap(item => item.phones).length);
                 if (nextContacts.length) void matchLocalContacts(nextContacts, true);
                 setActionNotice('Contact supprimé de ce compte.');
@@ -614,7 +793,7 @@ export function ContactsPage({
         },
       ],
     );
-  }, [cacheKey, hiddenKey, manualKey, matchLocalContacts, token]);
+  }, [cacheKey, hiddenKey, manualKey, matchLocalContacts, token, user.id]);
 
   const shareInvite = useCallback(async () => {
     if (!inviteContact) return;
@@ -680,6 +859,7 @@ export function ContactsPage({
             {imported ? (
               <Text numberOfLines={1} maxFontSizeMultiplier={1.04} style={styles.inviteHeaderSubtitle}>
                 {localContacts.length} contact{localContacts.length !== 1 ? 's' : ''}
+                {localContacts.length ? ` · ${oracleContactCount} sur Oracle · ${inviteContactCount} à inviter` : ''}
               </Text>
             ) : null}
           </View>
@@ -694,16 +874,18 @@ export function ContactsPage({
               <RefreshCw size={18} color="#FFFFFF" strokeWidth={2.2} />
             </Pressable>
           ) : null}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Retrouver mes amis"
-            onPress={importContacts}
-            disabled={busy}
-            style={[styles.headerImportButton, busy && styles.disabledButton]}
-          >
-            <UserPlus size={17} color="#FFFFFF" strokeWidth={2.4} />
-            <Text numberOfLines={1} maxFontSizeMultiplier={1.04} style={styles.headerImportText}>Retrouver mes amis</Text>
-          </Pressable>
+          {!imported ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={imported ? 'Synchroniser les contacts' : 'Importer mes contacts'}
+              onPress={importContacts}
+              disabled={busy}
+              style={[styles.headerImportButton, busy && styles.disabledButton]}
+            >
+              <UserPlus size={17} color="#FFFFFF" strokeWidth={2.4} />
+              <Text numberOfLines={1} maxFontSizeMultiplier={1.04} style={styles.headerImportText}>{imported ? 'Synchroniser' : 'Importer mes contacts'}</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
 
@@ -729,74 +911,86 @@ export function ContactsPage({
             ) : null}
           </View>
           <Pressable onPress={() => setShowAdd(true)} disabled={busy} style={[styles.manualButton, busy && styles.disabledButton]}>
-            <Text maxFontSizeMultiplier={1.05} style={styles.manualButtonText}>+ Ajouter un contact manuellement</Text>
+            <Text maxFontSizeMultiplier={1.05} style={styles.manualButtonText}>+ Ajouter manuellement</Text>
           </Pressable>
-          {importedCount ? <Text style={styles.cardMeta}>{importedCount} numéro(s) lus dans le carnet local.</Text> : null}
+          <Text style={styles.cardMeta}>
+            {importedCount
+              ? `${importedCount} numéro(s) lus · ${oracleContactCount} contact(s) sur Oracle · ${inviteContactCount} à inviter`
+              : 'Les nouveaux contacts ajoutés au téléphone seront synchronisés automatiquement ou avec le bouton Synchroniser.'}
+          </Text>
         </View>
       ) : null}
 
-      <ScrollView
-        style={styles.body}
-        contentContainerStyle={!imported ? styles.firstVisitContent : styles.listContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        {!imported ? (
+      {!imported ? (
+        <ScrollView
+          style={styles.body}
+          contentContainerStyle={styles.firstVisitContent}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.firstVisitWrap}>
             <View style={styles.firstVisitCard}>
               <View style={styles.firstVisitBrand}>
                 <Image source={ORACLE_MESSENGER_ICON} style={styles.firstVisitBrandImage} />
               </View>
-              <Text maxFontSizeMultiplier={1.05} style={styles.firstVisitTitle}>Oracle Messenger</Text>
-              <Text maxFontSizeMultiplier={1.05} style={styles.firstVisitCopy}>Oracle Messenger vérifie et affiche les contacts enregistrés.</Text>
+              <Text maxFontSizeMultiplier={1.05} style={styles.firstVisitTitle}>{firstVisitGreeting}</Text>
+              <Text maxFontSizeMultiplier={1.05} style={styles.firstVisitCopy}>Importez vos contacts une seule fois. Ensuite Oracle Messenger synchronise discrètement les nouveaux contacts ajoutés au téléphone.</Text>
             </View>
             <Pressable onPress={importContacts} disabled={busy} style={[styles.invitePrimaryButton, busy && styles.disabledButton]}>
               <UserPlus size={18} color="#FFFFFF" strokeWidth={2.3} />
-              <Text maxFontSizeMultiplier={1.05} style={styles.invitePrimaryText}>Retrouver mes amis</Text>
+              <Text maxFontSizeMultiplier={1.05} style={styles.invitePrimaryText}>Importer mes contacts</Text>
             </Pressable>
             <Pressable onPress={() => setShowAdd(true)} disabled={busy} style={[styles.inviteSoftButton, busy && styles.disabledButton]}>
-              <Text maxFontSizeMultiplier={1.05} style={styles.inviteSoftText}>+ Ajouter un contact manuellement</Text>
+              <Text maxFontSizeMultiplier={1.05} style={styles.inviteSoftText}>+ Ajouter manuellement</Text>
             </Pressable>
             <Loading active={busy} />
           </View>
-        ) : (
-          <>
-            <Loading active={busy} />
-            {visibleContacts.length === 0 ? (
-              <View style={styles.emptyBlock}>
-                <Text style={styles.pageCopy}>{query ? `Aucun résultat pour « ${query} »` : 'Aucun contact trouvé.'}</Text>
-                <Pressable onPress={() => setShowAdd(true)} disabled={busy} style={[styles.emptyAddButton, busy && styles.disabledButton]}>
-                  <Text style={styles.emptyAddText}>+ Ajouter un contact</Text>
-                </Pressable>
-              </View>
-            ) : (
-              <View style={styles.contactListSurface}>
-                {oracleContacts.length > 0 ? (
-                  <View style={styles.contactGroup}>
-                    <Text style={styles.groupTitle}>Déjà sur Oracle Messenger</Text>
-                    {oracleContacts.map((contact, index) => (
-                      <LocalContactRow key={`oracle-${contactKey(contact.local)}-${index}`} contact={contact} creating={busy} onPress={() => handleLocalContactPress(contact)} onDelete={deleteLocalContact} onAvatarPress={setAvatarPreview} />
-                    ))}
-                  </View>
-                ) : null}
-                {inviteContacts.length > 0 ? (
-                  <View style={styles.contactGroup}>
-                    <Text style={styles.groupTitle}>À inviter</Text>
-                    {inviteContacts.map((contact, index) => (
-                      <LocalContactRow key={`invite-${contactKey(contact.local)}-${index}`} contact={contact} creating={busy} onPress={() => handleLocalContactPress(contact)} onDelete={deleteLocalContact} onAvatarPress={setAvatarPreview} />
-                    ))}
-                  </View>
-                ) : null}
-              </View>
-            )}
-          </>
-        )}
-      </ScrollView>
+        </ScrollView>
+      ) : (
+        <SectionList
+          style={styles.body}
+          contentContainerStyle={styles.listContent}
+          sections={contactSections}
+          keyExtractor={(contact, index) => `${contact.appUser ? 'oracle' : 'invite'}-${contactIdentityKey(contact.local)}-${index}`}
+          keyboardShouldPersistTaps="handled"
+          stickySectionHeadersEnabled={false}
+          initialNumToRender={18}
+          maxToRenderPerBatch={12}
+          updateCellsBatchingPeriod={48}
+          windowSize={8}
+          removeClippedSubviews
+          ListHeaderComponent={<Loading active={busy} />}
+          ListEmptyComponent={(
+            <View style={styles.emptyBlock}>
+              <Text style={styles.pageCopy}>{query ? `Aucun résultat pour « ${query} »` : 'Aucun contact trouvé.'}</Text>
+              <Pressable onPress={importContacts} disabled={busy} style={[styles.emptyAddButton, busy && styles.disabledButton]}>
+                <Text style={styles.emptyAddText}>Synchroniser les contacts</Text>
+              </Pressable>
+              <Pressable onPress={() => setShowAdd(true)} disabled={busy} style={[styles.emptyManualButton, busy && styles.disabledButton]}>
+                <Text style={styles.emptyManualText}>+ Ajouter manuellement</Text>
+              </Pressable>
+            </View>
+          )}
+          renderSectionHeader={({ section }) => (
+            <Text style={styles.groupTitle}>{section.title}</Text>
+          )}
+          renderItem={({ item: contact }) => (
+            <LocalContactRow
+              contact={contact}
+              creating={busy}
+              onPress={() => handleLocalContactPress(contact)}
+              onStartCall={contact.appUser ? type => void handleLocalContactCall(contact, type) : undefined}
+              onDelete={deleteLocalContact}
+              onAvatarPress={setAvatarPreview}
+            />
+          )}
+        />
+      )}
 
       <Modal visible={showAdd} transparent animationType="slide" onRequestClose={() => setShowAdd(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setShowAdd(false)}>
           <Pressable style={styles.sheet} onPress={event => event.stopPropagation()}>
             <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Ajouter un contact</Text>
+            <Text style={styles.sheetTitle}>Ajouter manuellement</Text>
             <TextInput value={newName} onChangeText={setNewName} placeholder="Nom (optionnel)" placeholderTextColor={colors.muted} style={styles.input} />
             <TextInput value={newPhone} onChangeText={setNewPhone} placeholder="Téléphone avec indicatif ou email" placeholderTextColor={colors.muted} autoCapitalize="none" style={styles.input} />
             <Text style={styles.pageCopy}>Oracle Messenger vérifie immédiatement si ce contact possède déjà un compte.</Text>
@@ -870,7 +1064,43 @@ export function ContactsPage({
         title={avatarPreview?.name}
         fallbackText={initials(avatarPreview?.name)}
         onClose={() => setAvatarPreview(null)}
-      />
+      >
+        {avatarPreview?.contact ? (
+          <View style={styles.avatarPreviewActions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Envoyer un message à ${avatarPreview.name}`}
+              onPress={() => closeAvatarAndMessage(avatarPreview.contact)}
+              style={styles.avatarPreviewPrimary}
+            >
+              <MessageCircle size={19} color="#FFFFFF" strokeWidth={2.5} />
+              <Text style={styles.avatarPreviewPrimaryText}>Message</Text>
+            </Pressable>
+            <View style={styles.avatarPreviewCallRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Appeler ${avatarPreview.name}`}
+                onPress={() => closeAvatarAndCall(avatarPreview.contact, 'audio')}
+                style={styles.avatarPreviewSecondary}
+              >
+                <Phone size={18} color="#FFFFFF" strokeWidth={2.5} />
+                <Text style={styles.avatarPreviewSecondaryText}>Appel</Text>
+              </Pressable>
+              {avatarPreview.contact.appUser ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Appel vidéo avec ${avatarPreview.name}`}
+                  onPress={() => closeAvatarAndCall(avatarPreview.contact, 'video')}
+                  style={styles.avatarPreviewSecondary}
+                >
+                  <Video size={18} color="#FFFFFF" strokeWidth={2.5} />
+                  <Text style={styles.avatarPreviewSecondaryText}>Vidéo</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
+      </NativePhotoViewer>
     </View>
   );
 }
@@ -882,8 +1112,8 @@ const styles = StyleSheet.create({
   inviteBackButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.10)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
   inviteBackText: { color: '#FFFFFF', fontSize: 22, lineHeight: 24, fontWeight: '800' },
   inviteHeaderCopy: { flex: 1, minWidth: 0 },
-  inviteHeaderTitle: { color: '#FFFFFF', fontSize: 20, lineHeight: 23, fontWeight: '900' },
-  inviteHeaderSubtitle: { color: 'rgba(248,250,252,0.72)', fontSize: 14, lineHeight: 17, fontWeight: '700', marginTop: 2 },
+  inviteHeaderTitle: { color: colors.onHeader, fontSize: 20, lineHeight: 23, fontWeight: '900' },
+  inviteHeaderSubtitle: { color: colors.onHeaderMuted, fontSize: 14, lineHeight: 17, fontWeight: '700', marginTop: 2 },
   headerRefreshButton: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.10)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)' },
   headerImportButton: { minHeight: 42, borderRadius: 21, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingHorizontal: 13, backgroundColor: colors.brand, shadowColor: colors.header, shadowOpacity: 0.14, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
   headerImportText: { color: '#FFFFFF', fontSize: 13, lineHeight: 17, fontWeight: '900' },
@@ -912,14 +1142,16 @@ const styles = StyleSheet.create({
   emptyBlock: { gap: 14, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 44 },
   emptyAddButton: { minHeight: 44, borderRadius: 22, backgroundColor: colors.header, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
   emptyAddText: { color: '#FFFFFF', fontSize: 14, lineHeight: 18, fontWeight: '900' },
+  emptyManualButton: { minHeight: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border },
+  emptyManualText: { color: colors.header, fontSize: 13, lineHeight: 17, fontWeight: '900' },
   contactListSurface: { backgroundColor: colors.surface },
   contactGroup: { gap: 0 },
-  groupTitle: { color: colors.muted, fontSize: 13, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', marginTop: 20, marginBottom: 8, marginHorizontal: 20, letterSpacing: 0.4 },
+  groupTitle: { color: colors.muted, fontSize: 13, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase', marginTop: 20, marginBottom: 8, marginHorizontal: 20, letterSpacing: 0 },
   localRow: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 10, paddingHorizontal: 18, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
   oracleLocalRow: { backgroundColor: colors.surface },
   localRowPressed: { backgroundColor: '#EAF4F1' },
   localAvatarWrap: { position: 'relative', flexShrink: 0 },
-  localAvatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#EAF4F1', overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border },
+  localAvatar: { width: 52, height: 52, borderRadius: 15, backgroundColor: '#EAF4F1', overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border },
   localAvatarImage: { width: '100%', height: '100%' },
   localAvatarText: { color: colors.header, fontWeight: '900', fontSize: 18 },
   onlineDot: { position: 'absolute', right: 1, bottom: 1, width: 14, height: 14, borderRadius: 7, backgroundColor: colors.online, borderWidth: 2, borderColor: colors.surface },
@@ -929,7 +1161,15 @@ const styles = StyleSheet.create({
   localRowAction: { fontSize: 14, lineHeight: 18, fontWeight: '900', flexShrink: 0 },
   writeAction: { color: colors.header },
   inviteAction: { color: colors.brand },
+  localCallActions: { flexDirection: 'row', alignItems: 'center', gap: 7, flexShrink: 0 },
+  localCallButton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: 'rgba(16,42,42,0.14)' },
   localDeleteButton: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA' },
+  avatarPreviewActions: { width: '100%', maxWidth: 360, paddingHorizontal: 16, gap: 10 },
+  avatarPreviewPrimary: { minHeight: 50, borderRadius: 25, backgroundColor: colors.brand, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9, paddingHorizontal: 18 },
+  avatarPreviewPrimaryText: { color: '#FFFFFF', fontSize: 15, lineHeight: 19, fontWeight: '900' },
+  avatarPreviewCallRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10 },
+  avatarPreviewSecondary: { flex: 1, minHeight: 46, borderRadius: 23, backgroundColor: 'rgba(255,255,255,0.16)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.24)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 14 },
+  avatarPreviewSecondaryText: { color: '#FFFFFF', fontSize: 14, lineHeight: 18, fontWeight: '900' },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.42)', paddingHorizontal: 14, paddingBottom: 14 },
   sheet: { width: '100%', maxHeight: '88%', borderRadius: 24, backgroundColor: colors.surface, paddingHorizontal: 20, paddingTop: 22, paddingBottom: 18, gap: 12 },
   sheetHandle: { width: 44, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong, alignSelf: 'center', marginBottom: 6 },

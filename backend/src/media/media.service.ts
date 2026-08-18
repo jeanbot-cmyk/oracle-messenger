@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { mkdir, writeFile } from 'fs/promises';
-import { extname, join } from 'path';
+import { mkdir, unlink, writeFile } from 'fs/promises';
+import { extname, join, resolve } from 'path';
 import { createHash, randomUUID } from 'crypto';
 
-export const MEDIA_UPLOAD_MAX_BYTES = Number(process.env.MEDIA_UPLOAD_MAX_BYTES || 18 * 1024 * 1024);
+export const VIDEO_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 const DEFAULT_UPLOAD_ROOT = process.env.MEDIA_UPLOAD_DIR || join(process.cwd(), 'uploads');
 const SAFE_MIME = new Set([
   'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif',
@@ -115,6 +115,13 @@ function publicBase() {
   ).replace(/\/+$/, '');
 }
 
+function isVideoUpload(mime?: string | null, kind?: string | null, name?: string | null) {
+  const normalizedMime = String(mime || '').toLowerCase();
+  const normalizedKind = String(kind || '').toLowerCase();
+  const normalizedName = String(name || '').toLowerCase();
+  return normalizedKind === 'video' || normalizedMime.startsWith('video/') || /\.(mp4|mov|m4v|webm|3gp|mkv)$/i.test(normalizedName);
+}
+
 @Injectable()
 export class MediaService {
   async saveDataUrl(input: { dataUrl: string; name?: string; mime?: string; kind?: string }, userId: string) {
@@ -127,7 +134,9 @@ export class MediaService {
     const base64 = match[2].replace(/\s/g, '');
     const byteEstimate = Math.floor((base64.length * 3) / 4);
     if (byteEstimate <= 0) throw new BadRequestException('Fichier vide.');
-    if (byteEstimate > MEDIA_UPLOAD_MAX_BYTES) throw new BadRequestException('Fichier trop lourd.');
+    if (isVideoUpload(mime, input.kind, input.name) && byteEstimate > VIDEO_UPLOAD_MAX_BYTES) {
+      throw new BadRequestException('Vidéo trop lourde. Limite vidéo : 100 Mo.');
+    }
 
     const buffer = Buffer.from(base64, 'base64');
     return this.saveBuffer({
@@ -138,11 +147,15 @@ export class MediaService {
     }, userId);
   }
 
-  async saveBuffer(input: { buffer: Buffer; name?: string; mime?: string; kind?: string }, userId: string) {
+  async saveBuffer(input: { buffer: Buffer; name?: string; mime?: string; kind?: string; maxBytes?: number }, userId: string) {
     const mime = String(input.mime || 'application/octet-stream').toLowerCase();
     if (!SAFE_MIME.has(mime)) throw new BadRequestException('Type de fichier non autorisé.');
     if (!input.buffer?.length) throw new BadRequestException('Fichier vide.');
-    if (input.buffer.length > MEDIA_UPLOAD_MAX_BYTES) throw new BadRequestException('Fichier trop lourd.');
+    if (isVideoUpload(mime, input.kind, input.name) && input.buffer.length > VIDEO_UPLOAD_MAX_BYTES) {
+      throw new BadRequestException('Vidéo trop lourde. Limite vidéo : 100 Mo.');
+    }
+    const maxBytes = Number(input.maxBytes || 0);
+    if (maxBytes > 0 && input.buffer.length > maxBytes) throw new BadRequestException('Fichier trop lourd.');
     const now = new Date();
     const yyyy = String(now.getFullYear());
     const mm = String(now.getMonth() + 1).padStart(2, '0');
@@ -167,5 +180,23 @@ export class MediaService {
       name: input.name || filename,
       kind: input.kind || 'file',
     };
+  }
+
+  async deleteStoredFile(publicPath?: string | null) {
+    const normalized = String(publicPath || '').trim();
+    if (!normalized.startsWith('/uploads/')) return false;
+
+    const relativePath = normalized.replace(/^\/uploads\/+/, '');
+    const uploadRoot = resolve(DEFAULT_UPLOAD_ROOT);
+    const absolutePath = resolve(uploadRoot, relativePath);
+    if (!absolutePath.startsWith(`${uploadRoot}/`) && absolutePath !== uploadRoot) return false;
+
+    try {
+      await unlink(absolutePath);
+      return true;
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return false;
+      throw error;
+    }
   }
 }
