@@ -1,6 +1,6 @@
 {
   "name": "oracle-messenger-native",
-  "version": "1.0.20260818.13",
+  "version": "1.0.20260819.14",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
