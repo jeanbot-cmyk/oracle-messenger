@@ -29,6 +29,7 @@ type UseNativeTextMessageSenderParams = {
   setNotice: (message: string) => void;
   setReplyTo: Dispatch<SetStateAction<Message | null>>;
   stopTyping?: () => void;
+  prepareOutgoingText?: (text: string) => Promise<string>;
 };
 
 function errorMessage(error: unknown) {
@@ -150,6 +151,7 @@ export function useNativeTextMessageSender({
   setNotice,
   setReplyTo,
   stopTyping,
+  prepareOutgoingText,
 }: UseNativeTextMessageSenderParams) {
   const flushingOutboxRef = useRef(false);
   const refreshAfterSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -231,6 +233,7 @@ export function useNativeTextMessageSender({
   return useCallback(async () => {
     const clean = draft.trim();
     if (!clean || !selected || !token) return;
+    let outgoingContent = clean;
     let localMessageId = '';
     const pendingReplyTo = replyTo;
     stopTyping?.();
@@ -241,13 +244,16 @@ export function useNativeTextMessageSender({
         patchMessage(editingMessage.id, { content: message.content, isEdited: true, updatedAt: message.updatedAt });
         setEditingMessage(null);
       } else {
+        if (prepareOutgoingText) {
+          outgoingContent = (await prepareOutgoingText(clean)).trim() || clean;
+        }
         localMessageId = `local-text-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const optimisticMessage: Message = {
           id: localMessageId,
           clientMessageId: localMessageId,
           conversationId: selected.id,
           senderId: currentUserId || 'local-user',
-          content: clean,
+          content: outgoingContent,
           type: 'text',
           status: 'sending',
           createdAt: new Date().toISOString(),
@@ -261,7 +267,7 @@ export function useNativeTextMessageSender({
           conversationId: selected.id,
           messageId: localMessageId,
           details: {
-            contentLength: clean.length,
+            contentLength: outgoingContent.length,
             hasReply: Boolean(pendingReplyTo?.id),
             keyboardWasOpen: true,
           },
@@ -279,7 +285,7 @@ export function useNativeTextMessageSender({
         setReplyTo(null);
         const message = await sendTextMessage(token, {
           conversationId: selected.id,
-          content: clean,
+          content: outgoingContent,
           replyToId: pendingReplyTo?.id,
           clientMessageId: localMessageId,
         });
@@ -307,7 +313,7 @@ export function useNativeTextMessageSender({
         await enqueueNativeTextMessage({
           localMessageId,
           conversationId: selected.id,
-          content: clean,
+          content: outgoingContent,
           replyToId: pendingReplyTo?.id,
           lastError: errorMessage(error),
         });
@@ -333,6 +339,7 @@ export function useNativeTextMessageSender({
     draft,
     editingMessage,
     patchMessage,
+    prepareOutgoingText,
     replyTo,
     selected,
     setDraft,

@@ -5,6 +5,7 @@ import { useNativeTypingPresence } from '@/screens/home/useNativeTypingPresence'
 import { useNativeVoiceRecorder } from '@/screens/home/useNativeVoiceRecorder';
 import { socketAck } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
+import { useNativeAutoTranslateSettings } from '@/services/nativeAutoTranslate';
 import { readNativeDraft, writeNativeDraft } from '@/services/nativeDrafts';
 import { ensureNativeSocket } from '@/services/nativeSocket';
 import type { Conversation, Message } from '@/types/messenger';
@@ -39,6 +40,7 @@ export function useNativeComposerController({
   const [aiBusy, setAiBusy] = useState(false);
   const draftLoadRequestRef = useRef(0);
   const draftReadyConversationRef = useRef<string | null>(null);
+  const autoTranslate = useNativeAutoTranslateSettings(currentUserId);
   const selectedConversationId = selected?.id ?? null;
   const draftOwnerId = currentUserId || 'local';
 
@@ -81,6 +83,22 @@ export function useNativeComposerController({
     setDraft,
   });
 
+  const prepareOutgoingText = useCallback(async (text: string) => {
+    if (!token || autoTranslate.settings.mode !== 'enabled') return text;
+    const target = autoTranslate.settings.targetLanguage || 'fr';
+    try {
+      setNotice(`Traduction automatique vers ${target.toUpperCase()}...`);
+      const translated = await api.aiAutoTranslate(token, text, target);
+      const clean = translated.translated?.trim();
+      if (!clean) return text;
+      if (clean !== text.trim()) setNotice('Message traduit automatiquement avant envoi.');
+      return clean;
+    } catch {
+      setNotice('Traduction indisponible, message envoyé dans sa langue originale.');
+      return text;
+    }
+  }, [autoTranslate.settings.mode, autoTranslate.settings.targetLanguage, setNotice, token]);
+
   const send = useNativeTextMessageSender({
     draft,
     editingMessage,
@@ -96,6 +114,7 @@ export function useNativeComposerController({
     setNotice,
     setReplyTo,
     stopTyping: typing.stopTypingNow,
+    prepareOutgoingText,
   });
 
   const { sendMedia, attachCamera, attachImage, attachDocument } = useNativeMessageMedia({
@@ -241,6 +260,10 @@ export function useNativeComposerController({
     editingMessage,
     setEditingMessage,
     aiBusy,
+    autoTranslateSettings: autoTranslate.settings,
+    setAutoTranslateMode: async (mode: 'enabled' | 'disabled') => {
+      await autoTranslate.setMode(mode);
+    },
     presenceText: typing.presenceText,
     handleDraftChange: typing.handleDraftChange,
     handleTypingStart: typing.handleTypingStart,

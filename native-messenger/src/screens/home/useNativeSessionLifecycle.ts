@@ -66,9 +66,9 @@ export function useNativeSessionLifecycle({
     try {
       const saved = await loadSession();
       if (saved) {
-        await refreshLocalMediaIndex();
         setSession(saved);
         setLoading(false);
+        void refreshLocalMediaIndex();
         void refreshConversations(saved.token, saved.user.id || saved.user.email);
         void runMediaSync(saved.token, saved.user.id);
         try {
@@ -79,8 +79,6 @@ export function useNativeSessionLifecycle({
           };
           await saveSession(verifiedSession);
           setSession(verifiedSession);
-          void refreshConversations(verifiedSession.token, verifiedSession.user.id || verifiedSession.user.email);
-          void runMediaSync(verifiedSession.token, verifiedSession.user.id);
         } catch (error) {
           if (isInvalidSessionError(error)) {
             await clearSession();

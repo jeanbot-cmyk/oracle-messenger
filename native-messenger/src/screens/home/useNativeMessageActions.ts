@@ -9,6 +9,7 @@ import { ensureNativeSocket } from '@/services/nativeSocket';
 import type { Conversation, Message } from '@/types/messenger';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'] as const;
+const MAX_FORWARD_TARGETS = 25;
 
 type UseNativeMessageActionsParams = {
   messages: Message[];
@@ -171,26 +172,44 @@ export function useNativeMessageActions({
     setActionMessage(null);
   }, []);
 
-  const forwardToConversation = useCallback(async (conversation: Conversation) => {
+  const forwardToConversation = useCallback(async (target: Conversation | Conversation[]) => {
     if (!token || !forwardMessages.length) return;
+    const targets = (Array.isArray(target) ? target : [target])
+      .filter((conversation, index, items) => conversation?.id && items.findIndex(item => item.id === conversation.id) === index)
+      .slice(0, MAX_FORWARD_TARGETS);
+    if (!targets.length) {
+      setNotice('Choisissez au moins un contact.');
+      return;
+    }
     setBusy(true);
     setNotice('');
     try {
       const socket = ensureNativeSocket(token);
-      for (const message of forwardMessages) {
-        const clientMessageId = `local-forward-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const forwarded = await socketAck<Message>(socket, 'message:send', {
-          conversationId: conversation.id,
-          content: message.content,
-          type: message.type,
-          clientMessageId,
-          clientSentAt: new Date().toISOString(),
-        });
-        if (selected?.id === conversation.id) upsertMessage({ ...forwarded, status: forwarded.status || 'sent' });
+      let sentCount = 0;
+      for (const conversation of targets) {
+        for (const message of forwardMessages) {
+          const clientMessageId = `local-forward-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          let forwarded: Message;
+          try {
+            forwarded = await socketAck<Message>(socket, 'message:send', {
+              conversationId: conversation.id,
+              content: message.content,
+              type: message.type,
+              clientMessageId,
+              clientSentAt: new Date().toISOString(),
+            });
+          } catch (error) {
+            if (socket.connected) throw error;
+            forwarded = await api.sendMessage(conversation.id, token, message.content, message.type, undefined, clientMessageId);
+          }
+          sentCount += 1;
+          if (selected?.id === conversation.id) upsertMessage({ ...forwarded, status: forwarded.status || 'sent' });
+        }
       }
       setForwardMessages([]);
       await refreshConversations();
-      setNotice(forwardMessages.length > 1 ? 'Messages transférés.' : 'Message transféré.');
+      const targetLabel = targets.length > 1 ? `${targets.length} contacts` : conversationNameForNotice(targets[0]);
+      setNotice(`${sentCount} transfert${sentCount > 1 ? 's' : ''} envoyé${sentCount > 1 ? 's' : ''} vers ${targetLabel}.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Transfert impossible.');
     } finally {
@@ -272,4 +291,9 @@ export function useNativeMessageActions({
     deleteSelectedOwnMessages,
     openMessageActions,
   };
+}
+
+function conversationNameForNotice(conversation: Conversation) {
+  const name = conversation.name || conversation.participants?.find(participant => participant.name)?.name || conversation.participants?.find(participant => participant.username)?.username;
+  return name || 'ce contact';
 }

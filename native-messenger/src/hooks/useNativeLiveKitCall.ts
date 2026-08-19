@@ -67,8 +67,8 @@ function cameraPublishOptions(callId?: string | null): TrackPublishOptions {
   };
 }
 
-function getPublicationStream(publication?: { track?: { mediaStream?: unknown } } | null) {
-  return (publication?.track?.mediaStream ?? null) as MediaStream | null;
+function getPublicationStream(publication?: { track?: { mediaStream?: unknown }; videoTrack?: { mediaStream?: unknown } } | null) {
+  return (publication?.track?.mediaStream ?? publication?.videoTrack?.mediaStream ?? null) as MediaStream | null;
 }
 
 export function useNativeLiveKitCall({

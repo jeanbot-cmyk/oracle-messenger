@@ -5,11 +5,12 @@ import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, Camera } from 'lucide-react-native';
+import { ArrowLeft, Camera, Languages } from 'lucide-react-native';
 import { FRONTEND_URL } from '@/config/env';
 import { NativePhotoViewer } from '@/screens/home/NativePhotoViewer';
 import { highQualityImageUri } from '@/screens/home/homeUtils';
 import { api } from '@/services/api';
+import { useNativeAutoTranslateSettings } from '@/services/nativeAutoTranslate';
 import { saveSession } from '@/services/session';
 import { colors } from '@/theme/colors';
 import type { AuthSession, User } from '@/types/messenger';
@@ -47,11 +48,17 @@ export function ProfilePage({ session, onLogout, onBack }: { session: AuthSessio
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [user, setUser] = useState<User>(session.user);
+  const autoTranslate = useNativeAutoTranslateSettings(session.user.id || session.user.email || session.token);
+  const [translationTarget, setTranslationTarget] = useState(autoTranslate.settings.targetLanguage || 'fr');
   const storageKey = useMemo(() => ownerKey('oracle-native-profile', session.user.id || session.user.email || session.token), [session.token, session.user.email, session.user.id]);
   const profileLink = user.username
     ? `${FRONTEND_URL}/u/${encodeURIComponent(user.username)}`
     : `${FRONTEND_URL}/install`;
   const displayAvatar = highQualityImageUri(avatar) || avatar;
+
+  useEffect(() => {
+    setTranslationTarget(autoTranslate.settings.targetLanguage || 'fr');
+  }, [autoTranslate.settings.targetLanguage]);
 
   useEffect(() => {
     let alive = true;
@@ -165,6 +172,16 @@ export function ProfilePage({ session, onLogout, onBack }: { session: AuthSessio
     setNotice('Lien du profil copié.');
   }, [profileLink]);
 
+  const setAutoTranslateMode = useCallback(async (mode: 'enabled' | 'disabled') => {
+    await autoTranslate.setMode(mode);
+    setNotice(mode === 'enabled' ? 'Traduction automatique activée.' : 'Traduction automatique désactivée.');
+  }, [autoTranslate]);
+
+  const saveTranslationTarget = useCallback(async () => {
+    await autoTranslate.setTargetLanguage(translationTarget);
+    setNotice(`Langue cible de traduction enregistrée : ${translationTarget.toUpperCase()}.`);
+  }, [autoTranslate, translationTarget]);
+
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={[styles.page, { paddingBottom: 112 + Math.max(insets.bottom, 8) }]} showsVerticalScrollIndicator>
@@ -272,6 +289,47 @@ export function ProfilePage({ session, onLogout, onBack }: { session: AuthSessio
         </View>
 
         <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Languages size={22} color={colors.header} strokeWidth={2.4} />
+            <Text style={styles.cardTitle}>Traduction automatique</Text>
+          </View>
+          <Text style={styles.phoneMeta}>
+            Quand elle est active, Oracle Messenger peut traduire les messages reçus et traduire vos messages avant l’envoi via Google Translate.
+          </Text>
+          <View style={styles.translateToggleRow}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setAutoTranslateMode('enabled')}
+              style={[styles.translateToggle, autoTranslate.settings.mode === 'enabled' && styles.translateToggleActive]}
+            >
+              <Text style={[styles.translateToggleText, autoTranslate.settings.mode === 'enabled' && styles.translateToggleTextActive]}>Activer</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setAutoTranslateMode('disabled')}
+              style={[styles.translateToggle, autoTranslate.settings.mode === 'disabled' && styles.translateToggleActive]}
+            >
+              <Text style={[styles.translateToggleText, autoTranslate.settings.mode === 'disabled' && styles.translateToggleTextActive]}>Désactiver</Text>
+            </Pressable>
+          </View>
+          <View style={styles.translationTargetRow}>
+            <TextInput
+              value={translationTarget}
+              onChangeText={setTranslationTarget}
+              autoCapitalize="none"
+              placeholder="Code langue : fr, en, es..."
+              placeholderTextColor={colors.muted}
+              maxLength={12}
+              style={[styles.input, styles.translationTargetInput]}
+            />
+            <Pressable accessibilityRole="button" onPress={saveTranslationTarget} style={styles.translationTargetButton}>
+              <Text style={styles.translationTargetButtonText}>OK</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.cardMeta}>Choix actuel : {autoTranslate.settings.mode === 'enabled' ? 'activé' : autoTranslate.settings.mode === 'disabled' ? 'désactivé' : 'non défini'} · cible {autoTranslate.settings.targetLanguage.toUpperCase()}</Text>
+        </View>
+
+        <View style={styles.card}>
           <Text style={styles.formLabel}>Email</Text>
           <Text selectable style={styles.readonlyValue}>{user.email || session.user.email || '—'}</Text>
         </View>
@@ -351,6 +409,15 @@ const styles = StyleSheet.create({
   infoValue: { color: colors.text, fontSize: 12.5, lineHeight: 18, fontWeight: '800', flex: 1, textAlign: 'right' },
   cardMeta: { color: colors.muted, fontSize: 11.5, fontWeight: '800' },
   phoneMeta: { color: colors.muted, fontSize: 13.5, lineHeight: 20, fontWeight: '600' },
+  translateToggleRow: { flexDirection: 'row', gap: 8 },
+  translateToggle: { flex: 1, minHeight: 42, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: '#F8FAFC', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  translateToggleActive: { backgroundColor: colors.header, borderColor: colors.header },
+  translateToggleText: { color: colors.text, fontSize: 13, lineHeight: 17, fontWeight: '900' },
+  translateToggleTextActive: { color: '#FFFFFF' },
+  translationTargetRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  translationTargetInput: { flex: 1, minHeight: 42, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: '#F8FAFC', paddingHorizontal: 12 },
+  translationTargetButton: { minHeight: 42, minWidth: 54, borderRadius: 12, backgroundColor: colors.brand, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  translationTargetButtonText: { color: '#FFFFFF', fontSize: 13, lineHeight: 17, fontWeight: '900' },
   bottomAction: { gap: 10, paddingBottom: 8 },
   fixedFooter: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: '#F8F6EF', borderTopWidth: 1, borderTopColor: 'rgba(16,42,42,0.10)', paddingHorizontal: 16, paddingTop: 12 },
   saveButton: { minHeight: 52, borderRadius: 18, backgroundColor: colors.header, alignItems: 'center', justifyContent: 'center', shadowColor: '#102A2A', shadowOpacity: 0.14, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 4 },

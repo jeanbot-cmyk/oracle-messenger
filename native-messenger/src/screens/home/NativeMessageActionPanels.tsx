@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { Copy, Forward, Pencil, Reply, Share2, Trash2, X } from 'lucide-react-native';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Check, Copy, Forward, Pencil, Reply, Share2, Trash2, X } from 'lucide-react-native';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { colors } from '@/theme/colors';
 import type { Conversation, Message } from '@/types/messenger';
@@ -27,8 +27,10 @@ type NativeMessageActionPanelsProps = {
   onDeleteMessageForMe: (message: Message) => void;
   onDeleteMessageForAll: (message: Message) => void;
   onToggleSelection: (messageId: string) => void;
-  onForwardToConversation: (conversation: Conversation) => void | Promise<void>;
+  onForwardToConversation: (conversation: Conversation | Conversation[]) => void | Promise<void>;
 };
+
+const MAX_FORWARD_TARGETS = 25;
 
 export function NativeMessageActionPanels({
   selectedCount,
@@ -54,6 +56,7 @@ export function NativeMessageActionPanels({
   onToggleSelection,
   onForwardToConversation,
 }: NativeMessageActionPanelsProps) {
+  const [selectedForwardTargetIds, setSelectedForwardTargetIds] = useState<string[]>([]);
   const actionMessageIsMine = actionMessage?.senderId === currentUserId;
   const actionMessageIsSystem = actionMessage?.type === 'system';
   const canReactActionMessage = Boolean(actionMessage && !actionMessage.isDeleted && !actionMessageIsSystem);
@@ -61,11 +64,31 @@ export function NativeMessageActionPanels({
   const canEditActionMessage = Boolean(actionMessage && actionMessageIsMine && actionMessage.type === 'text' && !actionMessage.isDeleted);
   const canDeleteActionMessage = Boolean(actionMessage && !actionMessage.isDeleted);
   const currentReaction = actionMessage?.reactions?.find(reaction => reaction.userId === currentUserId)?.emoji;
+  const forwardTargets = useMemo(
+    () => conversations.filter(item => item.id !== activeConversationId).slice(0, 80),
+    [activeConversationId, conversations],
+  );
+  const selectedForwardTargets = useMemo(() => {
+    const selectedIds = new Set(selectedForwardTargetIds);
+    return forwardTargets.filter(conversation => selectedIds.has(conversation.id));
+  }, [forwardTargets, selectedForwardTargetIds]);
+
+  useEffect(() => {
+    if (!forwardMessages.length) setSelectedForwardTargetIds([]);
+  }, [forwardMessages.length]);
 
   const selectActionMessage = () => {
     if (!actionMessage) return;
     onToggleSelection(actionMessage.id);
     onCloseMessageActions();
+  };
+
+  const toggleForwardTarget = (conversationId: string) => {
+    setSelectedForwardTargetIds(current => {
+      if (current.includes(conversationId)) return current.filter(id => id !== conversationId);
+      if (current.length >= MAX_FORWARD_TARGETS) return current;
+      return [...current, conversationId];
+    });
   };
 
   return (
@@ -133,18 +156,34 @@ export function NativeMessageActionPanels({
       {forwardMessages.length ? (
         <View style={styles.forwardPanel}>
           <View style={styles.forwardHead}>
-            <Text style={styles.forwardTitle}>Transférer {forwardMessages.length} message(s)</Text>
+            <Text style={styles.forwardTitle}>Transférer {forwardMessages.length} message(s) vers {selectedForwardTargetIds.length}/25 contact(s)</Text>
             <Pressable onPress={onClearForward} style={styles.selectionClose}>
               <Text style={styles.selectionCloseText}>×</Text>
             </Pressable>
           </View>
+          <Text style={styles.forwardHint}>Sélectionnez un ou plusieurs destinataires, puis confirmez l’envoi.</Text>
           <ScrollView showsVerticalScrollIndicator={false} style={styles.forwardTargetScroll} contentContainerStyle={styles.forwardTargets}>
-            {conversations.filter(item => item.id !== activeConversationId).slice(0, 20).map(conversation => (
-              <Pressable key={conversation.id} style={styles.forwardTarget} onPress={() => onForwardToConversation(conversation)}>
+            {forwardTargets.map(conversation => {
+              const selected = selectedForwardTargetIds.includes(conversation.id);
+              return (
+              <Pressable key={conversation.id} style={[styles.forwardTarget, selected && styles.forwardTargetSelected]} onPress={() => toggleForwardTarget(conversation.id)}>
                 <Text numberOfLines={1} style={styles.forwardTargetText}>{conversationName(conversation)}</Text>
+                <View style={[styles.forwardTargetCheck, selected && styles.forwardTargetCheckSelected]}>
+                  {selected ? <Check size={14} color="#FFFFFF" strokeWidth={3} /> : null}
+                </View>
               </Pressable>
-            ))}
+              );
+            })}
           </ScrollView>
+          <Pressable
+            accessibilityRole="button"
+            disabled={!selectedForwardTargets.length}
+            onPress={() => onForwardToConversation(selectedForwardTargets)}
+            style={[styles.forwardSendButton, !selectedForwardTargets.length && styles.forwardSendButtonDisabled]}
+          >
+            <Forward size={17} color="#FFFFFF" strokeWidth={2.7} />
+            <Text style={styles.forwardSendText}>Envoyer à {selectedForwardTargets.length || 0}</Text>
+          </Pressable>
         </View>
       ) : null}
     </>
@@ -203,8 +242,15 @@ const styles = StyleSheet.create({
   forwardPanel: { marginHorizontal: 12, marginBottom: 8, padding: 10, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, gap: 8 },
   forwardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   forwardTitle: { flex: 1, color: colors.text, fontSize: 13.5, fontWeight: '900' },
+  forwardHint: { color: colors.muted, fontSize: 12, lineHeight: 16, fontWeight: '800' },
   forwardTargetScroll: { maxHeight: 260 },
   forwardTargets: { gap: 8, paddingRight: 4 },
-  forwardTarget: { minHeight: 42, width: '100%', borderRadius: 14, backgroundColor: '#EEF2F1', paddingHorizontal: 12, alignItems: 'flex-start', justifyContent: 'center' },
-  forwardTargetText: { color: colors.header, fontSize: 12, fontWeight: '900' },
+  forwardTarget: { minHeight: 44, width: '100%', borderRadius: 14, backgroundColor: '#EEF2F1', borderWidth: 1, borderColor: 'rgba(16,42,42,0.08)', paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  forwardTargetSelected: { backgroundColor: '#EAF7EF', borderColor: colors.accent },
+  forwardTargetText: { flex: 1, minWidth: 0, color: colors.header, fontSize: 12, fontWeight: '900' },
+  forwardTargetCheck: { width: 23, height: 23, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(16,42,42,0.18)', alignItems: 'center', justifyContent: 'center' },
+  forwardTargetCheckSelected: { backgroundColor: colors.brand, borderColor: colors.brand },
+  forwardSendButton: { minHeight: 44, borderRadius: 14, backgroundColor: colors.brand, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 12 },
+  forwardSendButtonDisabled: { opacity: 0.45 },
+  forwardSendText: { color: '#FFFFFF', fontSize: 13, lineHeight: 17, fontWeight: '900' },
 });

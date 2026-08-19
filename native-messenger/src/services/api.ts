@@ -1,6 +1,7 @@
 import { BACKEND_URL } from '@/config/env';
 import { nativeClientHeaders } from '@/services/appVersion';
 import type { AuthSession, Conversation, GroupInvitation, Message, User } from '@/types/messenger';
+import * as FileSystem from 'expo-file-system/legacy';
 
 const REQUEST_TIMEOUT_MS = 12000;
 const UPLOAD_TIMEOUT_MS = 180000;
@@ -83,6 +84,7 @@ async function apiUploadFile(
   token: string,
   data: { uri: string; name?: string; mime?: string; kind?: string },
 ): Promise<{ url: string; path: string; mime: string; size: number; checksum: string; name: string; kind: string }> {
+  await assertUploadableLocalFile(data.uri);
   const formData = new FormData();
   formData.append('file', {
     uri: data.uri,
@@ -98,7 +100,24 @@ async function apiUploadFile(
     body: formData as any,
   }, UPLOAD_TIMEOUT_MS);
   if (!response.ok) throw new Error(await parseError(response));
-  return response.json();
+  const uploaded = await response.json();
+  if (!uploaded?.url || !Number.isFinite(Number(uploaded.size)) || Number(uploaded.size) <= 0) {
+    throw new Error('Upload refusé : le serveur a retourné un fichier vide.');
+  }
+  return uploaded;
+}
+
+async function assertUploadableLocalFile(uri: string) {
+  const clean = String(uri || '').trim();
+  if (!clean) throw new Error('Fichier local introuvable.');
+  if (!/^(file:\/\/|\/)/i.test(clean)) return;
+  const fileUri = clean.startsWith('/') ? `file://${clean}` : clean;
+  const info = await FileSystem.getInfoAsync(fileUri).catch(() => null);
+  if (!info?.exists) throw new Error('Fichier local introuvable.');
+  const size = Number((info as { size?: number }).size || 0);
+  if (!Number.isFinite(size) || size <= 0) {
+    throw new Error('Envoi annulé : le fichier local est vide.');
+  }
 }
 
 export const api = {

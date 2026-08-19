@@ -1555,6 +1555,27 @@ function ConferenceTool({ token, ownerId, userName }: { token: string; ownerId: 
         <Text style={styles.conferenceHelpTitle}>Comment utiliser la salle</Text>
         <Text style={styles.conferenceHelpText}>Conférencier : créez le lien, partagez-le, puis démarrez le direct quand vous êtes prêt. Les participants rejoignent avec le lien, restent micro et caméra coupés, puis peuvent lever la main pour demander la parole.</Text>
         <Text style={styles.conferenceHelpText}>Pendant le direct, le conférencier gère les micros, les questions, les réactions, les sondages, les documents et le cahier de conférence depuis le tableau de bord.</Text>
+        <View style={styles.conferenceFlowGrid}>
+          <View style={styles.conferenceFlowItem}>
+            <Text style={styles.conferenceFlowStep}>1</Text>
+            <Text style={styles.conferenceFlowTitle}>Préparer</Text>
+            <Text style={styles.conferenceFlowText}>Nom, affiche, intervenant, téléphone, date et lien de salle.</Text>
+          </View>
+          <View style={styles.conferenceFlowItem}>
+            <Text style={styles.conferenceFlowStep}>2</Text>
+            <Text style={styles.conferenceFlowTitle}>Partager</Text>
+            <Text style={styles.conferenceFlowText}>Envoyez le lien web ou le code aux invités avant le direct.</Text>
+          </View>
+          <View style={styles.conferenceFlowItem}>
+            <Text style={styles.conferenceFlowStep}>3</Text>
+            <Text style={styles.conferenceFlowTitle}>Animer</Text>
+            <Text style={styles.conferenceFlowText}>Démarrez, autorisez les micros, répondez aux questions et publiez les documents.</Text>
+          </View>
+        </View>
+        <View style={styles.conferenceExampleBox}>
+          <Text style={styles.conferenceExampleTitle}>Exemple</Text>
+          <Text style={styles.conferenceHelpText}>Une formation commence à 20h00. À 19h30, vous créez la salle, copiez le lien et l’envoyez au groupe. À 20h00, vous démarrez le direct. Les participants écoutent, lèvent la main pour intervenir, posent leurs questions dans l’interface, puis le cahier de conférence peut être généré après la séance.</Text>
+        </View>
       </View>
 
       <View style={styles.conferenceCommandCard}>
@@ -3330,6 +3351,13 @@ const styles = StyleSheet.create({
   conferenceHelpCard: { borderRadius: 16, backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: 'rgba(16,42,42,0.14)', paddingHorizontal: 14, paddingVertical: 13, gap: 6 },
   conferenceHelpTitle: { color: colors.header, fontSize: 15, lineHeight: 19, fontWeight: '900' },
   conferenceHelpText: { color: colors.text, fontSize: 12.8, lineHeight: 18, fontWeight: '800' },
+  conferenceFlowGrid: { flexDirection: 'row', gap: 8, marginTop: 6 },
+  conferenceFlowItem: { flex: 1, minHeight: 106, borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: 'rgba(16,42,42,0.10)', padding: 9, gap: 4 },
+  conferenceFlowStep: { width: 24, height: 24, borderRadius: 12, overflow: 'hidden', backgroundColor: colors.header, color: '#FFFFFF', textAlign: 'center', textAlignVertical: 'center', fontSize: 12, lineHeight: 24, fontWeight: '900' },
+  conferenceFlowTitle: { color: colors.header, fontSize: 12.5, lineHeight: 16, fontWeight: '900' },
+  conferenceFlowText: { color: colors.text, fontSize: 11.2, lineHeight: 16, fontWeight: '700' },
+  conferenceExampleBox: { marginTop: 6, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.58)', borderWidth: 1, borderColor: 'rgba(16,42,42,0.10)', padding: 10, gap: 4 },
+  conferenceExampleTitle: { color: colors.header, fontSize: 12.5, lineHeight: 16, fontWeight: '900', textTransform: 'uppercase' },
   conferenceCommandTitle: { flex: 1, color: colors.text, fontSize: 16, lineHeight: 20, fontWeight: '900' },
   conferenceCommandBody: { color: colors.secondary, fontSize: 13, lineHeight: 19, fontWeight: '700' },
   conferenceRoomCodeBox: { minHeight: 48, borderRadius: 14, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, justifyContent: 'center', paddingHorizontal: 11, gap: 2 },

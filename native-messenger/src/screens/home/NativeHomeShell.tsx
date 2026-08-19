@@ -65,6 +65,8 @@ export type NativeHomeShellProps = {
   voicePreview: VoicePreview | null;
   voiceSending: boolean;
   aiBusy: boolean;
+  autoTranslateMode?: 'unknown' | 'enabled' | 'disabled';
+  autoTranslateTargetLanguage?: string;
   onRefreshConversations: () => Promise<void>;
   onTabPress: (tab: NativeTabKey) => void;
   onOpenConversationFromFeature: (conversation: Conversation) => void;
@@ -83,7 +85,7 @@ export type NativeHomeShellProps = {
   onEditMessage: (message: Message) => void;
   onDeleteMessageForMe: (message: Message) => void;
   onDeleteMessageForAll: (message: Message) => void;
-  onForwardToConversation: (conversation: Conversation) => void | Promise<void>;
+  onForwardToConversation: (conversation: Conversation | Conversation[]) => void | Promise<void>;
   onToggleMessageSelection: (messageId: string) => void;
   onOpenMessageActions: (message: Message) => void;
   onLoadOlderMessages: () => void | Promise<void>;
@@ -101,6 +103,7 @@ export type NativeHomeShellProps = {
   onAskAiDraft: () => void | Promise<void>;
   onOpenAiTools?: () => void;
   onSend: () => void | Promise<void>;
+  onSetAutoTranslateMode?: (mode: 'enabled' | 'disabled') => void | Promise<void>;
   onConversationSearchChange: (value: string) => void;
   onOpenConversationFromList: (conversation: Conversation) => void;
   onConversationActions: (conversation: Conversation) => void;
@@ -247,6 +250,8 @@ export function NativeHomeShell({
   voicePreview,
   voiceSending,
   aiBusy,
+  autoTranslateMode,
+  autoTranslateTargetLanguage,
   onRefreshConversations,
   onTabPress,
   onOpenConversationFromFeature,
@@ -283,6 +288,7 @@ export function NativeHomeShell({
   onAskAiDraft,
   onOpenAiTools,
   onSend,
+  onSetAutoTranslateMode,
   onConversationSearchChange,
   onOpenConversationFromList,
   onConversationActions,
@@ -519,20 +525,20 @@ export function NativeHomeShell({
   }, [refreshStoryIndicators, session.token]);
 
   const rootSwipeGesture = useMemo(() => Gesture.Pan()
-    .activeOffsetX([-64, 64])
-    .failOffsetY([-26, 26])
+    .activeOffsetX([-34, 34])
+    .failOffsetY([-34, 34])
     .onEnd(event => {
-      if (Math.abs(event.translationX) > 122 && Math.abs(event.velocityX) > 220) {
+      if (Math.abs(event.translationX) > 68 || Math.abs(event.velocityX) > 145) {
         runOnJS(handleRootSwipe)(event.translationX < 0 ? 'next' : 'previous');
       }
     }), [handleRootSwipe]);
 
   const tabSwipeResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gesture) => (
-      Math.abs(gesture.dx) > 104 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.65
+      Math.abs(gesture.dx) > 54 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.25
     ),
     onPanResponderRelease: (_, gesture) => {
-      if (Math.abs(gesture.dx) > 128 && Math.abs(gesture.dy) < 52) {
+      if ((Math.abs(gesture.dx) > 72 || Math.abs(gesture.vx) > 0.62) && Math.abs(gesture.dy) < 76) {
         selectionHaptic();
         openAdjacentRootTab(gesture.dx < 0 ? 'next' : 'previous');
       }
@@ -632,6 +638,8 @@ export function NativeHomeShell({
           voicePreview={voicePreview}
           voiceSending={voiceSending}
           aiBusy={aiBusy}
+          autoTranslateMode={autoTranslateMode}
+          autoTranslateTargetLanguage={autoTranslateTargetLanguage}
           busy={busy}
           onBack={onBackFromChat}
           onStartAudioCall={() => startCallFromConversation(selected, 'audio')}
@@ -671,6 +679,7 @@ export function NativeHomeShell({
           onAskAiDraft={onAskAiDraft}
           onOpenAiTools={onOpenAiTools || (() => onTabPress('ai'))}
           onSend={onSend}
+          onSetAutoTranslateMode={onSetAutoTranslateMode}
           onGroupChanged={async conversation => {
             await onRefreshConversations();
             onOpenConversationFromList(conversation);

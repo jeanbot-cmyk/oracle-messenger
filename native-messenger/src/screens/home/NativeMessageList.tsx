@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
-import { Animated, FlatList, Image, Linking, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Animated, FlatList, Image, InteractionManager, Linking, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import { AlertCircle, Check, CheckCheck, Clock3, Mail, Phone, PhoneMissed, PhoneOff, Reply, UserRound, Video } from 'lucide-react-native';
 import { NativeChatMediaAlbumMessage, NativeChatMediaMessage } from './NativeChatMediaMessage';
+import { api } from '@/services/api';
 import type { LocalGalleryItem } from '@/services/localMedia';
+import { useNativeAutoTranslateSettings } from '@/services/nativeAutoTranslate';
 import { colors } from '@/theme/colors';
 import type { Message } from '@/types/messenger';
 import { highQualityImageUri, initials, messagePreview, normalizeTextLinkUrl, parseCallTraceMessage, parseContactPayload, parseMediaPayload, splitTextLinks, type CallTraceMessage } from './homeUtils';
 
 type NativeMessageListProps = {
   conversationId: string;
+  token?: string;
   messages: Message[];
   currentUserId?: string | null;
   currentUserName?: string | null;
@@ -23,6 +26,8 @@ type NativeMessageListProps = {
   onCallMessagePress?: (type: 'audio' | 'video', message: Message) => void | Promise<void>;
   onAddImageToStory?: (message: Message, sourceUrl: string) => void | Promise<void>;
 };
+
+type AutoTranslatedMessage = { source: string; text: string };
 
 type MessageListRow =
   | { kind: 'message'; id: string; message: Message }
@@ -340,6 +345,7 @@ function MessageSwipeWrap({
 
 export function NativeMessageList({
   conversationId,
+  token,
   messages,
   currentUserId,
   currentUserName,
@@ -355,9 +361,12 @@ export function NativeMessageList({
   onAddImageToStory,
 }: NativeMessageListProps) {
   const listRef = useRef<FlatList<MessageListRow>>(null);
+  const translationCacheRef = useRef<Record<string, AutoTranslatedMessage>>({});
   const nearBottomRef = useRef(true);
   const lastAutoScrolledMessageIdRef = useRef<string | null>(null);
   const initialPositioningRef = useRef(true);
+  const autoTranslate = useNativeAutoTranslateSettings(currentUserId || 'local');
+  const [autoTranslations, setAutoTranslations] = useState<Record<string, AutoTranslatedMessage>>({});
   const inverted = !messageSearch;
   const displayRows = useMemo(() => {
     const rows = buildMessageRows(messages);
@@ -365,6 +374,18 @@ export function NativeMessageList({
   }, [inverted, messages]);
   const lastMessageId = messages[messages.length - 1]?.id;
   const lastMessageSenderId = messages[messages.length - 1]?.senderId;
+  const translatableMessages = useMemo(() => messages
+    .filter(message => (
+      Boolean(token) &&
+      autoTranslate.settings.mode === 'enabled' &&
+      message.senderId !== currentUserId &&
+      message.type === 'text' &&
+      !message.isDeleted &&
+      message.content.trim().length > 0 &&
+      message.content.trim().length <= 1200 &&
+      !parseCallTraceMessage(message.content)
+    ))
+    .slice(-25), [autoTranslate.settings.mode, currentUserId, messages, token]);
 
   useEffect(() => {
     nearBottomRef.current = true;
@@ -384,6 +405,36 @@ export function NativeMessageList({
     });
     return () => cancelAnimationFrame(frame);
   }, [currentUserId, lastMessageId, lastMessageSenderId, messageSearch]);
+
+  useEffect(() => {
+    if (!token || autoTranslate.settings.mode !== 'enabled' || !translatableMessages.length) return undefined;
+    let cancelled = false;
+    const target = autoTranslate.settings.targetLanguage || 'fr';
+    const run = async () => {
+      for (const message of translatableMessages) {
+        if (cancelled) return;
+        const cached = translationCacheRef.current[message.id];
+        if (cached?.source === message.content) continue;
+        translationCacheRef.current[message.id] = { source: message.content, text: '' };
+        try {
+          const result = await api.aiAutoTranslate(token, message.content, target);
+          if (cancelled) return;
+          const text = result.translated?.trim() || '';
+          translationCacheRef.current[message.id] = { source: message.content, text };
+          setAutoTranslations(current => ({ ...current, [message.id]: { source: message.content, text } }));
+        } catch {
+          delete translationCacheRef.current[message.id];
+        }
+      }
+    };
+    const task = InteractionManager.runAfterInteractions(() => {
+      void run();
+    });
+    return () => {
+      cancelled = true;
+      task.cancel?.();
+    };
+  }, [autoTranslate.settings.mode, autoTranslate.settings.targetLanguage, token, translatableMessages]);
 
   return (
     <FlatList
@@ -446,6 +497,12 @@ export function NativeMessageList({
         const firstTextLink = message.type === 'text' && inferMediaTypeFromContent(message) === 'text'
           ? splitTextLinks(message.content).find(part => part.link)?.text
           : null;
+        const translated = autoTranslate.settings.mode === 'enabled'
+          ? autoTranslations[message.id]
+          : undefined;
+        const translatedText = translated?.source === message.content && translated.text && translated.text !== message.content
+          ? translated.text
+          : '';
         const linkClickable = Boolean(firstTextLink && !selectedMessageIds.length);
         const swipeReplyDisabled = Boolean(selectedMessageIds.length || isSystem || message.isDeleted);
         const handleBubblePress = () => {
@@ -522,7 +579,17 @@ export function NativeMessageList({
                   message.type === 'contact'
                     ? <NativeContactMessage content={message.content} />
                     : message.type === 'text' && inferMediaTypeFromContent(message) === 'text'
-                    ? renderLinkedMessageText(message.content)
+                    ? (
+                      <>
+                        {renderLinkedMessageText(message.content)}
+                        {translatedText ? (
+                          <View style={styles.translationBox}>
+                            <Text style={styles.translationLabel}>Traduction</Text>
+                            <Text style={styles.translationText}>{translatedText}</Text>
+                          </View>
+                        ) : null}
+                      </>
+                    )
                     : <NativeChatMediaMessage message={{ ...message, type: inferMediaTypeFromContent(message) }} localItem={localMediaByMessageId[message.id]} mine={mine} onAddImageToStory={onAddImageToStory} />
                 )}
                 {isSystem ? null : <ReactionBadges reactions={message.reactions} />}
@@ -567,6 +634,9 @@ const styles = StyleSheet.create({
   emptySearch: { color: colors.muted, fontSize: 13, fontWeight: '800', textAlign: 'center', marginTop: 30 },
   bubbleText: { color: colors.text, fontSize: 15.5, lineHeight: 20, fontWeight: '500' },
   bubbleLink: { color: '#0F766E', fontWeight: '900', textDecorationLine: 'underline' },
+  translationBox: { marginTop: 8, borderLeftWidth: 3, borderLeftColor: colors.brand, paddingLeft: 8, gap: 2 },
+  translationLabel: { color: colors.header, fontSize: 10.5, lineHeight: 14, fontWeight: '900', textTransform: 'uppercase' },
+  translationText: { color: colors.text, fontSize: 14, lineHeight: 19, fontWeight: '700' },
   metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 5, minHeight: 14 },
   metaAuthor: { flexShrink: 1, color: colors.muted, fontSize: 10.5, fontWeight: '800' },
   metaText: { color: colors.muted, fontSize: 10.5, fontWeight: '700' },

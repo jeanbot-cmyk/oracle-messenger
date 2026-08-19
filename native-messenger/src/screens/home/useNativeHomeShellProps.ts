@@ -99,6 +99,8 @@ export function useNativeHomeShellProps({
     voicePreview: composer.voicePreview,
     voiceSending: composer.voiceSending,
     aiBusy: composer.aiBusy,
+    autoTranslateMode: composer.autoTranslateSettings?.mode,
+    autoTranslateTargetLanguage: composer.autoTranslateSettings?.targetLanguage,
     onRefreshConversations: refreshConversations,
     onTabPress: tab => {
       setActiveTab(tab);
@@ -136,6 +138,7 @@ export function useNativeHomeShellProps({
     onSendVoicePreview: composer.sendVoicePreview,
     onSendVisualAsset: composer.sendVisualAsset,
     onAskAiDraft: composer.askAiDraft,
+    onSetAutoTranslateMode: composer.setAutoTranslateMode,
     onSend: composer.send,
     onConversationSearchChange: setConversationSearch,
     onOpenConversationFromList: openConversationImmediately,

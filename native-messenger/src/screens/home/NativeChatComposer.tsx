@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Keyboard as RNKeyboard, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Camera, Image as ImageIcon, Keyboard as KeyboardIcon, Mic, Paperclip, Search, Send, Smile, Sparkles, Sticker, X } from 'lucide-react-native';
+import { Camera, Image as ImageIcon, Keyboard as KeyboardIcon, Languages, Mic, Paperclip, Search, Send, Smile, Sparkles, Sticker, X } from 'lucide-react-native';
 import { OracleAudioPlayer } from '@/screens/features/NativeMediaPlayers';
 import { lightImpactHaptic, selectionHaptic } from '@/services/haptics';
 import { colors } from '@/theme/colors';
@@ -51,6 +51,9 @@ const STICKER_LIBRARY: NativeVisualMessageAsset[] = [
 ];
 
 const MIC_RECORD_START_DELAY_MS = 180;
+const MIC_LOCK_EARLY_DY = -24;
+const MIC_LOCK_RECORDING_DY = -30;
+const MIC_CANCEL_DX = -64;
 
 type NativeChatComposerProps = {
   draft: string;
@@ -78,6 +81,9 @@ type NativeChatComposerProps = {
   onAskAiDraft: () => void | Promise<void>;
   onOpenAiTools: () => void;
   onSend: () => void | Promise<void>;
+  autoTranslateMode?: 'unknown' | 'enabled' | 'disabled';
+  autoTranslateTargetLanguage?: string;
+  onSetAutoTranslateMode?: (mode: 'enabled' | 'disabled') => void | Promise<void>;
 };
 
 export function NativeChatComposer({
@@ -106,6 +112,9 @@ export function NativeChatComposer({
   onAskAiDraft,
   onOpenAiTools,
   onSend,
+  autoTranslateMode = 'disabled',
+  autoTranslateTargetLanguage = 'fr',
+  onSetAutoTranslateMode,
 }: NativeChatComposerProps) {
   const contextMessage = editingMessage || replyTo;
   const insets = useSafeAreaInsets();
@@ -114,6 +123,7 @@ export function NativeChatComposer({
   const [attachmentOpen, setAttachmentOpen] = useState(false);
   const [emojiMode, setEmojiMode] = useState<EmojiMode>('emoji');
   const [emojiCategory, setEmojiCategory] = useState(0);
+  const [autoTranslatePromptVisible, setAutoTranslatePromptVisible] = useState(false);
   const [, setRecordingTick] = useState(0);
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const micGestureActiveRef = useRef(false);
@@ -167,6 +177,12 @@ export function NativeChatComposer({
     lightImpactHaptic();
     setAttachmentOpen(false);
     void action();
+  }
+
+  function chooseAutoTranslate(mode: 'enabled' | 'disabled') {
+    selectionHaptic();
+    setAutoTranslatePromptVisible(false);
+    void onSetAutoTranslateMode?.(mode);
   }
 
   const startMicRecordingGesture = useCallback(() => {
@@ -265,13 +281,13 @@ export function NativeChatComposer({
     onPanResponderMove: (_, gesture) => {
       if (gestureLockedRef.current || voiceLockedRef.current || gestureCancelledRef.current) return;
       if (!gestureRecordingStartedRef.current) {
-        if (gesture.dy < -34 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 0.9) {
+        if (gesture.dy < MIC_LOCK_EARLY_DY && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 0.72) {
           gestureLockPendingRef.current = true;
           startMicRecordingGesture();
         }
         return;
       }
-      if (gesture.dx < -56 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1) {
+      if (gesture.dx < MIC_CANCEL_DX && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.1) {
         gestureCancelledRef.current = true;
         gestureRecordingStartedRef.current = false;
         gestureLockPendingRef.current = false;
@@ -279,7 +295,7 @@ export function NativeChatComposer({
         void onCancelVoiceRecording();
         return;
       }
-      if (gesture.dy < -46 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 0.9) {
+      if (gesture.dy < MIC_LOCK_RECORDING_DY && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 0.72) {
         gestureLockPendingRef.current = true;
       }
     },
@@ -309,7 +325,7 @@ export function NativeChatComposer({
           <Text style={styles.voiceRecordingText}>
             {voiceLocked ? 'Vocal verrouillé' : 'Maintenez pour parler'}
             {` - ${formatDuration(recordingSeconds)}`}
-            {voiceLocked ? ' - Stop pour écouter' : ' - glissez vers le haut puis relâchez pour verrouiller'}
+            {voiceLocked ? ' - Stop pour écouter' : ' - tirez vers le haut puis relâchez pour verrouiller'}
           </Text>
           {voiceLocked ? (
             <Pressable onPress={() => {
@@ -457,6 +473,30 @@ export function NativeChatComposer({
           </Pressable>
         </View>
       ) : null}
+      {autoTranslatePromptVisible && autoTranslateMode === 'unknown' ? (
+        <View style={styles.translatePrompt}>
+          <View style={styles.translatePromptHead}>
+            <View style={styles.translatePromptIcon}>
+              <Languages size={18} color="#FFFFFF" strokeWidth={2.5} />
+            </View>
+            <View style={styles.translatePromptTextWrap}>
+              <Text style={styles.translatePromptTitle}>Traduction automatique</Text>
+              <Text style={styles.translatePromptText}>
+                Si votre interlocuteur écrit dans une autre langue, Oracle peut traduire les messages reçus et traduire vos messages avant l’envoi en arrière-plan.
+              </Text>
+              <Text style={styles.translatePromptMeta}>Langue cible actuelle : {autoTranslateTargetLanguage.toUpperCase()}. Vous pouvez changer ce choix dans le profil.</Text>
+            </View>
+          </View>
+          <View style={styles.translatePromptActions}>
+            <Pressable accessibilityRole="button" onPress={() => chooseAutoTranslate('disabled')} style={styles.translatePromptSecondary}>
+              <Text style={styles.translatePromptSecondaryText}>Pas maintenant</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" onPress={() => chooseAutoTranslate('enabled')} style={styles.translatePromptPrimary}>
+              <Text style={styles.translatePromptPrimaryText}>Activer</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
       {aiMenuOpen ? (
         <View style={styles.aiPanel}>
           <View style={styles.aiPanelHeader}>
@@ -504,7 +544,17 @@ export function NativeChatComposer({
           {emojiOpen ? <KeyboardIcon size={21} color={colors.brand} /> : <Smile size={21} color={colors.secondary} />}
         </Pressable>
         <View style={styles.inputShell}>
-          <TextInput value={draft} onChangeText={onDraftChange} placeholder="Message" placeholderTextColor={colors.muted} multiline style={styles.input} />
+          <TextInput
+            value={draft}
+            onChangeText={onDraftChange}
+            onFocus={() => {
+              if (autoTranslateMode === 'unknown') setAutoTranslatePromptVisible(true);
+            }}
+            placeholder="Message"
+            placeholderTextColor={colors.muted}
+            multiline
+            style={styles.input}
+          />
           <Pressable accessibilityLabel="Pièce jointe" style={[styles.composerIconButton, attachmentOpen && styles.composerIconButtonActive]} onPress={() => {
             selectionHaptic();
             setAiMenuOpen(false);
@@ -611,6 +661,18 @@ const styles = StyleSheet.create({
   aiPanelSecondary: { width: '100%', minHeight: 40, borderRadius: 12, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   aiPanelSecondaryText: { color: colors.text, fontSize: 13, lineHeight: 17, fontWeight: '800' },
   aiPanelDisabled: { opacity: 0.62 },
+  translatePrompt: { marginBottom: 6, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 12, gap: 10, shadowColor: '#102A2A', shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: 7 }, elevation: 7 },
+  translatePromptHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  translatePromptIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.header, alignItems: 'center', justifyContent: 'center' },
+  translatePromptTextWrap: { flex: 1, minWidth: 0, gap: 4 },
+  translatePromptTitle: { color: colors.text, fontSize: 14, lineHeight: 18, fontWeight: '900' },
+  translatePromptText: { color: colors.text, fontSize: 12.5, lineHeight: 18, fontWeight: '700' },
+  translatePromptMeta: { color: colors.muted, fontSize: 11.5, lineHeight: 16, fontWeight: '800' },
+  translatePromptActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8 },
+  translatePromptSecondary: { minHeight: 38, borderRadius: 12, backgroundColor: colors.input, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+  translatePromptSecondaryText: { color: colors.text, fontSize: 12.5, lineHeight: 16, fontWeight: '900' },
+  translatePromptPrimary: { minHeight: 38, borderRadius: 12, backgroundColor: colors.header, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  translatePromptPrimaryText: { color: '#FFFFFF', fontSize: 12.5, lineHeight: 16, fontWeight: '900' },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
   composerContext: { width: '100%', minHeight: 48, borderRadius: 16, backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
   composerContextText: { flex: 1, minWidth: 0 },

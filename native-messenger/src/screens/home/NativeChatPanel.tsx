@@ -38,6 +38,8 @@ type NativeChatPanelProps = {
   voiceSending: boolean;
   aiBusy: boolean;
   busy: boolean;
+  autoTranslateMode?: 'unknown' | 'enabled' | 'disabled';
+  autoTranslateTargetLanguage?: string;
   onBack: () => void;
   onStartAudioCall: () => void;
   onStartVideoCall: () => void;
@@ -58,7 +60,7 @@ type NativeChatPanelProps = {
   onEditMessage: (message: Message) => void;
   onDeleteMessageForMe: (message: Message) => void;
   onDeleteMessageForAll: (message: Message) => void;
-  onForwardToConversation: (conversation: Conversation) => void | Promise<void>;
+  onForwardToConversation: (conversation: Conversation | Conversation[]) => void | Promise<void>;
   onToggleSelection: (messageId: string) => void;
   onOpenMessageActions: (message: Message) => void;
   onLoadOlderMessages: () => void | Promise<void>;
@@ -76,6 +78,7 @@ type NativeChatPanelProps = {
   onAskAiDraft: () => void | Promise<void>;
   onOpenAiTools: () => void;
   onSend: () => void | Promise<void>;
+  onSetAutoTranslateMode?: (mode: 'enabled' | 'disabled') => void | Promise<void>;
   onGroupChanged: (conversation: Conversation) => void | Promise<void>;
   onGroupLeft: () => void | Promise<void>;
 };
@@ -106,6 +109,8 @@ export function NativeChatPanel({
   voiceSending,
   aiBusy,
   busy,
+  autoTranslateMode,
+  autoTranslateTargetLanguage,
   onBack,
   onStartAudioCall,
   onStartVideoCall,
@@ -144,6 +149,7 @@ export function NativeChatPanel({
   onAskAiDraft,
   onOpenAiTools,
   onSend,
+  onSetAutoTranslateMode,
   onGroupChanged,
   onGroupLeft,
 }: NativeChatPanelProps) {
@@ -223,6 +229,7 @@ export function NativeChatPanel({
       />
       <NativeMessageList
         conversationId={conversation.id}
+        token={session.token}
         messages={messages}
         currentUserId={session.user.id}
         currentUserName={session.user.name}
@@ -258,6 +265,8 @@ export function NativeChatPanel({
         voiceSending={voiceSending}
         busy={busy}
         aiBusy={aiBusy}
+        autoTranslateMode={autoTranslateMode}
+        autoTranslateTargetLanguage={autoTranslateTargetLanguage}
         keyboardVisible={keyboardVisible}
         onDraftChange={onDraftChange}
         onClearContext={onClearContext}
@@ -273,6 +282,7 @@ export function NativeChatPanel({
         onAskAiDraft={onAskAiDraft}
         onOpenAiTools={onOpenAiTools}
         onSend={onSend}
+        onSetAutoTranslateMode={onSetAutoTranslateMode}
       />}
       {conversation.type === 'group' ? (
         <NativeGroupInfoModal
