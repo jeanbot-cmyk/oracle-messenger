@@ -37,6 +37,7 @@ export const LEGAL_DOCUMENTS: Record<LegalDocumentId, LegalDocument> = {
         title: '1. Service Oracle Messenger',
         body: [
           "Oracle Messenger est une application de messagerie et de communication permettant, selon les fonctions actives du compte, d'echanger des messages, fichiers, photos, videos, stories, reactions, statuts, appels audio, appels video, salles de conference, documents de conference, outils professionnels et services d'intelligence artificielle.",
+          "Oracle Messenger est une application editee par Oracle Plus. Elle n'est pas affiliee, sponsorisee ni approuvee par Oracle Corporation ou ses filiales.",
           "Certaines fonctions sont gratuites, d'autres peuvent necessiter des credits, un paiement, un plan actif ou une autorisation particuliere. Le prix et les conditions d'acces doivent etre affiches avant paiement.",
         ],
       },
@@ -178,7 +179,7 @@ export const LEGAL_DOCUMENTS: Record<LegalDocumentId, LegalDocument> = {
         id: 'payments-third-parties',
         title: '7. Paiements et fournisseurs tiers',
         body: [
-          "Paystack traite les paiements, references, montants, statuts et confirmations. Oracle Messenger conserve les informations necessaires pour verifier l'achat, eviter une double facturation et debloquer le service paye.",
+          "Paystack traite les paiements, references, montants, statuts et confirmations. Western Union peut etre utilise pour certains paiements internationaux hors Cote d'Ivoire lorsque cette option est affichee. Oracle Messenger conserve les informations necessaires pour verifier l'achat, eviter une double facturation, controler le recu et debloquer le service paye.",
           "Google intervient pour l'authentification. Firebase/Expo peuvent intervenir pour les notifications push. LiveKit, STUN/TURN, Socket.IO, Redis et l'infrastructure serveur interviennent pour le temps reel selon la configuration.",
           "Les fournisseurs tiers traitent les donnees necessaires a leur role technique ; leurs propres politiques peuvent s'appliquer a leur traitement.",
         ],

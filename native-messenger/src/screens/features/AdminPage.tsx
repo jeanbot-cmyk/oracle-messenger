@@ -265,6 +265,50 @@ export function AdminPage({ token, onBack }: { token: string; onBack: () => void
     }
   }, [settingKey, settingValue, token]);
 
+  const deleteWesternUnionReceipt = useCallback(async (receiptId: string) => {
+    if (!receiptId) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      await api.adminDeleteBusinessWesternUnionReceipt(token, receiptId);
+      setData((current: any) => ({
+        ...current,
+        businessWesternUnion: {
+          ...(current?.businessWesternUnion || {}),
+          receipts: (current?.businessWesternUnion?.receipts || []).filter((receipt: any) => receipt.id !== receiptId),
+        },
+      }));
+      setNotice('Message Western Union retiré de la boîte admin.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Suppression du message impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [token]);
+
+  const approveWesternUnionReceipt = useCallback(async (receiptId: string) => {
+    if (!receiptId) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      await api.adminApproveBusinessWesternUnionReceipt(token, receiptId);
+      setData((current: any) => ({
+        ...current,
+        businessWesternUnion: {
+          ...(current?.businessWesternUnion || {}),
+          receipts: (current?.businessWesternUnion?.receipts || []).map((receipt: any) => (
+            receipt.id === receiptId ? { ...receipt, status: 'approved' } : receipt
+          )),
+        },
+      }));
+      setNotice('Reçu validé : forfait entreprise activé pour l’utilisateur.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Validation du reçu impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [token]);
+
   return (
     <ScrollView contentContainerStyle={styles.page}>
       <View style={styles.adminHero}>
@@ -339,6 +383,24 @@ export function AdminPage({ token, onBack }: { token: string; onBack: () => void
                 <Text style={styles.cardMeta}>Pays : {receipt.senderCountry || 'non renseigné'}</Text>
                 <Text style={styles.cardMeta}>Envoyé : {formatDateTime(receipt.submittedAt)}</Text>
                 <Text style={styles.receiptRisk}>{riskText(receipt)}</Text>
+                {String(receipt.status || '').toLowerCase() !== 'approved' ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={busy}
+                    onPress={() => approveWesternUnionReceipt(receipt.id)}
+                    style={[styles.receiptApproveButton, busy && styles.disabledButton]}
+                  >
+                    <Text style={styles.receiptApproveText}>Valider et activer</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={() => deleteWesternUnionReceipt(receipt.id)}
+                  style={[styles.receiptDeleteButton, busy && styles.disabledButton]}
+                >
+                  <Text style={styles.receiptDeleteText}>Supprimer de la boîte</Text>
+                </Pressable>
               </View>
             </View>
           </View>
@@ -424,6 +486,7 @@ const styles = StyleSheet.create({
   dashboardNoticeSub: { color: colors.header, fontSize: 12.5, lineHeight: 17, fontWeight: '700', marginTop: 3 },
   refreshButton: { minHeight: 40, borderRadius: 12, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
   refreshButtonText: { color: colors.brand, fontSize: 13, lineHeight: 17, fontWeight: '900' },
+  disabledButton: { opacity: 0.54 },
   noticeWrap: { paddingHorizontal: 16, gap: 8 },
   dashboardList: { paddingHorizontal: 10, gap: 8 },
   dashboardCard: { minHeight: 74, borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 11, flexDirection: 'row', alignItems: 'center', gap: 10, shadowColor: '#102A2A', shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 1 },
@@ -446,6 +509,10 @@ const styles = StyleSheet.create({
   receiptImageEmptyText: { color: colors.muted, fontSize: 12, lineHeight: 15, fontWeight: '900' },
   receiptInfo: { flex: 1, minWidth: 0, gap: 3 },
   receiptRisk: { color: colors.header, fontSize: 12.5, lineHeight: 17, fontWeight: '900', marginTop: 4 },
+  receiptApproveButton: { alignSelf: 'flex-start', minHeight: 34, borderRadius: 17, backgroundColor: '#DCFCE7', borderWidth: 1, borderColor: '#BBF7D0', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, marginTop: 7 },
+  receiptApproveText: { color: '#166534', fontSize: 12, lineHeight: 16, fontWeight: '900' },
+  receiptDeleteButton: { alignSelf: 'flex-start', minHeight: 34, borderRadius: 17, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, marginTop: 7 },
+  receiptDeleteText: { color: '#B91C1C', fontSize: 12, lineHeight: 16, fontWeight: '900' },
   input: { minHeight: 48, borderRadius: 15, backgroundColor: colors.input, color: colors.text, paddingHorizontal: 14, paddingVertical: 10, fontWeight: '800', borderWidth: 1, borderColor: 'transparent' },
   textarea: { minHeight: 96, textAlignVertical: 'top' },
   empty: { color: colors.muted, fontSize: 13, fontWeight: '800', paddingVertical: 10 },

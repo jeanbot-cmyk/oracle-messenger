@@ -129,7 +129,7 @@ export function MenuPage({ isAdmin, onOpenTab, onLogout }: { isAdmin: boolean; o
     { icon: Bot, label: t('menu.ai'), sub: 'Préparer des réponses automatiques avec un prompt contrôlé.', tab: 'ai' },
     { icon: Wand2, label: t('menu.flyers'), sub: "Créez des affiches et flyers professionnels avec l'intelligence artificielle.", tab: 'flyers' },
     { icon: Video, label: t('menu.videos'), sub: 'Créez vos vidéos de présentation IA avec voix off et musique.', tab: 'videos' },
-    { icon: CreditCard, label: t('menu.payments'), sub: 'Paystack et vérification serveur des crédits.', tab: 'payments' },
+    { icon: CreditCard, label: t('menu.payments'), sub: 'Paystack, Western Union international et vérification serveur.', tab: 'payments' },
     { icon: Languages, label: t('menu.translate'), sub: 'Rédiger, reformuler ou traduire un message avant envoi.', tab: 'translate' },
     { icon: Video, label: t('menu.meeting'), sub: 'Créer ou rejoindre une salle de direct avec un lien partageable.', tab: 'meeting' },
     { icon: NotebookPen, label: t('menu.notes'), sub: 'Notes locales conservées sur ce téléphone.', tab: 'notes' },
@@ -176,6 +176,7 @@ export function MenuPage({ isAdmin, onOpenTab, onLogout }: { isAdmin: boolean; o
         <Text maxFontSizeMultiplier={1.08} style={styles.pageTitle}>{t('menu.title')}</Text>
         <Text maxFontSizeMultiplier={1.08} style={styles.pageSubtitle}>{t('menu.subtitle')}</Text>
       </View>
+      <Text style={styles.independentNotice}>Oracle Messenger est une application éditée par Oracle Plus. Elle n’est pas affiliée, sponsorisée ni approuvée par Oracle Corporation ou ses filiales.</Text>
       <View style={styles.noticeWrap}><AlertText text={notice} /></View>
       {legalView ? <NativeLegalDocumentPanel documentId={legalView} onClose={() => setLegalView(null)} embedded /> : null}
       <MenuSection title={t('menu.account')} items={accountItems} onOpenTab={onOpenTab} />
@@ -228,6 +229,7 @@ const styles = StyleSheet.create({
   pageIntro: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
   pageTitle: { color: colors.title, fontSize: 20, lineHeight: 24, fontWeight: '900' },
   pageSubtitle: { color: colors.muted, fontSize: 13, lineHeight: 19, fontWeight: '600', marginTop: 4 },
+  independentNotice: { marginHorizontal: 16, marginTop: 10, marginBottom: 2, color: colors.muted, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9, fontSize: 11.5, lineHeight: 16, fontWeight: '800' },
   noticeWrap: { marginHorizontal: 16 },
   legalPanel: { marginHorizontal: 16, marginTop: 10, marginBottom: 4, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, overflow: 'hidden', shadowColor: '#102A2A', shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 4 },
   legalHeader: { minHeight: 74, backgroundColor: '#EAF4F1', borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 12 },

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards, ForbiddenException, Headers } from '@nestjs/common';
+import { Controller, Delete, Get, Param, Post, Body, UseGuards, ForbiddenException, Headers } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AdminService } from './admin.service';
@@ -147,5 +147,17 @@ export class AdminController {
   async updateBusinessWesternUnion(@CurrentUser() user: any, @Body() body: any) {
     requireAdmin(user);
     return this.business.updateWesternUnionPaymentConfig(body ?? {});
+  }
+
+  @Delete('business-western-union/:id')
+  async deleteBusinessWesternUnionReceipt(@CurrentUser() user: any, @Param('id') id: string) {
+    requireAdmin(user);
+    return this.business.hideWesternUnionReceiptForAdmin(id);
+  }
+
+  @Post('business-western-union/:id/approve')
+  async approveBusinessWesternUnionReceipt(@CurrentUser() user: any, @Param('id') id: string) {
+    requireAdmin(user);
+    return this.business.approveWesternUnionReceiptForAdmin(id);
   }
 }

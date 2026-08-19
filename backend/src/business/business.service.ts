@@ -5,8 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 type BusinessStatus = 'prospect' | 'chaud' | 'froid' | 'paye' | 'relancer' | 'vip' | 'perdu';
 const ADMIN_PHONE = '+2250700508618';
-const BUSINESS_MONTHLY_PRICE_FCFA = 10000;
-const BUSINESS_WESTERN_UNION_PRICE_FCFA = 50000;
+const BUSINESS_ENTERPRISE_PRICE_FCFA = 50000;
 const BUSINESS_WESTERN_UNION_DAILY_AI_WORDS = 8000;
 const BUSINESS_WESTERN_UNION_CONFIG_KEY = 'business_western_union_config';
 const BUSINESS_STATUSES = new Set(['prospect', 'chaud', 'froid', 'paye', 'relancer', 'vip', 'perdu']);
@@ -37,7 +36,7 @@ const DEFAULT_BUSINESS_WESTERN_UNION_CONFIG: BusinessWesternUnionConfig = {
   beneficiaryFullName: 'Tchingankong Georges Bonas',
   beneficiaryPhone: '+2250504673829',
   beneficiaryCountry: "Côte d'Ivoire",
-  minimumAmountFcfa: BUSINESS_WESTERN_UNION_PRICE_FCFA,
+  minimumAmountFcfa: BUSINESS_ENTERPRISE_PRICE_FCFA,
   feesPaidByUser: true,
   dailyAiWords: BUSINESS_WESTERN_UNION_DAILY_AI_WORDS,
   conferenceSessionsPerWeek: 1,
@@ -110,7 +109,7 @@ export class BusinessService {
       premium: isAdmin || Boolean(user?.isPremium && user?.premiumUntil && user.premiumUntil.getTime() > Date.now()),
       premiumBadge: isAdmin || Boolean(config.blueVerifiedBadge && subscriptionActive),
       premiumBadgeColor: 'blue',
-      planCode: subscriptionActive ? 'business_enterprise_western_union' : null,
+      planCode: subscriptionActive ? 'business_enterprise_monthly' : null,
       planLabel: 'Forfait entreprise',
       dailyAiWords: isAdmin ? null : config.dailyAiWords,
       conferenceSessionsPerWeek: config.conferenceSessionsPerWeek,
@@ -130,7 +129,7 @@ export class BusinessService {
     if (!user?.email) throw new BadRequestException('Compte utilisateur incomplet.');
     const reference = `om-business-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const payment = await this.prisma.businessSubscriptionPayment.create({
-      data: { userId, reference, amountFcfa: BUSINESS_MONTHLY_PRICE_FCFA, months: 1 },
+      data: { userId, reference, amountFcfa: access.monthlyPriceFcfa, months: 1 },
     });
     const callbackUrl = nativeReturn
       ? `oraclemessenger://paystack?scope=business&reference=${encodeURIComponent(reference)}`
@@ -140,7 +139,7 @@ export class BusinessService {
       headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: user.email,
-        amount: BUSINESS_MONTHLY_PRICE_FCFA * 100,
+        amount: access.monthlyPriceFcfa * 100,
         currency: process.env.PAYSTACK_CURRENCY || 'XOF',
         reference,
         callback_url: callbackUrl,
@@ -176,6 +175,7 @@ export class BusinessService {
       await this.prisma.businessSubscriptionPayment.update({ where: { reference }, data: { status: 'failed' } });
       throw new BadRequestException(data?.message || 'Paiement Business non validé.');
     }
+    const config = await this.getWesternUnionPaymentConfig();
     await this.prisma.$transaction(async tx => {
       const claimed = await tx.businessSubscriptionPayment.updateMany({
         where: { reference, userId, status: { not: 'success' } },
@@ -191,7 +191,26 @@ export class BusinessService {
         create: { userId, active: true, activeUntil },
         update: { active: true, activeUntil },
       });
+      await tx.aiWallet.upsert({
+        where: { userId },
+        create: {
+          userId,
+          wordsRemaining: config.dailyAiWords,
+          valueRemainingFcfa: 0,
+          wordsConsumed: 0,
+          totalResponses: 0,
+        },
+        update: {
+          wordsRemaining: { increment: config.dailyAiWords },
+          valueRemainingFcfa: 0,
+        },
+      });
+      await tx.user.update({
+        where: { id: userId },
+        data: { isPremium: true, premiumUntil: activeUntil },
+      });
     });
+    await this.sendBusinessPaystackConfirmation(userId, config).catch(() => null);
     return this.overview(userId);
   }
 
@@ -202,7 +221,7 @@ export class BusinessService {
       beneficiaryFullName: String(input?.beneficiaryFullName ?? DEFAULT_BUSINESS_WESTERN_UNION_CONFIG.beneficiaryFullName).trim() || DEFAULT_BUSINESS_WESTERN_UNION_CONFIG.beneficiaryFullName,
       beneficiaryPhone: String(input?.beneficiaryPhone ?? DEFAULT_BUSINESS_WESTERN_UNION_CONFIG.beneficiaryPhone).trim() || DEFAULT_BUSINESS_WESTERN_UNION_CONFIG.beneficiaryPhone,
       beneficiaryCountry: String(input?.beneficiaryCountry ?? DEFAULT_BUSINESS_WESTERN_UNION_CONFIG.beneficiaryCountry).trim() || DEFAULT_BUSINESS_WESTERN_UNION_CONFIG.beneficiaryCountry,
-      minimumAmountFcfa: BUSINESS_WESTERN_UNION_PRICE_FCFA,
+      minimumAmountFcfa: BUSINESS_ENTERPRISE_PRICE_FCFA,
       feesPaidByUser: input?.feesPaidByUser ?? true,
       dailyAiWords: BUSINESS_WESTERN_UNION_DAILY_AI_WORDS,
       conferenceSessionsPerWeek: 1,
@@ -391,9 +410,46 @@ export class BusinessService {
               r."documentMeta", r."audit", r."ocrText", r."receiptDataUrl"
        FROM "BusinessWesternUnionReceipt" r
        LEFT JOIN "User" u ON u."id" = r."userId"
+       WHERE r."adminDeletedAt" IS NULL
        ORDER BY r."submittedAt" DESC
        LIMIT 100`,
     );
+  }
+
+  async hideWesternUnionReceiptForAdmin(receiptId: string) {
+    await this.ensureWesternUnionReceiptTable();
+    const id = String(receiptId || '').trim();
+    if (!id) throw new BadRequestException('Reçu Western Union introuvable.');
+    const updated = await this.prisma.$executeRawUnsafe(
+      `UPDATE "BusinessWesternUnionReceipt" SET "adminDeletedAt" = CURRENT_TIMESTAMP WHERE "id" = $1`,
+      id,
+    );
+    return { ok: true, updated };
+  }
+
+  async approveWesternUnionReceiptForAdmin(receiptId: string) {
+    await this.ensureWesternUnionReceiptTable();
+    const id = String(receiptId || '').trim();
+    if (!id) throw new BadRequestException('Reçu Western Union introuvable.');
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ id: string; userId: string; status: string; beneficiarySnapshot: any }>>(
+      `SELECT "id", "userId", "status", "beneficiarySnapshot" FROM "BusinessWesternUnionReceipt" WHERE "id" = $1 LIMIT 1`,
+      id,
+    );
+    const receipt = rows[0];
+    if (!receipt) throw new BadRequestException('Reçu Western Union introuvable.');
+    const config = this.normalizeWesternUnionConfig(receipt.beneficiarySnapshot);
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE "BusinessWesternUnionReceipt" SET "status" = 'approved' WHERE "id" = $1`,
+      id,
+    );
+    await this.activateWesternUnionEnterprisePlan(receipt.userId, config, id);
+    await this.sendWesternUnionConfirmation(receipt.userId, config).catch(() => null);
+    return {
+      ok: true,
+      receiptId: id,
+      status: 'approved',
+      access: await this.getAccess(receipt.userId),
+    };
   }
 
   private async activateWesternUnionEnterprisePlan(userId: string, config: BusinessWesternUnionConfig, receiptId: string) {
@@ -425,8 +481,9 @@ export class BusinessService {
         where: { id: userId },
         data: { isPremium: true, premiumUntil: activeUntil },
       });
-      await tx.businessSubscriptionPayment.create({
-        data: {
+      await tx.businessSubscriptionPayment.upsert({
+        where: { reference: `wu-business-${receiptId}` },
+        create: {
           userId,
           reference: `wu-business-${receiptId}`,
           amountFcfa: config.minimumAmountFcfa,
@@ -434,7 +491,29 @@ export class BusinessService {
           status: 'success',
           paidAt: new Date(),
         },
+        update: {
+          status: 'success',
+          paidAt: new Date(),
+        },
       });
+    });
+  }
+
+  private async sendBusinessPaystackConfirmation(userId: string, config: BusinessWesternUnionConfig) {
+    const official = await this.ensureOfficialSystemUser();
+    const conv = await this.ensureDirectConversation(official.id, userId);
+    await this.prisma.message.create({
+      data: {
+        conversationId: conv.id,
+        senderId: official.id,
+        type: 'text',
+        content: [
+          'Paiement Paystack reçu et validé.',
+          `Votre forfait entreprise Oracle Messenger est actif pour un mois.`,
+          `Accès : ${config.conferenceSessionsPerWeek} session conférence/semaine, ${config.aiVideos45sPerWeek} vidéos 45s/semaine, ${config.flyersPerWeek} flyers/semaine, IA ${config.dailyAiWords.toLocaleString('fr-FR')} mots/jour, badge bleu vérifié et assistance directe administrateur.`,
+          'La bibliothèque reste exclue du forfait.',
+        ].join('\n'),
+      },
     });
   }
 
@@ -719,9 +798,11 @@ export class BusinessService {
         "documentMeta" JSONB NOT NULL,
         "audit" JSONB NOT NULL,
         "ocrText" TEXT,
-        "receiptDataUrl" TEXT NOT NULL
+        "receiptDataUrl" TEXT NOT NULL,
+        "adminDeletedAt" TIMESTAMP(3)
       )
     `);
+    await this.prisma.$executeRawUnsafe(`ALTER TABLE "BusinessWesternUnionReceipt" ADD COLUMN IF NOT EXISTS "adminDeletedAt" TIMESTAMP(3)`);
     await this.prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "BusinessWesternUnionReceipt_transaction_uq" ON "BusinessWesternUnionReceipt" ("transactionNumber")`);
     await this.prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "BusinessWesternUnionReceipt_hash_uq" ON "BusinessWesternUnionReceipt" ("documentHash")`);
     await this.prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "BusinessWesternUnionReceipt_user_idx" ON "BusinessWesternUnionReceipt" ("userId", "submittedAt" DESC)`);

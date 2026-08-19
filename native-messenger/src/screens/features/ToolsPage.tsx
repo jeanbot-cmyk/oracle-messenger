@@ -1551,6 +1551,12 @@ function ConferenceTool({ token, ownerId, userName }: { token: string; ownerId: 
         </View>
       </View>
 
+      <View style={styles.conferenceHelpCard}>
+        <Text style={styles.conferenceHelpTitle}>Comment utiliser la salle</Text>
+        <Text style={styles.conferenceHelpText}>Conférencier : créez le lien, partagez-le, puis démarrez le direct quand vous êtes prêt. Les participants rejoignent avec le lien, restent micro et caméra coupés, puis peuvent lever la main pour demander la parole.</Text>
+        <Text style={styles.conferenceHelpText}>Pendant le direct, le conférencier gère les micros, les questions, les réactions, les sondages, les documents et le cahier de conférence depuis le tableau de bord.</Text>
+      </View>
+
       <View style={styles.conferenceCommandCard}>
         <View style={styles.conferencePanelTitleRow}>
           <Video size={18} color={colors.header} />
@@ -3321,6 +3327,9 @@ const styles = StyleSheet.create({
   conferencePlanPrice: { color: colors.header, fontSize: 12.5, lineHeight: 16, fontWeight: '900' },
   conferencePlanHint: { color: colors.muted, fontSize: 11.5, lineHeight: 15, fontWeight: '800' },
   conferenceCommandCard: { borderRadius: 18, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: 'rgba(16,42,42,0.10)', paddingHorizontal: 14, paddingVertical: 14, gap: 11, shadowColor: '#102A2A', shadowOpacity: 0.06, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 3 },
+  conferenceHelpCard: { borderRadius: 16, backgroundColor: '#EAF4F1', borderWidth: 1, borderColor: 'rgba(16,42,42,0.14)', paddingHorizontal: 14, paddingVertical: 13, gap: 6 },
+  conferenceHelpTitle: { color: colors.header, fontSize: 15, lineHeight: 19, fontWeight: '900' },
+  conferenceHelpText: { color: colors.text, fontSize: 12.8, lineHeight: 18, fontWeight: '800' },
   conferenceCommandTitle: { flex: 1, color: colors.text, fontSize: 16, lineHeight: 20, fontWeight: '900' },
   conferenceCommandBody: { color: colors.secondary, fontSize: 13, lineHeight: 19, fontWeight: '700' },
   conferenceRoomCodeBox: { minHeight: 48, borderRadius: 14, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, justifyContent: 'center', paddingHorizontal: 11, gap: 2 },

@@ -921,7 +921,14 @@ export function ContactsPage({
         </View>
       ) : null}
 
-      {!imported ? (
+      {!contactsRestored ? (
+        <View style={styles.body}>
+          <View style={styles.emptyBlock}>
+            <Loading active />
+            <Text style={styles.pageCopy}>Chargement et synchronisation de vos contacts...</Text>
+          </View>
+        </View>
+      ) : !imported ? (
         <ScrollView
           style={styles.body}
           contentContainerStyle={styles.firstVisitContent}

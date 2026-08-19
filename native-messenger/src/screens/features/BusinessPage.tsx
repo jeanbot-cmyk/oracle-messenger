@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AppState, Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
+import { AppState, Image, Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
@@ -32,6 +32,15 @@ type BusinessInstructionAsset = {
   size?: number;
   addedAt: string;
 };
+type WesternUnionReceiptPhoto = {
+  uri: string;
+  dataUrl: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  width: number;
+  height: number;
+};
 type AutoSettings = {
   welcomeMessage: string;
   paymentProvider: string;
@@ -53,7 +62,7 @@ type AutoSettings = {
 };
 
 const BUSINESS_STATUS_OPTIONS = ['prospect', 'chaud', 'froid', 'relancer', 'paye', 'vip', 'perdu'] as const;
-const BUSINESS_MONTHLY_PRICE_FCFA = 10000;
+const BUSINESS_ENTERPRISE_PRICE_FCFA = 50000;
 const AUTO_SETTINGS_KEY = 'oracle-native-business-auto-settings';
 const INSTRUCTION_ASSETS_KEY = 'oracle-native-business-instruction-assets';
 const DEFAULT_AUTO_SETTINGS: AutoSettings = {
@@ -112,6 +121,10 @@ const AUTOMATION_FLAGS: { key: AutomationFlag; label: string; text: string }[] =
   { key: 'invoiceReadingEnabled', label: 'Factures', text: 'Analyser factures, reçus, devis et preuves de paiement mentionnés.' },
   { key: 'clientMemoryEnabled', label: 'Mémoire client', text: 'Utiliser l’historique Business pour personnaliser les réponses.' },
 ];
+
+function todayDateInput() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 function valueText(value: unknown) {
   if (value === null || value === undefined || value === '') return '0';
@@ -207,6 +220,12 @@ export function BusinessPage({ token, onBack, onOpenAiTools }: { token: string; 
   const [reminderDate, setReminderDate] = useState('');
   const [reminderNote, setReminderNote] = useState('');
   const [reminderAutoSend, setReminderAutoSend] = useState(true);
+  const [wuTransactionNumber, setWuTransactionNumber] = useState('');
+  const [wuSenderFullName, setWuSenderFullName] = useState('');
+  const [wuSenderCountry, setWuSenderCountry] = useState('');
+  const [wuAmountFcfa, setWuAmountFcfa] = useState('50000');
+  const [wuPaymentDate, setWuPaymentDate] = useState(todayDateInput());
+  const [wuReceiptPhoto, setWuReceiptPhoto] = useState<WesternUnionReceiptPhoto | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -310,10 +329,14 @@ export function BusinessPage({ token, onBack, onOpenAiTools }: { token: string; 
   const reminders = useMemo(() => Array.isArray(overview?.reminders) ? overview.reminders : [], [overview?.reminders]);
   const payments = useMemo(() => Array.isArray(overview?.payments) ? overview.payments : [], [overview?.payments]);
   const access = overview?.access;
+  const westernUnion = overview?.westernUnion;
+  const westernUnionConfig = westernUnion?.config || {};
+  const westernUnionBenefits = westernUnion?.enterpriseBenefits || {};
+  const westernUnionAvailable = Boolean(westernUnion?.available);
   const canAct = Boolean(access?.canAct);
   const subscriptionActive = Boolean(access?.subscriptionActive);
   const aiCreditsOk = Boolean(access?.aiCreditsOk);
-  const monthlyPriceFcfa = BUSINESS_MONTHLY_PRICE_FCFA;
+  const monthlyPriceFcfa = Number(access?.monthlyPriceFcfa || westernUnionConfig.minimumAmountFcfa || BUSINESS_ENTERPRISE_PRICE_FCFA);
   const wordsRemaining = access?.wordsRemaining ?? aiOverview?.wallet?.wordsRemaining ?? aiOverview?.wordsRemaining ?? 0;
   const freeTestsPerDay = Number(aiOverview?.freeTestsPerDay || 5);
   const freeTestsRemainingToday = typeof freeTestsRemaining === 'number'
@@ -329,7 +352,7 @@ export function BusinessPage({ token, onBack, onOpenAiTools }: { token: string; 
     if (canAct) return true;
     setNotice(!subscriptionActive
       ? `${action} bloquée : abonnement Business requis (${monthlyPriceFcfa.toLocaleString('fr-FR')} FCFA/mois) et crédit Agent virtuel Oracle nécessaire.`
-      : 'Action Business bloquée : crédit Agent virtuel Oracle insuffisant. Rechargez l’IA pour utiliser l’agent commercial.');
+      : 'Action Business bloquée : crédit Agent virtuel Oracle insuffisant. Le forfait ajoute le crédit initial; rechargez seulement si ce crédit est consommé.');
     return false;
   }, [canAct, monthlyPriceFcfa, subscriptionActive]);
 
@@ -346,6 +369,83 @@ export function BusinessPage({ token, onBack, onOpenAiTools }: { token: string; 
       setBusy(false);
     }
   }, [load, token]);
+
+  const captureWesternUnionReceipt = useCallback(async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setNotice('Autorisez la caméra pour photographier le reçu Western Union original.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      quality: 0.9,
+      base64: false,
+      exif: true,
+    });
+    const asset = result.assets?.[0];
+    if (result.canceled || !asset?.uri) return;
+    const mimeType = asset.mimeType || 'image/jpeg';
+    setBusy(true);
+    try {
+      const info = await FileSystem.getInfoAsync(asset.uri);
+      setWuReceiptPhoto({
+        uri: asset.uri,
+        dataUrl: await fileToDataUrl(asset.uri, mimeType),
+        fileName: asset.fileName || `western-union-recu-${Date.now()}.jpg`,
+        mimeType,
+        fileSize: info.exists && 'size' in info ? Number(info.size || 0) : Number(asset.fileSize || 0),
+        width: Number(asset.width || 0),
+        height: Number(asset.height || 0),
+      });
+      setNotice('Photo du reçu ajoutée. Vérifiez les informations puis envoyez pour validation.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Lecture de la photo du reçu impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const submitWesternUnionReceipt = useCallback(async () => {
+    if (!westernUnionAvailable) {
+      setNotice(westernUnion?.unavailableReason || "Western Union est réservé aux utilisateurs hors de Côte d'Ivoire.");
+      return;
+    }
+    if (!wuReceiptPhoto) {
+      setNotice('Photographiez d’abord le reçu original avec la caméra.');
+      return;
+    }
+    if (!wuTransactionNumber.trim() || !wuSenderFullName.trim() || !wuSenderCountry.trim()) {
+      setNotice('Renseignez le numéro de transaction, le nom de l’expéditeur et le pays.');
+      return;
+    }
+    setBusy(true);
+    setNotice('');
+    try {
+      const data = await api.businessSubmitWesternUnionReceipt(token, {
+        transactionNumber: wuTransactionNumber.trim(),
+        senderFullName: wuSenderFullName.trim(),
+        senderCountry: wuSenderCountry.trim(),
+        amountFcfa: Math.round(Number(wuAmountFcfa) || 0),
+        paymentDate: wuPaymentDate,
+        receiptDataUrl: wuReceiptPhoto.dataUrl,
+        fileName: wuReceiptPhoto.fileName,
+        mimeType: wuReceiptPhoto.mimeType,
+        fileSize: wuReceiptPhoto.fileSize,
+        width: wuReceiptPhoto.width,
+        height: wuReceiptPhoto.height,
+      });
+      setOverview((current: any) => ({ ...(current || {}), access: data?.access || current?.access }));
+      setWuTransactionNumber('');
+      setWuReceiptPhoto(null);
+      await load();
+      setNotice(data?.message || 'Reçu Western Union envoyé pour validation.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Envoi du reçu Western Union impossible.');
+    } finally {
+      setBusy(false);
+    }
+  }, [load, token, westernUnion?.unavailableReason, westernUnionAvailable, wuAmountFcfa, wuPaymentDate, wuReceiptPhoto, wuSenderCountry, wuSenderFullName, wuTransactionNumber]);
 
   const saveClient = useCallback(async () => {
     if (!clientName.trim()) return;
@@ -770,7 +870,7 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
                   Abonnement Business Pro
                 </Text>
               </Pressable>
-              <Text style={styles.subscriptionText}>Débloque l’agent commercial autonome, le CRM IA, les relances, le classement client et le suivi des factures.</Text>
+              <Text style={styles.subscriptionText}>Pour les utilisateurs en Côte d’Ivoire, le paiement se fait directement par Paystack. Le forfait débloque l’agent commercial autonome, le CRM IA, les relances, le classement client, le suivi des factures et les droits entreprise.</Text>
             </View>
             <View style={styles.priceBox}>
               <Text style={styles.priceValue}>{monthlyPriceFcfa.toLocaleString('fr-FR')}</Text>
@@ -784,7 +884,7 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
             </View>
             <View style={[styles.requirementRow, aiCreditsOk && styles.requirementRowOk]}>
               <Text style={styles.requirementMark}>{aiCreditsOk ? '✓' : '!'}</Text>
-              <Text style={styles.requirementText}>Crédit Agent virtuel Oracle séparé pour l’écriture IA : {access?.isAdmin ? 'Illimité' : `${valueText(wordsRemaining)} mots`}</Text>
+              <Text style={styles.requirementText}>Crédit Agent virtuel Oracle du forfait : {access?.isAdmin ? 'Illimité' : `${valueText(wordsRemaining)} mots`}</Text>
             </View>
           </View>
           <View style={styles.subscriptionActions}>
@@ -792,10 +892,61 @@ Réponds en français, court, professionnel, orienté vente et suivi client.`;
               <Text style={styles.payButtonText}>{subscriptionActive ? 'Renouveler Business Pro' : `Activer Business Pro - ${monthlyPriceFcfa.toLocaleString('fr-FR')} FCFA/mois`}</Text>
             </Pressable>
             <Pressable onPress={onOpenAiTools || (() => setMode('auto'))} disabled={busy} style={[styles.rechargeButton, busy && styles.disabledButton]}>
-              <Text style={styles.rechargeButtonText}>Recharger Agent virtuel Oracle</Text>
+              <Text style={styles.rechargeButtonText}>Voir Agent virtuel Oracle</Text>
             </Pressable>
           </View>
-          <Text style={styles.subscriptionFootnote}>Business Pro active l’espace entreprise à {monthlyPriceFcfa.toLocaleString('fr-FR')} FCFA/mois. L’écriture IA se recharge séparément avec le crédit Agent virtuel Oracle.</Text>
+          <Text style={styles.subscriptionFootnote}>Business Pro active l’espace entreprise à {monthlyPriceFcfa.toLocaleString('fr-FR')} FCFA/mois : 8 000 mots IA/jour, 1 session conférence/semaine, 3 vidéos 45s/semaine, 6 flyers/semaine, badge bleu vérifié et assistance administrateur. Bibliothèque exclue.</Text>
+        </View>
+
+        <View style={styles.westernCard}>
+          <View style={styles.westernHeader}>
+            <View style={styles.westernLogo}><Text style={styles.westernLogoText}>WU</Text></View>
+            <View style={styles.westernCopy}>
+              <Text style={styles.westernTitle}>Payer par Western Union</Text>
+              <Text style={styles.westernText}>Réservé aux utilisateurs hors Côte d’Ivoire. Le paiement minimum est de {valueText(westernUnionConfig.minimumAmountFcfa || 50000)} FCFA; les frais de transfert sont à votre charge afin que le bénéficiaire reçoive le montant requis.</Text>
+            </View>
+          </View>
+          {!westernUnionAvailable ? (
+            <Text style={styles.westernWarning}>{westernUnion?.unavailableReason || "Western Union n’est pas disponible pour ce compte."}</Text>
+          ) : null}
+          <View style={styles.westernBeneficiary}>
+            <Text style={styles.westernBeneficiaryLabel}>Bénéficiaire</Text>
+            <Text selectable style={styles.westernBeneficiaryValue}>{westernUnionConfig.beneficiaryFullName || 'Nom à configurer'}</Text>
+            <Text selectable style={styles.westernBeneficiaryMeta}>{westernUnionConfig.beneficiaryPhone || 'Téléphone à configurer'} · {westernUnionConfig.beneficiaryCountry || 'Pays à configurer'}</Text>
+          </View>
+          <View style={styles.westernBenefitGrid}>
+            {[
+              `${valueText(westernUnionBenefits.dailyAiWords || 8000)} mots IA/jour`,
+              `${valueText(westernUnionBenefits.conferenceSessionsPerWeek || 1)} session conférence/semaine`,
+              `${valueText(westernUnionBenefits.aiVideos45sPerWeek || 3)} vidéos 45s/semaine`,
+              `${valueText(westernUnionBenefits.flyersPerWeek || 6)} flyers/semaine`,
+              'Badge bleu vérifié',
+              'Assistance admin directe',
+            ].map(item => <Text key={item} style={styles.westernBenefit}>{item}</Text>)}
+          </View>
+          <Text style={styles.westernText}>Après l’envoi Western Union, photographiez le reçu original le jour même. Les captures d’écran ne sont pas acceptées; l’appareil photo s’ouvre directement pour créer la preuve à contrôler.</Text>
+          <View style={styles.actionRow}>
+            <TextInput value={wuTransactionNumber} onChangeText={setWuTransactionNumber} placeholder="Numéro de transaction" placeholderTextColor={colors.muted} autoCapitalize="characters" style={[styles.input, styles.inlineInput]} />
+            <TextInput value={wuAmountFcfa} onChangeText={setWuAmountFcfa} placeholder="Montant FCFA" placeholderTextColor={colors.muted} keyboardType="numeric" style={[styles.input, styles.inlineInput]} />
+          </View>
+          <TextInput value={wuSenderFullName} onChangeText={setWuSenderFullName} placeholder="Nom complet de l’expéditeur" placeholderTextColor={colors.muted} style={styles.input} />
+          <View style={styles.actionRow}>
+            <TextInput value={wuSenderCountry} onChangeText={setWuSenderCountry} placeholder="Pays d’envoi" placeholderTextColor={colors.muted} style={[styles.input, styles.inlineInput]} />
+            <TextInput value={wuPaymentDate} onChangeText={setWuPaymentDate} placeholder="Date AAAA-MM-JJ" placeholderTextColor={colors.muted} style={[styles.input, styles.inlineInput]} />
+          </View>
+          {wuReceiptPhoto ? (
+            <View style={styles.westernReceiptPreview}>
+              <Image source={{ uri: wuReceiptPhoto.uri }} style={styles.westernReceiptImage} resizeMode="cover" />
+              <View style={styles.westernReceiptCopy}>
+                <Text numberOfLines={1} style={styles.cardTitle}>{wuReceiptPhoto.fileName}</Text>
+                <Text style={styles.cardMeta}>{wuReceiptPhoto.mimeType} · {Math.round(wuReceiptPhoto.fileSize / 1024).toLocaleString('fr-FR')} Ko</Text>
+              </View>
+            </View>
+          ) : null}
+          <View style={styles.actionRow}>
+            <SecondaryButton label={wuReceiptPhoto ? 'Reprendre la photo' : 'Photographier le reçu'} onPress={captureWesternUnionReceipt} disabled={busy || !westernUnionAvailable} />
+            <PrimaryButton label="Envoyer mon reçu Western Union" onPress={submitWesternUnionReceipt} disabled={busy || !westernUnionAvailable || !wuReceiptPhoto} />
+          </View>
         </View>
 
         <View style={styles.activationCard}>
@@ -1258,6 +1409,23 @@ const styles = StyleSheet.create({
   rechargeButtonText: { color: colors.header, fontSize: 13.5, lineHeight: 17, fontWeight: '900', textAlign: 'center' },
   disabledButton: { opacity: 0.54 },
   subscriptionFootnote: { color: colors.muted, fontSize: 12, lineHeight: 16, fontWeight: '800' },
+  westernCard: { borderRadius: 18, backgroundColor: '#FFF7D6', borderWidth: 1, borderColor: '#D9B75B', padding: 12, gap: 11, shadowColor: '#102A2A', shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 2 },
+  westernHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
+  westernLogo: { width: 44, height: 44, borderRadius: 13, backgroundColor: '#111827', alignItems: 'center', justifyContent: 'center' },
+  westernLogoText: { color: '#FACC15', fontSize: 14, lineHeight: 18, fontWeight: '900' },
+  westernCopy: { flex: 1, minWidth: 0 },
+  westernTitle: { color: '#111827', fontSize: 16, lineHeight: 20, fontWeight: '900' },
+  westernText: { color: '#4B5563', fontSize: 12.8, lineHeight: 18, fontWeight: '800', marginTop: 4 },
+  westernWarning: { color: '#92400E', backgroundColor: '#FFFBEB', borderColor: '#F59E0B', borderWidth: 1, borderRadius: 13, padding: 10, fontSize: 12.5, lineHeight: 17, fontWeight: '900' },
+  westernBeneficiary: { borderRadius: 14, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: 'rgba(17,24,39,0.10)', padding: 11, gap: 3 },
+  westernBeneficiaryLabel: { color: '#6B7280', fontSize: 10.5, lineHeight: 13, fontWeight: '900', textTransform: 'uppercase' },
+  westernBeneficiaryValue: { color: '#111827', fontSize: 14.5, lineHeight: 18, fontWeight: '900' },
+  westernBeneficiaryMeta: { color: '#4B5563', fontSize: 12.5, lineHeight: 17, fontWeight: '800' },
+  westernBenefitGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  westernBenefit: { width: '48%', flexGrow: 1, minHeight: 34, overflow: 'hidden', borderRadius: 11, backgroundColor: 'rgba(255,255,255,0.72)', borderWidth: 1, borderColor: 'rgba(17,24,39,0.08)', color: '#111827', paddingHorizontal: 9, paddingVertical: 7, fontSize: 11.7, lineHeight: 15, fontWeight: '900' },
+  westernReceiptPreview: { minHeight: 88, borderRadius: 14, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: 'rgba(17,24,39,0.10)', padding: 9, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  westernReceiptImage: { width: 58, height: 72, borderRadius: 10, backgroundColor: colors.input },
+  westernReceiptCopy: { flex: 1, minWidth: 0 },
   activationCard: { borderRadius: 16, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, padding: 12, gap: 10 },
   activationTitle: { color: colors.text, fontSize: 16, lineHeight: 20, fontWeight: '900' },
   activationText: { color: colors.secondary, fontSize: 13, lineHeight: 19, fontWeight: '800' },

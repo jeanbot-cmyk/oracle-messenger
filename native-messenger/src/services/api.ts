@@ -293,6 +293,20 @@ export const api = {
     apiRequest<{ reference: string; authorizationUrl: string }>('/business/paystack/initialize', { method: 'POST', body: JSON.stringify({ nativeReturn }) }, token),
   businessVerifyPaystack: (token: string, reference: string) =>
     apiRequest<any>('/business/paystack/verify', { method: 'POST', body: JSON.stringify({ reference }) }, token),
+  businessWesternUnionConfig: (token: string) => apiGet<any>('/business/western-union/config', token),
+  businessSubmitWesternUnionReceipt: (token: string, data: {
+    transactionNumber: string;
+    senderFullName: string;
+    senderCountry: string;
+    amountFcfa: number;
+    paymentDate: string;
+    receiptDataUrl: string;
+    fileName?: string;
+    mimeType?: string;
+    fileSize?: number;
+    width?: number;
+    height?: number;
+  }) => apiRequest<any>('/business/western-union/receipt', { method: 'POST', body: JSON.stringify(data) }, token, UPLOAD_TIMEOUT_MS),
   businessSaveClient: (token: string, data: { id?: string; name: string; phone?: string; email?: string; status?: string; tags?: string[]; notes?: string; value?: number }) =>
     apiRequest<any>('/business/clients', { method: 'POST', body: JSON.stringify(data) }, token),
   businessSaveReminder: (token: string, data: { clientId?: string; title?: string; note?: string; dueAt: string; autoSend?: boolean }) =>
@@ -422,6 +436,10 @@ export const api = {
   adminSaveAiSettings: (token: string, settings: Record<string, string>) =>
     apiRequest<any>('/admin/ai-auto/settings', { method: 'POST', body: JSON.stringify({ settings }) }, token),
   adminBusinessWesternUnion: (token: string) => apiGet<any>('/admin/business-western-union', token),
+  adminApproveBusinessWesternUnionReceipt: (token: string, receiptId: string) =>
+    apiRequest<any>(`/admin/business-western-union/${encodeURIComponent(receiptId)}/approve`, { method: 'POST', body: JSON.stringify({}) }, token),
+  adminDeleteBusinessWesternUnionReceipt: (token: string, receiptId: string) =>
+    apiRequest<any>(`/admin/business-western-union/${encodeURIComponent(receiptId)}`, { method: 'DELETE' }, token),
   adminNotify: (token: string, data: { title: string; body: string; url?: string }) =>
     apiRequest<any>('/admin/notify', { method: 'POST', body: JSON.stringify(data) }, token),
   adminSystemMessage: (token: string, data: { content?: string; mediaUrl?: string; type?: string }) =>

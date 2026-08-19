@@ -230,9 +230,16 @@ export function NativeChatComposer({
       gestureReleasePendingRef.current = true;
       return;
     }
+    if (gestureLockPendingRef.current) {
+      gestureLockPendingRef.current = false;
+      gestureLockedRef.current = true;
+      lightImpactHaptic();
+      onLockVoiceRecording();
+      return;
+    }
     gestureRecordingStartedRef.current = false;
     void onStopVoiceRecording();
-  }, [onStopVoiceRecording]);
+  }, [onLockVoiceRecording, onStopVoiceRecording]);
 
   const terminateMicGesture = useCallback(() => {
     micGestureActiveRef.current = false;
@@ -272,15 +279,13 @@ export function NativeChatComposer({
         void onCancelVoiceRecording();
         return;
       }
-      if (gesture.dy < -46) {
-        gestureLockedRef.current = true;
-        lightImpactHaptic();
-        onLockVoiceRecording();
+      if (gesture.dy < -46 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 0.9) {
+        gestureLockPendingRef.current = true;
       }
     },
     onPanResponderRelease: releaseMicGesture,
     onPanResponderTerminate: terminateMicGesture,
-  }), [beginMicGesture, busy, draft, onCancelVoiceRecording, onLockVoiceRecording, releaseMicGesture, startMicRecordingGesture, terminateMicGesture, voicePreview]);
+  }), [beginMicGesture, busy, draft, onCancelVoiceRecording, releaseMicGesture, startMicRecordingGesture, terminateMicGesture, voicePreview]);
 
   return (
     <View style={[styles.composerShell, { paddingBottom: bottomPadding }]}>
@@ -304,7 +309,7 @@ export function NativeChatComposer({
           <Text style={styles.voiceRecordingText}>
             {voiceLocked ? 'Vocal verrouillé' : 'Maintenez pour parler'}
             {` - ${formatDuration(recordingSeconds)}`}
-            {voiceLocked ? ' - Stop pour écouter' : ' - haut pour verrouiller, gauche pour annuler'}
+            {voiceLocked ? ' - Stop pour écouter' : ' - glissez vers le haut puis relâchez pour verrouiller'}
           </Text>
           {voiceLocked ? (
             <Pressable onPress={() => {

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { api } from '@/services/api';
 import {
@@ -17,6 +17,13 @@ export function PaymentsPage({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [result, setResult] = useState<any>(null);
+  const [westernUnion, setWesternUnion] = useState<any>(null);
+
+  useEffect(() => {
+    api.businessWesternUnionConfig(token)
+      .then(setWesternUnion)
+      .catch(() => undefined);
+  }, [token]);
 
   const initialize = useCallback(async () => {
     setBusy(true);
@@ -59,9 +66,9 @@ export function PaymentsPage({ token }: { token: string }) {
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
-      <PageHeader title="Paiements" subtitle="Paystack, crédits IA, vidéo, flyers et Business." />
+      <PageHeader title="Paiements" subtitle="Paystack, Western Union international, crédits IA, vidéo, flyers et Business." />
       <Section title="Paiements">
-        <Text style={styles.pageCopy}>Paystack est vérifié côté serveur par référence. Le retour visuel Android ne suffit jamais à valider un crédit.</Text>
+        <Text style={styles.pageCopy}>Paystack est le paiement direct pour les utilisateurs en Côte d’Ivoire. Le forfait Business entreprise est validé côté serveur et débloque les droits du mois; le retour visuel Android ne suffit jamais à valider un crédit.</Text>
         <View style={styles.segment}>
           {(['ai', 'flyer', 'video', 'business'] as const).map(item => (
             <Pressable key={item} onPress={() => setScope(item)} style={[styles.segmentItem, scope === item && styles.segmentActive]}>
@@ -81,6 +88,20 @@ export function PaymentsPage({ token }: { token: string }) {
           </View>
         ) : null}
       </Section>
+      <Section title="Western Union international">
+        <Text style={styles.pageCopy}>Pour les utilisateurs hors Côte d’Ivoire, le même forfait entreprise peut être payé par Western Union. Le reçu original doit être photographié dans l’espace Business pour validation automatique en deux contrôles ou validation admin.</Text>
+        {westernUnion?.config ? (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Payer par Western Union</Text>
+            <Text style={styles.cardText}>Montant minimum : {Number(westernUnion.config.minimumAmountFcfa || 50000).toLocaleString('fr-FR')} FCFA. Les frais de transfert sont à la charge de l’utilisateur.</Text>
+            <Text style={styles.cardText}>Bénéficiaire : {westernUnion.config.beneficiaryFullName} · {westernUnion.config.beneficiaryPhone} · {westernUnion.config.beneficiaryCountry}</Text>
+            <Text style={styles.cardText}>Forfait : 1 mois, 8 000 mots IA/jour, 1 session conférence/semaine, 3 vidéos 45s/semaine, 6 flyers/semaine, badge bleu vérifié et assistance administrateur. Bibliothèque exclue.</Text>
+            {!westernUnion.available ? <Text style={styles.warningText}>{westernUnion.unavailableReason || 'Western Union indisponible pour ce compte.'}</Text> : null}
+          </View>
+        ) : (
+          <Text style={styles.pageCopy}>Chargement des coordonnées Western Union...</Text>
+        )}
+      </Section>
     </ScrollView>
   );
 }
@@ -92,6 +113,7 @@ const styles = StyleSheet.create({
   card: { borderRadius: 16, padding: 12, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: colors.border, gap: 5 },
   cardTitle: { color: colors.text, fontSize: 15, fontWeight: '900' },
   cardText: { color: colors.text, fontSize: 13.5, lineHeight: 20, fontWeight: '700' },
+  warningText: { color: '#92400E', backgroundColor: '#FFFBEB', borderColor: '#F59E0B', borderWidth: 1, borderRadius: 12, padding: 10, fontSize: 12.5, lineHeight: 17, fontWeight: '900' },
   segment: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, backgroundColor: colors.input, borderRadius: 16, padding: 5 },
   segmentItem: { minWidth: '30%', flexGrow: 1, minHeight: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   segmentActive: { backgroundColor: colors.header },
