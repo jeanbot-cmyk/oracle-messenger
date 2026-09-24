@@ -92,15 +92,18 @@ export class ChatService {
       orderBy: { conversation: { updatedAt: 'desc' } },
     });
 
-    const summaries = await Promise.all(participations.map(async p => {
+    const unreadRows = await this.prisma.$queryRawUnsafe<Array<{ conversationId: string; unreadCount: bigint }>>(
+      'SELECT p."conversationId", COUNT(m."id")::bigint AS "unreadCount" FROM "Participant" p LEFT JOIN "Message" m ON m."conversationId" = p."conversationId" AND m."senderId" <> $1 AND m."isDeleted" = false AND (p."lastReadAt" IS NULL OR m."createdAt" > p."lastReadAt") WHERE p."userId" = $1 GROUP BY p."conversationId"',
+      userId,
+    );
+    const unreadByConversation = new Map(unreadRows.map(row => [row.conversationId, Number(row.unreadCount)]));
+
+    return participations.map(p => {
       const conv = p.conversation;
-      const unread = await this.prisma.message.count({
-        where: this.unreadWhere(conv.id, userId, p.lastReadAt),
-      });
+      const unread = unreadByConversation.get(conv.id) ?? 0;
       if (unread === 0 && this.officialConversationHasExpired(conv, p.lastReadAt)) return null;
       return this.toConversationSummary({ ...conv, viewerLastReadAt: p.lastReadAt }, userId, unread);
-    }));
-    return summaries.filter(Boolean).sort((a: any, b: any) => {
+    }).filter(Boolean).sort((a: any, b: any) => {
       if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
       return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     });
@@ -109,17 +112,18 @@ export class ChatService {
   async getConversation(conversationId: string, userId: string) {
     const participant = await this.prisma.participant.findUnique({
       where: { userId_conversationId: { userId, conversationId } },
+      include: {
+        conversation: {
+          select: {
+            type: true,
+            messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true } },
+          },
+        },
+      },
     });
     if (!participant) throw new ForbiddenException();
 
-    const conv = await this.prisma.conversation.findUnique({
-      where: { id: conversationId },
-      include: {
-        participants: { include: { user: { select: { id: true, name: true, username: true, avatar: true, status: true } } } },
-            messages: { orderBy: { createdAt: 'desc' }, take: 1, include: { reactions: true } },
-      },
-    });
-    if (!conv) throw new NotFoundException();
+    const conv = participant.conversation;
     if (this.officialConversationHasExpired(conv, participant.lastReadAt)) {
       throw new NotFoundException('Message officiel expiré');
     }
