@@ -263,6 +263,37 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   // ── Messages ──────────────────────────────────────────────────────────────
 
+  private async notifyMessageParticipants(conversationId: string, senderId: string, msg: any) {
+    const conversationRoom = `conv:${conversationId}`;
+    const participantIds = await this.chat.getParticipantIds(conversationId);
+    const senderName = msg.sender?.name ?? 'Oracle Messenger';
+    const preview = msg.type === 'text'
+      ? (msg.content.length > 80 ? msg.content.slice(0, 80) + '…' : msg.content)
+      : msg.type === 'image' ? '📷 Photo'
+      : msg.type === 'video' ? '🎥 Vidéo'
+      : msg.type === 'audio' ? '🎵 Audio'
+      : '📎 Fichier';
+
+    for (const pid of participantIds) {
+      if (pid === senderId) continue;
+      const socketIds = this.socketState.getSocketIds(pid);
+      if (socketIds.length) {
+        for (const sid of socketIds) {
+          if (this.isSocketInRoom(sid, conversationRoom)) continue;
+          this.server.to(sid).emit('message:new', msg);
+        }
+      } else {
+        this.notif.sendPush(pid, {
+          title: senderName,
+          body: preview,
+          url: `/chat?conv=${encodeURIComponent(conversationId)}`,
+          tag: `msg-${conversationId}`,
+          type: 'message',
+        }).catch(() => {});
+      }
+    }
+  }
+
   @SubscribeMessage('message:send')
   async handleMessage(
     @ConnectedSocket() client: Socket,
@@ -281,39 +312,9 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const conversationRoom = `conv:${data.conversationId}`;
       this.server.to(conversationRoom).emit('message:new', msg);
 
-      // 2. Notifier les participants connectés mais pas dans la room
-      const participantIds = await this.chat.getParticipantIds(data.conversationId);
-      const senderName = msg.sender?.name ?? 'Oracle Messenger';
-      const preview = msg.type === 'text'
-        ? (msg.content.length > 80 ? msg.content.slice(0, 80) + '…' : msg.content)
-        : msg.type === 'image' ? '📷 Photo'
-        : msg.type === 'video' ? '🎥 Vidéo'
-        : msg.type === 'audio' ? '🎵 Audio'
-        : '📎 Fichier';
+      // Les notifications ne doivent pas retarder l’accusé d’envoi au client émetteur.
+      void this.notifyMessageParticipants(data.conversationId, client.data.userId, msg).catch(() => {});
 
-      for (const pid of participantIds) {
-        if (pid === client.data.userId) continue;
-        const socketIds = this.socketState.getSocketIds(pid);
-        if (socketIds.length) {
-          // Connecté → socket temps réel
-          for (const sid of socketIds) {
-            if (this.isSocketInRoom(sid, conversationRoom)) continue;
-            this.server.to(sid).emit('message:new', msg);
-          }
-        } else {
-          // Hors ligne → Push Notification (son géré par l'OS)
-          this.notif.sendPush(pid, {
-            title: senderName,
-            body: preview,
-            url: `/chat?conv=${encodeURIComponent(data.conversationId)}`,
-            tag: `msg-${data.conversationId}`,
-            type: 'message',
-          }).catch(() => {});
-        }
-      }
-
-      // Return msg as acknowledgement to sender. "Delivered" is now confirmed
-      // only by the receiver device through message:delivered.
       return { ...msg, status: 'sent' };
     } catch (err: any) {
       client.emit('message:error', { message: err?.message ?? 'Erreur envoi' });
