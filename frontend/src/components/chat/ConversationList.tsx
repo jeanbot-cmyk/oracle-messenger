@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useChatStore } from '../../store/chat';
 import { useSettings } from '../../store/settings';
 import { t } from '../../lib/i18n';
@@ -82,7 +82,7 @@ export function ConversationList({ search = '', filter = 'all', onSelect, onDele
   const router = useRouter();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [photoPreview, setPhotoPreview] = useState<{ src: string; name: string } | null>(null);
-  const favoriteIds = readFavoriteConversationIds();
+  const favoriteIds = useMemo(readFavoriteConversationIds, [conversations]);
 
   const filtered = conversations.filter(c => {
     const isOfficial = Boolean((c as any).isOfficial || c.type === 'official');
