@@ -114,9 +114,17 @@ export class ChatService {
       where: { userId_conversationId: { userId, conversationId } },
       include: {
         conversation: {
-          select: {
-            type: true,
-            messages: { orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true } },
+          include: {
+            participants: {
+              include: {
+                user: { select: { id: true, name: true, username: true, avatar: true, status: true } },
+              },
+            },
+            messages: {
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              include: { reactions: true },
+            },
           },
         },
       },
