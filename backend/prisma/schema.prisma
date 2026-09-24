@@ -98,6 +98,8 @@ model Conversation {
 
   participants Participant[]
   messages     Message[]
+
+  @@index([updatedAt(sort: Desc)])
 }
 
 model Participant {
@@ -111,6 +113,7 @@ model Participant {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@unique([userId, conversationId])
+  @@index([conversationId])
 }
 
 model Message {
@@ -130,6 +133,11 @@ model Message {
   sender         User         @relation("SentMessages", fields: [senderId], references: [id])
   replyTo        Message?     @relation("Replies", fields: [replyToId], references: [id])
   replies        Message[]    @relation("Replies")
+
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@index([conversationId, senderId, status])
+  @@index([conversationId, senderId, isDeleted, createdAt])
+
   localSaves     MessageLocalSave[]
   reactions      MessageReaction[]
 }
