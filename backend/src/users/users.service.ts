@@ -4,7 +4,22 @@ import { createHash } from 'crypto';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  private phoneHashBackfillPromise: Promise<void> | null = null;
+
+  constructor(private prisma: PrismaService) {
+    // Lance le rattrapage hors du chemin critique ; les imports suivants réutilisent la même promesse.
+    void this.ensurePhoneHashesBackfilled().catch(() => {});
+  }
+
+  private ensurePhoneHashesBackfilled() {
+    if (!this.phoneHashBackfillPromise) {
+      this.phoneHashBackfillPromise = this.backfillMissingPhoneHashes().catch(error => {
+        this.phoneHashBackfillPromise = null;
+        throw error;
+      });
+    }
+    return this.phoneHashBackfillPromise;
+  }
 
   async findById(id: string) {
     return this.prisma.user.findUnique({ where: { id } });
@@ -68,7 +83,7 @@ export class UsersService {
   async matchByPhoneHashes(hashes: string[], requesterId: string) {
     const hashSet = new Set((hashes ?? []).filter(h => /^[a-f0-9]{64}$/i.test(h)));
     if (!hashSet.size) return [];
-    await this.backfillMissingPhoneHashes();
+    await this.ensurePhoneHashesBackfilled();
 
     const users = await this.prisma.user.findMany({
       where: {
