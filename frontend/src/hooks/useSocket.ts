@@ -1,11 +1,14 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { getSocket } from '../lib/socket';
 import { useChatStore } from '../store/chat';
 import { useNotifications } from './useNotifications';
 import type { Conversation, Message } from '../types';
 import { isMediaMessage, persistMessageMedia } from '../lib/db';
+import { api } from '../lib/api';
+
+const desiredConversations = new Set<string>();
 
 function attachmentPreview(msg: Message) {
   if (msg.isDeleted) return 'Message supprimé';
@@ -47,26 +50,61 @@ async function persistMediaThenConfirm(socket: any, msg: Message) {
   }
 }
 
-export function useSocket() {
+export function useSocket(listen = true) {
   const { data: session } = useSession();
   const token = session?.user?.backendToken;
   const userId = session?.user?.id ?? '';
-  const store = useChatStore();
-  const joined = useRef<Set<string>>(new Set());
   const { notifyMessage, requestPermission } = useNotifications();
 
-  useEffect(() => {
+  const refreshChat = useCallback(async () => {
     if (!token) return;
+    const state = useChatStore.getState();
+    const activeConvId = state.activeConvId;
+    const [conversations, activeMessages] = await Promise.all([
+      api.conversations.list(token).catch(() => null),
+      activeConvId ? api.messages.list(activeConvId, token).catch(() => null) : Promise.resolve(null),
+    ]);
+    if (conversations) useChatStore.getState().setConversations(conversations);
+    if (activeConvId && activeMessages) {
+      useChatStore.getState().setMessages(activeConvId, activeMessages);
+      useChatStore.getState().markRead(activeConvId);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (!listen || !token) return;
     const socket = getSocket(token);
     if (!socket) return;
 
     // Demander permission notifs dès la connexion
     requestPermission();
 
-    socket.on('connect', () => {});
+    const handleConnect = () => {
+      for (const conversationId of desiredConversations) {
+        socket.emit('conversation:join', { conversationId });
+      }
+      void refreshChat();
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        for (const conversationId of desiredConversations) {
+          socket.emit('conversation:leave', { conversationId });
+        }
+        return;
+      }
+      for (const conversationId of desiredConversations) {
+        socket.emit('conversation:join', { conversationId });
+      }
+      void refreshChat();
+    };
+
+    socket.on('connect', handleConnect);
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', refreshChat);
 
     socket.on('message:new', (msg: Message) => {
-      store.addMessage(msg);
+      useChatStore.getState().addMessage(msg);
       persistMediaThenConfirm(socket, msg);
       // Notifier seulement si le message vient de quelqu'un d'autre
       if (msg.senderId !== userId) {
@@ -84,7 +122,7 @@ export function useSocket() {
     });
 
     socket.on('message:update', ({ id, patch }: { id: string; patch: Partial<Message> }) => {
-      store.updateMessage(id, patch);
+      useChatStore.getState().updateMessage(id, patch);
     });
 
     // When the other user reads the conversation → mark all our messages as read
@@ -94,21 +132,21 @@ export function useSocket() {
     });
 
     socket.on('message:delete', ({ conversationId, messageId }: { conversationId: string; messageId: string }) => {
-      store.deleteMessage(conversationId, messageId);
+      useChatStore.getState().deleteMessage(conversationId, messageId);
     });
 
     socket.on('typing:start', ({ conversationId, userId: uid, userName }: any) => {
-      store.setTyping(conversationId, uid, true, userName);
+      useChatStore.getState().setTyping(conversationId, uid, true, userName);
     });
     socket.on('typing:stop', ({ conversationId, userId: uid }: any) => {
-      store.setTyping(conversationId, uid, false);
+      useChatStore.getState().setTyping(conversationId, uid, false);
     });
 
-    socket.on('user:online',  ({ userId: uid }: any) => store.setOnline(uid, true));
-    socket.on('user:offline', ({ userId: uid }: any) => store.setOnline(uid, false));
+    socket.on('user:online',  ({ userId: uid }: any) => useChatStore.getState().setOnline(uid, true));
+    socket.on('user:offline', ({ userId: uid }: any) => useChatStore.getState().setOnline(uid, false));
 
     return () => {
-      socket.off('connect');
+      socket.off('connect', handleConnect);
       socket.off('message:new');
       socket.off('conversation:upsert');
       socket.off('message:update');
@@ -119,15 +157,23 @@ export function useSocket() {
       socket.off('typing:stop');
       socket.off('user:online');
       socket.off('user:offline');
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', refreshChat);
     };
-  }, [token, userId]);
+  }, [listen, token, userId, refreshChat]);
 
   function joinConversation(convId: string) {
-    if (!token || joined.current.has(convId)) return;
+    if (!token) return;
     const socket = getSocket(token);
     if (!socket) return;
-    socket.emit('conversation:join', { conversationId: convId });
-    joined.current.add(convId);
+    for (const previousId of desiredConversations) {
+      if (previousId !== convId) socket.emit('conversation:leave', { conversationId: previousId });
+    }
+    desiredConversations.clear();
+    desiredConversations.add(convId);
+    if (document.visibilityState !== 'hidden') {
+      socket.emit('conversation:join', { conversationId: convId });
+    }
   }
 
   function sendTyping(convId: string, isTyping: boolean) {
@@ -184,7 +230,7 @@ export function useSocket() {
     const socket = getSocket(token);
     if (!socket) return;
     socket.emit('message:delete', { conversationId: convId, messageId });
-    store.deleteMessage(convId, messageId);
+    useChatStore.getState().deleteMessage(convId, messageId);
   }
 
   function editMessage(messageId: string, content: string) {
@@ -192,7 +238,7 @@ export function useSocket() {
     const socket = getSocket(token);
     if (!socket) return;
     socket.emit('message:edit', { messageId, content });
-    store.updateMessage(messageId, { content, isEdited: true });
+    useChatStore.getState().updateMessage(messageId, { content, isEdited: true });
   }
 
   function markRead(convId: string, messageId?: string) {

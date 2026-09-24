@@ -261,6 +261,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch {}
   }
 
+  @SubscribeMessage('conversation:leave')
+  leaveConversation(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { conversationId: string },
+  ) {
+    if (!data?.conversationId) return;
+    client.leave(`conv:${data.conversationId}`);
+  }
+
   // ── Messages ──────────────────────────────────────────────────────────────
 
   private async notifyMessageParticipants(conversationId: string, senderId: string, msg: any) {
@@ -277,12 +286,17 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     for (const pid of participantIds) {
       if (pid === senderId) continue;
       const socketIds = this.socketState.getSocketIds(pid);
+      let hasSocketInConversation = false;
       if (socketIds.length) {
         for (const sid of socketIds) {
-          if (this.isSocketInRoom(sid, conversationRoom)) continue;
+          if (this.isSocketInRoom(sid, conversationRoom)) {
+            hasSocketInConversation = true;
+            continue;
+          }
           this.server.to(sid).emit('message:new', msg);
         }
-      } else {
+      }
+      if (!hasSocketInConversation) {
         this.notif.sendPush(pid, {
           title: senderName,
           body: preview,

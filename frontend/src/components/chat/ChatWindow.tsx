@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
+import { useSearchParams } from 'next/navigation';
 import { useChatStore } from '../../store/chat';
 import { useSocket } from '../../hooks/useSocket';
 import { useSettings } from '../../store/settings';
@@ -195,12 +196,13 @@ interface ChatWindowProps {
 
 export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
   const { data: session } = useSession();
+  const searchParams = useSearchParams();
   const token = session?.user?.backendToken ?? '';
   const userId = session?.user?.id ?? '';
   const { lang } = useSettings();
 
   const { activeConvId, conversations, messages, typingUsers, typingNames: typingNamesStore, onlineUsers, setConversations, setMessages, markRead, loadLocalMessages, removeConversation } = useChatStore();
-  const { joinConversation, sendTyping, sendMessage, deleteMessage: deleteSocketMessage, editMessage: editSocketMessage, markRead: emitRead, reactToMessage } = useSocket();
+  const { joinConversation, sendTyping, sendMessage, deleteMessage: deleteSocketMessage, editMessage: editSocketMessage, markRead: emitRead, reactToMessage } = useSocket(false);
 
   const [input, setInput]         = useState('');
   const [replyTo, setReplyTo]     = useState<Message | null>(null);
@@ -296,6 +298,12 @@ export function ChatWindow({ onStartCall, onBack }: ChatWindowProps) {
         if (String(error?.message || error).includes('404')) removeConversation(activeConvId);
       });
   }, [activeConvId, token]);
+
+  useEffect(() => {
+    if (!activeConvId || searchParams?.get('reply') !== 'notification') return;
+    const timer = window.setTimeout(() => textareaRef.current?.focus(), 120);
+    return () => window.clearTimeout(timer);
+  }, [activeConvId, searchParams]);
 
   useEffect(() => {
     setActiveSearchIndex(0);

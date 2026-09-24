@@ -1,6 +1,6 @@
-// Oracle Messenger — Service Worker v91
+// Oracle Messenger — Service Worker v92
 // Incrémenter cette version à chaque déploiement qui doit purger les anciens assets.
-const CACHE_VERSION = '91-20260804-playstore-pwa';
+const CACHE_VERSION = '92-20260924-chat-realtime';
 const CACHE_NAME = `oracle-v${CACHE_VERSION}`;
 
 const STATIC_SHELL = [
@@ -48,7 +48,6 @@ self.addEventListener('fetch', e => {
     url.pathname.startsWith('/socket.io') ||
     e.request.method !== 'GET'
   ) {
-    e.respondWith(fetch(e.request).catch(() => new Response('', { status: 503 })));
     return;
   }
 
@@ -102,7 +101,11 @@ self.addEventListener('push', e => {
       renotify: true,
       requireInteraction: data.requireInteraction ?? isCall,
       vibrate: data.vibrate ?? (isCall ? [1000, 300, 1000, 300, 1000, 700, 1000, 300, 1000] : [120, 50, 120]),
-      actions: isCall ? [{ action: 'open', title: 'Répondre' }] : undefined,
+      actions: isCall
+        ? [{ action: 'answer-call', title: 'Répondre' }]
+        : data.type === 'message'
+          ? [{ action: 'reply-message', title: 'Répondre' }, { action: 'open', title: 'Ouvrir' }]
+          : undefined,
       data,
     })
   );
@@ -110,18 +113,24 @@ self.addEventListener('push', e => {
 
 self.addEventListener('notificationclick', e => {
   e.notification.close();
+  const notificationData = e.notification.data ?? {};
+  let targetUrl = notificationData.url ?? '/chat';
+  if (e.action === 'reply-message') {
+    const separator = targetUrl.includes('?') ? '&' : '?';
+    targetUrl = `${targetUrl}${separator}reply=notification`;
+  }
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
       // Si l'app est déjà ouverte, la mettre au premier plan
       for (const client of clients) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
           client.focus();
-          client.navigate(e.notification.data?.url ?? '/chat');
+          client.navigate(targetUrl);
           return;
         }
       }
       // Sinon ouvrir une nouvelle fenêtre
-      return self.clients.openWindow(e.notification.data?.url ?? '/chat');
+      return self.clients.openWindow(targetUrl);
     })
   );
 });

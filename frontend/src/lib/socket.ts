@@ -1,10 +1,12 @@
 import { io, Socket } from 'socket.io-client';
 
 let socket: Socket | null = null;
+let socketToken: string | null = null;
 
 export function getSocket(token?: string): Socket | null {
-  if (token && (!socket || !socket.connected)) {
-    if (socket) { socket.disconnect(); socket = null; }
+  if (token && (!socket || socketToken !== token)) {
+    if (socket) socket.disconnect();
+    socketToken = token;
     socket = io(process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:3001', {
       auth: { token },
       transports: ['websocket', 'polling'],
@@ -12,6 +14,8 @@ export function getSocket(token?: string): Socket | null {
       reconnectionAttempts: 20,
       reconnectionDelay: 1000,
     });
+  } else if (token && socket && !socket.connected && !socket.active) {
+    socket.connect();
   }
   return socket;
 }
@@ -22,5 +26,7 @@ export function getExistingSocket(): Socket | null {
 }
 
 export function disconnectSocket() {
-  if (socket) { socket.disconnect(); socket = null; }
+  if (socket) socket.disconnect();
+  socket = null;
+  socketToken = null;
 }
