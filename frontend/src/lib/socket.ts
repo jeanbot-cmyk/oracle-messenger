@@ -1,6 +1,24 @@
 import { io, Socket } from 'socket.io-client';
 import { BACKEND_URL } from './config';
 
+function buildSocketAuth(token: string) {
+  const nativeBridge = typeof window !== 'undefined' ? (window as any).OracleAndroid : undefined;
+  const client: Record<string, string | number> = {
+    app: 'oracle-messenger',
+    platform: nativeBridge ? 'android' : 'web',
+  };
+  if (nativeBridge?.getNativeDiagnostics) {
+    try {
+      const raw = nativeBridge.getNativeDiagnostics();
+      const diagnostics = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const versionCode = Number(diagnostics?.versionCode);
+      if (Number.isFinite(versionCode) && versionCode > 0) client.versionCode = versionCode;
+      if (typeof diagnostics?.versionName === 'string') client.versionName = diagnostics.versionName;
+    } catch {}
+  }
+  return { token, client };
+}
+
 let socket: Socket | null = null;
 let socketToken = '';
 
@@ -10,14 +28,14 @@ export function getSocket(token?: string): Socket | null {
       if (socket) { socket.disconnect(); socket = null; }
       socketToken = token;
       socket = io(BACKEND_URL, {
-        auth: { token },
+        auth: buildSocketAuth(token),
         transports: ['websocket', 'polling'],
         reconnection: true,
         reconnectionAttempts: 20,
         reconnectionDelay: 1000,
       });
     } else if (!socket.connected && !socket.active) {
-      socket.auth = { token };
+      socket.auth = buildSocketAuth(token);
       socket.connect();
     }
   }

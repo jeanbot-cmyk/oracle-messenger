@@ -39,6 +39,7 @@ function StatusIcon({ status, tone = 'default' }: { status: Message['status']; t
   if (status === 'sent')      return <span style={{ fontSize: 12, opacity: .82, color: muted }}>✓</span>;
   if (status === 'delivered') return <span style={{ fontSize: 12, opacity: .9, color: muted }}>✓✓</span>;
   if (status === 'read')      return <span style={{ fontSize: 12, color: '#53bdeb', fontWeight: 700 }}>✓✓</span>;
+  if (status === 'failed')    return <span role="img" aria-label="Échec d’envoi" title="Message non envoyé. Vérifiez votre connexion et réessayez." style={{ fontSize: 12, color: '#ef4444', fontWeight: 700 }}>!</span>;
   return null;
 }
 

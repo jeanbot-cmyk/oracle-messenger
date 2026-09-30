@@ -444,21 +444,16 @@ export default function ContactsPage() {
         }
         locals = nativeImport.contacts;
         if (locals.length > 0) {
-          writeLocalContacts(cacheKey, locals);
           setNotice('Contacts synchronisés. Oracle Messenger affiche seulement ceux qui sont dans votre téléphone.');
         } else if (!nativeImport.denied) {
-          setNotice('Aucun contact avec numéro ou email n’a été trouvé dans ce téléphone.');
+          setNotice('Aucun nouveau contact avec numéro ou email n’a été trouvé dans ce téléphone.');
         }
       } else if (canUseContactPicker()) {
         // Contact Picker API — le navigateur affiche sa propre UI de sélection
         const props = await getSupportedContactProps();
         const raw = await (navigator as any).contacts.select(props, { multiple: true });
         locals = await Promise.all((raw as any[]).map(normalizeNativeContact));
-        if (locals.length > 0) {
-          writeLocalContacts(cacheKey, locals);
-        } else {
-          setNotice('Aucun contact sélectionné. Appuyez sur “Ajouter un contact” pour continuer manuellement.');
-        }
+        if (locals.length === 0) setNotice('Aucun contact sélectionné. Vos contacts déjà enregistrés restent disponibles.');
       } else {
         locals = readLocalContacts(cacheKey);
         if (locals.length === 0) {
@@ -478,7 +473,9 @@ export default function ContactsPage() {
       locals = readLocalContacts(cacheKey);
     }
     const manual = readLocalContacts(manualKey);
-    const all = mergeContacts(locals, manual);
+    const combinedCache = mergeContacts(readLocalContacts(cacheKey), locals);
+    if (locals.length > 0) writeLocalContacts(cacheKey, combinedCache);
+    const all = mergeContacts(combinedCache, manual);
     setImported(true);
     if (all.length > 0) {
       setContacts(localOnlyContacts(all));

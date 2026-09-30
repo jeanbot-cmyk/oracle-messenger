@@ -14,6 +14,7 @@ export interface CallInfo {
   callerName?: string;
   type: 'audio' | 'video';
   participants: string[];
+  mediaProvider?: 'livekit' | 'webrtc';
 }
 
 const DEFAULT_ICE: RTCIceServer[] = [
@@ -242,7 +243,9 @@ export function useWebRTC(userId: string, token = '') {
   }
 
   function shouldUseSfu(info: CallInfo | null) {
-    return Boolean(info && info.participants.length > 1);
+    if (!info) return false;
+    if (info.mediaProvider) return info.mediaProvider === 'livekit';
+    return info.participants.length > 1;
   }
 
   function upsertRemoteTrack(participantId: string, track: MediaStreamTrack) {
@@ -555,6 +558,7 @@ export function useWebRTC(userId: string, token = '') {
     startingRef.current = true;
     const callId = `call_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const info: CallInfo = { callId, conversationId, callerId: userId, type, participants: targetUserIds };
+    const requestedMediaProvider = targetUserIds.length > 1 ? 'livekit' : 'webrtc';
     try {
       setCallError('');
       if (!token) throw new Error('Session appel indisponible');
@@ -572,17 +576,23 @@ export function useWebRTC(userId: string, token = '') {
       setLocalStream(stream);
       setIsCamOff(false);
       setCallError('');
-      await connectSfuIfAvailable(info, stream);
-      const ack = await emitWithAck<{ ok?: boolean; message?: string; targets?: number }>(
+      const ack = await emitWithAck<{ ok?: boolean; message?: string; targets?: number; mediaProvider?: 'livekit' | 'webrtc' }>(
         socket,
         'call:start',
-        { callId, conversationId, type, targetUserIds },
+        { callId, conversationId, type, targetUserIds, mediaProvider: requestedMediaProvider },
       );
       if (ack?.ok === false) {
         throw new Error(ack.message ?? 'Aucun destinataire disponible pour cet appel.');
       }
-      console.info('[WebRTC] call:start ack', { callId, targets: ack?.targets ?? targetUserIds.length });
-      traceCall('call:start:ack', { targets: ack?.targets ?? targetUserIds.length });
+      const mediaProvider = ack?.mediaProvider ?? requestedMediaProvider;
+      const confirmedInfo = { ...info, mediaProvider };
+      _setInfo(confirmedInfo);
+      console.info('[WebRTC] call:start ack', { callId, targets: ack?.targets ?? targetUserIds.length, mediaProvider });
+      traceCall('call:start:ack', { targets: ack?.targets ?? targetUserIds.length, mediaProvider });
+      const usingSfu = await connectSfuIfAvailable(confirmedInfo, stream);
+      if (mediaProvider === 'livekit' && !usingSfu) {
+        throw new Error('Le serveur a sélectionné LiveKit, mais la connexion audio/vidéo n’a pas pu être établie.');
+      }
     } catch (err) {
       console.error('[WebRTC] startCall:', err);
       failCall(err instanceof Error ? err.message : 'Impossible de démarrer cet appel.');
@@ -625,11 +635,14 @@ export function useWebRTC(userId: string, token = '') {
       setLocalStream(stream);
       setIsCamOff(false);
       const usingSfu = await connectSfuIfAvailable(info, stream);
+      if (info.mediaProvider === 'livekit' && !usingSfu) {
+        throw new Error('La connexion LiveKit de cet appel n’a pas pu être établie.');
+      }
       // Seulement maintenant on notifie le caller → il va envoyer l'offer
       const ack = await emitWithAck<{ ok?: boolean; message?: string; accepted?: boolean }>(
         socket,
         'call:answer',
-        { callId: info.callId, accepted: true },
+        { callId: info.callId, accepted: true, mediaProvider: usingSfu ? 'livekit' : 'webrtc' },
       );
       if (ack?.ok === false) {
         throw new Error(ack.message ?? 'Réponse appel refusée par le serveur.');
@@ -829,14 +842,17 @@ export function useWebRTC(userId: string, token = '') {
         console.info('[WebRTC] incoming call received by peer:', data.userId, data.receivedAt ?? '');
       });
 
-      socket.on('call:answered', (data: { callId: string; userId: string; accepted: boolean; ended?: boolean }) => {
+      socket.on('call:answered', (data: { callId: string; userId: string; accepted: boolean; ended?: boolean; mediaProvider?: 'livekit' | 'webrtc' }) => {
         if (data.callId !== callInfoRef.current?.callId) return;
         if (data.userId === userIdRef.current) return;
+        if (data.mediaProvider && callInfoRef.current?.mediaProvider !== data.mediaProvider) {
+          _setInfo({ ...callInfoRef.current!, mediaProvider: data.mediaProvider });
+        }
         traceCall('call:answered', { userId: data.userId, accepted: data.accepted, ended: data.ended });
         if (data.accepted) {
           stopRingtone();
           if (callStateRef.current === 'calling') _setState('connecting');
-          if (sfuActiveRef.current || sfuConnectingRef.current) return;
+          if (data.mediaProvider === 'livekit' || callInfoRef.current?.mediaProvider === 'livekit' || sfuActiveRef.current || sfuConnectingRef.current) return;
           if ((callStateRef.current === 'calling' || callStateRef.current === 'connecting' || callStateRef.current === 'connected') && localStreamRef.current) {
             startConnectionWatch(data.userId);
             sendOfferTo(data.userId).catch(err => console.error('[WebRTC] offer after answer:', err));

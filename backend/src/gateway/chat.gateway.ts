@@ -120,6 +120,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   private isClientVersionCallCapable(info?: ClientVersionInfo | null) {
+    if (info?.platform && info.platform !== 'android') return true;
     return Boolean(info?.versionCode && info.versionCode >= this.minCallVersionCode);
   }
 
@@ -1012,6 +1013,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleMessage(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { conversationId: string; content: string; type?: string; replyToId?: string; clientSentAt?: string; clientMessageId?: string },
+    @Ack() ack?: (response: Record<string, unknown>) => void,
   ) {
     try {
       const receivedAt = Date.now();
@@ -1032,7 +1034,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         clientToServerMs: Number.isFinite(clientSentAtMs) ? Math.max(0, receivedAt - clientSentAtMs) : undefined,
         serverCreateAndEmitMs: serverEmittedAt - receivedAt,
       };
-      const emittedMessage = { ...msg, transport: transportTrace };
+      const emittedMessage = { ...msg, clientMessageId: data.clientMessageId, transport: transportTrace };
 
       // 1. Diffuser à tous dans la room (ceux qui ont fait conversation:join)
       const conversationRoom = `conv:${data.conversationId}`;
@@ -1127,13 +1129,15 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
       }
 
-      return {
+      return this.sendSocketAck(ack, {
         ...emittedMessage,
         status: 'sent',
         updatedAt: emittedMessage.updatedAt,
-      };
+      });
     } catch (err: any) {
-      client.emit('message:error', { message: err?.message ?? 'Erreur envoi' });
+      const message = err?.message ?? 'Erreur envoi';
+      client.emit('message:error', { message, clientMessageId: data?.clientMessageId });
+      return this.sendSocketAck(ack, { ok: false, message, clientMessageId: data?.clientMessageId });
     }
   }
 

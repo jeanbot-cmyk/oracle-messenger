@@ -96,9 +96,18 @@ export function useSocket() {
     // Demander permission notifs dès la connexion
     requestPermission();
 
-    socket.on('connect', () => {});
+    const rejoinConversations = () => {
+      joined.current.forEach(conversationId => {
+        socket.emit('conversation:join', { conversationId });
+      });
+    };
+    socket.on('connect', rejoinConversations);
+    if (socket.connected) rejoinConversations();
 
     socket.on('message:new', (msg: Message) => {
+      if (msg.senderId === userId && msg.clientMessageId) {
+        store.deleteMessage(msg.conversationId, msg.clientMessageId);
+      }
       store.addMessage(msg);
       // Notifier seulement si le message vient de quelqu'un d'autre
       if (msg.senderId !== userId) {
@@ -125,6 +134,10 @@ export function useSocket() {
       store.updateMessage(id, patch);
     });
 
+    socket.on('message:error', ({ clientMessageId }: { clientMessageId?: string }) => {
+      if (clientMessageId) store.updateMessage(clientMessageId, { status: 'failed' });
+    });
+
     // When the other user reads the conversation → mark all our messages as read
     socket.on('conversation:read', ({ conversationId, userId: readerUserId }: { conversationId: string; userId: string }) => {
       if (readerUserId === userId) return; // ignore own read events
@@ -146,7 +159,7 @@ export function useSocket() {
     socket.on('user:offline', ({ userId: uid }: any) => store.setOnline(uid, false));
 
     return () => {
-      socket.off('connect');
+      socket.off('connect', rejoinConversations);
       socket.off('message:new');
       socket.off('conversation:upsert');
       socket.off('message:update');
@@ -190,9 +203,10 @@ export function useSocket() {
     }
 
     // Add optimistic message immediately so UI feels instant
-    const tempId = `temp-${Date.now()}`;
+    const tempId = 'temp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
     const optimistic: any = {
       id: tempId,
+      clientMessageId: tempId,
       conversationId: convId,
       senderId: userId,
       content,
@@ -207,13 +221,22 @@ export function useSocket() {
     };
     useChatStore.getState().addMessage(optimistic);
 
-    socket.emit('message:send', { conversationId: convId, content, type: resolvedType, replyToId }, (ack: any) => {
-      // When server confirms, replace temp message with real one
-      if (ack?.id) {
-        useChatStore.getState().deleteMessage(convId, tempId);
-        useChatStore.getState().addMessage({ ...ack, status: ack.status ?? 'sent' });
-        persistMediaThenConfirm(socket, { ...ack, status: ack.status ?? 'sent' });
+    socket.timeout(15_000).emit('message:send', {
+      conversationId: convId,
+      content,
+      type: resolvedType,
+      replyToId,
+      clientMessageId: tempId,
+      clientSentAt: new Date().toISOString(),
+    }, (error: Error | null, ack: any) => {
+      if (error || ack?.ok === false || !ack?.id) {
+        useChatStore.getState().updateMessage(tempId, { status: 'failed' });
+        return;
       }
+      // When server confirms, replace temp message with real one
+      useChatStore.getState().deleteMessage(convId, tempId);
+      useChatStore.getState().addMessage({ ...ack, status: ack.status ?? 'sent' });
+      persistMediaThenConfirm(socket, { ...ack, status: ack.status ?? 'sent' });
     });
   }
 

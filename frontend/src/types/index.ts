@@ -43,7 +43,8 @@ export interface Message {
   sender?: User;
   content: string;
   type: 'text' | 'image' | 'video' | 'audio' | 'voice' | 'document' | 'file' | 'contact' | 'location' | 'gif' | 'sticker';
-  status: 'sending' | 'sent' | 'delivered' | 'read';
+  status: 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+  clientMessageId?: string;
   replyTo?: Message;
   reactions?: { emoji: string; userId: string; updatedAt?: string }[];
   isDeleted: boolean;
